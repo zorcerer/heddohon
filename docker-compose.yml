@@ -1,42 +1,13 @@
 services:
   heddohon:
-    build: .
-    # Or use a published image, once one is pushed:
-    # image: zorcererd/heddohon:latest
+    image: zorcererd/heddohon:latest
     container_name: heddohon
     restart: unless-stopped
     ports:
       - '13000:3000'
     volumes:
       - heddohon-data:/data
-    environment:
-      # ── Required ────────────────────────────────────────────────────────────
-      # The key that encrypts stored music-server credentials. Generate with:
-      #   openssl rand -base64 48
-      # Changing it signs everyone out and forces a fresh sign-in.
-      HEDDOHON_SECRET: ${HEDDOHON_SECRET:?set HEDDOHON_SECRET in your .env file}
-
-      # ── Music servers (set at least one) ────────────────────────────────────
-      # These are resolved by the Heddohon container, not by the browser, so a
-      # private address works even when clients are outside the network.
-      HEDDOHON_SUBSONIC_URL: ${HEDDOHON_SUBSONIC_URL:-}
-      HEDDOHON_JELLYFIN_URL: ${HEDDOHON_JELLYFIN_URL:-}
-
-      # ── Optional ────────────────────────────────────────────────────────────
-      HEDDOHON_SUBSONIC_LABEL: ${HEDDOHON_SUBSONIC_LABEL:-Navidrome}
-      HEDDOHON_JELLYFIN_LABEL: ${HEDDOHON_JELLYFIN_LABEL:-Jellyfin}
-      HEDDOHON_SESSION_HOURS: ${HEDDOHON_SESSION_HOURS:-72}
-      HEDDOHON_APP_NAME: ${HEDDOHON_APP_NAME:-Heddohon}
-      # Megabytes of cover art kept in /data/covers. 0 switches it off.
-      HEDDOHON_COVER_CACHE_MB: ${HEDDOHON_COVER_CACHE_MB:-512}
-      # error, warn, info or debug. The default writes nothing while the server
-      # is working. Read it with `docker logs heddohon`.
-      HEDDOHON_LOG_LEVEL: ${HEDDOHON_LOG_LEVEL:-error}
-      HEDDOHON_LOG_FORMAT: ${HEDDOHON_LOG_FORMAT:-text}
-
-      # Behind a TLS-terminating reverse proxy, set ORIGIN to the public URL so
-      # SvelteKit's CSRF origin check passes.
-      ORIGIN: ${ORIGIN:-http://localhost:3000}
+    env_file: .env
 
 volumes:
   heddohon-data:
