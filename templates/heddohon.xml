@@ -1,29 +1,11 @@
-<?xml version="1.0"?>
+
 <Container version="2">
-  <!--
-    Community Applications template for Heddohon.
-
-    Every URL here names the release repository, zorcerer/heddohon, on main.
-    That is deliberate even where this file is edited somewhere else: Community
-    Applications fetches the icon, the readme and this template itself over
-    plain HTTP with no credentials, so all three have to be public and have to
-    be the copies users will actually get. Serving this file from anywhere but
-    that repository and branch means repointing the eight URLs that name one.
-
-    The image comes from GitHub's registry rather than Docker Hub. The two hold
-    the same image, copied digest for digest, but Docker Hub caps anonymous
-    pulls at 100 per six hours per address and every install here is an
-    anonymous pull. The Docker Hub copy stays as a mirror, at
-    zorcererd/heddohon: `zorcererd` is that account's name, not a typo for the
-    GitHub one, since `zorcerer` was taken there.
-  -->
   <Name>heddohon</Name>
   <Repository>ghcr.io/zorcerer/heddohon:latest</Repository>
   <Registry>https://github.com/zorcerer/heddohon/pkgs/container/heddohon</Registry>
   <Network>bridge</Network>
   <Shell>bash</Shell>
   <Privileged>false</Privileged>
-
   <Support>https://github.com/zorcerer/heddohon/issues</Support>
   <Project>https://github.com/zorcerer/heddohon</Project>
   <ReadMe>https://raw.githubusercontent.com/zorcerer/heddohon/main/README.md</ReadMe>
@@ -32,29 +14,12 @@
   <Screenshot>https://raw.githubusercontent.com/zorcerer/heddohon/main/docs/assets/album.jpg</Screenshot>
   <Screenshot>https://raw.githubusercontent.com/zorcerer/heddohon/main/docs/assets/lyrics.jpg</Screenshot>
   <Screenshot>https://raw.githubusercontent.com/zorcerer/heddohon/main/docs/assets/recommendations.jpg</Screenshot>
-
   <Category>MediaApp:Music</Category>
   <ExtraSearchTerms>navidrome subsonic jellyfin music player flac lossless lyrics</ExtraSearchTerms>
   <License>MIT</License>
   <Date>2026-09-15</Date>
   <Changes>Initial template.</Changes>
-
-  <!--
-    The container listens on 3000. The port in a WebUI entry is always the
-    container port; Unraid substitutes whatever host port is mapped to it.
-  -->
-  <WebUI>http://[IP]:[PORT:3000]</WebUI>
-
-  <!--
-    The image runs as the unprivileged `node` user (UID 1000) so a compromise of
-    the app cannot write outside the mounted volume. Unraid's appdata is owned
-    by nobody:users (99:100), which UID 1000 cannot write to, so the container
-    is run as 99:100 instead. Everything it needs to read under /app is
-    world-readable, and /data is the only thing it writes.
-
-    Delete this line if you would rather own the appdata directory as 1000:1000
-    and keep the image's own user.
-  -->
+  <WebUI>http://[IP]:[PORT:13000]</WebUI>
   <ExtraParams>--user 99:100</ExtraParams>
 
   <Overview>
@@ -81,12 +46,10 @@
 
   <Config Name="WebUI" Target="3000" Default="13000" Mode="tcp" Description="Port the interface is served on." Type="Port" Display="always" Required="true" Mask="false">13000</Config>
   <Config Name="Appdata" Target="/data" Default="/mnt/user/appdata/heddohon" Mode="rw" Description="Holds the SQLite database and the cover cache." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/heddohon</Config>
-
   <Config Name="Secret" Target="HEDDOHON_SECRET" Default="" Description="Encrypts stored music-server credentials and derives session keys. Minimum 32 characters: openssl rand -base64 48. Changing it signs everyone out." Type="Variable" Display="always" Required="true" Mask="true"/>
   <Config Name="Navidrome / Subsonic URL" Target="HEDDOHON_SUBSONIC_URL" Default="" Description="Base URL of your Navidrome or Subsonic server, resolved by this container rather than by the browser. Leave empty if you only use Jellyfin." Type="Variable" Display="always" Required="false" Mask="false"/>
   <Config Name="Jellyfin URL" Target="HEDDOHON_JELLYFIN_URL" Default="" Description="Base URL of your Jellyfin server. Leave empty if you only use Navidrome." Type="Variable" Display="always" Required="false" Mask="false"/>
   <Config Name="Public URL" Target="ORIGIN" Default="" Description="The address you reach Heddohon on, needed behind a reverse proxy for the CSRF origin check. For example https://music.example.com" Type="Variable" Display="always" Required="false" Mask="false"/>
-
   <Config Name="Cover cache" Target="HEDDOHON_COVER_CACHE_MB" Default="512" Description="Megabytes of cover art kept under the appdata path. The least recently used files are dropped once it is passed. 0 switches the cache off." Type="Variable" Display="advanced" Required="false" Mask="false">512</Config>
   <Config Name="Session hours" Target="HEDDOHON_SESSION_HOURS" Default="72" Description="How long a sign-in lasts. Capped at 72 whatever is set here, and never extended by activity." Type="Variable" Display="advanced" Required="false" Mask="false">72</Config>
   <Config Name="Application name" Target="HEDDOHON_APP_NAME" Default="Heddohon" Description="Shown on the sign-in screen and in the sidebar." Type="Variable" Display="advanced" Required="false" Mask="false">Heddohon</Config>
