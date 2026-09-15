@@ -1,9 +1,4 @@
-<?xml version="1.0"?>
 <CommunityApplications>
-  <!--
-    The repository profile Community Applications reads when this repository is
-    submitted as a source. One template lives beside it, under templates/.
-  -->
   <Profile>
     Heddohon: a server-rendered music player for Navidrome, Subsonic and Jellyfin libraries.
 
