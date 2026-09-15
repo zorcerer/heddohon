@@ -1,0 +1,95 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <!--
+    Community Applications template for Heddohon.
+
+    Three things in here point at a published artefact rather than at source,
+    and they are the three to check before submitting this to CA:
+
+      Repository   the image must exist and be pullable
+      TemplateURL  must be the raw URL of this exact file on the default branch
+      Icon         must be a raw URL that resolves without a login
+
+    The raw URLs below name the branch this repository currently serves as its
+    default. Renaming that branch, or moving the project to another repository,
+    breaks the icon, the readme and the template's own self-reference.
+  -->
+  <Name>heddohon</Name>
+  <Repository>zorcererd/heddohon:latest</Repository>
+  <Registry>https://hub.docker.com/r/zorcererd/heddohon</Registry>
+  <Network>bridge</Network>
+  <Shell>bash</Shell>
+  <Privileged>false</Privileged>
+
+  <Support>https://github.com/zorcerer/heddohon/issues</Support>
+  <Project>https://github.com/zorcerer/heddohon</Project>
+  <ReadMe>https://raw.githubusercontent.com/zorcerer/heddohon/claude/heddohon-music-player-ktxqgh/README.md</ReadMe>
+  <TemplateURL>https://raw.githubusercontent.com/zorcerer/heddohon/claude/heddohon-music-player-ktxqgh/templates/heddohon.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/zorcerer/heddohon/claude/heddohon-music-player-ktxqgh/docs/assets/icon.png</Icon>
+  <Screenshot>https://raw.githubusercontent.com/zorcerer/heddohon/claude/heddohon-music-player-ktxqgh/docs/assets/album.jpg</Screenshot>
+  <Screenshot>https://raw.githubusercontent.com/zorcerer/heddohon/claude/heddohon-music-player-ktxqgh/docs/assets/lyrics.jpg</Screenshot>
+
+  <Category>MediaApp:Music</Category>
+  <ExtraSearchTerms>navidrome subsonic jellyfin music player flac lossless lyrics</ExtraSearchTerms>
+  <License>MIT</License>
+  <Date>2026-09-15</Date>
+  <Changes>Initial template.</Changes>
+
+  <!--
+    The container listens on 3000. The port in a WebUI entry is always the
+    container port; Unraid substitutes whatever host port is mapped to it.
+  -->
+  <WebUI>http://[IP]:[PORT:3000]</WebUI>
+
+  <!--
+    The image runs as the unprivileged `node` user (UID 1000) so a compromise of
+    the app cannot write outside the mounted volume. Unraid's appdata is owned
+    by nobody:users (99:100), which UID 1000 cannot write to, so the container
+    is run as 99:100 instead. Everything it needs to read under /app is
+    world-readable, and /data is the only thing it writes.
+
+    Delete this line if you would rather own the appdata directory as 1000:1000
+    and keep the image's own user.
+  -->
+  <ExtraParams>--user 99:100</ExtraParams>
+
+  <Overview>
+    A music player for a Navidrome, Subsonic or Jellyfin library, rendered on the server.
+
+    Audio and artwork are fetched by Heddohon rather than by the browser, so the music server never has to be reachable from the devices you play on: one hostname is exposed and the library stays where it is. Sign-in is a live call to the music server, so there is no second set of accounts to keep.
+
+    Streams the original file by default, with no transcoding or resampling, and shows what is being decoded. Transcoding to MP3, Opus or AAC is a setting, and the quality badge in the player switches it on and off mid-track for a connection that will not carry the original.
+
+    Synced lyrics, a tight track handoff, a server-side cover cache, and per-account settings and queue that follow you between devices.
+  </Overview>
+
+  <Description>
+    **Set before starting:**
+
+    - **HEDDOHON_SECRET** encrypts the music-server credentials Heddohon stores. Generate one with `openssl rand -base64 48`. Changing it later signs everyone out.
+    - **At least one music server URL.** These are resolved by the container, so a LAN address is the right answer: `http://192.168.1.10:4533`.
+    - **ORIGIN**, if you reach this through a reverse proxy. It must be the public URL, or form submissions are refused by the CSRF origin check.
+
+    **Permissions:** the image runs unprivileged. This template runs it as 99:100 so it can write to appdata. If you remove that from Extra Parameters, run `chown -R 1000:1000 /mnt/user/appdata/heddohon` first.
+
+    Full configuration: https://github.com/zorcerer/heddohon/blob/claude/heddohon-music-player-ktxqgh/docs/configuration.md
+  </Description>
+
+  <Config Name="WebUI" Target="3000" Default="13000" Mode="tcp" Description="Port the interface is served on." Type="Port" Display="always" Required="true" Mask="false">13000</Config>
+  <Config Name="Appdata" Target="/data" Default="/mnt/user/appdata/heddohon" Mode="rw" Description="Holds the SQLite database and the cover cache." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/heddohon</Config>
+
+  <Config Name="Secret" Target="HEDDOHON_SECRET" Default="" Description="Encrypts stored music-server credentials and derives session keys. Minimum 32 characters: openssl rand -base64 48. Changing it signs everyone out." Type="Variable" Display="always" Required="true" Mask="true"/>
+  <Config Name="Navidrome / Subsonic URL" Target="HEDDOHON_SUBSONIC_URL" Default="" Description="Base URL of your Navidrome or Subsonic server, resolved by this container rather than by the browser. Leave empty if you only use Jellyfin." Type="Variable" Display="always" Required="false" Mask="false"/>
+  <Config Name="Jellyfin URL" Target="HEDDOHON_JELLYFIN_URL" Default="" Description="Base URL of your Jellyfin server. Leave empty if you only use Navidrome." Type="Variable" Display="always" Required="false" Mask="false"/>
+  <Config Name="Public URL" Target="ORIGIN" Default="" Description="The address you reach Heddohon on, needed behind a reverse proxy for the CSRF origin check. For example https://music.example.com" Type="Variable" Display="always" Required="false" Mask="false"/>
+
+  <Config Name="Cover cache" Target="HEDDOHON_COVER_CACHE_MB" Default="512" Description="Megabytes of cover art kept under the appdata path. The least recently used files are dropped once it is passed. 0 switches the cache off." Type="Variable" Display="advanced" Required="false" Mask="false">512</Config>
+  <Config Name="Session hours" Target="HEDDOHON_SESSION_HOURS" Default="72" Description="How long a sign-in lasts. Capped at 72 whatever is set here, and never extended by activity." Type="Variable" Display="advanced" Required="false" Mask="false">72</Config>
+  <Config Name="Application name" Target="HEDDOHON_APP_NAME" Default="Heddohon" Description="Shown on the sign-in screen and in the sidebar." Type="Variable" Display="advanced" Required="false" Mask="false">Heddohon</Config>
+  <Config Name="Log level" Target="HEDDOHON_LOG_LEVEL" Default="error" Description="error, warn, info or debug. The default writes nothing while the server is working. debug times every call to the music server, for working out why a page is slow." Type="Variable" Display="advanced" Required="false" Mask="false">error</Config>
+  <Config Name="Secure cookie" Target="HEDDOHON_COOKIE_SECURE" Default="auto" Description="auto marks the session cookie Secure when the origin is https or non-loopback. Set false only if you reach this over plain http on the LAN." Type="Variable" Display="advanced" Required="false" Mask="false">auto</Config>
+  <Config Name="Navidrome label" Target="HEDDOHON_SUBSONIC_LABEL" Default="Navidrome" Description="Name shown for this server on the sign-in screen." Type="Variable" Display="advanced" Required="false" Mask="false">Navidrome</Config>
+  <Config Name="Jellyfin label" Target="HEDDOHON_JELLYFIN_LABEL" Default="Jellyfin" Description="Name shown for this server on the sign-in screen." Type="Variable" Display="advanced" Required="false" Mask="false">Jellyfin</Config>
+  <Config Name="Sign-in hint" Target="HEDDOHON_LOGIN_HINT" Default="" Description="An optional line of text on the sign-in screen, for telling users which account to use." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="Upstream timeout" Target="HEDDOHON_UPSTREAM_TIMEOUT_MS" Default="20000" Description="Milliseconds to wait on the music server before giving up." Type="Variable" Display="advanced" Required="false" Mask="false">20000</Config>
+</Container>

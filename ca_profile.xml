@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<CommunityApplications>
+  <!--
+    The repository profile Community Applications reads when this repository is
+    submitted as a source. One template lives beside it, under templates/.
+  -->
+  <Profile>
+    Heddohon: a server-rendered music player for Navidrome, Subsonic and Jellyfin libraries.
+
+    Audio and artwork are proxied by the application, so the music server does not have to be reachable from the browser. Original files by default, with transcoding available per account. Issues and questions: https://github.com/zorcerer/heddohon/issues
+  </Profile>
+  <Icon>https://raw.githubusercontent.com/zorcerer/heddohon/claude/heddohon-music-player-ktxqgh/docs/assets/icon.png</Icon>
+  <WebPage>https://github.com/zorcerer/heddohon</WebPage>
+</CommunityApplications>
