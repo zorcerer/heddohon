@@ -1,6 +1,6 @@
 services:
   heddohon:
-    image: zorcererd/heddohon:latest
+    image: ghcr.io/zorcerer/heddohon:latest
     container_name: heddohon
     restart: unless-stopped
     ports:
