@@ -32,6 +32,10 @@ RUN npm ci --omit=dev --no-audit --no-fund
 # ── Runtime stage ─────────────────────────────────────────────────────────────
 FROM node:22-bookworm-slim AS runtime
 
+LABEL org.opencontainers.image.source=https://github.com/zorcerer/heddohon \
+	org.opencontainers.image.description="Server-rendered music player for Navidrome/Subsonic and Jellyfin libraries" \
+	org.opencontainers.image.licenses=MIT
+
 ENV NODE_ENV=production \
 	PORT=3000 \
 	HOST=0.0.0.0 \
