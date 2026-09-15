@@ -3,31 +3,35 @@
   <!--
     Community Applications template for Heddohon.
 
-    Three things in here point at a published artefact rather than at source,
-    and they are the three to check before submitting this to CA:
+    Every URL here names the release repository, zorcerer/heddohon, on main.
+    That is deliberate even where this file is edited somewhere else: Community
+    Applications fetches the icon, the readme and this template itself over
+    plain HTTP with no credentials, so all three have to be public and have to
+    be the copies users will actually get. Serving this file from anywhere but
+    that repository and branch means repointing the eight URLs that name one.
 
-      Repository   the image must exist and be pullable
-      TemplateURL  must be the raw URL of this exact file on the default branch
-      Icon         must be a raw URL that resolves without a login
-
-    The raw URLs below name the branch this repository currently serves as its
-    default. Renaming that branch, or moving the project to another repository,
-    breaks the icon, the readme and the template's own self-reference.
+    The image comes from GitHub's registry rather than Docker Hub. The two hold
+    the same image, copied digest for digest, but Docker Hub caps anonymous
+    pulls at 100 per six hours per address and every install here is an
+    anonymous pull. The Docker Hub copy stays as a mirror, at
+    zorcererd/heddohon: `zorcererd` is that account's name, not a typo for the
+    GitHub one, since `zorcerer` was taken there.
   -->
   <Name>heddohon</Name>
-  <Repository>zorcererd/heddohon:latest</Repository>
-  <Registry>https://hub.docker.com/r/zorcererd/heddohon</Registry>
+  <Repository>ghcr.io/zorcerer/heddohon:latest</Repository>
+  <Registry>https://github.com/zorcerer/heddohon/pkgs/container/heddohon</Registry>
   <Network>bridge</Network>
   <Shell>bash</Shell>
   <Privileged>false</Privileged>
 
   <Support>https://github.com/zorcerer/heddohon/issues</Support>
   <Project>https://github.com/zorcerer/heddohon</Project>
-  <ReadMe>https://raw.githubusercontent.com/zorcerer/heddohon/claude/heddohon-music-player-ktxqgh/README.md</ReadMe>
-  <TemplateURL>https://raw.githubusercontent.com/zorcerer/heddohon/claude/heddohon-music-player-ktxqgh/templates/heddohon.xml</TemplateURL>
-  <Icon>https://raw.githubusercontent.com/zorcerer/heddohon/claude/heddohon-music-player-ktxqgh/docs/assets/icon.png</Icon>
-  <Screenshot>https://raw.githubusercontent.com/zorcerer/heddohon/claude/heddohon-music-player-ktxqgh/docs/assets/album.jpg</Screenshot>
-  <Screenshot>https://raw.githubusercontent.com/zorcerer/heddohon/claude/heddohon-music-player-ktxqgh/docs/assets/lyrics.jpg</Screenshot>
+  <ReadMe>https://raw.githubusercontent.com/zorcerer/heddohon/main/README.md</ReadMe>
+  <TemplateURL>https://raw.githubusercontent.com/zorcerer/heddohon/main/templates/heddohon.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/zorcerer/heddohon/main/docs/assets/icon.png</Icon>
+  <Screenshot>https://raw.githubusercontent.com/zorcerer/heddohon/main/docs/assets/album.jpg</Screenshot>
+  <Screenshot>https://raw.githubusercontent.com/zorcerer/heddohon/main/docs/assets/lyrics.jpg</Screenshot>
+  <Screenshot>https://raw.githubusercontent.com/zorcerer/heddohon/main/docs/assets/recommendations.jpg</Screenshot>
 
   <Category>MediaApp:Music</Category>
   <ExtraSearchTerms>navidrome subsonic jellyfin music player flac lossless lyrics</ExtraSearchTerms>
@@ -72,7 +76,7 @@
 
     **Permissions:** the image runs unprivileged. This template runs it as 99:100 so it can write to appdata. If you remove that from Extra Parameters, run `chown -R 1000:1000 /mnt/user/appdata/heddohon` first.
 
-    Full configuration: https://github.com/zorcerer/heddohon/blob/claude/heddohon-music-player-ktxqgh/docs/configuration.md
+    Full configuration: https://github.com/zorcerer/heddohon/blob/main/docs/configuration.md
   </Description>
 
   <Config Name="WebUI" Target="3000" Default="13000" Mode="tcp" Description="Port the interface is served on." Type="Port" Display="always" Required="true" Mask="false">13000</Config>
