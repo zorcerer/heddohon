@@ -89,12 +89,53 @@ function root(): string | null {
  */
 const PLAIN_ID = /^[A-Za-z0-9._-]{1,128}$/;
 
-export function cacheKey(backend: BackendKind, id: string, size: number): string {
+/**
+ * Who a cached cover belongs to.
+ *
+ * The key used to be backend, id and size, on the reasoning that two accounts
+ * on one music server see the same artwork so there is nothing to separate.
+ * That holds for Navidrome, which serves one library to every user. It does not
+ * hold for Jellyfin, which restricts libraries per user: a shared key hands a
+ * restricted library's artwork to any account that can name the item id,
+ * because a cache hit is answered before the upstream is consulted and so the
+ * upstream's own check never runs.
+ */
+export interface CoverScope {
+	backend: BackendKind;
+	/** The upstream user, or null where every account sees one library. */
+	viewer: string | null;
+}
+
+export function coverScope(account: {
+	backend: BackendKind;
+	id: string;
+	remoteUserId: string | null;
+}): CoverScope {
+	if (account.backend !== 'jellyfin') return { backend: account.backend, viewer: null };
+	return { backend: 'jellyfin', viewer: account.remoteUserId ?? account.id };
+}
+
+/**
+ * Always 16 hex characters, so the field has a fixed width. A variable-width
+ * one would let an id of `u<16 hex>-<real id>`, which `PLAIN_ID` admits, be
+ * read back as another viewer's tag and collide with their entry. The viewer is
+ * an upstream user id and this becomes a filename, so it is hashed rather than
+ * used verbatim.
+ */
+function viewerTag(viewer: string | null): string {
+	return createHash('sha256')
+		.update(viewer ?? 'shared')
+		.digest('hex')
+		.slice(0, 16);
+}
+
+export function cacheKey(scope: CoverScope, id: string, size: number): string {
 	const safe =
 		PLAIN_ID.test(id) && id !== '.' && id !== '..'
 			? id
 			: createHash('sha256').update(id).digest('hex').slice(0, 32);
-	return `${backend === 'jellyfin' ? 'jellyfin' : 'subsonic'}-${safe}-${size}`;
+	const backend = scope.backend === 'jellyfin' ? 'jellyfin' : 'subsonic';
+	return `${backend}-${viewerTag(scope.viewer)}-${safe}-${size}`;
 }
 
 export interface CachedCover {
@@ -110,13 +151,13 @@ export interface CachedCover {
 
 /** Returns a cached cover, or null when there is not one. */
 export async function readCover(
-	backend: BackendKind,
+	scope: CoverScope,
 	id: string,
 	size: number
 ): Promise<CachedCover | null> {
 	const dir = root();
 	if (!dir) return null;
-	const key = cacheKey(backend, id, size);
+	const key = cacheKey(scope, id, size);
 	for (const [ext, type] of Object.entries(TYPES)) {
 		try {
 			const body = await readFile(join(dir, `${key}.${ext}`));
@@ -136,7 +177,7 @@ export async function readCover(
  * down with it.
  */
 export async function writeCover(
-	backend: BackendKind,
+	scope: CoverScope,
 	id: string,
 	size: number,
 	contentType: string,
@@ -149,7 +190,7 @@ export async function writeCover(
 
 	try {
 		if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-		const target = join(dir, `${cacheKey(backend, id, size)}.${ext}`);
+		const target = join(dir, `${cacheKey(scope, id, size)}.${ext}`);
 		// Written beside the target and renamed, so a reader never opens half a
 		// file. The suffix keeps two writers for the same cover apart.
 		const temp = `${target}.${process.pid}-${Date.now()}.part`;
@@ -165,7 +206,7 @@ export async function writeCover(
 		return;
 	}
 
-	log.debug('cover-stored', { key: cacheKey(backend, id, size), bytes: body.byteLength });
+	log.debug('cover-stored', { key: cacheKey(scope, id, size), bytes: body.byteLength });
 	bytesSinceSweep += body.byteLength;
 	const { coverCacheBytes } = config();
 	if (bytesSinceSweep >= Math.max(SWEEP_MIN_BYTES, coverCacheBytes / SWEEP_FRACTION)) {

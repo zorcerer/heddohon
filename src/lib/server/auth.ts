@@ -19,6 +19,29 @@ import { log } from './log';
 
 export const SESSION_COOKIE = 'heddohon_session';
 
+/**
+ * The name used wherever the cookie is `Secure`.
+ *
+ * Host-only is not enough on its own. A sibling origin on the same registrable
+ * domain (`jellyfin.example.com` next to `music.example.com`) can write
+ * `heddohon_session` with `Domain=.example.com`. Both then arrive in one
+ * `Cookie` header, and the parser in `cookie@0.6.0` keeps the first occurrence,
+ * which is ordered by creation time and so is the planted one. Signing in
+ * overwrites the host-only cookie, a different cookie, so the plant keeps
+ * winning and `destroySession` cannot clear it either.
+ *
+ * `__Host-` closes that: the browser refuses to set such a cookie with a
+ * `Domain`, so nothing but this exact host can write one. The prefix requires
+ * `Secure`, which is why the bare name is still used where the cookie is not.
+ */
+export const SESSION_COOKIE_HOST = `__Host-${SESSION_COOKIE}`;
+
+/** What the cookie helpers need from a request. */
+export interface CookieContext {
+	cookies: Cookies;
+	url: URL;
+}
+
 export interface Account {
 	id: string;
 	backend: BackendKind;
@@ -58,17 +81,36 @@ export async function signIn(
 	const timestamp = now();
 	const sealed = sealJson(credential);
 
+	/*
+	 * NOCASE, because Navidrome and Jellyfin both accept a username in any case.
+	 * A case-sensitive match gave `Alice` and `alice` two account rows for one
+	 * person, and with them two sets of settings, two saved queues and two
+	 * playback positions, which reads as the app losing state at random.
+	 *
+	 * Ordered so that repeated sign-ins keep landing on the same row where a
+	 * database written before this already holds both.
+	 */
 	const existing = database
 		.prepare<[string, string], AccountRow>(
-			'SELECT * FROM accounts WHERE backend = ? AND username = ?'
+			'SELECT * FROM accounts WHERE backend = ? AND username = ? COLLATE NOCASE ORDER BY created_at LIMIT 1'
 		)
 		.get(kind, credential.username);
 
 	if (existing) {
+		// The stored username follows the latest sign-in. It is the spelling the
+		// upstream accepted, and for Subsonic it is sent back in the query string
+		// of every request, so it has to match what was authenticated.
 		database
-			.prepare('UPDATE accounts SET credential = ?, remote_user_id = ?, last_login_at = ? WHERE id = ?')
-			.run(sealed, remoteUserId, timestamp, existing.id);
-		return toAccount({ ...existing, remote_user_id: remoteUserId, last_login_at: timestamp });
+			.prepare(
+				'UPDATE accounts SET username = ?, credential = ?, remote_user_id = ?, last_login_at = ? WHERE id = ?'
+			)
+			.run(credential.username, sealed, remoteUserId, timestamp, existing.id);
+		return toAccount({
+			...existing,
+			username: credential.username,
+			remote_user_id: remoteUserId,
+			last_login_at: timestamp
+		});
 	}
 
 	const id = randomUUID();
@@ -83,7 +125,11 @@ export async function signIn(
 }
 
 /** Issues a session token and writes the cookie. Returns the raw token. */
-export function createSession(cookies: Cookies, account: Account, clientHint: string | null): string {
+export function createSession(
+	event: CookieContext,
+	account: Account,
+	clientHint: string | null
+): string {
 	const token = randomToken();
 	const created = now();
 	const maxAgeMs = config().sessionMaxHours * 60 * 60 * 1000;
@@ -103,62 +149,74 @@ export function createSession(cookies: Cookies, account: Account, clientHint: st
 			clientHint ? pseudonym(clientHint) : null
 		);
 
-	cookies.set(SESSION_COOKIE, token, {
+	const secure = cookieSecure(event.url);
+	event.cookies.set(secure ? SESSION_COOKIE_HOST : SESSION_COOKIE, token, {
 		path: '/',
 		httpOnly: true,
 		sameSite: 'lax',
-		secure: cookieSecure(),
+		secure,
 		// The cookie dies with the session record; the server-side expiry is the
 		// one that actually matters, this just avoids sending a dead cookie.
 		maxAge: Math.floor(maxAgeMs / 1000)
 	});
+
+	// A session issued under the bare name before this deployment became Secure
+	// would otherwise sit alongside the new one and be the value a downgrade
+	// reads. Clearing it costs nothing when it is not there.
+	if (secure) event.cookies.delete(SESSION_COOKIE, { path: '/' });
 
 	pruneExpiredSessions();
 	return token;
 }
 
 /**
- * Whether to mark the session cookie `Secure`.
+ * Whether to mark the session cookie `Secure`, and with it which name the
+ * cookie carries.
  *
- * 'auto' used to mean `NODE_ENV === 'production'`. The shipped Dockerfile sets
- * that, so the image was fine — but every other way of running this (npm start,
- * a systemd unit, most PaaS runners) leaves NODE_ENV unset, and there the cookie
- * went out without `Secure` behind a perfectly good TLS proxy. One plain-http
- * request to the public hostname, which any page on the internet can provoke
- * with an <img>, then puts the session token on the wire in clear.
+ * 'auto' used to read `process.env.ORIGIN`, on the reasoning that CSRF had
+ * already forced the operator to set it correctly. adapter-node disproves that.
+ * With ORIGIN unset it derives the origin from the Host header and defaults the
+ * scheme to 'https' (`get_origin` in the bundled handler), so an https
+ * deployment behind Caddy or nginx passes its own CSRF check with ORIGIN unset
+ * while this function saw nothing and returned false. The cookie then went out
+ * without `Secure`, and one plain-http request to the public hostname, which any
+ * page on the internet can provoke with an <img>, put the token on the wire in
+ * clear.
  *
- * So 'auto' now asks the deployment where it actually lives. ORIGIN is the URL
- * the operator has already had to set correctly for CSRF to work at all — if it
- * says https, the cookie is Secure regardless of how the process was started.
- * Loopback stays exempt so that `npm run dev` still works.
+ * The request's own scheme is the signal that cannot be missing, so that is what
+ * is read now. The same adapter-node default is why this cannot break a working
+ * plain-http deployment that leaves ORIGIN unset: there `url.protocol` is https
+ * and the browser's Origin header is http, the cross-origin check in
+ * hooks.server.ts rejects the mismatch, and sign-in already does not work.
+ *
+ * Loopback over plain http stays exempt so that `vite dev` and `npm start` on
+ * the machine itself keep working, where `Secure` would stop the browser
+ * returning the cookie at all.
  */
-function cookieSecure(): boolean {
+function cookieSecure(url: URL): boolean {
 	const setting = config().cookieSecure;
 	if (setting !== 'auto') return setting;
+	if (url.protocol === 'https:') return true;
 	if (process.env.NODE_ENV === 'production') return true;
 
-	const origin = process.env.ORIGIN;
-	if (origin) {
-		try {
-			const url = new URL(origin);
-			if (url.protocol === 'https:') return true;
-			const local = url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '[::1]';
-			return !local;
-		} catch {
-			// A malformed ORIGIN is the operator's problem, but it is not a reason
-			// to hand out a cookie with fewer protections than usual.
-			return true;
-		}
-	}
-	return false;
+	const host = url.hostname;
+	return !(host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '[::1]');
 }
 
 /**
  * Resolves a request cookie to a live session, opening the stored credential.
  * Returns null for anything expired, unknown or undecryptable.
  */
-export function resolveSession(cookies: Cookies): AuthenticatedSession | null {
-	const token = cookies.get(SESSION_COOKIE);
+export function resolveSession(event: CookieContext): AuthenticatedSession | null {
+	// Exactly one name is read, the one this deployment issues. Falling back to
+	// the bare name on a Secure deployment would re-open the shadowing described
+	// on SESSION_COOKIE_HOST: an unauthenticated visitor carrying a planted
+	// `heddohon_session` would be resolved into the session that planted it.
+	// The cost is that sessions issued before this change are not honoured, so
+	// upgrading signs everybody out once.
+	const token = event.cookies.get(
+		cookieSecure(event.url) ? SESSION_COOKIE_HOST : SESSION_COOKIE
+	);
 	if (!token) return null;
 
 	const row = db()
@@ -170,7 +228,7 @@ export function resolveSession(cookies: Cookies): AuthenticatedSession | null {
 	if (!row) return null;
 
 	if (row.expires_at <= now()) {
-		destroySession(cookies);
+		destroySession(event);
 		return null;
 	}
 
@@ -178,7 +236,7 @@ export function resolveSession(cookies: Cookies): AuthenticatedSession | null {
 		.prepare<[string], AccountRow>('SELECT * FROM accounts WHERE id = ?')
 		.get(row.account_id);
 	if (!account) {
-		destroySession(cookies);
+		destroySession(event);
 		return null;
 	}
 
@@ -188,7 +246,7 @@ export function resolveSession(cookies: Cookies): AuthenticatedSession | null {
 	} catch {
 		// The secret changed, or the row was tampered with. Either way this
 		// session can no longer be honoured.
-		destroySession(cookies);
+		destroySession(event);
 		return null;
 	}
 
@@ -199,12 +257,16 @@ export function resolveSession(cookies: Cookies): AuthenticatedSession | null {
 	return { account: toAccount(account), expiresAt: row.expires_at, credential };
 }
 
-export function destroySession(cookies: Cookies): void {
-	const token = cookies.get(SESSION_COOKIE);
-	if (token) {
-		db().prepare('DELETE FROM sessions WHERE token_digest = ?').run(tokenDigest(token));
+export function destroySession(event: CookieContext): void {
+	// Both names, so that signing out of a deployment that has changed scheme
+	// since the cookie was issued still clears the row and the cookie.
+	for (const name of [SESSION_COOKIE_HOST, SESSION_COOKIE]) {
+		const token = event.cookies.get(name);
+		if (token) {
+			db().prepare('DELETE FROM sessions WHERE token_digest = ?').run(tokenDigest(token));
+		}
+		event.cookies.delete(name, { path: '/' });
 	}
-	cookies.delete(SESSION_COOKIE, { path: '/' });
 }
 
 /** Signs the account out everywhere — used when the upstream rejects the stored credential. */

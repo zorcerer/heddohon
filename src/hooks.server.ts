@@ -40,6 +40,18 @@ function harden(headers: Headers): void {
 	headers.set('permissions-policy', 'camera=(), microphone=(), geolocation=(), payment=()');
 	headers.set('cross-origin-opener-policy', 'same-origin');
 	headers.set('cross-origin-resource-policy', 'same-origin');
+
+	// Every response here is either a signed-in user's own data or an error. The
+	// media routes set their own `private, max-age=...` and keep it; everything
+	// else had no caching header at all, which leaves a shared proxy or CDN free
+	// to apply heuristic caching to a page carrying one account's username,
+	// library and playlists and hand it to the next requester.
+	if (!headers.has('cache-control')) headers.set('cache-control', 'private, no-store');
+
+	// The session cookie is what distinguishes one user's copy from another's.
+	// Without this, two accounts sharing a browser profile read each other's
+	// cached covers and streams by URL.
+	headers.set('vary', headers.has('vary') ? `${headers.get('vary')}, Cookie` : 'Cookie');
 }
 
 function sealed(body: string, status: number, contentType: string): Response {
@@ -221,7 +233,7 @@ const handleRequest: Handle = async ({ event, resolve }) => {
 		}
 	}
 
-	const session = resolveSession(event.cookies);
+	const session = resolveSession(event);
 	event.locals.session = session;
 	event.locals.settings = session ? getSettings(session.account.id) : null;
 	if (session) nameRequestUser(session.account.username);

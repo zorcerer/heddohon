@@ -84,7 +84,7 @@ no usable cookie.
 
 | Property | Value |
 | --- | --- |
-| Cookie | `heddohon_session` |
+| Cookie | `__Host-heddohon_session` where the cookie is `Secure`, `heddohon_session` otherwise |
 | Flags | `HttpOnly`, `SameSite=Lax`, `Path=/`, host-only, `Secure` (see below) |
 | Lifetime | `HEDDOHON_SESSION_HOURS`, default and hard ceiling **72 hours** |
 | Extension | None. Activity updates `last_seen_at` and never `expires_at` |
@@ -96,11 +96,23 @@ every session for an account is destroyed the moment the upstream rejects its
 stored credential.
 
 `Secure` is set when `HEDDOHON_COOKIE_SECURE` says so. On `auto`, the default,
-it is on when `NODE_ENV=production` (which the shipped image sets) or when
-`ORIGIN` names an `https` or non-loopback URL. It keys off the deployment rather
-than off the request scheme because behind a TLS-terminating proxy the request
-scheme is always `http`, which is exactly where getting this wrong costs you the
-cookie.
+it is on when the request arrives over `https`, when `NODE_ENV=production`
+(which the shipped image sets), or when the host is not loopback.
+
+An earlier version read `ORIGIN` instead of the request scheme, on the reasoning
+that CSRF had already forced the operator to set it. adapter-node does not
+require it: with `ORIGIN` unset it derives the origin from the `Host` header and
+defaults the scheme to `https`, so an https deployment passed its own
+cross-origin check while the cookie went out without `Secure`.
+
+Exactly one cookie name is read, the one the deployment issues. Reading the bare
+name as a fallback on an https deployment would leave a sibling origin on the
+same registrable domain able to set `heddohon_session` with
+`Domain=.example.com`: both cookies then arrive in one `Cookie` header, the
+first occurrence wins, and signing in overwrites a different cookie, so the
+planted value keeps being used and signing out cannot clear it. The `__Host-`
+prefix stops that, because a browser refuses such a cookie with a `Domain`.
+Changing between the two names signs existing sessions out once.
 
 ## Cross-origin writes
 
@@ -136,14 +148,27 @@ once.
 
 | Key | Limit | Window |
 | --- | --- | --- |
-| Username | 10 failures | 15 minutes |
-| Source address | 60 failures | 15 minutes |
+| Username | 10 attempts | 15 minutes |
+| Source address | 60 attempts | 15 minutes |
 
-Throttled attempts never reach the upstream. Only a *rejected credential*
-counts. An unreachable music server is not a wrong guess, so an outage cannot
-lock anyone out. A successful sign-in clears the username counter immediately,
-and the counters live in SQLite, so restarting the container is not a way to
-reset them.
+Throttled attempts never reach the upstream. An attempt is counted before the
+music server is called and handed back if the call did not produce a verdict.
+Counting failures afterwards left the read and the write on either side of a
+network round trip, so concurrent requests all passed a check none of them had
+paid for: 50 at once went through a limit of 10.
+
+Only a *rejected credential* counts. An unreachable music server is not a wrong
+guess, so an outage cannot lock anyone out. A successful sign-in clears the
+username counter immediately, and the counters live in SQLite, so restarting the
+container is not a way to reset them.
+
+The address counter is applied only where the address identifies a visitor.
+Behind a reverse proxy with no `ADDRESS_HEADER`, every visitor arrives as the
+proxy, and one bucket for the whole deployment means 60 deliberate failures
+refuse sign-in to everybody, with no way for a correct password to clear it. A
+proxy on the same host or Docker network presents a loopback or RFC1918 address,
+and that is the case where the counter is skipped and a line is logged saying
+so. A deployment exposed directly sees real addresses and keeps the counter.
 
 The username limit is a throttle rather than a lockout, and expires on its own,
 so it cannot be used to keep a real user out. The address limit is deliberately
@@ -184,12 +209,17 @@ Cover art is kept on disk under `$HEDDOHON_DATA_DIR/covers` (see
 
 - **A cached cover still requires a session.** The cache is read after the
   session check, not before it. It holds bytes, not permission.
-- **One copy is shared by every account.** The cache is keyed by the backend,
-  the music server's cover id and the size, with no account in the key. Two
-  accounts on one music server see the same artwork, so there is nothing to
-  separate. The backend is part of the key so that a Subsonic id and a Jellyfin
-  id, both 32-character hex, cannot claim the same file. Set
-  `HEDDOHON_COVER_CACHE_MB=0` where a shared copy is unwanted.
+- **A copy is shared only where every account sees the same library.** The key
+  is the backend, the viewer, the music server's cover id and the size. On
+  Subsonic the viewer field is a constant, so one cached copy serves every
+  account: Navidrome presents one library to all of them. On Jellyfin the field
+  is the upstream user id, because Jellyfin restricts libraries per user and a
+  cache hit is answered before the upstream is consulted, so a shared key handed
+  a restricted library's artwork to any account that could name the item id. The
+  backend is part of the key so that a Subsonic id and a Jellyfin id, both
+  32-character hex, cannot claim the same file. The viewer field is a
+  fixed-width hash, so a cover id cannot be spelled to read as another viewer's.
+  Set `HEDDOHON_COVER_CACHE_MB=0` where no cache is wanted.
 - **Clearing it is open to any account.** Settings reads the music server's
   administrator flag and states who a clear reaches, including that the account
   is not an administrator where the server says so, and nothing is gated on the
@@ -380,7 +410,7 @@ verification suite.
 | High | No rate limiting on sign-in | Fixed. Throttling added |
 | High | Media proxy relayed upstream content type, allowing HTML from this origin | Fixed. Type constrained, responses sandboxed |
 | Medium | Jellyfin playlist delete was a generic any-item delete | Fixed. Item type verified first |
-| Medium | `Secure` cookie flag keyed on `NODE_ENV` alone | Fixed. Keys off the deployment's origin |
+| Medium | `Secure` cookie flag keyed on `NODE_ENV` alone | Fixed. Keys off the request scheme |
 | Medium | Error messages and configuration failures echoed internal detail | Fixed. Logged, not returned |
 | Low | Missing `Origin` accepted on writes | Fixed. Now refused |
 | Low | Security headers absent from early-return responses | Fixed |
@@ -388,7 +418,45 @@ verification suite.
 | Info | Unvalidated sort preference; prototype-chain lookup in theme fallback | Fixed |
 
 Examined with no finding raised: session token generation and storage, key derivation
-and separation, GCM usage and tag verification, session fixation and expiry
-handling, SQL parameterisation, template escaping, redirect handling, upstream
-header relay, mass assignment, input bounds, secrets in the client bundle and in
-git history, and SSRF reachability from user input.
+and separation, GCM usage and tag verification, expiry handling, SQL
+parameterisation, template escaping, upstream header relay, mass assignment,
+input bounds, secrets in the client bundle and in git history, and SSRF
+reachability from user input.
+
+**15 September 2026.** Second review, covering the same ground plus the code
+added since: the cover cache, transcoding and the logging rewrite. Four parallel
+source audits, each asked to treat the claims in this file as claims rather than
+facts. The findings below were reproduced against a running build, and each is
+covered by a check in the verification suite.
+
+| Severity | Finding | Status |
+| --- | --- | --- |
+| High | Sign-in throttle read the counter before the upstream call and wrote it after, so concurrent attempts all passed one check | Fixed. The attempt is counted first and handed back if no verdict follows |
+| Medium | `/healthz` returned the configuration error message, which names the upstream address and the secret's length, to unauthenticated callers | Fixed. The detail is logged, the response says only that there is a fault |
+| Medium | Session cookie carried no `__Host-` prefix, so a sibling subdomain could shadow it and pin a session | Fixed. Prefixed wherever the cookie is `Secure`, and one name is read |
+| Medium | `Secure` derived from `ORIGIN`, which adapter-node does not require | Fixed. Derived from the request scheme |
+| Medium | Cover cache keyed without the viewer, so Jellyfin per-user library limits were not applied to a cache hit | Fixed. The viewer is part of the key on Jellyfin |
+| Medium | Authenticated pages and private JSON carried no `Cache-Control` or `Vary` | Fixed. `private, no-store` by default and `Vary: Cookie` |
+| Medium | Address rate-limit bucket was shared behind a proxy, so 60 deliberate failures refused sign-in to everybody | Fixed. Applied only where the address identifies a visitor |
+| Medium | `?next=` accepted `/\evil.example` and `/<TAB>/evil.example`, which resolve to an external host | Fixed. Parsed and required to stay on this origin |
+| Low | Account rows were matched case-sensitively while both upstreams accept any case | Fixed. Matched `COLLATE NOCASE` |
+
+Raised and not fixed, listed so the position is on the record rather than
+implied: revocation on upstream rejection covers page loads and media but not
+five JSON endpoints, upstream redirects are followed without an address
+allowlist (which replays a Jellyfin login body to a redirect target on a
+plaintext upstream), redirect responses do not carry the hardening headers,
+`GET /api/cover/[id]` writes to the cache and sits outside the origin check, no
+Content-Security-Policy is sent, the scrypt salt is a constant shared by every
+deployment, and the data directory is left at the default umask.
+
+Examined with no finding raised in this round: token entropy and the CSPRNG
+source, HMAC digest storage and the non-exploitability of its lookup timing, the
+absolute 72 hour ceiling and its immunity to a client-set `Max-Age`, AES-GCM IV
+uniqueness and tag verification, fail-closed behaviour on an unset, short or
+changed secret, the build-time placeholder secret being eliminated from the
+production bundle, credential exposure in load returns and the client bundle,
+all 31 logging call sites, the relayed response header allowlist, percent-encoded
+and dot-segment path bypasses of the route gate, the exact-match origin check
+including a `null` origin, the `size` and `mode` parameters, cover cache path
+traversal and key injectivity, and rate-limit key case and whitespace folding.
