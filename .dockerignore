@@ -1,0 +1,18 @@
+node_modules
+build
+.svelte-kit
+.git
+.gitignore
+.env
+.env.*
+!.env.example
+*.log
+Dockerfile
+.dockerignore
+docker-compose.yml
+
+# Screenshots and prose. The build stage does `COPY . .`, and none of this
+# reaches the runtime image or affects the build.
+docs
+README.md
+SECURITY.md
