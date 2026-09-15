@@ -4,11 +4,11 @@ import { config } from '$lib/server/config';
 import { createSession, signIn } from '$lib/server/auth';
 import { isBackendKind, UpstreamError } from '$lib/server/backends';
 import {
-	checkLoginRate,
 	clearLoginFailures,
 	loginKeys,
 	pruneLoginAttempts,
-	recordLoginFailure
+	refundLoginAttempt,
+	reserveLoginAttempt
 } from '$lib/server/ratelimit';
 import { log, reason } from '$lib/server/log';
 
@@ -26,10 +26,27 @@ export const load: PageServerLoad = async () => {
 	};
 };
 
-/** Only allow relative paths, so `?next=` cannot become an open redirect. */
+/**
+ * Only allow paths on this origin, so `?next=` cannot become an open redirect.
+ *
+ * Testing `startsWith('/')` and `!startsWith('//')` is not enough. The URL
+ * parser folds a backslash into a path separator for special schemes and strips
+ * tab, CR and LF before parsing, so `/\evil.example` and `/<TAB>/evil.example`
+ * both pass those two tests and both resolve to `evil.example`. Parsing against
+ * a throwaway origin and keeping the result only if it stayed there is the check
+ * that cannot be spelled around, since it asks the same parser the browser will.
+ */
+const NEXT_BASE = 'http://heddohon.invalid';
+
 function safeNext(raw: FormDataEntryValue | null): string {
-	if (typeof raw !== 'string' || !raw.startsWith('/') || raw.startsWith('//')) return '/';
-	return raw;
+	if (typeof raw !== 'string') return '/';
+	try {
+		const url = new URL(raw, NEXT_BASE);
+		if (url.origin !== NEXT_BASE) return '/';
+		return `${url.pathname}${url.search}${url.hash}`;
+	} catch {
+		return '/';
+	}
 }
 
 export const actions: Actions = {
@@ -55,13 +72,17 @@ export const actions: Actions = {
 		}
 
 		/*
-		 * Checked before the upstream is touched, so a throttled attacker costs
+		 * Counted before the upstream is touched, so a throttled attacker costs
 		 * the music server nothing at all. The keys are computed from the
 		 * submitted username rather than a resolved account, because the whole
 		 * point is to limit guesses at accounts that may not exist.
+		 *
+		 * The count happens here rather than after the answer comes back so that
+		 * concurrent attempts cannot all pass a check none of them has yet paid
+		 * for. Anything the upstream did not actually judge is handed back below.
 		 */
 		const keys = loginKeys(username, event.getClientAddress());
-		const verdict = checkLoginRate(keys);
+		const verdict = reserveLoginAttempt(keys);
 		if (!verdict.allowed) {
 			// Named at warn: a throttled address is the signal somebody is guessing,
 			// and it is the line an operator points fail2ban at.
@@ -85,11 +106,9 @@ export const actions: Actions = {
 			if (err instanceof UpstreamError) {
 				// Only a rejected credential counts. An unreachable music server is
 				// not a wrong guess, and counting it would let an upstream outage
-				// lock every user out.
-				if (err.kind === 'auth') {
-					recordLoginFailure(keys);
-					pruneLoginAttempts();
-				}
+				// lock every user out, so that attempt goes back.
+				if (err.kind === 'auth') pruneLoginAttempts();
+				else refundLoginAttempt(keys);
 				log.warn('sign-in-rejected', {
 					username,
 					backend,
@@ -105,12 +124,14 @@ export const actions: Actions = {
 						: err.message;
 				return fail(err.kind === 'auth' ? 401 : 502, { username, backend, error: message });
 			}
+			// A fault on this side is not a guess either.
+			refundLoginAttempt(keys);
 			log.error('sign-in-failed', { username, backend, detail: reason(err) });
 			return fail(500, { username, backend, error: 'Sign-in failed unexpectedly.' });
 		}
 
 		clearLoginFailures(keys);
-		createSession(event.cookies, account, event.request.headers.get('user-agent'));
+		createSession(event, account, event.request.headers.get('user-agent'));
 		log.info('signed-in', { username: account.username, backend, address: event.getClientAddress() });
 		redirect(303, next);
 	}

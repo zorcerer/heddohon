@@ -12,10 +12,19 @@
 	let submitting = $state(false);
 
 	// Preserves the page the user was trying to reach before being redirected
-	// here. Relative paths only, so this can never become an open redirect.
+	// here. Parsed against a throwaway origin and kept only if it stayed there:
+	// a prefix test admits `/\evil.example`, which the URL parser resolves to
+	// `evil.example`. The server re-checks this, the same way, on submit.
 	const next = $derived.by(() => {
 		const raw = page.url.searchParams.get('next');
-		return raw && raw.startsWith('/') && !raw.startsWith('//') ? raw : '/';
+		if (!raw) return '/';
+		try {
+			const url = new URL(raw, 'http://heddohon.invalid');
+			if (url.origin !== 'http://heddohon.invalid') return '/';
+			return `${url.pathname}${url.search}${url.hash}`;
+		} catch {
+			return '/';
+		}
 	});
 </script>
 

@@ -1,7 +1,7 @@
 import { error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { proxyMedia, streamRequestFrom } from '$lib/server/proxy';
-import { readCover, writeCover } from '$lib/server/covercache';
+import { coverScope, readCover, writeCover } from '$lib/server/covercache';
 
 /**
  * Allowed cover sizes, so the upstream cannot be asked to render arbitrary
@@ -43,11 +43,13 @@ const handler: RequestHandler = async (event) => {
 	if (!session) error(401, 'Not signed in');
 	const size = nearestSize(event.url.searchParams.get('size'));
 	const id = event.params.id;
-	const backend = session.account.backend;
+	// A cached cover skips the music server entirely, so the upstream's own
+	// permission check never runs on a hit. The scope is what stands in for it:
+	// on Jellyfin the key carries the viewer, so a hit can only ever be this
+	// account's own earlier fetch.
+	const scope = coverScope(session.account);
 
-	// A cached cover skips the music server entirely. The session check above is
-	// still what gates it: the cache holds bytes, not permission.
-	const hit = await readCover(backend, id, size);
+	const hit = await readCover(scope, id, size);
 	if (hit) {
 		const headers = cachedHeaders(hit.contentType, hit.etag);
 		// Without this a browser revalidating after the day its max-age allows
@@ -82,7 +84,7 @@ const handler: RequestHandler = async (event) => {
 	if (response.status === 200 && event.request.method === 'GET') {
 		const type = response.headers.get('content-type') ?? '';
 		const body = Buffer.from(await response.arrayBuffer());
-		void writeCover(backend, id, size, type, body);
+		void writeCover(scope, id, size, type, body);
 		return new Response(new Uint8Array(body), { status: 200, headers: response.headers });
 	}
 
