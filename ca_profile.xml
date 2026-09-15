@@ -9,6 +9,6 @@
 
     Audio and artwork are proxied by the application, so the music server does not have to be reachable from the browser. Original files by default, with transcoding available per account. Issues and questions: https://github.com/zorcerer/heddohon/issues
   </Profile>
-  <Icon>https://raw.githubusercontent.com/zorcerer/heddohon/claude/heddohon-music-player-ktxqgh/docs/assets/icon.png</Icon>
+  <Icon>https://raw.githubusercontent.com/zorcerer/heddohon/main/docs/assets/icon.png</Icon>
   <WebPage>https://github.com/zorcerer/heddohon</WebPage>
 </CommunityApplications>
