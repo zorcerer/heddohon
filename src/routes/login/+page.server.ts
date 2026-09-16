@@ -35,6 +35,13 @@ export const load: PageServerLoad = async () => {
  * both pass those two tests and both resolve to `evil.example`. Parsing against
  * a throwaway origin and keeping the result only if it stayed there is the check
  * that cannot be spelled around, since it asks the same parser the browser will.
+ *
+ * The origin check alone is not enough either. The parser removes dot-segments
+ * after the origin is settled, so `/.//evil.example`, `/..//evil.example` and
+ * `/%2e//evil.example` all stay on the throwaway origin with a pathname of
+ * `//evil.example`. Sent back as a Location, that is protocol-relative and
+ * leaves the site. A pathname that starts with two slashes is refused for that
+ * reason.
  */
 const NEXT_BASE = 'http://heddohon.invalid';
 
@@ -43,6 +50,7 @@ function safeNext(raw: FormDataEntryValue | null): string {
 	try {
 		const url = new URL(raw, NEXT_BASE);
 		if (url.origin !== NEXT_BASE) return '/';
+		if (url.pathname.startsWith('//')) return '/';
 		return `${url.pathname}${url.search}${url.hash}`;
 	} catch {
 		return '/';
@@ -118,10 +126,15 @@ export const actions: Actions = {
 				});
 				// Do not distinguish "no such user" from "wrong password": that is
 				// the upstream server's information to leak, not ours.
+				//
+				// Anything else gets a fixed message. `err.message` can carry the
+				// Subsonic server's own error text, the configured timeout or a fetch
+				// failure, and this response goes to a visitor who is not signed in.
+				// The detail is in the log line above.
 				const message =
 					err.kind === 'auth'
 						? 'That username and password were not accepted by the music server.'
-						: err.message;
+						: 'The music server could not complete the sign-in. Try again shortly.';
 				return fail(err.kind === 'auth' ? 401 : 502, { username, backend, error: message });
 			}
 			// A fault on this side is not a guess either.

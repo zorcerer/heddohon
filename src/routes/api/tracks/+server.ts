@@ -1,6 +1,7 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { backendFor, UpstreamError } from '$lib/server/backends';
+import { mapLimited } from '$lib/server/backends/http';
 import type { Song } from '$lib/types';
 
 type Source = 'album' | 'playlist' | 'artist' | 'starred' | 'random';
@@ -46,8 +47,10 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 			case 'artist': {
 				// Every album by the artist, in release order, flattened.
 				const artist = await backend.getArtist(cred, id!);
-				const albums = await Promise.all(
-					artist.albums.map((album) => backend.getAlbum(cred, album.id).catch(() => null))
+				// Bounded: an artist can have hundreds of albums, and this is one
+				// upstream call each.
+				const albums = await mapLimited(artist.albums, (album) =>
+					backend.getAlbum(cred, album.id).catch(() => null)
 				);
 				songs = albums.flatMap((album) => album?.songs ?? []);
 				break;

@@ -21,6 +21,8 @@
 		try {
 			const url = new URL(raw, 'http://heddohon.invalid');
 			if (url.origin !== 'http://heddohon.invalid') return '/';
+			// `/.//evil.example` stays on the origin and parses to `//evil.example`.
+			if (url.pathname.startsWith('//')) return '/';
 			return `${url.pathname}${url.search}${url.hash}`;
 		} catch {
 			return '/';

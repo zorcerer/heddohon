@@ -96,6 +96,43 @@ export async function upstreamFetch(url: string, init: RequestInit = {}): Promis
 }
 
 /**
+ * Upstream calls one request may have in flight at once, where it fans out.
+ *
+ * `/api/songs` takes 1000 ids and Subsonic has no batch lookup, so an unbounded
+ * `Promise.all` opened 1000 concurrent `getSong.view` calls for one request from
+ * any signed-in account.
+ */
+export const UPSTREAM_FANOUT = 8;
+
+/**
+ * `Promise.all` over `items` with at most `limit` calls running at once. Results
+ * keep the input order, and the first rejection rejects the whole call, as with
+ * `Promise.all`. After a rejection no further calls are started.
+ */
+export async function mapLimited<T, R>(
+	items: readonly T[],
+	fn: (item: T) => Promise<R>,
+	limit = UPSTREAM_FANOUT
+): Promise<R[]> {
+	const results = new Array<R>(items.length);
+	let next = 0;
+	let failed = false;
+	const worker = async () => {
+		while (!failed && next < items.length) {
+			const index = next++;
+			try {
+				results[index] = await fn(items[index]);
+			} catch (err) {
+				failed = true;
+				throw err;
+			}
+		}
+	};
+	await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+	return results;
+}
+
+/**
  * Builds a URL from the operator-configured base plus a fixed path. IDs are
  * always passed through `URLSearchParams` or `encodeURIComponent`, never
  * concatenated raw, so a hostile item id cannot escape the path.

@@ -11,6 +11,7 @@ import { subsonicToken, randomSalt } from '../crypto';
 import {
 	UpstreamError,
 	forwardRequestHeaders,
+	mapLimited,
 	upstreamFetch,
 	upstreamUrl,
 	type UpstreamParams
@@ -436,12 +437,12 @@ export const subsonicBackend: MediaBackend = {
 	},
 
 	async getSongs(cred, ids) {
-		const songs = await Promise.all(
-			ids.map(async (id) => {
-				const body = await call<{ song?: Record<string, any> }>(cred, 'getSong.view', { id });
-				return body.song ? toSong(body.song) : null;
-			})
-		);
+		// One call per id, since Subsonic has no batch lookup, and bounded, since
+		// the caller may pass 1000 of them.
+		const songs = await mapLimited(ids, async (id) => {
+			const body = await call<{ song?: Record<string, any> }>(cred, 'getSong.view', { id });
+			return body.song ? toSong(body.song) : null;
+		});
 		return songs.filter((song): song is Song => song !== null);
 	},
 

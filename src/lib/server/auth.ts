@@ -184,13 +184,16 @@ export function createSession(
  * clear.
  *
  * The request's own scheme is the signal that cannot be missing, so that is what
- * is read now. The same adapter-node default is why this cannot break a working
+ * is read first. It is not the only one: `NODE_ENV=production` also turns
+ * `Secure` on, whatever the scheme, and the Docker image sets it. A plain-http
+ * deployment of the image therefore needs HEDDOHON_COOKIE_SECURE=false, or the
+ * browser refuses the cookie and sign-in does not stick. The same adapter-node default is why this cannot break a working
  * plain-http deployment that leaves ORIGIN unset: there `url.protocol` is https
  * and the browser's Origin header is http, the cross-origin check in
  * hooks.server.ts rejects the mismatch, and sign-in already does not work.
  *
- * Loopback over plain http stays exempt so that `vite dev` and `npm start` on
- * the machine itself keep working, where `Secure` would stop the browser
+ * Loopback over plain http stays exempt outside production so that `vite dev`
+ * on the machine itself keeps working, where `Secure` would stop the browser
  * returning the cookie at all.
  */
 function cookieSecure(url: URL): boolean {
