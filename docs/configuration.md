@@ -91,7 +91,7 @@ npm run build && npm start   # production
 | `HEDDOHON_JELLYFIN_LABEL` | no | `Jellyfin` | Name shown on the sign-in screen. |
 | `HEDDOHON_SESSION_HOURS` | no | `72` | Session lifetime. Clamped to 72. |
 | `HEDDOHON_DATA_DIR` | no | `/data` | Where the SQLite database and the cover cache live. |
-| `HEDDOHON_COOKIE_SECURE` | no | `auto` | `auto` sets Secure when `NODE_ENV=production`, or when `ORIGIN` names an https or non-loopback URL. |
+| `HEDDOHON_COOKIE_SECURE` | no | `auto` | `auto` sets Secure when the request arrives over https, when `NODE_ENV=production`, or when the host is not loopback. The Docker image sets `NODE_ENV=production`, so there `auto` is always Secure and a deployment reached over plain http needs `false`. The cookie is named `__Host-heddohon_session` wherever it is Secure. |
 | `HEDDOHON_UPSTREAM_TIMEOUT_MS` | no | `20000` | Give-up time for music-server calls. |
 | `HEDDOHON_COVER_CACHE_MB` | no | `512` | Disk budget for cached cover art, in megabytes. `0` switches the cache off. |
 | `HEDDOHON_LOG_LEVEL` | no | `error` | `error`, `warn`, `info` or `debug`. |

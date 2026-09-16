@@ -45,7 +45,7 @@ import type {
 import { randomUUID } from 'node:crypto';
 
 const CLIENT = 'Heddohon';
-const CLIENT_VERSION = '0.1.0';
+const CLIENT_VERSION = '0.1.2';
 
 /** Fields Jellyfin only returns when explicitly asked for. */
 const ITEM_FIELDS = 'Genres,DateCreated,ChildCount,ParentId,PrimaryImageAspectRatio';

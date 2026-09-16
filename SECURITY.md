@@ -97,7 +97,9 @@ stored credential.
 
 `Secure` is set when `HEDDOHON_COOKIE_SECURE` says so. On `auto`, the default,
 it is on when the request arrives over `https`, when `NODE_ENV=production`
-(which the shipped image sets), or when the host is not loopback.
+(which the shipped image sets), or when the host is not loopback. In the shipped
+image `auto` is therefore always `Secure`, and a deployment reached over plain
+http needs `HEDDOHON_COOKIE_SECURE=false`.
 
 An earlier version read `ORIGIN` instead of the request scheme, on the reasoning
 that CSRF had already forced the operator to set it. adapter-node does not
@@ -259,8 +261,11 @@ cached.
   lyrics, playlist names, artist bios) is rendered as text and escaped by
   Svelte. Every `href` and `src` is an application-built relative path.
 - **Redirects.** The only request-derived redirect target is `?next=` after
-  sign-in, which must be a single-slash relative path; protocol-relative and
-  absolute URLs are rejected.
+  sign-in. It is parsed against a placeholder origin and kept only if it stays
+  on that origin and its pathname does not start with `//`. The second test is
+  needed: dot-segments are removed after the origin is settled, so
+  `/.//evil.example` parses to the pathname `//evil.example`, which a browser
+  reads as protocol-relative.
 - **Settings.** The settings object is rebuilt field by field from an explicit
   list. Unknown keys are discarded, enums allowlisted, numbers clamped, booleans
   type-checked. There is no assignment or spread of client input.
@@ -271,6 +276,7 @@ cached.
 | --- | --- |
 | Request body | 512 KB (`BODY_SIZE_LIMIT`) |
 | Track ids per lookup | 1000, each under 256 characters |
+| Upstream calls in flight per fan-out | 8 (Subsonic track lookup, artist play) |
 | Songs per playlist write | 1000 |
 | Playlist name | 200 characters |
 | Saved queue | 1000 ids |
@@ -410,7 +416,7 @@ verification suite.
 | High | No rate limiting on sign-in | Fixed. Throttling added |
 | High | Media proxy relayed upstream content type, allowing HTML from this origin | Fixed. Type constrained, responses sandboxed |
 | Medium | Jellyfin playlist delete was a generic any-item delete | Fixed. Item type verified first |
-| Medium | `Secure` cookie flag keyed on `NODE_ENV` alone | Fixed. Keys off the request scheme |
+| Medium | `Secure` cookie flag keyed on `NODE_ENV` alone | Fixed. The request scheme and the host are read as well |
 | Medium | Error messages and configuration failures echoed internal detail | Fixed. Logged, not returned |
 | Low | Missing `Origin` accepted on writes | Fixed. Now refused |
 | Low | Security headers absent from early-return responses | Fixed |
@@ -434,7 +440,7 @@ covered by a check in the verification suite.
 | High | Sign-in throttle read the counter before the upstream call and wrote it after, so concurrent attempts all passed one check | Fixed. The attempt is counted first and handed back if no verdict follows |
 | Medium | `/healthz` returned the configuration error message, which names the upstream address and the secret's length, to unauthenticated callers | Fixed. The detail is logged, the response says only that there is a fault |
 | Medium | Session cookie carried no `__Host-` prefix, so a sibling subdomain could shadow it and pin a session | Fixed. Prefixed wherever the cookie is `Secure`, and one name is read |
-| Medium | `Secure` derived from `ORIGIN`, which adapter-node does not require | Fixed. Derived from the request scheme |
+| Medium | `Secure` derived from `ORIGIN`, which adapter-node does not require | Fixed. Derived from the request scheme, `NODE_ENV` and the host |
 | Medium | Cover cache keyed without the viewer, so Jellyfin per-user library limits were not applied to a cache hit | Fixed. The viewer is part of the key on Jellyfin |
 | Medium | Authenticated pages and private JSON carried no `Cache-Control` or `Vary` | Fixed. `private, no-store` by default and `Vary: Cookie` |
 | Medium | Address rate-limit bucket was shared behind a proxy, so 60 deliberate failures refused sign-in to everybody | Fixed. Applied only where the address identifies a visitor |
@@ -460,3 +466,17 @@ all 31 logging call sites, the relayed response header allowlist, percent-encode
 and dot-segment path bypasses of the route gate, the exact-match origin check
 including a `null` origin, the `size` and `mode` parameters, cover cache path
 traversal and key injectivity, and rate-limit key case and whitespace folding.
+
+**17 September 2026.** Follow-up review of the tree as reconciled on 15
+September. Not yet covered by the verification suite.
+
+| Severity | Finding | Status |
+| --- | --- | --- |
+| Medium | `?next=/.//evil.example` (and `/..//`, `/%2e//`) passed the origin check with a pathname of `//evil.example`, an off-site redirect after sign-in | Fixed. A pathname starting with `//` is refused, on the server and in the page |
+| Low | `/api/songs` on Subsonic opened one concurrent upstream call per id, up to 1000, and artist play one per album | Fixed. At most 8 in flight |
+| Low | A failed sign-in returned the upstream error text, the timeout value or the fetch failure to a visitor who is not signed in | Fixed. A fixed message is returned and the detail is logged |
+
+Raised and not fixed in this round: the Subsonic cover cache is shared by every
+account, which assumes one library per Navidrome server; a cover that misses the
+cache is read into memory before its size is checked; the runtime image makes
+`/app` writable by the `node` user.
