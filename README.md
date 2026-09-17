@@ -4,130 +4,70 @@
 
 # Heddohon
 
-**Server-rendered music player for Navidrome/Subsonic and Jellyfin libraries.**
+**Server-rendered music player for Navidrome/Subsonic and Jellyfin.**
 
-Audio and artwork are proxied by the server, so the music server does not need
-to be reachable from the browser.
+[![Release](https://img.shields.io/github/v/release/zorcerer/heddohon?sort=semver)](https://github.com/zorcerer/heddohon/releases)
+[![Build](https://img.shields.io/github/actions/workflow/status/zorcerer/heddohon/release.yml?label=build)](https://github.com/zorcerer/heddohon/actions/workflows/release.yml)
+[![Docker Pulls](https://img.shields.io/docker/pulls/zorcererd/heddohon)](https://hub.docker.com/r/zorcererd/heddohon)
+[![Docker Image Size](https://img.shields.io/docker/image-size/zorcererd/heddohon?sort=semver)](https://hub.docker.com/r/zorcererd/heddohon)
+[![License](https://img.shields.io/github/license/zorcerer/heddohon)](LICENSE)
+<br>
+![SvelteKit](https://img.shields.io/badge/SvelteKit-FF3E00?logo=svelte&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white)
+![Node](https://img.shields.io/badge/node-%3E%3D22-339933?logo=nodedotjs&logoColor=white)
 
 </div>
 
 ![The album view, with the now-playing panel on the right](docs/assets/album.jpg)
 
-## How it works
-
-Feishin and Aonsoku connect to the music server from the browser. That has two
-consequences: the music server must be reachable from every device you use, and
-the upstream credential is present in the client.
-
-Heddohon connects from the server instead. The browser then makes requests to
-Heddohon only.
+Unlike Feishin or Aonsoku, Heddohon talks to your music server from the server,
+not the browser. Audio and artwork are proxied, so only Heddohon needs to be
+exposed and upstream credentials never reach the client.
 
 ```
  browser ──► Heddohon ──► Navidrome / Jellyfin
-             │
-             └── the only host you expose publicly
 ```
-
-Sign-in is a live call to the music server; Heddohon has no user table of its
-own. [SECURITY.md](SECURITY.md) documents this in
-full, along with the known gaps.
 
 ## Features
 
-- **Original files by default.** Subsonic requests use `format=raw`, Jellyfin
-  requests use `static=true`, so the file arrives as it sits on disk. Nothing in
-  the chain resamples, at any setting. The player displays what is being
-  decoded: `FLAC 24/96`, `FLAC 24/192`, `MP3 320`.
-- **Transcoding when you want it.** For a connection that will not carry a
-  24/192 master, the music server can be asked to convert instead: MP3, Opus or
-  AAC, at a bitrate you choose. Pressing the quality badge in the player turns
-  it on and off without interrupting the track, and the badge then names what is
-  actually arriving rather than what the file is.
-- **Server-side rendering.** Pages arrive built, including the theme and the
-  interface scale, so there is no flash of the wrong one and no empty layout
-  waiting on JavaScript.
-- **Per-account state.** Settings and the play queue are stored on the server
-  against your account, so another device resumes where you left off.
-- **Cover art is cached on the server.** Artwork is kept after the first fetch
-  and served from disk, so a second device does not ask the music server to
-  render it again. The size is a setting and Settings has a button that empties
-  it.
-- **Recommendations.** Albums and artists carry a "You might like" shelf, taken
-  from the music server. Jellyfin computes it from its own metadata; Navidrome
-  needs `ND_LASTFM_APIKEY` set, and the shelf is absent without it. See
-  [Configuration](docs/configuration.md).
-- **Synced lyrics.** Taken from the music server, timed against the playhead.
-- **A tight track handoff.** The next track is buffered into a second audio
-  element while the current one plays, so the join does not wait on the network.
-  It is not true gapless: no browser decodes across a track boundary
-  sample-accurately, and [Audio](docs/audio.md) is specific about what that
-  costs and where it shows.
-- **One colour, from the record.** Every accent in the interface is sampled from
-  the cover that is playing, so the room takes the colour of what you are
-  listening to.
-
-Lyrics take the artwork's place in the panel rather than floating over the
-controls of the track they belong to. Clicking a timed line seeks to it.
-
-![Synced lyrics in the now-playing panel, the current line highlighted](docs/assets/lyrics.jpg)
-
-An album page carries the rest of the artist's catalogue under its track list,
-and a second shelf of what the music server considers similar.
-
-![An album page with the artist's other records below the track list](docs/assets/recommendations.jpg)
+- **Original files by default** — no resampling; the player shows what's decoded (`FLAC 24/192`, `MP3 320`).
+- **Optional transcoding** — MP3, Opus or AAC at a chosen bitrate, toggled mid-track from the quality badge.
+- **Server-side rendering** — theme and scale arrive built, no flash or empty layout.
+- **Per-account state** — settings and queue sync across devices.
+- **Cached cover art**, **synced lyrics**, and **recommendations** from your music server.
+- **Tight track handoff** — the next track is pre-buffered (not true gapless, see [Audio](docs/audio.md)).
+- **Accent colour** sampled from the current album cover.
 
 ## Quick start
 
 ```bash
 git clone https://github.com/zorcerer/heddohon.git && cd heddohon
 cp .env.example .env
-
-# Generate a secret. Changing it later signs everyone out.
 echo "HEDDOHON_SECRET=$(openssl rand -base64 48)" >> .env
-
-# The music server address, resolved by the container rather than the browser.
 echo "HEDDOHON_SUBSONIC_URL=http://10.0.0.10:4533" >> .env
-
 docker compose up -d
 ```
 
 Open `http://localhost:13000` and sign in with your music server account.
+Exposing it publicly? Set `ORIGIN` and read [SECURITY.md](SECURITY.md).
 
-To expose it publicly, set `ORIGIN` to your public `https://` URL and read
-[SECURITY.md](SECURITY.md).
-
-## Requirements
-
-Docker, and a reachable Navidrome, another Subsonic-compatible server, or
-Jellyfin. To run it without Docker: Node 22 or later, then `npm ci && npm run
-build && node build/index.js`.
-
-On Unraid, a Community Applications template is in this repository at
-`templates/heddohon.xml`. See
-[Configuration](docs/configuration.md#unraid) for the two things worth setting
-before the first start.
+Images: `ghcr.io/zorcerer/heddohon` or `zorcererd/heddohon`. An Unraid template
+is in [`templates/heddohon.xml`](templates/heddohon.xml). Without Docker (Node 22+):
+`npm ci && npm run build && node build/index.js`.
 
 ## Documentation
 
-| | |
-| --- | --- |
-| [Configuration](docs/configuration.md) | Environment variables, reverse proxy, deployment |
-| [Security](SECURITY.md) | Threat model, controls, known gaps, reporting a vulnerability |
-| [Design notes](docs/design.md) | How the interface is built and why |
-| [Architecture](docs/architecture.md) | Project layout and playlist editing |
-| [Audio](docs/audio.md) | What "high-resolution" means in a browser |
+- [Configuration](docs/configuration.md) — environment variables, reverse proxy, Unraid
+- [Security](SECURITY.md) — threat model, known gaps, reporting
+- [Audio](docs/audio.md) — what "high-resolution" means in a browser
+- [Architecture](docs/architecture.md) · [Design notes](docs/design.md)
 
 ## AI disclosure
 
-Heddohon was written with assistance from Claude.
-I have reviewed the code, and the security posture has been reviewed
-both by me and by several AI-assisted audits. The findings from those
-audits, and the fixes, are recorded in [SECURITY.md](SECURITY.md).
+Written with assistance from Claude. The code and security posture have been
+reviewed by me and by AI-assisted audits (see [SECURITY.md](SECURITY.md)), but
+not by a professional third party.
 
-It has not been audited by a professional third party. If you intend to expose
-it publicly, read the known gaps in [SECURITY.md](SECURITY.md) and form your own
-view.
+## License
 
-## Licence
-
-MIT.
+[MIT](LICENSE)
