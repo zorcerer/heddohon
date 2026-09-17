@@ -279,7 +279,7 @@ session token and any `u`, `t`, `s` or `p` query parameter.
 
 ## Audit history
 
-All reviews were AI-assisted and checked by the author. A professional
+Most reviews were AI-assisted and all were checked by the author. A professional
 third-party audit has yet to be done. Findings were reproduced against a running
 build before being fixed.
 
