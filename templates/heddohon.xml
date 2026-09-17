@@ -43,7 +43,7 @@
     Full configuration: https://github.com/zorcerer/heddohon/blob/main/docs/configuration.md
   </Description>
 
-  <Config Name="WebUI" Target="3000" Default="13000" Mode="tcp" Description="Port the interface is served on." Type="Port" Display="always" Required="true" Mask="false">13000</Config>
+  <Config Name="WebUI" Target="13000" Default="13000" Mode="tcp" Description="Port the interface is served on." Type="Port" Display="always" Required="true" Mask="false">13000</Config>
   <Config Name="Appdata" Target="/data" Default="/mnt/user/appdata/heddohon" Mode="rw" Description="Holds the SQLite database and the cover cache." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/heddohon</Config>
   <Config Name="Secret" Target="HEDDOHON_SECRET" Default="" Description="Encrypts stored music-server credentials and derives session keys. Minimum 32 characters: openssl rand -base64 48. Changing it signs everyone out." Type="Variable" Display="always" Required="true" Mask="true"/>
   <Config Name="Navidrome / Subsonic URL" Target="HEDDOHON_SUBSONIC_URL" Default="" Description="Base URL of your Navidrome or Subsonic server, resolved by this container rather than by the browser. Leave empty if you only use Jellyfin." Type="Variable" Display="always" Required="false" Mask="false"/>
