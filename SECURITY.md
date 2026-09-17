@@ -161,7 +161,7 @@ Covers are cached under `$HEDDOHON_DATA_DIR/covers` (see
   an app-built relative path.
 - **Redirects:** `?next=` is parsed against a placeholder origin and kept only if
   it stays on that origin and its pathname does not start with `//`. The second
-  test catches `/.//evil.example`, which normalises to a protocol-relative path.
+  test catches `/.//example.tld`, which normalises to a protocol-relative path.
 - **Settings:** rebuilt field by field. Unknown keys are dropped, enums
   allowlisted, numbers clamped and booleans type-checked.
 - **Transcoding:** codec and bitrate are read from stored settings. The `mode`
@@ -320,7 +320,7 @@ suite.
 | Medium | Cover cache ignored Jellyfin per-user library limits | Viewer added to the key |
 | Medium | Authenticated responses had no `Cache-Control` or `Vary` | `private, no-store` and `Vary: Cookie` |
 | Medium | Shared address bucket behind a proxy let 60 failures block all sign-ins | Applied only to real client addresses |
-| Medium | `?next=` accepted `/\evil.example` and `/<TAB>/evil.example` | Parsed and held to this origin |
+| Medium | `?next=` accepted `/\example.tld` and `/<TAB>/example.tld` | Parsed and held to this origin |
 | Low | Account rows matched case-sensitively | `COLLATE NOCASE` |
 
 Also examined: token entropy, HMAC lookup timing, the 72 hour ceiling against a
@@ -337,7 +337,7 @@ verification suite.
 
 | Severity | Finding | Fix |
 | --- | --- | --- |
-| Medium | `?next=/.//evil.example` (also `/..//`, `/%2e//`) redirected off-site | Pathnames starting with `//` refused, server and client |
+| Medium | `?next=/.//example.tld` (also `/..//`, `/%2e//`) redirected off-site | Pathnames starting with `//` refused, server and client |
 | Low | Subsonic `/api/songs` and artist play opened one upstream call per id or album | At most 8 in flight |
 | Low | Failed sign-in returned upstream error text to anonymous visitors | Fixed message, detail logged |
 
