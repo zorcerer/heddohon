@@ -20,9 +20,9 @@
 
 ![The album view, with the now-playing panel on the right](docs/assets/album.jpg)
 
-Unlike Feishin or Aonsoku, Heddohon talks to your music server from the server,
-not the browser. Audio and artwork are proxied, so only Heddohon needs to be
-exposed and upstream credentials never reach the client.
+Heddohon connects to your music server from its own backend, so the browser
+only talks to Heddohon. Audio and artwork are proxied through it, which makes
+Heddohon the only host you expose and keeps upstream credentials on the server.
 
 ```
  browser ──► Heddohon ──► Navidrome / Jellyfin
@@ -30,13 +30,24 @@ exposed and upstream credentials never reach the client.
 
 ## Features
 
-- **Original files by default** — no resampling; the player shows what's decoded (`FLAC 24/192`, `MP3 320`).
-- **Optional transcoding** — MP3, Opus or AAC at a chosen bitrate, toggled mid-track from the quality badge.
-- **Server-side rendering** — theme and scale arrive built, no flash or empty layout.
-- **Per-account state** — settings and queue sync across devices.
-- **Cached cover art**, **synced lyrics**, and **recommendations** from your music server.
-- **Tight track handoff** — the next track is pre-buffered (not true gapless, see [Audio](docs/audio.md)).
+- **Original files by default:** audio streams as it sits on disk, and the player shows the decoded format (`FLAC 24/192`, `MP3 320`).
+- **Optional transcoding:** MP3, Opus or AAC at a chosen bitrate, toggled mid-track from the quality badge.
+- **Server-side rendering:** pages arrive with the theme and interface scale already applied.
+- **Per-account state:** settings and queue sync across devices.
+- **Cached cover art**, **synced lyrics** and **recommendations** from your music server.
+- **Fast track handoff:** the next track is pre-buffered so it starts right away. [Audio](docs/audio.md) covers the details.
 - **Accent colour** sampled from the current album cover.
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/assets/lyrics.jpg" alt="Synced lyrics in the now-playing panel, the current line highlighted"></td>
+    <td width="50%"><img src="docs/assets/recommendations.jpg" alt="An album page with the artist's other records below the track list"></td>
+  </tr>
+  <tr>
+    <td align="center">Synced lyrics</td>
+    <td align="center">More from the artist and recommendations</td>
+  </tr>
+</table>
 
 ## Quick start
 
@@ -49,24 +60,24 @@ docker compose up -d
 ```
 
 Open `http://localhost:13000` and sign in with your music server account.
-Exposing it publicly? Set `ORIGIN` and read [SECURITY.md](SECURITY.md).
+To expose it publicly, set `ORIGIN` and read [SECURITY.md](SECURITY.md).
 
 Images: `ghcr.io/zorcerer/heddohon` or `zorcererd/heddohon`. An Unraid template
-is in [`templates/heddohon.xml`](templates/heddohon.xml). Without Docker (Node 22+):
-`npm ci && npm run build && node build/index.js`.
+is in [`templates/heddohon.xml`](templates/heddohon.xml). To run it with Node 22+
+instead of Docker: `npm ci && npm run build && node build/index.js`.
 
 ## Documentation
 
-- [Configuration](docs/configuration.md) — environment variables, reverse proxy, Unraid
-- [Security](SECURITY.md) — threat model, known gaps, reporting
-- [Audio](docs/audio.md) — what "high-resolution" means in a browser
+- [Configuration](docs/configuration.md): environment variables, reverse proxy, Unraid
+- [Security](SECURITY.md): threat model, known gaps, reporting
+- [Audio](docs/audio.md): what "high-resolution" means in a browser
 - [Architecture](docs/architecture.md) · [Design notes](docs/design.md)
 
 ## AI disclosure
 
 Written with assistance from Claude. The code and security posture have been
-reviewed by me and by AI-assisted audits (see [SECURITY.md](SECURITY.md)), but
-not by a professional third party.
+reviewed by me and by AI-assisted audits, documented in [SECURITY.md](SECURITY.md).
+A professional third-party audit has yet to be done.
 
 ## License
 
