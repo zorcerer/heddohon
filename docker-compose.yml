@@ -4,7 +4,7 @@ services:
     container_name: heddohon
     restart: unless-stopped
     ports:
-      - '13000:3000'
+      - '3000:3000'
     volumes:
       - heddohon-data:/data
     env_file: .env

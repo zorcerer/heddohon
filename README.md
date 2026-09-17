@@ -59,7 +59,7 @@ echo "HEDDOHON_SUBSONIC_URL=http://10.0.0.10:4533" >> .env
 docker compose up -d
 ```
 
-Open `http://localhost:13000` and sign in with your music server account.
+Open `http://localhost:3000` and sign in with your music server account.
 To expose it publicly, set `ORIGIN` and read [SECURITY.md](SECURITY.md).
 
 Images: `ghcr.io/zorcerer/heddohon` or `zorcererd/heddohon`. An Unraid template

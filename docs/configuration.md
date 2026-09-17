@@ -19,14 +19,14 @@ echo "HEDDOHON_SECRET=$(openssl rand -base64 48)" >> .env
 docker compose up -d
 ```
 
-Then open <http://localhost:13000> and sign in with your Navidrome or Jellyfin
+Then open <http://localhost:3000> and sign in with your Navidrome or Jellyfin
 account.
 
 ### Docker
 
 ```bash
 docker run -d --name heddohon \
-  -p 13000:3000 \
+  -p 3000:3000 \
   -v heddohon-data:/data \
   -e HEDDOHON_SECRET="$(openssl rand -base64 48)" \
   -e HEDDOHON_SUBSONIC_URL="http://10.0.0.10:4533" \
