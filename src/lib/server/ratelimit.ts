@@ -103,6 +103,35 @@ export function loginKeys(username: string, address: string): Array<[string, num
 	return keys;
 }
 
+/** Quick Connect requests one visitor may start in the window. */
+const MAX_QUICK_CONNECT_PER_ADDRESS = 20;
+/** Quick Connect requests the whole deployment may start in the window. */
+const MAX_QUICK_CONNECT_TOTAL = 100;
+
+/**
+ * The keys a Quick Connect start counts against.
+ *
+ * A start guesses nothing: the secret that completes it is 32 random bytes
+ * chosen by the music server. What it does hold is a 6-digit code, 900,000
+ * possible values in Jellyfin 10.10, and Jellyfin grants whichever pending
+ * request matches the code a signed-in user types. A user who mistypes their
+ * own code approves somebody else's request if one is pending under the typo.
+ * The chance of that is the number of pending requests over 900,000, so the
+ * number this deployment can hold open is capped in total and not only per
+ * address: one address or a thousand, at most 100 in 15 minutes, which puts a
+ * mistyped code at about 1 in 9,000 at worst.
+ *
+ * The total is shared, so exhausting it stops Quick Connect for everybody
+ * until the window rolls off. Password sign-in counts against other keys and
+ * carries on. A Jellyfin server reachable directly takes `Initiate` from
+ * anybody, and this cap says nothing about requests made there.
+ */
+export function quickConnectKeys(address: string): Array<[string, number]> {
+	const keys: Array<[string, number]> = [['qc:all', MAX_QUICK_CONNECT_TOTAL]];
+	if (perVisitorAddress(address)) keys.push([`qc:${address}`, MAX_QUICK_CONNECT_PER_ADDRESS]);
+	return keys;
+}
+
 function retryAfterFor(windowFrom: number, timestamp: number): number {
 	return Math.max(1, Math.ceil((WINDOW_MS - (timestamp - windowFrom)) / 1000));
 }

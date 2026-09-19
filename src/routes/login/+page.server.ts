@@ -2,7 +2,8 @@ import { fail, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 import { config } from '$lib/server/config';
 import { createSession, signIn } from '$lib/server/auth';
-import { isBackendKind, UpstreamError } from '$lib/server/backends';
+import { backendFor, isBackendKind, UpstreamError } from '$lib/server/backends';
+import { safeNext } from '$lib/server/next';
 import {
 	clearLoginFailures,
 	loginKeys,
@@ -22,40 +23,17 @@ export const load: PageServerLoad = async () => {
 		// deliberately never serialised into the page: the client has no business
 		// knowing where the music server lives, and cannot be tricked into
 		// pointing the app somewhere else.
-		servers: cfg.upstreams.map((upstream) => ({ kind: upstream.kind, label: upstream.label }))
+		servers: await Promise.all(
+			cfg.upstreams.map(async (upstream) => ({
+				kind: upstream.kind,
+				label: upstream.label,
+				// Off by default on Jellyfin, so it is only offered where the server
+				// says it is on. The answer is cached in the adapter.
+				quickConnect: (await backendFor(upstream.kind).quickConnect?.enabled()) ?? false
+			}))
+		)
 	};
 };
-
-/**
- * Only allow paths on this origin, so `?next=` cannot become an open redirect.
- *
- * Testing `startsWith('/')` and `!startsWith('//')` is not enough. The URL
- * parser folds a backslash into a path separator for special schemes and strips
- * tab, CR and LF before parsing, so `/\evil.example` and `/<TAB>/evil.example`
- * both pass those two tests and both resolve to `evil.example`. Parsing against
- * a throwaway origin and keeping the result only if it stayed there is the check
- * that cannot be spelled around, since it asks the same parser the browser will.
- *
- * The origin check alone is not enough either. The parser removes dot-segments
- * after the origin is settled, so `/.//evil.example`, `/..//evil.example` and
- * `/%2e//evil.example` all stay on the throwaway origin with a pathname of
- * `//evil.example`. Sent back as a Location, that is protocol-relative and
- * leaves the site. A pathname that starts with two slashes is refused for that
- * reason.
- */
-const NEXT_BASE = 'http://heddohon.invalid';
-
-function safeNext(raw: FormDataEntryValue | null): string {
-	if (typeof raw !== 'string') return '/';
-	try {
-		const url = new URL(raw, NEXT_BASE);
-		if (url.origin !== NEXT_BASE) return '/';
-		if (url.pathname.startsWith('//')) return '/';
-		return `${url.pathname}${url.search}${url.hash}`;
-	} catch {
-		return '/';
-	}
-}
 
 export const actions: Actions = {
 	default: async (event) => {

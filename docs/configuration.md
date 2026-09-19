@@ -105,6 +105,25 @@ npm run build && npm start   # production
 `GET /healthz` reports configuration validity without revealing the upstream
 URLs, and is wired up as the container's `HEALTHCHECK`.
 
+## Jellyfin Quick Connect
+
+The sign-in screen offers Quick Connect for a Jellyfin server when the server
+reports it as turned on (Dashboard, General, Quick Connect). It is off by
+default in Jellyfin. Heddohon asks the server whether it is on at most once a
+minute, so turning it on or off shows on the sign-in screen within 60 seconds.
+
+The screen shows a 6-digit code. Enter it in Jellyfin under your user
+settings, Quick Connect, and the Heddohon page signs in within 3 seconds. A
+code expires after 10 minutes. The sign-in ends at the same stored access
+token as a password sign-in.
+
+Heddohon allows 100 Quick Connect starts in 15 minutes for the whole
+deployment, and 20 per client address where addresses identify visitors (see
+[Behind a reverse proxy](#behind-a-reverse-proxy)). Jellyfin approves whichever
+pending request matches the code a user types, so the total bounds how many
+codes a mistyped entry could match. Password sign-in is counted separately and
+is not affected when the Quick Connect limit is reached.
+
 ## Cover cache
 
 Cover art is written to `$HEDDOHON_DATA_DIR/covers` the first time it is
@@ -166,9 +185,9 @@ The events at each level, by name:
 
 | Level | Events |
 | --- | --- |
-| `error` | `request` at 5xx or thrown, `unhandled` with a stack, `config-invalid`, `sign-in-failed` |
-| `warn` | `request-slow`, `cross-origin-blocked`, `sign-in-rejected`, `sign-in-throttled`, `sessions-destroyed`, `upstream-timeout`, `upstream-unreachable`, `section-failed`, `cover-write-failed` |
-| `info` | `started`, `signed-in`, `cover-cache-cleared`, `cover-cache-swept` |
+| `error` | `request` at 5xx or thrown, `unhandled` with a stack, `config-invalid`, `sign-in-failed`, `quick-connect-failed` on a fault in this server |
+| `warn` | `request-slow`, `cross-origin-blocked`, `sign-in-rejected`, `sign-in-throttled`, `quick-connect-throttled`, `quick-connect-failed`, `sessions-destroyed`, `upstream-timeout`, `upstream-unreachable`, `section-failed`, `cover-write-failed` |
+| `info` | `started`, `signed-in` (with `method=quick-connect` for a Quick Connect sign-in), `quick-connect-started`, `cover-cache-cleared`, `cover-cache-swept` |
 | `debug` | `request` (one per request, with its path, status and duration), `upstream` (one per music-server call, with its time), `cover-hit`, `cover-miss`, `cover-stored`, `unauthenticated` |
 
 ### Working out why something is slow

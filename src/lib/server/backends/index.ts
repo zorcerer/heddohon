@@ -18,5 +18,11 @@ export function isBackendKind(value: unknown): value is BackendKind {
 	return value === 'subsonic' || value === 'jellyfin';
 }
 
-export type { MediaBackend, StoredCredential, StreamRequest, UpstreamResponse } from './types';
+export type {
+	MediaBackend,
+	QuickConnectState,
+	StoredCredential,
+	StreamRequest,
+	UpstreamResponse
+} from './types';
 export { UpstreamError } from './http';

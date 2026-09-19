@@ -63,6 +63,37 @@ export interface PlaybackReport {
 }
 
 /**
+ * Where a Quick Connect request stands upstream.
+ *
+ * `expired` covers every way the secret stops being usable: the server's
+ * 10-minute window ran out, the server restarted and forgot it, or an
+ * administrator turned Quick Connect off while it was pending.
+ */
+export type QuickConnectState = 'waiting' | 'authorized' | 'expired';
+
+/**
+ * Sign-in by a code the user approves from a device already signed in to the
+ * music server. Only Jellyfin offers it, so the member is optional.
+ *
+ * `secret` is what the server later exchanges for a token, and so is as good as
+ * a credential while the request is pending. It stays on this server; the
+ * browser is only shown `code`. `deviceId` is chosen by the caller and must be
+ * the same on every call for one request, since the server records the device
+ * that asked and issues the token to it.
+ */
+export interface QuickConnect {
+	/** Whether the server has Quick Connect turned on. False on any failure. */
+	enabled(): Promise<boolean>;
+	initiate(deviceId: string): Promise<{ secret: string; code: string }>;
+	state(secret: string, deviceId: string): Promise<QuickConnectState>;
+	/** Exchanges an authorized secret for the same result `login` returns. */
+	authenticate(
+		secret: string,
+		deviceId: string
+	): Promise<{ credential: StoredCredential; remoteUserId: string | null }>;
+}
+
+/**
  * Everything the app can ask of a music server. Implementations are stateless:
  * the caller passes the opened credential on every call, which keeps decrypted
  * secrets scoped to a single request rather than living in a long-lived client.
@@ -72,6 +103,9 @@ export interface MediaBackend {
 
 	/** Verifies the credentials upstream and returns what should be stored. */
 	login(username: string, password: string): Promise<{ credential: StoredCredential; remoteUserId: string | null }>;
+
+	/** Present only where the server supports Quick Connect. */
+	readonly quickConnect?: QuickConnect;
 
 	/** Cheap liveness/authorisation check for an existing credential. */
 	verify(cred: StoredCredential): Promise<boolean>;

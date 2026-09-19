@@ -74,9 +74,30 @@ export async function signIn(
 	username: string,
 	password: string
 ): Promise<Account> {
-	const backend = backendFor(kind);
-	const { credential, remoteUserId } = await backend.login(username, password);
+	const { credential, remoteUserId } = await backendFor(kind).login(username, password);
+	return storeAccount(kind, credential, remoteUserId);
+}
 
+/**
+ * Completes a Quick Connect sign-in the user has approved upstream. The result
+ * is stored exactly as a password sign-in's is.
+ */
+export async function signInWithQuickConnect(
+	kind: BackendKind,
+	secret: string,
+	deviceId: string
+): Promise<Account> {
+	const quickConnect = backendFor(kind).quickConnect;
+	if (!quickConnect) throw new Error(`The ${kind} backend has no Quick Connect`);
+	const { credential, remoteUserId } = await quickConnect.authenticate(secret, deviceId);
+	return storeAccount(kind, credential, remoteUserId);
+}
+
+function storeAccount(
+	kind: BackendKind,
+	credential: StoredCredential,
+	remoteUserId: string | null
+): Account {
 	const database = db();
 	const timestamp = now();
 	const sealed = sealJson(credential);
@@ -196,7 +217,7 @@ export function createSession(
  * on the machine itself keeps working, where `Secure` would stop the browser
  * returning the cookie at all.
  */
-function cookieSecure(url: URL): boolean {
+export function cookieSecure(url: URL): boolean {
 	const setting = config().cookieSecure;
 	if (setting !== 'auto') return setting;
 	if (url.protocol === 'https:') return true;
