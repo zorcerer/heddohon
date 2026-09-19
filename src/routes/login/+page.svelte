@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
+	import { goto } from '$app/navigation';
 	import { untrack } from 'svelte';
 	import { page } from '$app/state';
 	import Logo from '$lib/components/Logo.svelte';
@@ -10,6 +11,102 @@
 	// Seeded once: after that the radio group owns the value.
 	let selected = $state(untrack(() => form?.backend ?? data.servers[0]?.kind ?? 'subsonic'));
 	let submitting = $state(false);
+
+	const selectedServer = $derived(data.servers.find((server) => server.kind === selected));
+
+	/*
+	 * Quick Connect. The server starts the request and keeps its secret; this
+	 * page only ever holds the code, and asks every 3 seconds whether it has been
+	 * approved. Jellyfin expires a request after 10 minutes, and the page stops
+	 * asking at the same point.
+	 */
+	const POLL_MS = 3000;
+	type QuickConnectView =
+		| { step: 'idle' }
+		| { step: 'starting' }
+		| { step: 'waiting'; code: string }
+		| { step: 'expired' }
+		| { step: 'signed-in' };
+	let quickConnect = $state<QuickConnectView>({ step: 'idle' });
+	let quickConnectError = $state<string | null>(null);
+	let pollTimer: ReturnType<typeof setTimeout> | undefined;
+	let expiryTimer: ReturnType<typeof setTimeout> | undefined;
+
+	function stopPolling() {
+		clearTimeout(pollTimer);
+		clearTimeout(expiryTimer);
+		pollTimer = expiryTimer = undefined;
+	}
+
+	$effect(() => stopPolling);
+
+	async function startQuickConnect() {
+		stopPolling();
+		quickConnectError = null;
+		quickConnect = { step: 'starting' };
+		let body: { code?: string; expiresIn?: number; error?: string } | null = null;
+		try {
+			const response = await fetch('/login/quick-connect', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json', accept: 'application/json' },
+				body: JSON.stringify({ backend: selected })
+			});
+			body = await response.json().catch(() => null);
+			if (!response.ok || !body?.code) throw new Error(body?.error ?? '');
+		} catch (err) {
+			quickConnectError =
+				(err instanceof Error && err.message) || 'Could not start Quick Connect. Try again shortly.';
+			quickConnect = { step: 'idle' };
+			return;
+		}
+		const code = body.code;
+		quickConnect = { step: 'waiting', code };
+		expiryTimer = setTimeout(
+			() => {
+				stopPolling();
+				quickConnect = { step: 'expired' };
+			},
+			(body.expiresIn ?? 600) * 1000
+		);
+		pollTimer = setTimeout(() => poll(code), POLL_MS);
+	}
+
+	async function poll(code: string) {
+		let body: { state?: string; next?: string } | null = null;
+		try {
+			const response = await fetch('/login/quick-connect/poll', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json', accept: 'application/json' },
+				body: JSON.stringify({ code, next })
+			});
+			body = await response.json().catch(() => null);
+		} catch {
+			// A dropped request is asked again on the next tick.
+		}
+		// Cancelled or restarted while this request was out.
+		if (quickConnect.step !== 'waiting' || quickConnect.code !== code) return;
+
+		if (body?.state === 'signed-in') {
+			stopPolling();
+			quickConnect = { step: 'signed-in' };
+			await goto(body.next ?? '/', { invalidateAll: true });
+			return;
+		}
+		if (body?.state === 'expired') {
+			stopPolling();
+			quickConnect = { step: 'expired' };
+			return;
+		}
+		pollTimer = setTimeout(() => poll(code), POLL_MS);
+	}
+
+	function cancelQuickConnect() {
+		stopPolling();
+		quickConnect = { step: 'idle' };
+		quickConnectError = null;
+		// Drops the sealed request from this browser. Jellyfin expires its own copy.
+		fetch('/login/quick-connect', { method: 'DELETE' }).catch(() => undefined);
+	}
 
 	// Preserves the page the user was trying to reach before being redirected
 	// here. Parsed against a throwaway origin and kept only if it stayed there:
@@ -47,75 +144,113 @@
 			</p>
 		</header>
 
-		{#if form?.error}
-			<p class="alert" role="alert">{form.error}</p>
+		{#if quickConnectError ?? form?.error}
+			<p class="alert" role="alert">{quickConnectError ?? form?.error}</p>
 		{/if}
 
-		<form
-			method="POST"
-			use:enhance={() => {
-				submitting = true;
-				return async ({ update }) => {
-					await update({ reset: false });
-					submitting = false;
-				};
-			}}
-		>
-			{#if data.servers.length > 1}
-				<fieldset class="servers">
-					<legend class="hh-eyebrow">Music server</legend>
-					{#each data.servers as server (server.kind)}
-						<label class="server" class:selected={selected === server.kind}>
-							<input
-								type="radio"
-								name="backend"
-								value={server.kind}
-								bind:group={selected}
-								class="hh-visually-hidden"
-							/>
-							<span class="server-name">{server.label}</span>
-							<span class="hh-eyebrow">{server.kind}</span>
-						</label>
-					{/each}
-				</fieldset>
-			{:else if data.servers.length === 1}
-				<input type="hidden" name="backend" value={data.servers[0].kind} />
-				<p class="single-server">
-					<span class="hh-eyebrow">Signing in to</span>
-					<strong>{data.servers[0].label}</strong>
-				</p>
+		{#if quickConnect.step === 'idle' || quickConnect.step === 'starting'}
+			<form
+				method="POST"
+				use:enhance={() => {
+					submitting = true;
+					return async ({ update }) => {
+						await update({ reset: false });
+						submitting = false;
+					};
+				}}
+			>
+				{#if data.servers.length > 1}
+					<fieldset class="servers">
+						<legend class="hh-eyebrow">Music server</legend>
+						{#each data.servers as server (server.kind)}
+							<label class="server" class:selected={selected === server.kind}>
+								<input
+									type="radio"
+									name="backend"
+									value={server.kind}
+									bind:group={selected}
+									class="hh-visually-hidden"
+								/>
+								<span class="server-name">{server.label}</span>
+								<span class="hh-eyebrow">{server.kind}</span>
+							</label>
+						{/each}
+					</fieldset>
+				{:else if data.servers.length === 1}
+					<input type="hidden" name="backend" value={data.servers[0].kind} />
+					<p class="single-server">
+						<span class="hh-eyebrow">Signing in to</span>
+						<strong>{data.servers[0].label}</strong>
+					</p>
+				{/if}
+
+				<label class="field">
+					<span class="hh-eyebrow">Username</span>
+					<input
+						class="hh-input"
+						name="username"
+						autocomplete="username"
+						required
+						autocapitalize="none"
+						spellcheck="false"
+						value={form?.username ?? ''}
+					/>
+				</label>
+
+				<label class="field">
+					<span class="hh-eyebrow">Password</span>
+					<input
+						class="hh-input"
+						type="password"
+						name="password"
+						autocomplete="current-password"
+						required
+					/>
+				</label>
+
+				<input type="hidden" name="next" value={next} />
+
+				<button class="hh-button hh-button--primary submit" type="submit" disabled={submitting}>
+					{submitting ? 'Checking with the server…' : 'Sign in'}
+				</button>
+			</form>
+
+			{#if selectedServer?.quickConnect}
+				<div class="divider" aria-hidden="true"><span class="hh-eyebrow">or</span></div>
+				<button
+					class="hh-button quick"
+					type="button"
+					onclick={startQuickConnect}
+					disabled={quickConnect.step === 'starting' || submitting}
+				>
+					{quickConnect.step === 'starting' ? 'Asking the server for a code…' : 'Sign in with Quick Connect'}
+				</button>
 			{/if}
-
-			<label class="field">
-				<span class="hh-eyebrow">Username</span>
-				<input
-					class="hh-input"
-					name="username"
-					autocomplete="username"
-					required
-					autocapitalize="none"
-					spellcheck="false"
-					value={form?.username ?? ''}
-				/>
-			</label>
-
-			<label class="field">
-				<span class="hh-eyebrow">Password</span>
-				<input
-					class="hh-input"
-					type="password"
-					name="password"
-					autocomplete="current-password"
-					required
-				/>
-			</label>
-
-			<input type="hidden" name="next" value={next} />
-
-			<button class="hh-button hh-button--primary submit" type="submit" disabled={submitting}>
-				{submitting ? 'Checking with the server…' : 'Sign in'}
-			</button>
-		</form>
+		{:else}
+			<section class="quick-connect" aria-live="polite">
+				{#if quickConnect.step === 'waiting'}
+					<span class="hh-eyebrow">Quick Connect code</span>
+					<p class="code">{quickConnect.code}</p>
+					<p class="hh-muted note">
+						In {selectedServer?.label ?? 'Jellyfin'}, open your user settings, choose Quick Connect
+						and enter this code. This page signs in once the code is approved.
+					</p>
+					<p class="hh-muted note">The code expires after 10 minutes.</p>
+				{:else if quickConnect.step === 'expired'}
+					<p class="alert" role="alert">The code expired before it was approved.</p>
+					<button class="hh-button hh-button--primary submit" type="button" onclick={startQuickConnect}>
+						Get a new code
+					</button>
+				{:else}
+					<p class="hh-muted note">Signed in. Opening your library…</p>
+				{/if}
+				{#if quickConnect.step !== 'signed-in'}
+					<button class="hh-button hh-button--ghost" type="button" onclick={cancelQuickConnect}>
+						Use a password instead
+					</button>
+				{/if}
+			</section>
+		{/if}
 
 		<footer>
 			<p class="hh-muted note">
@@ -258,6 +393,46 @@
 	.submit:disabled {
 		opacity: 0.65;
 		cursor: progress;
+	}
+
+	.divider {
+		display: flex;
+		align-items: center;
+		gap: var(--space-3);
+		margin: var(--space-4) 0;
+	}
+
+	.divider::before,
+	.divider::after {
+		content: '';
+		flex: 1;
+		border-top: 1px solid var(--border-hairline);
+	}
+
+	.quick {
+		width: 100%;
+		padding: 0.7rem 1rem;
+		border-radius: var(--r-md);
+	}
+
+	.quick:disabled {
+		opacity: 0.65;
+		cursor: progress;
+	}
+
+	.quick-connect {
+		display: grid;
+		gap: var(--space-3);
+	}
+
+	.code {
+		margin: 0;
+		font-family: var(--font-mono);
+		font-size: 2.25rem;
+		font-weight: 600;
+		letter-spacing: 0.2em;
+		color: var(--text-strong);
+		user-select: all;
 	}
 
 	footer {

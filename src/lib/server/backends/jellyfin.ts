@@ -3,7 +3,7 @@
  *
  * Unlike Subsonic, Jellyfin issues a long-lived access token at login, so the
  * password is used exactly once and then discarded — only the token is sealed
- * and stored.
+ * and stored. Quick Connect ends at the same token without a password at all.
  */
 import { upstreamFor } from '../config';
 import {
@@ -23,6 +23,7 @@ const seg = (id: string) => encodeURIComponent(assertSafeId(id));
 import type {
 	MediaBackend,
 	PlaybackReport,
+	QuickConnect,
 	StoredCredential,
 	StreamRequest,
 	UpstreamResponse
@@ -45,7 +46,7 @@ import type {
 import { randomUUID } from 'node:crypto';
 
 const CLIENT = 'Heddohon';
-const CLIENT_VERSION = '0.1.2';
+const CLIENT_VERSION = '0.1.3';
 
 /** Fields Jellyfin only returns when explicitly asked for. */
 const ITEM_FIELDS = 'Genres,DateCreated,ChildCount,ParentId,PrimaryImageAspectRatio';
@@ -302,6 +303,152 @@ const SORT_BY: Record<AlbumQuery['sort'], { sortBy: string; sortOrder: string }>
 	starred: { sortBy: 'SortName', sortOrder: 'Ascending' }
 };
 
+/**
+ * Reads an `AuthenticationResult` into what gets stored. `AuthenticateByName`
+ * and `AuthenticateWithQuickConnect` both return this shape, so the two routes
+ * end at the same credential.
+ */
+async function loginResult(
+	response: Response,
+	deviceId: string,
+	fallbackUsername: string
+): Promise<{ credential: StoredCredential; remoteUserId: string }> {
+	const payload = (await response.json().catch(() => null)) as {
+		AccessToken?: string;
+		User?: { Id?: string; Name?: string };
+	} | null;
+	if (!payload?.AccessToken || !payload.User?.Id) {
+		throw new UpstreamError('Jellyfin did not return an access token', 502, 'protocol');
+	}
+	// The account row is keyed on this name, so an empty one is refused rather
+	// than stored.
+	const username = payload.User.Name || fallbackUsername;
+	if (!username) {
+		throw new UpstreamError('Jellyfin did not name the signed-in user', 502, 'protocol');
+	}
+
+	return {
+		credential: {
+			kind: 'jellyfin',
+			username,
+			token: payload.AccessToken,
+			userId: payload.User.Id,
+			deviceId
+		},
+		remoteUserId: payload.User.Id
+	};
+}
+
+/**
+ * How long a Quick Connect availability answer is reused. The sign-in page asks
+ * on every render, and anybody can load it without signing in, so asking the
+ * music server each time would let a visitor drive requests at it by reloading.
+ */
+const QUICK_CONNECT_CACHE_MS = 60_000;
+const QUICK_CONNECT_PROBE_MS = 3_000;
+let quickConnectCache: { enabled: boolean; at: number } | null = null;
+let quickConnectProbe: Promise<boolean> | null = null;
+
+async function probeQuickConnect(): Promise<boolean> {
+	let enabled = false;
+	try {
+		// The sign-in page waits on this answer. The shared upstream timeout is
+		// 20 seconds by default, which is how long the page would take to render
+		// with the music server down.
+		const response = await upstreamFetch(upstreamUrl(base(), '/QuickConnect/Enabled'), {
+			headers: { accept: 'application/json' },
+			signal: AbortSignal.timeout(QUICK_CONNECT_PROBE_MS)
+		});
+		enabled = response.ok && (await response.json().catch(() => false)) === true;
+	} catch {
+		// An unreachable server offers nothing. The failure is cached with the
+		// rest so that a server that is down is not asked again on every render.
+	}
+	quickConnectCache = { enabled, at: Date.now() };
+	return enabled;
+}
+
+/**
+ * Jellyfin's Quick Connect, against the 10.10 API.
+ *
+ * The anonymous calls carry the same `MediaBrowser` header as a password
+ * sign-in, without a token. Jellyfin records the device named in it when the
+ * request is initiated and issues the eventual token to that device, so the
+ * caller passes one device id through every step.
+ */
+const quickConnect: QuickConnect = {
+	async enabled() {
+		const cached = quickConnectCache;
+		if (cached && Date.now() - cached.at < QUICK_CONNECT_CACHE_MS) return cached.enabled;
+		// Renders that arrive while a probe is out wait for it rather than each
+		// sending their own.
+		quickConnectProbe ??= probeQuickConnect().finally(() => {
+			quickConnectProbe = null;
+		});
+		return quickConnectProbe;
+	},
+
+	async initiate(deviceId) {
+		const response = await upstreamFetch(upstreamUrl(base(), '/QuickConnect/Initiate'), {
+			method: 'POST',
+			headers: { authorization: authHeader(deviceId), accept: 'application/json' }
+		});
+		// 401 is Jellyfin saying Quick Connect is off. The cached answer is dropped
+		// so the sign-in page stops offering it on the next render.
+		if (response.status === 401) {
+			quickConnectCache = null;
+			throw new UpstreamError('Quick Connect is turned off on this server', 401, 'unavailable');
+		}
+		if (!response.ok) throw new UpstreamError(`Jellyfin returned HTTP ${response.status}`, 502);
+
+		const payload = (await response.json().catch(() => null)) as {
+			Secret?: string;
+			Code?: string;
+		} | null;
+		if (!payload?.Secret || !payload.Code) {
+			throw new UpstreamError('Jellyfin did not return a Quick Connect code', 502, 'protocol');
+		}
+		return { secret: payload.Secret, code: payload.Code };
+	},
+
+	async state(secret, deviceId) {
+		const response = await upstreamFetch(upstreamUrl(base(), '/QuickConnect/Connect', { secret }), {
+			headers: { authorization: authHeader(deviceId), accept: 'application/json' }
+		});
+		// 404 is an unknown secret, which is what an expired one becomes. 401 is
+		// Quick Connect having been turned off since the request started.
+		if (response.status === 404 || response.status === 401) return 'expired';
+		if (!response.ok) throw new UpstreamError(`Jellyfin returned HTTP ${response.status}`, 502);
+
+		const payload = (await response.json().catch(() => null)) as { Authenticated?: boolean } | null;
+		if (!payload) {
+			throw new UpstreamError('Jellyfin returned a response that was not JSON', 502, 'protocol');
+		}
+		return payload.Authenticated === true ? 'authorized' : 'waiting';
+	},
+
+	async authenticate(secret, deviceId) {
+		const response = await upstreamFetch(upstreamUrl(base(), '/Users/AuthenticateWithQuickConnect'), {
+			method: 'POST',
+			headers: {
+				authorization: authHeader(deviceId),
+				'content-type': 'application/json',
+				accept: 'application/json'
+			},
+			body: JSON.stringify({ Secret: secret })
+		});
+		// Jellyfin refuses a secret that is unknown, expired or not yet approved
+		// with a 4xx. None of those is a wrong password, so none of them is `auth`.
+		if (response.status >= 400 && response.status < 500) {
+			throw new UpstreamError('The Quick Connect request is no longer valid', 400, 'protocol');
+		}
+		if (!response.ok) throw new UpstreamError(`Jellyfin returned HTTP ${response.status}`, 502);
+
+		// Nobody typed a name on this route, so there is no fallback for it.
+		return loginResult(response, deviceId, '');
+	}
+};
+
 export const jellyfinBackend: MediaBackend = {
 	kind: 'jellyfin',
 
@@ -324,25 +471,10 @@ export const jellyfinBackend: MediaBackend = {
 			throw new UpstreamError(`Jellyfin returned HTTP ${response.status}`, 502);
 		}
 
-		const payload = (await response.json()) as {
-			AccessToken?: string;
-			User?: { Id?: string; Name?: string };
-		};
-		if (!payload.AccessToken || !payload.User?.Id) {
-			throw new UpstreamError('Jellyfin did not return an access token', 502, 'protocol');
-		}
-
-		return {
-			credential: {
-				kind: 'jellyfin',
-				username: payload.User.Name ?? username,
-				token: payload.AccessToken,
-				userId: payload.User.Id,
-				deviceId
-			},
-			remoteUserId: payload.User.Id
-		};
+		return loginResult(response, deviceId, username);
 	},
+
+	quickConnect,
 
 	async verify(cred) {
 		try {
