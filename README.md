@@ -77,7 +77,6 @@ instead of Docker: `npm ci && npm run build && node build/index.js`.
 
 Written with assistance from Claude. The code and security posture have been
 reviewed by me and by AI-assisted audits, documented in [SECURITY.md](SECURITY.md).
-A professional third-party audit has yet to be done.
 
 ## License
 
