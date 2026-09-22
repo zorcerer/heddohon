@@ -292,3 +292,34 @@ export async function tintFrom(target: HTMLElement, coverArt: string | null | un
 	if (mine !== generation) return;
 	applyArtworkColor(target, color);
 }
+
+/**
+ * A colour for a page with no cover behind it.
+ *
+ * Only the hue is drawn. Saturation and lightness are fixed inside the bands
+ * `analyse` clamps a real cover into, so the result is the kind of colour a
+ * record could have produced rather than one the rest of the interface has
+ * never had to stay readable over. The saturation sits in the upper half of
+ * that band: at the 22% the idle default uses, a random hue is still mostly
+ * grey, which is the right answer for "nothing is playing" and the wrong one
+ * for "pick a colour".
+ */
+export function randomArtworkColor(): ArtworkColor {
+	return { hue: Math.floor(Math.random() * 360), saturation: 30, lightness: 52 };
+}
+
+/**
+ * Takes the room to a colour that did not come from a cover.
+ *
+ * This claims the generation, which is the whole reason it exists rather than
+ * callers reaching for `applyArtworkColor`. Resolving a cover is asynchronous,
+ * and a caller that wants to hold a colour is competing with whatever is
+ * already in flight. On a page with no cover that is a resolve of `null`,
+ * which lands a microtask later and would put the room straight back to frost.
+ * Bumping the counter makes that one a loser, the same way a newer cover makes
+ * an older one a loser.
+ */
+export function holdArtworkColor(target: HTMLElement, color: ArtworkColor): void {
+	generation++;
+	applyArtworkColor(target, color);
+}

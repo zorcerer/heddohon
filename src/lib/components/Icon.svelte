@@ -36,7 +36,8 @@
 		| 'expand'
 		| 'collapse'
 		| 'lyrics'
-		| 'info';
+		| 'info'
+		| 'github';
 
 	let {
 		name,
@@ -82,10 +83,17 @@
 		collapse: 'M19.5 9.5H14V4M14 9.5l5.5-5.5M4.5 14.5H10V20M10 14.5 4.5 20',
 		// The dot is drawn as a hairline stroke rather than a fill, so it keeps
 		// the same weight as every other glyph in the set.
-		info: 'M12 4.2a7.8 7.8 0 1 0 0 15.6 7.8 7.8 0 0 0 0-15.6ZM12 10.8v5.4M12 7.9v.5'
+		info: 'M12 4.2a7.8 7.8 0 1 0 0 15.6 7.8 7.8 0 0 0 0-15.6ZM12 10.8v5.4M12 7.9v.5',
+		// The one glyph in this set not drawn to the rules above. It is GitHub's
+		// mark, and a mark redrawn as a 1.6 stroke is a different mark, so it is
+		// carried as the filled original. It is also the only icon here that
+		// names something outside the app, which is why the exception stops at
+		// this entry rather than opening the set to other brands.
+		github:
+			'M12 .5a11.5 11.5 0 0 0-3.64 22.41c.58.1.79-.25.79-.55v-2.13c-3.2.66-3.88-1.4-3.88-1.4-.53-1.28-1.29-1.63-1.29-1.63-1.04-.69.08-.68.08-.68 1.16.08 1.77 1.16 1.77 1.16 1.03 1.7 2.7 1.21 3.36.93.1-.73.4-1.22.73-1.5-2.55-.28-5.24-1.24-5.24-5.53 0-1.23.45-2.23 1.18-3.01-.12-.28-.51-1.42.11-2.96 0 0 .96-.3 3.15 1.15a11.1 11.1 0 0 1 5.74 0c2.19-1.45 3.15-1.15 3.15-1.15.62 1.54.23 2.68.11 2.96.74.78 1.18 1.78 1.18 3.01 0 4.3-2.69 5.25-5.25 5.52.41.35.78 1.04.78 2.1v3.12c0 .3.21.66.8.55A11.5 11.5 0 0 0 12 .5Z'
 	};
 
-	const FILLED = new Set<IconName>(['play', 'heart-filled', 'next', 'previous']);
+	const FILLED = new Set<IconName>(['play', 'heart-filled', 'next', 'previous', 'github']);
 </script>
 
 <!--

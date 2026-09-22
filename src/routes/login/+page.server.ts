@@ -18,7 +18,6 @@ export const load: PageServerLoad = async () => {
 	return {
 		appName: cfg.appName,
 		hint: cfg.registrationHint,
-		sessionMaxHours: cfg.sessionMaxHours,
 		// Only the label and kind reach the browser. The upstream URL is
 		// deliberately never serialised into the page: the client has no business
 		// knowing where the music server lives, and cannot be tricked into
