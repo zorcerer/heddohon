@@ -81,3 +81,9 @@ reviewed by me and by AI-assisted audits, documented in [SECURITY.md](SECURITY.m
 ## License
 
 [MIT](LICENSE)
+
+<div align="center">
+
+![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)
+
+</div>
