@@ -6,6 +6,7 @@
  * model is that *the operator* decides which upstream servers exist, and the
  * end user only ever supplies a username and a password.
  */
+import { accessSync, constants, mkdirSync } from 'node:fs';
 import { building } from '$app/environment';
 
 export type BackendKind = 'subsonic' | 'jellyfin';
@@ -85,6 +86,67 @@ function boolEnv(name: string, fallback: boolean | 'auto'): boolean | 'auto' {
  */
 export const ABSOLUTE_SESSION_HOUR_CAP = 72;
 
+/**
+ * Who this process is, for a message an operator can act on. `getuid` is
+ * POSIX-only and absent on Windows, where the question does not arise.
+ */
+function identity(): string {
+	const uid = process.getuid?.();
+	const gid = process.getgid?.();
+	return uid === undefined || gid === undefined ? 'this container' : `uid ${uid}:${gid}`;
+}
+
+/**
+ * The data directory, created and proven writable before anything asks for it.
+ *
+ * The database and the cover cache both live here, and on a fresh deployment
+ * the first thing to touch the database is the login rate limiter. Without this
+ * check an unwritable directory surfaces as `SQLITE_CANTOPEN` thrown out of a
+ * sign-in POST: a 500 whose stack names better-sqlite3 and never names the
+ * mount that is actually wrong, on the one request an operator is least likely
+ * to read as a permissions problem.
+ *
+ * `mkdirSync` on its own does not catch it, because the failing case is a
+ * directory that already exists. Docker creates a missing bind-mount source
+ * itself, owned by root; the image runs unprivileged, and the Unraid template
+ * runs it as 99:100. The directory is then present, `recursive: true` returns
+ * happily, and the first write is denied.
+ *
+ * Raising it as a ConfigError puts it through the path every other
+ * misconfiguration already takes: hooks.server.ts serves one plain 500 and logs
+ * `config-invalid` with this message, and `/healthz` reports `misconfigured`,
+ * which fails the container's HEALTHCHECK. Before this, a deployment that could
+ * not write a single row still reported itself healthy.
+ */
+function dataDirectory(): string {
+	const dir = env('HEDDOHON_DATA_DIR') ?? '/data';
+
+	try {
+		mkdirSync(dir, { recursive: true });
+	} catch (err) {
+		throw new ConfigError(
+			`HEDDOHON_DATA_DIR ${dir} does not exist and could not be created ` +
+				`(${err instanceof Error ? err.message : String(err)}). ` +
+				`Heddohon runs as ${identity()}.`
+		);
+	}
+
+	// W_OK to create the database, X_OK to reach anything inside the directory.
+	// A directory can grant one without the other, and the cover cache needs both.
+	try {
+		accessSync(dir, constants.W_OK | constants.X_OK);
+	} catch {
+		throw new ConfigError(
+			`HEDDOHON_DATA_DIR ${dir} is not writable by ${identity()}. ` +
+				'It holds the database and the cover cache, so nothing works without it. ' +
+				'Give that user the host directory mounted there, for example ' +
+				'`chown -R 99:100 /mnt/user/appdata/heddohon` on Unraid.'
+		);
+	}
+
+	return dir;
+}
+
 function build(): AppConfig {
 	const secret = env('HEDDOHON_SECRET');
 	if (!secret) {
@@ -128,7 +190,7 @@ function build(): AppConfig {
 
 	return {
 		secret,
-		dataDir: env('HEDDOHON_DATA_DIR') ?? '/data',
+		dataDir: dataDirectory(),
 		sessionMaxHours: intEnv('HEDDOHON_SESSION_HOURS', 72, 1, ABSOLUTE_SESSION_HOUR_CAP),
 		cookieSecure: boolEnv('HEDDOHON_COOKIE_SECURE', 'auto'),
 		upstreamTimeoutMs: intEnv('HEDDOHON_UPSTREAM_TIMEOUT_MS', 20_000, 1_000, 120_000),

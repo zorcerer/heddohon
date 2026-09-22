@@ -17,7 +17,13 @@
   <ExtraSearchTerms>navidrome subsonic jellyfin music player flac lossless lyrics</ExtraSearchTerms>
   <License>MIT</License>
   <Date>2026-09-15</Date>
-  <Changes>Initial template.</Changes>
+  <Changes>
+### 0.1.5
+- Startup now fails loudly when the appdata path is not writable, instead of erroring on the first sign-in.
+
+### 0.1.4
+- Initial template.
+  </Changes>
   <WebUI>http://[IP]:[PORT:3000]</WebUI>
   <ExtraParams>--user 99:100</ExtraParams>
 
@@ -38,7 +44,7 @@
     - **At least one music server URL.** These are resolved by the container, so a LAN address is the right answer: `http://192.168.1.10:4533`.
     - **ORIGIN**, if you reach this through a reverse proxy. It must be the public URL, or form submissions are refused by the CSRF origin check.
 
-    **Permissions:** the image runs unprivileged. This template runs it as 99:100 so it can write to appdata. If you remove that from Extra Parameters, run `chown -R 1000:1000 /mnt/user/appdata/heddohon` first.
+    **Permissions:** the image runs unprivileged. This template runs it as 99:100 so it can write to appdata. Create the appdata path before the first start and give it to that user — `mkdir -p /mnt/user/appdata/heddohon && chown -R 99:100 /mnt/user/appdata/heddohon` — because if the path is missing Docker creates it owned by root and an unprivileged container cannot write to it. If you remove `--user 99:100` from Extra Parameters, run `chown -R 1000:1000 /mnt/user/appdata/heddohon` instead.
 
     Full configuration: https://github.com/zorcerer/heddohon/blob/main/docs/configuration.md
   </Description>

@@ -50,6 +50,21 @@ is owned by nobody:users, 99:100. The template runs the container as 99:100 for
 that reason. Remove `--user 99:100` from Extra Parameters to keep the image's own
 user, and `chown -R 1000:1000 /mnt/user/appdata/heddohon` before starting it.
 
+Create the appdata directory before the first start, owned by whichever user the
+container runs as:
+
+```sh
+mkdir -p /mnt/user/appdata/heddohon
+chown -R 99:100 /mnt/user/appdata/heddohon
+```
+
+If the path does not exist when the container starts, Docker creates it itself,
+owned by `root`, and an unprivileged container cannot then write to it. Heddohon
+checks this at startup and refuses to serve rather than failing on the first
+request that needs the database; `/healthz` reports `misconfigured` and the
+container's health check goes red, and the log line names the directory and the
+UID that cannot write to it.
+
 ### Behind a reverse proxy
 
 Set `ORIGIN` to the public URL or form submissions will be rejected by the CSRF

@@ -3,7 +3,6 @@
  * deployment to a single container plus a volume.
  */
 import Database from 'better-sqlite3';
-import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { config } from './config';
 
@@ -75,8 +74,10 @@ let handle: Database.Database | null = null;
 export function db(): Database.Database {
 	if (handle) return handle;
 
+	// config() creates the directory and proves it writable, so a broken mount
+	// is reported as a misconfiguration rather than as SQLITE_CANTOPEN from
+	// whichever request happened to be first to need a row.
 	const dir = config().dataDir;
-	mkdirSync(dir, { recursive: true });
 
 	const instance = new Database(join(dir, 'heddohon.db'));
 	instance.pragma('journal_mode = WAL');
