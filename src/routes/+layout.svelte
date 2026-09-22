@@ -1,6 +1,6 @@
 <script lang="ts">
 	import '$lib/styles/app.css';
-	import { onMount } from 'svelte';
+	import { untrack } from 'svelte';
 	import { onNavigate } from '$app/navigation';
 	import { player } from '$lib/client/player.svelte';
 	import { tintFrom } from '$lib/client/artwork';
@@ -26,6 +26,23 @@
 
 	const signedIn = $derived(Boolean(data.account) && !data.isLoginPage);
 
+	/*
+	 * The fade in when the app arrives from the login page.
+	 *
+	 * The login page dissolves itself and only then hands over, so without this
+	 * the rail, the content and the player all appear in a single frame over an
+	 * ambient field that was already on screen.
+	 *
+	 * Seeded from the value this component was built with, and derived rather
+	 * than set from an effect. An effect runs after the DOM is updated, which
+	 * would put the scrim up one frame after the thing it is there to cover had
+	 * already been painted. A cold load of a signed-in page starts `true` here,
+	 * which is not an arrival and does not animate. Signing out posts a form to
+	 * an endpoint, so the browser navigates and this is seeded again.
+	 */
+	let settled = $state(untrack(() => signedIn));
+	const arriving = $derived(signedIn && !settled);
+
 	/**
 	 * What the browser tab says.
 	 *
@@ -40,12 +57,31 @@
 		return song.artist ? `${song.title} - ${song.artist}` : song.title;
 	});
 
-	onMount(() => {
-		// The login page mounts this layout too. Attaching the player there would
-		// fire /api/play-state at an unauthenticated server and log a 401 for
-		// nothing, so wire it up only once there is an account behind it.
+	/*
+	 * Wiring the player to its audio elements.
+	 *
+	 * The login page mounts this layout too. Attaching the player there would
+	 * fire /api/play-state at an unauthenticated server and log a 401 for
+	 * nothing, so this waits until there is an account behind it.
+	 *
+	 * That wait is why it is an effect and not `onMount`. Signing in is a
+	 * client-side navigation: the form action redirects, the layout is never
+	 * torn down, and `onMount` has already run and returned by then. From there
+	 * the player stayed unattached for the whole session and nothing played
+	 * until the page was reloaded by hand. An effect re-runs when `signedIn`
+	 * flips, so it attaches at the moment the account appears, and its teardown
+	 * detaches on sign-out.
+	 *
+	 * The audio elements sit outside the signed-in branch of the markup, so they
+	 * are bound before this ever runs.
+	 */
+	$effect(() => {
 		if (!signedIn || !primaryAudio || !secondaryAudio) return;
-		player.attach(primaryAudio, secondaryAudio, data.settings);
+		// Untracked: the effect below keeps a running player's settings current.
+		// Reading them as a dependency here would detach and re-attach the
+		// player, and restore the queue over the top of itself, every time a
+		// setting changed.
+		player.attach(primaryAudio, secondaryAudio, untrack(() => data.settings));
 		void restoreQueue();
 		return () => player.detach();
 	});
@@ -276,6 +312,18 @@
 		</div>
 
 		<PlaylistPicker />
+
+		{#if arriving}
+			<!--
+				Repeats the page's own ground, so what fades away here is what the
+				login page left on screen a moment earlier.
+			-->
+			<div
+				class="arrival hh-ambience"
+				aria-hidden="true"
+				onanimationend={() => (settled = true)}
+			></div>
+		{/if}
 	</div>
 {:else}
 	{@render children()}
@@ -288,6 +336,39 @@
 	 * which is what makes the blur legible, because there is genuinely something
 	 * behind each one.
 	 */
+	/*
+	 * The scrim that covers the arrival from the login page.
+	 *
+	 * A scrim that fades out, rather than the app fading in. An element whose
+	 * opacity is below 1 forms a backdrop root, so fading the app would take
+	 * the blur and the brightness attenuation off the rail and the player for
+	 * the length of the animation and hand them back on the frame it reaches 1.
+	 * This is a sibling of all of that, so every glass surface under it stays at
+	 * opacity 1 throughout and is only revealed.
+	 *
+	 * It borrows `.hh-ambience` for the wash and adds the ground underneath it,
+	 * which the class leaves transparent. Both declarations have to outrank that
+	 * class, hence the descendant selector.
+	 *
+	 * It rests at 0 and is animated from 1. Left the other way round, a browser
+	 * that never ran the animation would keep an opaque sheet over the app.
+	 */
+	.app .arrival {
+		z-index: 60;
+		background-color: var(--bg-base);
+		opacity: 0;
+		animation: arrive 420ms cubic-bezier(0.4, 0, 0.2, 1) forwards;
+	}
+
+	@keyframes arrive {
+		from {
+			opacity: 1;
+		}
+		to {
+			opacity: 0;
+		}
+	}
+
 	.app {
 		display: grid;
 		grid-template-areas: 'rail content player';

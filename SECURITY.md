@@ -202,6 +202,35 @@ Authenticated pages and private JSON get `Cache-Control: private, no-store` and
 `Vary: Cookie`. Unexpected errors return a fixed message and the detail is
 logged server-side.
 
+App pages carry a Content-Security-Policy, configured in `vite.config.ts` so
+that SvelteKit can nonce or hash its own inline bootstrap script:
+
+```
+default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline';
+style-src-attr 'unsafe-inline'; img-src 'self'; font-src 'self';
+media-src 'self'; connect-src 'self'; manifest-src 'self'; worker-src 'none';
+object-src 'none'; frame-src 'none'; base-uri 'self'; form-action 'self';
+frame-ancestors 'self'
+```
+
+Everything the app loads is served from its own origin: the bundles, the two
+bundled font families, covers from `/api/cover`, audio from `/api/stream`, and
+fetches to `/api/*`. The source carries no external origin, no `data:` or
+`blob:` URL and no worker.
+
+`style-src-attr` is listed separately because a directive carrying a nonce or a
+hash ignores `unsafe-inline`, and SvelteKit adds one to `style-src`. Attributes
+are governed by `style-src-attr` when it is present, and nothing adds a nonce
+there. Custom properties written onto the document root by
+`lib/client/artwork.ts` are unaffected either way, since CSP does not govern
+changes made through the CSSOM.
+
+`upgrade-insecure-requests` is absent, because a plain-http deployment is
+supported (see `HEDDOHON_COOKIE_SECURE`).
+
+Media responses carry their own stricter policy; see
+[Proxied media](#proxied-media).
+
 ## Container
 
 The image runs as the unprivileged `node` user and is multi-stage, keeping the
@@ -226,9 +255,10 @@ session token and any `u`, `t`, `s` or `p` query parameter.
 
 **Open issues**
 
-- **No Content-Security-Policy on app pages.** SvelteKit's inline hydration
-  scripts need nonces, which belong in framework config. This is the largest
-  outstanding item.
+- **`style-src-attr` allows `unsafe-inline`.** The page shell and the components
+  that size themselves in markup emit `style` attributes, so style attributes
+  are admitted unconditionally. Script execution is not affected. Removing it
+  means moving those values out of markup and into the stylesheet.
 - **Upstream redirects are followed** without an address allowlist. A
   compromised music server could point Heddohon at the internal network, and a
   Jellyfin login body would be replayed to the redirect target over a plaintext
@@ -342,3 +372,16 @@ verification suite.
 | Low | Failed sign-in returned upstream error text to anonymous visitors | Fixed message, detail logged |
 
 Open findings from all three reviews are listed under [Known gaps](#known-gaps).
+
+### 22 September 2026
+
+Content-Security-Policy added to app pages, which was the largest item left open
+by the three reviews above. Not yet in the verification suite.
+
+| Severity | Finding | Fix |
+| --- | --- | --- |
+| Medium | App pages carried no Content-Security-Policy | `default-src 'none'` with same-origin sources, configured in `vite.config.ts` so SvelteKit nonces its own inline bootstrap script |
+
+Checked against a running build: pages, covers and playback load with the policy
+enforced. The residual `style-src-attr 'unsafe-inline'` is listed under
+[Known gaps](#known-gaps).
