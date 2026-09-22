@@ -172,22 +172,33 @@ const handleRequest: Handle = async ({ event, resolve }) => {
 	try {
 		config();
 	} catch (err) {
-		if (err instanceof ConfigError && event.url.pathname !== '/healthz') {
-			// The detail stays in the log. It names the offending variable *and its
-			// value*, and that value is usually the internal music-server address —
-			// the one thing this whole proxy design exists to keep off the wire.
-			log.error('config-invalid', { detail: err.message, path: event.url.pathname });
-			return sealed(
-				'Heddohon is not configured correctly. See the server log for which ' +
-					'environment variable is at fault, and the README for the full list.',
-				500,
-				'text/plain; charset=utf-8'
-			);
-		}
 		// Anything that is not a ConfigError is not something this guard
 		// understands, and carrying on would serve a page built on a broken
 		// config. Fail closed.
 		if (!(err instanceof ConfigError)) throw err;
+
+		if (event.url.pathname === '/healthz') {
+			// The probe is the one path that has to keep working on a broken
+			// deployment: it is what reports `misconfigured` and turns the
+			// container's HEALTHCHECK red. It cannot go through the rest of this
+			// function to get there, though. Both the CSRF check and session
+			// resolution call config() themselves, so the error would be rethrown
+			// from inside them, past the route's own handler, and the probe would
+			// answer 500 with the generic upstream message and write an unhandled
+			// stack trace every HEALTHCHECK interval. Hand it straight to the route.
+			return resolve(event);
+		}
+
+		// The detail stays in the log. It names the offending variable *and its
+		// value*, and that value is usually the internal music-server address —
+		// the one thing this whole proxy design exists to keep off the wire.
+		log.error('config-invalid', { detail: err.message, path: event.url.pathname });
+		return sealed(
+			'Heddohon is not configured correctly. See the server log for which ' +
+				'environment variable is at fault, and the README for the full list.',
+			500,
+			'text/plain; charset=utf-8'
+		);
 	}
 
 	/*
