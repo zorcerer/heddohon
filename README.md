@@ -54,8 +54,6 @@ Heddohon the only host you expose and keeps upstream credentials on the server.
 ```bash
 git clone https://github.com/zorcerer/heddohon.git && cd heddohon
 cp .env.example .env
-echo "HEDDOHON_SECRET=$(openssl rand -base64 48)" >> .env
-echo "HEDDOHON_SUBSONIC_URL=http://10.0.0.10:4533" >> .env
 docker compose up -d
 ```
 
