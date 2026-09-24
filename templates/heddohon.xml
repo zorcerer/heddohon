@@ -5,6 +5,7 @@
   <Network>bridge</Network>
   <Shell>bash</Shell>
   <Privileged>false</Privileged>
+  <MinVer>6.12</MinVer>
   <Support>https://github.com/zorcerer/heddohon/issues</Support>
   <Project>https://github.com/zorcerer/heddohon</Project>
   <ReadMe>https://raw.githubusercontent.com/zorcerer/heddohon/main/README.md</ReadMe>
