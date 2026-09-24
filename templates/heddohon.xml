@@ -17,13 +17,6 @@
   <ExtraSearchTerms>navidrome subsonic jellyfin music player flac lossless lyrics</ExtraSearchTerms>
   <License>MIT</License>
   <Date>2026-09-15</Date>
-  <Changes>
-### 0.1.5
-- Startup now fails when the appdata path is not writable, instead of erroring on the first sign-in.
-
-### 0.1.4
-- Initial template.
-  </Changes>
   <WebUI>http://[IP]:[PORT:3000]</WebUI>
   <ExtraParams>--user 99:100</ExtraParams>
 
@@ -37,7 +30,7 @@
     Synced lyrics, a tight track handoff, a server-side cover cache, and per-account settings and queue that follow you between devices.
   </Overview>
 
-  <Description>
+  <Description><![CDATA[
     **Set before starting:**
 
     - **HEDDOHON_SECRET** encrypts the music-server credentials Heddohon stores. Generate one with `openssl rand -base64 48`. Changing it later signs everyone out.
@@ -46,7 +39,7 @@
 
     **Permissions:** the image runs unprivileged. This template runs it as 99:100 so it can write to appdata. Create the appdata path before the first start and give it to that user, `mkdir -p /mnt/user/appdata/heddohon && chown -R 99:100 /mnt/user/appdata/heddohon`. If the path is missing at the first start, Docker creates it owned by root, and an unprivileged container cannot write to it. If you remove `--user 99:100` from Extra Parameters, run `chown -R 1000:1000 /mnt/user/appdata/heddohon` instead.
 
-    Full configuration: https://github.com/zorcerer/heddohon/blob/main/docs/configuration.md
+    Full configuration: https://github.com/zorcerer/heddohon/blob/main/docs/configuration.md]]>
   </Description>
 
   <Config Name="WebUI" Target="3000" Default="3000" Mode="tcp" Description="Port the interface is served on." Type="Port" Display="always" Required="true" Mask="false">3000</Config>
