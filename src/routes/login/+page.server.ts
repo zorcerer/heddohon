@@ -1,7 +1,10 @@
 import { fail, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 import { config } from '$lib/server/config';
-import { createSession, signIn } from '$lib/server/auth';
+import { createSession, knownDevice, rememberDevice, signIn } from '$lib/server/auth';
+
+const MAX_USERNAME = 256;
+const MAX_PASSWORD = 1024;
 import { backendFor, isBackendKind, UpstreamError } from '$lib/server/backends';
 import { safeNext } from '$lib/server/next';
 import {
@@ -55,6 +58,19 @@ export const actions: Actions = {
 		if (!username || !password) {
 			return fail(400, { username, backend, error: 'Enter your username and password.' });
 		}
+		/*
+		 * Bounded before anything is counted. The username becomes a key in the
+		 * throttle table, and with no bound an anonymous visitor wrote a row the
+		 * size of the request body, 400 KB, for every distinct name sent. No
+		 * music server has accounts with names this long.
+		 */
+		if (username.length > MAX_USERNAME || password.length > MAX_PASSWORD) {
+			return fail(400, {
+				username: username.slice(0, MAX_USERNAME),
+				backend,
+				error: 'That username and password were not accepted by the music server.'
+			});
+		}
 
 		/*
 		 * Counted before the upstream is touched, so a throttled attacker costs
@@ -66,8 +82,8 @@ export const actions: Actions = {
 		 * concurrent attempts cannot all pass a check none of them has yet paid
 		 * for. Anything the upstream did not actually judge is handed back below.
 		 */
-		const keys = loginKeys(username, event.getClientAddress());
-		const verdict = reserveLoginAttempt(keys);
+		const keys = loginKeys(backend, username, event.getClientAddress(), knownDevice(event, backend, username));
+		const verdict = await reserveLoginAttempt(keys);
 		if (!verdict.allowed) {
 			// Named at warn: a throttled address is the signal somebody is guessing,
 			// and it is the line an operator points fail2ban at.
@@ -92,8 +108,8 @@ export const actions: Actions = {
 				// Only a rejected credential counts. An unreachable music server is
 				// not a wrong guess, and counting it would let an upstream outage
 				// lock every user out, so that attempt goes back.
-				if (err.kind === 'auth') pruneLoginAttempts();
-				else refundLoginAttempt(keys);
+				if (err.kind === 'auth') await pruneLoginAttempts();
+				else await refundLoginAttempt(keys);
 				log.warn('sign-in-rejected', {
 					username,
 					backend,
@@ -115,13 +131,14 @@ export const actions: Actions = {
 				return fail(err.kind === 'auth' ? 401 : 502, { username, backend, error: message });
 			}
 			// A fault on this side is not a guess either.
-			refundLoginAttempt(keys);
+			await refundLoginAttempt(keys);
 			log.error('sign-in-failed', { username, backend, detail: reason(err) });
 			return fail(500, { username, backend, error: 'Sign-in failed unexpectedly.' });
 		}
 
-		clearLoginFailures(keys);
-		createSession(event, account, event.request.headers.get('user-agent'));
+		await clearLoginFailures(keys);
+		await createSession(event, account, event.request.headers.get('user-agent'));
+		rememberDevice(event, backend, account.username);
 		log.info('signed-in', { username: account.username, backend, address: event.getClientAddress() });
 		redirect(303, next);
 	}

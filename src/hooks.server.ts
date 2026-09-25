@@ -1,4 +1,4 @@
-import { isRedirect, redirect, type Handle, type HandleServerError } from '@sveltejs/kit';
+import { isRedirect, redirect, type Handle, type HandleServerError, type RequestEvent } from '@sveltejs/kit';
 import { version } from '$app/environment';
 import { resolveSession } from '$lib/server/auth';
 import { getSettings, DEFAULT_SETTINGS } from '$lib/server/settings';
@@ -10,11 +10,18 @@ import {
 	nameRequestUser,
 	newRequestId,
 	reason,
+	redact,
 	withRequest
 } from '$lib/server/log';
 
-/** Routes reachable without a session. Everything else requires one. */
-const PUBLIC_ROUTES = ['/login', '/healthz'];
+/**
+ * Routes reachable without a session. Everything else requires one.
+ *
+ * `/share` is here so that a song link opens for someone without an account.
+ * Every route under it resolves the token itself and serves the one song the
+ * link names, and nothing under it accepts a write. See `lib/server/shares.ts`.
+ */
+const PUBLIC_ROUTES = ['/login', '/healthz', '/share', '/manifest.webmanifest'];
 
 const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
@@ -64,6 +71,23 @@ function sealed(body: string, status: number, contentType: string): Response {
 }
 
 /**
+ * The gate's own redirects, with the hardening headers.
+ *
+ * These were thrown with `redirect()`, which SvelteKit answers outside this
+ * handle, so the one response every anonymous visitor to a private page got
+ * carried none of the headers `harden` sets.
+ */
+function sealedRedirect(event: RequestEvent, location: string): Response {
+	// A client-side navigation asks for `__data.json`, and SvelteKit turns a
+	// thrown redirect into the JSON its router follows. A bare 303 there would
+	// hand the router the login page's HTML, so those keep the thrown form.
+	if (event.isDataRequest) redirect(303, location);
+	const response = new Response(null, { status: 303, headers: { location } });
+	harden(response.headers);
+	return response;
+}
+
+/**
  * What is running, printed once.
  *
  * On the first request rather than at module load: the module is evaluated
@@ -83,6 +107,8 @@ function announce(): void {
 			logLevel: logLevel(),
 			data: cfg.dataDir,
 			covers: cfg.coverCacheBytes > 0 ? `${Math.round(cfg.coverCacheBytes / 1024 / 1024)}MB` : 'off',
+			sharing: cfg.sharing ? 'on' : 'off',
+			database: cfg.database.kind === 'postgres' ? `postgres=${cfg.database.label}` : 'sqlite',
 			sessionHours: cfg.sessionMaxHours,
 			cookieSecure: String(cfg.cookieSecure),
 			// The upstream host is the one thing kept off the wire; this is the
@@ -144,8 +170,8 @@ export const handle: Handle = async (input) => {
 			if (failure || status >= 500 || traced || (ms !== undefined && ms >= slowMs && slowMs > 0)) {
 				const fields = {
 					method: event.request.method,
-					path: event.url.pathname,
-					query: traced && event.url.search ? event.url.search : undefined,
+					path: redact(event.url.pathname),
+					query: traced && event.url.search ? redact(event.url.search) : undefined,
 					status,
 					ms,
 					error: failure
@@ -186,13 +212,19 @@ const handleRequest: Handle = async ({ event, resolve }) => {
 			// from inside them, past the route's own handler, and the probe would
 			// answer 500 with the generic upstream message and write an unhandled
 			// stack trace every HEALTHCHECK interval. Hand it straight to the route.
-			return resolve(event);
+			//
+			// Hardened on the way out like every other response. Returning the
+			// route's answer bare left the one response a broken deployment gives
+			// without any of the headers.
+			const response = await resolve(event);
+			harden(response.headers);
+			return response;
 		}
 
 		// The detail stays in the log. It names the offending variable *and its
 		// value*, and that value is usually the internal music-server address —
 		// the one thing this whole proxy design exists to keep off the wire.
-		log.error('config-invalid', { detail: err.message, path: event.url.pathname });
+		log.error('config-invalid', { detail: err.message, path: redact(event.url.pathname) });
 		return sealed(
 			'Heddohon is not configured correctly. See the server log for which ' +
 				'environment variable is at fault, and the README for the full list.',
@@ -232,7 +264,7 @@ const handleRequest: Handle = async ({ event, resolve }) => {
 			// two are told apart by whether the same origin appears every time.
 			log.warn('cross-origin-blocked', {
 				method: event.request.method,
-				path: event.url.pathname,
+				path: redact(event.url.pathname),
 				origin: origin ?? null,
 				expected: event.url.origin
 			});
@@ -244,9 +276,9 @@ const handleRequest: Handle = async ({ event, resolve }) => {
 		}
 	}
 
-	const session = resolveSession(event);
+	const session = await resolveSession(event);
 	event.locals.session = session;
-	event.locals.settings = session ? getSettings(session.account.id) : null;
+	event.locals.settings = session ? await getSettings(session.account.id) : null;
 	if (session) nameRequestUser(session.account.username);
 
 	if (!session && !isPublic(event.url.pathname)) {
@@ -257,16 +289,16 @@ const handleRequest: Handle = async ({ event, resolve }) => {
 			event.url.pathname.startsWith('/api/') ||
 			event.request.headers.get('accept')?.includes('application/json');
 		if (isApi) {
-			log.debug('unauthenticated', { path: event.url.pathname, as: 'api' });
+			log.debug('unauthenticated', { path: redact(event.url.pathname), as: 'api' });
 			return sealed(JSON.stringify({ error: 'not_authenticated' }), 401, 'application/json');
 		}
-		log.debug('unauthenticated', { path: event.url.pathname, as: 'page' });
+		log.debug('unauthenticated', { path: redact(event.url.pathname), as: 'page' });
 		const next = event.url.pathname + event.url.search;
-		redirect(303, `/login?next=${encodeURIComponent(next)}`);
+		return sealedRedirect(event, `/login?next=${encodeURIComponent(next)}`);
 	}
 
 	if (session && event.url.pathname === '/login') {
-		redirect(303, '/');
+		return sealedRedirect(event, '/');
 	}
 
 	const response = await resolve(event, {
@@ -279,6 +311,7 @@ const handleRequest: Handle = async ({ event, resolve }) => {
 				// is in the first byte rather than applied after hydration, which
 				// would resize the whole page in front of the reader.
 				.replace('data-scale="100"', `data-scale="${event.locals.settings?.uiScale ?? DEFAULT_SETTINGS.uiScale}"`)
+				.replace('data-font="manrope"', `data-font="${event.locals.settings?.font ?? DEFAULT_SETTINGS.font}"`)
 	});
 
 	harden(response.headers);
@@ -288,9 +321,16 @@ const handleRequest: Handle = async ({ event, resolve }) => {
 export const handleError: HandleServerError = ({ error, status, event }) => {
 	// The request line records the status; this is the stack behind it, which is
 	// the one place a stack is worth the room it takes.
-	if (status !== 404) {
-		log.error('unhandled', { path: event.url.pathname, detail: reason(error) });
-		console.error(error);
+	//
+	// Only for a fault on this side. A 400 for a malformed escape or a 405 for a
+	// POST to a page is the client's doing, and `/share` hands those to anyone
+	// without an account, so at error level each one was a stack trace an
+	// anonymous visitor could write into the log at will.
+	if (status >= 500) {
+		log.error('unhandled', { path: redact(event.url.pathname), detail: reason(error) });
+		console.error(redact(error instanceof Error ? (error.stack ?? error.message) : String(error)));
+	} else if (status !== 404) {
+		log.debug('rejected', { path: redact(event.url.pathname), status, detail: reason(error) });
 	}
 	return {
 		message:

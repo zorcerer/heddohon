@@ -16,7 +16,7 @@
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync } from 'node:fs';
 import { readdir, readFile, rename, rm, stat, unlink, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { config } from './config';
 import { log, reason } from './log';
 import type { BackendKind } from '$lib/types';
@@ -48,7 +48,7 @@ const TYPES: Record<string, string> = Object.fromEntries(
  * this is two orders above the working case and exists to bound the buffer a
  * request holds, not to reject ordinary artwork.
  */
-const MAX_ENTRY_BYTES = 8 * 1024 * 1024;
+export const MAX_ENTRY_BYTES = 8 * 1024 * 1024;
 
 /**
  * How much may be written between sweeps, as a fraction of the cap, and the
@@ -149,6 +149,43 @@ export interface CachedCover {
 	etag: string;
 }
 
+/**
+ * The stored covers, by key, with the extension each is stored under.
+ *
+ * A lookup tried each of the five extensions in turn until one opened, so a
+ * PNG cover cost a failed open before it was read, and a cover not yet cached
+ * cost five before the music server was asked. The index is read from the
+ * directory once, on first use, and kept by the writes, the sweep and the
+ * clear in this process. A file removed from outside is dropped from it when
+ * reading it fails; one added from outside is not seen until a restart, and is
+ * fetched and written again in the meantime.
+ */
+let index: Promise<Map<string, string>> | null = null;
+
+function storedFiles(dir: string): Promise<Map<string, string>> {
+	index ??= readdir(dir).then(
+		(names) => {
+			const files = new Map<string, string>();
+			for (const name of names) {
+				const dot = name.lastIndexOf('.');
+				const ext = name.slice(dot + 1);
+				// A `.part` file is a write in progress.
+				if (dot > 0 && TYPES[ext]) files.set(name.slice(0, dot), ext);
+			}
+			return files;
+		},
+		// The directory does not exist until the first cover is written.
+		() => new Map<string, string>()
+	);
+	return index;
+}
+
+/** The index key of a stored file, from its path. */
+function keyOf(path: string): string {
+	const name = basename(path);
+	return name.slice(0, name.lastIndexOf('.'));
+}
+
 /** Returns a cached cover, or null when there is not one. */
 export async function readCover(
 	scope: CoverScope,
@@ -158,13 +195,16 @@ export async function readCover(
 	const dir = root();
 	if (!dir) return null;
 	const key = cacheKey(scope, id, size);
-	for (const [ext, type] of Object.entries(TYPES)) {
+	const files = await storedFiles(dir);
+	const ext = files.get(key);
+	if (ext) {
 		try {
 			const body = await readFile(join(dir, `${key}.${ext}`));
 			log.debug('cover-hit', { key, bytes: body.byteLength });
-			return { body, contentType: type, etag: `"${key}-${body.byteLength}"` };
+			return { body, contentType: TYPES[ext], etag: `"${key}-${body.byteLength}"` };
 		} catch {
-			// Not this extension, or not cached at all.
+			// Removed from outside since it was indexed.
+			files.delete(key);
 		}
 	}
 	log.debug('cover-miss', { key });
@@ -190,7 +230,8 @@ export async function writeCover(
 
 	try {
 		if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-		const target = join(dir, `${cacheKey(scope, id, size)}.${ext}`);
+		const key = cacheKey(scope, id, size);
+		const target = join(dir, `${key}.${ext}`);
 		// Written beside the target and renamed, so a reader never opens half a
 		// file. The suffix keeps two writers for the same cover apart.
 		const temp = `${target}.${process.pid}-${Date.now()}.part`;
@@ -199,6 +240,7 @@ export async function writeCover(
 			await unlink(temp).catch(() => undefined);
 			throw err;
 		});
+		(await storedFiles(dir)).set(key, ext);
 	} catch (err) {
 		// Worth a warning rather than silence: a cache that cannot write is a
 		// cache that is not working, and the page gives no sign of it.
@@ -222,25 +264,54 @@ export interface CacheStats {
 	limitBytes: number;
 }
 
+/**
+ * Stats issued at once while listing the directory.
+ *
+ * One at a time, 10000 files (a full 512MB cache at 50KB a cover) took 191 to
+ * 216ms to list; in batches of 64 it took 52 to 64ms, and batches of 256 were
+ * no faster. Measured on Node 22 in a container.
+ */
+const STAT_BATCH = 64;
+
+interface CachedFile {
+	path: string;
+	size: number;
+	/** Last access, or last write where the volume does not record access. */
+	used: number;
+}
+
+/** Every file in the cache directory. Throws when the directory is missing. */
+async function listFiles(dir: string): Promise<CachedFile[]> {
+	const names = await readdir(dir);
+	const files: CachedFile[] = [];
+	for (let start = 0; start < names.length; start += STAT_BATCH) {
+		const batch = await Promise.all(
+			names.slice(start, start + STAT_BATCH).map(async (name) => {
+				const path = join(dir, name);
+				try {
+					const info = await stat(path);
+					return info.isFile()
+						? { path, size: info.size, used: Math.max(info.atimeMs, info.mtimeMs) }
+						: null;
+				} catch {
+					// Removed between the listing and the stat.
+					return null;
+				}
+			})
+		);
+		for (const file of batch) if (file) files.push(file);
+	}
+	return files;
+}
+
 export async function cacheStats(): Promise<CacheStats> {
 	const { coverCacheBytes } = config();
 	const dir = root();
 	if (!dir) return { bytes: null, files: 0, limitBytes: 0 };
 	try {
-		const names = await readdir(dir);
-		let bytes = 0;
-		let files = 0;
-		for (const name of names) {
-			try {
-				const info = await stat(join(dir, name));
-				if (!info.isFile()) continue;
-				bytes += info.size;
-				files += 1;
-			} catch {
-				// Removed between the listing and the stat.
-			}
-		}
-		return { bytes, files, limitBytes: coverCacheBytes };
+		const files = await listFiles(dir);
+		const bytes = files.reduce((sum, file) => sum + file.size, 0);
+		return { bytes, files: files.length, limitBytes: coverCacheBytes };
 	} catch {
 		// The directory does not exist until the first cover is written.
 		return { bytes: 0, files: 0, limitBytes: coverCacheBytes };
@@ -253,6 +324,7 @@ export async function clearCache(): Promise<void> {
 	if (!dir) return;
 	const before = await cacheStats();
 	await rm(dir, { recursive: true, force: true }).catch(() => undefined);
+	index = Promise.resolve(new Map());
 	bytesSinceSweep = 0;
 	log.info('cover-cache-cleared', { files: before.files, bytes: before.bytes ?? 0 });
 }
@@ -269,29 +341,22 @@ async function sweep(): Promise<void> {
 	sweeping = true;
 	try {
 		const { coverCacheBytes } = config();
-		const names = await readdir(dir);
-		const entries: Array<{ path: string; size: number; used: number }> = [];
-		let total = 0;
-		for (const name of names) {
-			const path = join(dir, name);
-			try {
-				const info = await stat(path);
-				if (!info.isFile()) continue;
-				entries.push({ path, size: info.size, used: Math.max(info.atimeMs, info.mtimeMs) });
-				total += info.size;
-			} catch {
-				// Gone already.
-			}
-		}
+		const entries = await listFiles(dir);
+		let total = entries.reduce((sum, entry) => sum + entry.size, 0);
 		if (total <= coverCacheBytes) return;
 
 		entries.sort((a, b) => a.used - b.used);
 		const startedAt = total;
 		let removed = 0;
+		const files = await storedFiles(dir);
 		for (const entry of entries) {
 			if (total <= coverCacheBytes) break;
 			try {
 				await unlink(entry.path);
+				const key = keyOf(entry.path);
+				// Only if the index still names this file, and not one written for the
+				// same cover under another type since.
+				if (entry.path.endsWith(`.${files.get(key)}`)) files.delete(key);
 				total -= entry.size;
 				removed += 1;
 			} catch {

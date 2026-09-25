@@ -12,7 +12,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 	const session = locals.session;
 	if (!session) error(401, 'Not signed in');
 
-	if (!getSettings(session.account.id).reportPlayback) {
+	if (!(await getSettings(session.account.id)).reportPlayback) {
 		return json({ reported: false, reason: 'disabled_by_user' });
 	}
 
@@ -23,7 +23,11 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 		completed?: unknown;
 	} | null;
 
-	if (!body || typeof body.songId !== 'string') error(400, 'songId is required');
+	// The bound every other id takes. Unbounded, a 200 KB id went to the music
+	// server in the query string of a scrobble.
+	if (!body || typeof body.songId !== 'string' || body.songId.length === 0 || body.songId.length >= 256) {
+		error(400, 'songId is required');
+	}
 	const event = body.event;
 	if (event !== 'start' && event !== 'progress' && event !== 'stop') {
 		error(400, 'event must be start, progress or stop');

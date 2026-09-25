@@ -23,6 +23,17 @@ export interface AudioQuality {
 	lossless: boolean;
 }
 
+/**
+ * Loudness correction the server reports for a file, in dB and as linear
+ * peaks. Any field is null when the file or the server does not carry it.
+ */
+export interface ReplayGain {
+	trackGain: number | null;
+	albumGain: number | null;
+	trackPeak: number | null;
+	albumPeak: number | null;
+}
+
 export interface Song {
 	id: string;
 	title: string;
@@ -39,8 +50,12 @@ export interface Song {
 	genre: string | null;
 	coverArt: string | null;
 	starred: boolean;
+	/** Epoch millis it was starred, where the server reports it (Subsonic does, Jellyfin does not). */
+	starredAt: number | null;
 	playCount: number | null;
 	quality: AudioQuality;
+	/** Null when the server reports no loudness data for the file. */
+	replayGain: ReplayGain | null;
 }
 
 export interface Album {
@@ -55,6 +70,8 @@ export interface Album {
 	duration: number | null;
 	coverArt: string | null;
 	starred: boolean;
+	/** Epoch millis it was starred, where the server reports it. */
+	starredAt: number | null;
 	/** Epoch millis the album was added to the library, when known. */
 	createdAt: number | null;
 }
@@ -69,12 +86,25 @@ export interface Artist {
 	albumCount: number | null;
 	coverArt: string | null;
 	starred: boolean;
+	/** Epoch millis it was starred, where the server reports it. */
+	starredAt: number | null;
 }
 
 export interface ArtistDetail extends Artist {
 	albums: Album[];
 	biography: string | null;
 	topSongs: Song[];
+}
+
+/**
+ * A genre as the music server names it. `id` is what the server looks albums
+ * up by: the name itself on Subsonic, an item id on Jellyfin.
+ */
+export interface Genre {
+	id: string;
+	name: string;
+	albumCount: number | null;
+	songCount: number | null;
 }
 
 export interface Playlist {
@@ -125,6 +155,8 @@ export interface Lyrics {
 	/** Whatever the server knows about where these came from. */
 	artist: string | null;
 	title: string | null;
+	/** Where the words came from, when not the music server. */
+	source?: 'lrclib';
 }
 
 export type PlaylistSort = 'recentlyUpdated' | 'recentlyAdded' | 'alphabetical' | 'trackCount' | 'duration';

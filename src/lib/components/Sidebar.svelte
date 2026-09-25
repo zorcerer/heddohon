@@ -1,6 +1,9 @@
 <script lang="ts">
-	import { page } from '$app/state';
+	import { navigating, page } from '$app/state';
 	import { player } from '$lib/client/player.svelte';
+	import { DUR, EASE_OUT_CSS, easeOut, motion } from '$lib/client/motion';
+	import { untrack } from 'svelte';
+	import { slide } from 'svelte/transition';
 	import Icon from './Icon.svelte';
 	import Logo from './Logo.svelte';
 
@@ -10,15 +13,96 @@
 		{ href: '/', label: 'Home', icon: 'home' as const, exact: true },
 		{ href: '/albums', label: 'Albums', icon: 'album' as const, exact: false },
 		{ href: '/artists', label: 'Artists', icon: 'artist' as const, exact: false },
+		// Not in the phone's row, which is full; the Albums page links to it there.
+		{ href: '/genres', label: 'Genres', icon: 'genre' as const, exact: false, wideOnly: true },
 		{ href: '/playlists', label: 'Playlists', icon: 'playlist' as const, exact: false },
 		{ href: '/favourites', label: 'Favourites', icon: 'heart' as const, exact: false },
 		{ href: '/search', label: 'Search', icon: 'search' as const, exact: false }
 	];
 
+	/*
+	 * Where the rail points: the page being opened while it loads, then that
+	 * page. Following the address alone, the marker waited for the next page's
+	 * data before it moved, and on a slow one it sat for 46 frames and then
+	 * jumped. An abandoned navigation clears `navigating`, and it goes back.
+	 */
+	const path = $derived(navigating.to?.url.pathname ?? page.url.pathname);
+
 	function isActive(href: string, exact: boolean): boolean {
-		const path = page.url.pathname;
 		return exact ? path === href : path === href || path.startsWith(`${href}/`);
 	}
+
+	/*
+	 * The active marker slides from one destination to the next on the spring,
+	 * instead of disappearing from one and appearing at the other.
+	 *
+	 * The server cannot measure, so the first paint keeps the marker each link
+	 * draws for itself, and this one takes over once it has a position
+	 * (`measured`), placed without travel the first time. It moves by
+	 * `translate` inside the rail's glass, holding none of its own, so the
+	 * rail's blur is untouched. Settings is below the list, so on that page the
+	 * marker fades out here and Settings draws its own.
+	 */
+	let list = $state<HTMLUListElement | null>(null);
+	let anchors = $state<Array<HTMLAnchorElement | null>>([]);
+	let marker = $state<{ x: number; y: number } | null>(null);
+	let markerEl = $state<HTMLLIElement | null>(null);
+	let placedIndex = -1;
+	let measured = $state(false);
+	let settled = $state(false);
+	const activeIndex = $derived(LINKS.findIndex((link) => isActive(link.href, link.exact)));
+
+	function place() {
+		const anchor = activeIndex >= 0 ? anchors[activeIndex] : null;
+		// A destination hidden at this width (Genres on a phone) has no box.
+		if (!anchor || anchor.offsetWidth === 0) {
+			marker = null;
+			return;
+		}
+		// Untracked: `place` runs in an effect, and reading what it is about to
+		// write made the effect depend on itself.
+		const from = untrack(() => marker);
+		marker = {
+			x: anchor.offsetLeft + anchor.offsetWidth / 2,
+			y: anchor.offsetTop + anchor.offsetHeight / 2
+		};
+		// A new destination, not the same one measured again after a resize.
+		if (untrack(() => settled) && from && placedIndex !== activeIndex) stretch(from, marker);
+		placedIndex = activeIndex;
+		if (!measured) {
+			measured = true;
+			// Travel only from the second position on.
+			requestAnimationFrame(() => requestAnimationFrame(() => (settled = true)));
+		}
+	}
+
+	/*
+	 * The bar draws out along its path as it travels, to about twice its
+	 * length a third of the way, and gathers back as it lands, so the move reads
+	 * as a slide rather than a hop. Scale on the bar itself, apart from the
+	 * `translate` that carries it, so the two do not interrupt each other.
+	 */
+	function stretch(from: { x: number; y: number }, to: { x: number; y: number }) {
+		const duration = motion(DUR.travel);
+		if (!markerEl || duration === 0) return;
+		const along = Math.abs(to.x - from.x) > Math.abs(to.y - from.y) ? '2.2 1' : '1 2.2';
+		markerEl.animate([{ scale: '1 1' }, { scale: along, offset: 0.35 }, { scale: '1 1' }], {
+			duration,
+			easing: EASE_OUT_CSS
+		});
+	}
+
+	$effect(() => {
+		void activeIndex;
+		place();
+	});
+
+	$effect(() => {
+		if (!list) return;
+		const observer = new ResizeObserver(() => place());
+		observer.observe(list);
+		return () => observer.disconnect();
+	});
 </script>
 
 <!--
@@ -31,19 +115,29 @@
 	of the primary navigation as unnamed links; `title` then gives a pointer the
 	same word on hover.
 -->
-<nav class="rail hh-glass hh-tint-morph hh-float" aria-label="Primary">
+<nav class="rail hh-glass hh-tint-morph hh-float" class:measured aria-label="Primary">
 	<a class="brand" href="/" title={appName}>
 		<span class="mark" aria-hidden="true"><Logo size={19} /></span>
 		<span class="wordmark hh-visually-hidden">{appName}</span>
 	</a>
 
-	<ul class="links">
-		{#each LINKS as link (link.href)}
+	<ul class="links" bind:this={list}>
+		<li
+			bind:this={markerEl}
+			class="marker"
+			class:settled
+			class:gone={marker === null}
+			aria-hidden="true"
+			style:--marker-x="{marker?.x ?? 0}px"
+			style:--marker-y="{marker?.y ?? 0}px"
+		></li>
+		{#each LINKS as link, index (link.href)}
 			{@const active = isActive(link.href, link.exact)}
-			<li>
+			<li class:wide-only={'wideOnly' in link}>
 				<a
 					class="link"
 					class:active
+					bind:this={anchors[index]}
 					href={link.href}
 					title={link.label}
 					aria-current={active ? 'page' : undefined}
@@ -62,10 +156,15 @@
 			than that, the panel leaves a sliver on the right-hand edge that does
 			the same job in the place you closed it from, so this is hidden.
 		-->
+		<!-- Opens and closes across the rail rather than appearing, so the
+		     icons beside it move over instead of jumping. The button is inside
+		     the rail's glass and holds none of its own, so its opacity and size
+		     can change without touching the rail's blur. -->
 		{#if !player.panelOpen}
 			<button
 				class="link reopen"
 				type="button"
+				transition:slide={{ axis: 'x', duration: motion(DUR.state), easing: easeOut }}
 				title="Now playing"
 				onclick={() => player.togglePanel()}
 			>
@@ -102,7 +201,8 @@
 	.rail {
 		grid-area: rail;
 		position: relative;
-		z-index: 1;
+		/* Over the page veil in the layout, which sits at 1. */
+		z-index: 2;
 		width: var(--rail-width);
 		display: flex;
 		flex-direction: column;
@@ -158,6 +258,7 @@
 	}
 
 	.links {
+		position: relative;
 		list-style: none;
 		margin: 0;
 		padding: 0;
@@ -230,6 +331,39 @@
 		background: var(--accent);
 	}
 
+	/*
+	 * The sliding marker. Same bar as the per-link one below, placed from the
+	 * active link's centre (`--marker-x`, `--marker-y`). It travels on the
+	 * spring and fades where there is nothing in the list to mark.
+	 */
+	.marker {
+		position: absolute;
+		left: calc(var(--space-2) * -1);
+		top: 0;
+		width: 3px;
+		height: 1.1rem;
+		border-radius: var(--r-pill);
+		background: var(--accent);
+		translate: 0 calc(var(--marker-y) - 0.55rem);
+		pointer-events: none;
+		opacity: 0;
+	}
+
+	.measured .marker:not(.gone) {
+		opacity: 1;
+	}
+
+	.marker.settled {
+		transition:
+			translate var(--dur-travel) var(--ease-spring),
+			opacity var(--dur-hover) var(--ease-out);
+	}
+
+	/* Once the sliding marker has a position, it is the one drawn. */
+	.measured .links .link.active::before {
+		display: none;
+	}
+
 	.foot {
 		display: grid;
 		gap: var(--space-3);
@@ -269,6 +403,19 @@
 			 * own row instead, and everything after them stays put.
 			 */
 			overflow: hidden;
+			/*
+			 * The document scrolls under the rail on a narrow screen (see the
+			 * layout), and this keeps it on screen. A sticky box stays inside its
+			 * containing block, and CSS Grid defines a grid item's containing
+			 * block as its grid area, which in the first row alone is the rail's
+			 * own height. Chromium 141 measures against the whole grid instead: with
+			 * the rail confined to the first row it still sat at 12px after
+			 * 1500px of scrolling. Spanning both rows makes it stick under either
+			 * reading, and the height above keeps it to the first row on screen.
+			 */
+			position: sticky;
+			top: var(--edge-top);
+			grid-row: 1 / -1;
 		}
 
 		/*
@@ -346,6 +493,10 @@
 			display: grid;
 		}
 
+		.wide-only {
+			display: none;
+		}
+
 		.link.active::before {
 			left: 50%;
 			top: auto;
@@ -353,6 +504,16 @@
 			width: 1.1rem;
 			height: 3px;
 			margin: 0 0 0 -0.55rem;
+		}
+
+		/* Under the icon in the row, travelling sideways. */
+		.marker {
+			left: 0;
+			top: auto;
+			bottom: 2px;
+			width: 1.1rem;
+			height: 3px;
+			translate: calc(var(--marker-x) - 0.55rem) 0;
 		}
 	}
 </style>

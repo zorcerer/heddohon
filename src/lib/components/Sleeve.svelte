@@ -48,7 +48,7 @@
 		style:border-radius={radius}
 		style:view-transition-name={carrying ? `sleeve-art-${transitionId}` : undefined}
 	>
-		<Cover {coverArt} {alt} {size} {radius} />
+		<Cover {coverArt} {alt} {size} {radius} layered={size >= 512} />
 	</div>
 </div>
 
@@ -82,6 +82,7 @@
 	   moving in the right direction. */
 	.launching .art {
 		transform: scale(1.04);
-		transition: transform 190ms cubic-bezier(0.32, 0.9, 0.3, 1);
+		/* 190ms is `LAUNCH_MS`, the wait before the navigation starts. */
+		transition: transform 190ms var(--ease-out);
 	}
 </style>

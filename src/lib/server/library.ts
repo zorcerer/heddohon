@@ -11,12 +11,18 @@ import { log, reason } from './log';
 export interface LibraryContext {
 	backend: MediaBackend;
 	credential: StoredCredential;
+	/** The signed-in account, for anything remembered per account. */
+	accountId: string;
 }
 
 export function libraryContext(locals: App.Locals): LibraryContext {
 	const session = locals.session;
 	if (!session) error(401, 'Not signed in');
-	return { backend: backendFor(session.account.backend), credential: session.credential };
+	return {
+		backend: backendFor(session.account.backend),
+		credential: session.credential,
+		accountId: session.account.id
+	};
 }
 
 /**
@@ -34,7 +40,7 @@ export async function library<T>(
 	} catch (err) {
 		if (err instanceof UpstreamError) {
 			if (err.kind === 'auth' && event.locals.session) {
-				destroyAllSessions(event.locals.session.account.id);
+				await destroyAllSessions(event.locals.session.account.id);
 				error(401, 'Your music server credentials are no longer valid. Please sign in again.');
 			}
 			error(err.kind === 'not_found' ? 404 : 502, err.message);

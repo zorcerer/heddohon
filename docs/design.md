@@ -8,8 +8,8 @@ the conclusions are not obvious from the result.
 
 ---
 
-**The palette is deliberately colourless.** A near-neutral graphite in the dark
-theme, a near-neutral paper in the light one, and no hue of their own beyond a
+**The palette is deliberately colourless.** A near-black graphite in the dark
+theme (Liquid), a soft cool grey in the light one (Sleek), and no hue of their own beyond a
 fraction of a degree of cool cast to stop large surfaces reading as dead grey.
 
 That is the whole idea, and it follows from the material: glass has no colour;
@@ -20,9 +20,12 @@ room takes on the colour of the record and nothing has to compete for it. A
 fixed accent would have to fight the tint on every page, and one of them would
 lose.
 
-The only exception is the hi-res badge, which stays a fixed violet: it reports a
-technical fact about the file, and that fact should not change colour with the
-cover. It has a third state, for when the music server is converting rather than
+The quality badge follows the same rule. It was the one exception, a fixed
+violet for hi-res, on the reasoning that a technical fact about the file should
+not change colour with the cover; it was changed on 2026-09-25 to take its
+colour from the artwork like the rest. Lossless is an outline in the accent and
+hi-res a filled badge in the stronger accent, so the two stay apart by shape
+and weight rather than by hue. It has a third state, for when the music server is converting rather than
 sending the file: it loses both the lossless and the hi-res treatment for a
 dashed edge, and names the codec and bitrate arriving instead of the depth and
 rate on disk. It is the switch for that as well as the report of it, since the
@@ -65,6 +68,16 @@ soft drop shadow. The content column is the one thing that is not a panel
 (framing it too would make every page read as a box inside a box), so it scrolls
 freely behind the panels and the blur has real artwork to work with.
 
+On a phone the page scrolls as a document rather than inside the column, and
+the rail stays pinned over it. Safari on iOS 26 draws the page behind its
+toolbar and under the status bar only from the document's own scroll, and it
+folds the toolbar away on that scroll. The gutter is measured from the safe
+area, so the panels stay clear of the notch and the home indicator while the
+room runs to the edges of the screen. What Safari shows in the strip under the
+status bar and the band behind its toolbar is the page's background colour,
+which carries the room's colour at the share its edges average, half the
+ambient strength.
+
 **Every page is centred in that column, and each page states its own maximum
 width.** The centring is one rule in the layout rather than a declaration in
 each page file, so a new route cannot forget it. The maximum is a reading
@@ -86,6 +99,13 @@ record protruding from behind it; that reads as an object on a shelf, but it
 fought the floating-glass treatment (two conflicting depth metaphors on the same
 element), and it cost a hover gutter on every hero. The cover alone is quieter
 and survives at grid scale.
+
+On the album page the sleeve turns toward the pointer, up to 9 degrees on each
+axis, and lifts 1.25rem toward the viewer, with a highlight that follows the
+pointer across its face; it settles flat on the spring when the pointer leaves
+and on a press. A wrapper turns, not the sleeve, which carries the
+view-transition name, and it is flat before any navigation starts. Mouse only,
+and not under reduced motion.
 
 **The room changes colour from the moment you click.** The interface takes one
 tint from the current artwork, applied at the document root. Resolving that
@@ -152,10 +172,33 @@ Pages are laid out like a printed catalogue rather than a dashboard.
 - **Sections are numbered and ruled.** A mono index sits in the margin, and a
   hairline runs from the title to the right edge. That single device is what makes
   a page of shelves read as an index instead of a stack of carousels.
-- **The newest release is promoted out of the grid** and given the full width at
-  poster scale, with its year set large and faint on the outer edge as a folio
-  number. It is the page's only poster-scale moment; everything below is
-  deliberately smaller.
+- **Album shelves on the home page are one line each** and scroll sideways
+  (`MediaShelf`), with the numbered header kept and paging buttons at its right
+  end for a mouse. Changed on 2026-09-25 from wrapped grids: at 1440px with the
+  player open, 11 albums wrapped to three rows, about 800px of page for one
+  shelf, and in one line the shelf is 310px. The card cut at the edge is the
+  cue that the line goes on.
+- **The home page opens like a front page**: the newest release as the lead,
+  at poster scale, and "Jump back in" (the six albums played last, at list
+  size) in a 19rem column beside it. Below 52rem of page width the column goes
+  under the lead as a grid of tiles. The featured release is its artwork: the
+  cover fills the panel, zoomed to 114 percent and cropped, settling in from
+  126 percent on arrival and drifting to 120 under the pointer, with the
+  details over a shade that is darkest in the lower left. The text is light in
+  both themes, since it sits on the darkened picture rather than on the room.
+  The panel is not glass, and nothing glass sits over it, so the zoom is free
+  to move. It sizes itself by the width it is given (container queries), not
+  the window's; on a phone it is 15rem tall, where the earlier cover-beside-
+  text panel stacked to 470px of an iPhone's 844. The artist page uses the
+  same panel for its latest release, beside its most played tracks.
+- **The artists page is an A to Z**: each initial set large in the margin
+  beside its group, held there while the group scrolls. A leading article is
+  skipped for the initial, as the music servers skip it when sorting. The
+  genres page sets its six largest genres in type at poster scale, then every
+  genre in columns with dotted leaders to its album count, the way a book's
+  index is set.
+- **Favourites and the random selection on the home page are two columns**
+  once the list has 52rem to itself (`TrackList columns`).
 - **Tracklists are printed indexes**: numbers hang in the margin, hairline rules
   separate entries, and hovering tints a row rather than filling it, so the eye
   reads down one column of titles instead of scanning a stack of buttons.
@@ -163,7 +206,13 @@ Pages are laid out like a printed catalogue rather than a dashboard.
   slice on the server and send only the visible page, so a library with thousands
   of artists renders as fast as one with twenty. Search on the artists page
   filters the whole library *before* the slice, so a name on page nine is still
-  findable from page one.
+  findable from page one. The artist list and the favourites are each fetched
+  once per 30 seconds per account and reused for every page turn, tab and
+  filter query inside that window, so an artist added by a library scan, or a
+  star made in the music server's own interface, appears up to 30 seconds
+  later. A star made in Heddohon shows on the next load.
+  Each favourites tab is sorted on the server before the slice, from the same
+  held listing, so a new order costs no upstream call.
 
 ### The artwork tint
 
@@ -287,6 +336,35 @@ to be see-through, while a light one separates them by a few percent of grey,
 and translucency eats exactly that difference. Theme choice is stored
 server-side against your account, so the correct palette is in the
 server-rendered HTML and there is no flash on load.
+
+Settings calls them **Liquid** and **Sleek**; the stored values are still
+`dark` and `light`, so nothing an account has saved changes.
+
+Liquid was taken a step darker on 2026-09-25: the ground from `#101114` to
+`#0b0c0f`, the panes from `#17191d` to `#111317` with the glass attenuated to
+42% brightness from 50%, and the text a step brighter (`#f7f8fa` headings,
+`#a2a6ae` secondary). Before that the ground, the panes and the secondary text
+sat close enough together that the screen read as grey.
+
+**Sleek is a light theme as light themes are drawn**, replacing one that was a
+dark theme inverted. The first light palette ran near-white panes (lifted to
+125% brightness) on `#f2f3f6`, with `#15171b` headlines and an accent at 27%
+lightness: glare in the panels, ink-dark type and a primary button that read
+as black. Sleek puts the page at `#e3e6eb` and the panes a step lighter at
+full brightness, so only the things meant to catch the eye are near white. Text
+is a charcoal (`#373c44`, secondary `#6b727c`) and headlines drop to weight
+700. The accent's lightness follows its hue, from 31% at yellow, green and red
+to 40% at blue and violet (`cos()` of the distance from 255 degrees), since
+how light a hue can go under white type depends on the hue; the worst cases
+computed are 4.9:1 for yellow and 4.3:1 for cyan at full saturation. At one
+flat 27%, blue read as black.
+
+Its finish borrows from the menus of the Wii and the 3DS without copying
+them: pale plastic panes with a gloss over their first 9rem, keys with a
+bright top edge and a soft shade below, pinstripes across the room (1px in
+every 5 at 26% white), and a ring of the pale accent around the key or cover
+under the pointer, in place of the dark theme's coloured glow. All of it is
+paint on elements that already exist ("Sleek finish" in `app.css`).
 
 **Every piece of text carries a hairline of shade.** Type sits on translucent
 panes over arbitrary artwork, and one pixel of shadow is what separates a glyph
@@ -447,6 +525,59 @@ selectors, so source order is the only thing separating them, and putting the
 control fallbacks up with the pane primitives left the buttons translucent for
 exactly the people who asked for them not to be.
 
+### Motion from component libraries
+
+On 2026-09-24 the Svelte ports of Magic UI, Luxe and Aceternity collected at
+animation-svelte.vercel.app (MIT, built on Tailwind and `motion-sv`) were
+reviewed against the rules above. One idea was taken and rewritten in plain
+CSS, since the tree has neither dependency.
+
+**Adopted: a busy state on the card play button**, after Luxe's "Button
+Loading". Pressing play on an album or artist card fetches its tracks before
+anything sounds: one upstream call for an album, one per album for an artist.
+Nothing on screen acknowledged the click, and a second press started a second
+fetch. The button now stays up while the fetch is out, ignores further presses,
+and past 150ms swaps its icon for the spinner the now-playing panel already
+uses. Under 150ms the play icon never leaves, so a fast answer shows nothing.
+The button is a solid fill rather than glass, so the rules above do not come
+into it.
+
+**Not adopted**, by group:
+
+- **Glow and colour effects**: Border Beam, Shine Border, Shimmer Button,
+  Rainbow Button, Animated Gradient Text, Aurora Text, Sparkles Text, Magic
+  Card, Meteors, Particles, Cool Mode. Each brings a hue or a glow of its own,
+  and every hue here comes from the artwork.
+- **Animated backgrounds**: Grid Pattern, Dot Pattern, Flickering Grid, Retro
+  Grid, Ripple, Background Boxes. The ambient field is the one background. A
+  second moving layer would sit behind the glass and be blurred into the tint.
+  An aurora was adopted on 2026-09-25 as a setting, off by default: bands of
+  the room's own hues, blurred 48px, moved by `transform` in 3 steps a second,
+  masked clear of the top and bottom edges. Each step redraws every glass
+  surface over it (33 percent of a core in software rendering, 1 percent held
+  still); see `.aurora` in `app.css`.
+- **Content entrances**: Blur Fade, Blur In, Words Fade In, Letter Pull Up,
+  Words Pull Up, Text Reveal, Box Reveal. Pages arrive server-rendered with
+  their content in the first paint, and these hide it and bring it back. Opacity
+  or filter on an ancestor of glass also drops its blur for the length of the
+  animation (see **Floating panels**).
+  A narrower version was adopted on 2026-09-25: after a navigation, not on
+  the first paint, the page rises 12px under the veil and the items of a card
+  grid or track list follow 24ms apart (`hh-stagger`). The page moves by
+  `translate`, which is not a backdrop root, and only the items fade, which
+  hold no glass.
+- **Marquee**: the now-playing title wraps to two lines by design, and a
+  scrolling title keeps moving for as long as the track plays. The collapsed
+  player strip, where the title is set down its length and cut short, is the
+  one place it could be reconsidered.
+- **Number Ticker**: the counts on screen (5,001 artists, 2,500 favourites)
+  are facts, and counting up to one shows wrong values until it lands.
+- **Dock**: magnifying rail icons under the pointer moves the targets being
+  pointed at.
+- **The rest** (Globe, Orbiting Circles, File Tree, device mock-ups, Scratch
+  To Reveal, Hero Video Dialog, Animated Beam) has no counterpart in a music
+  player.
+
 ### Making a derived accent legible
 
 Deriving the accent from the artwork means it has to stay readable for *every*
@@ -496,7 +627,15 @@ one voice at two volumes, which is what keeps a glass interface from looking
 busy; a high-contrast Didone against glass fights the blur, because hairline
 serifs are the first thing a backdrop filter smears.
 
-Exactly two lines pick the faces (`--font-display` and `--font-ui` in
+Settings offers five faces besides Manrope (`font`): Inter, Geist, IBM Plex
+Sans, Atkinson Hyperlegible Next, and the device's own (`system-ui`). Each
+`[data-font]` rule in `app.css` sets the same two variables below, the server
+writes the attribute on the root like the theme, and a browser downloads only
+the face in use. The mono face is the same under all of them. The list is
+short on purpose: faces with an even stroke and open counters, which the
+reasoning above asks of anything over glass, and one chosen for legibility.
+
+Two variables pick the faces (`--font-display` and `--font-ui` in
 `src/lib/styles/app.css`), and nothing else names a family. Point them at the
 same value for the single-voice treatment above, or split them for contrast:
 **Newsreader** or **Fraunces** for display against Manrope for the interface

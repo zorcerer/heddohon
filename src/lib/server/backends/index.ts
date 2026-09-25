@@ -25,4 +25,5 @@ export type {
 	StreamRequest,
 	UpstreamResponse
 } from './types';
+export type { ScrobblerLinks, ScrobblerService } from './navidrome';
 export { UpstreamError } from './http';

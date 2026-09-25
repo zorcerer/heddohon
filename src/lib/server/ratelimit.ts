@@ -23,21 +23,25 @@
  * either side of an `await` that takes a network round trip, so 500 concurrent
  * POSTs all read the same pre-burst total, all passed, and all reached the
  * music server: 500 guesses through a limit of 10. The reservation below is a
- * single statement, and better-sqlite3 is synchronous, so nothing interleaves
- * between the read and the write. The cost is that an attempt the upstream
+ * single upsert that returns the new count, so nothing interleaves between the
+ * read and the write: SQLite runs one statement at a time, and PostgreSQL locks
+ * the row for the length of the `ON CONFLICT` update. The cost is that an attempt the upstream
  * never judged has to be handed back explicitly, which is what `refundLoginAttempt`
  * is for.
  *
  * State lives in SQLite rather than in memory so that restarting the container
  * is not a way to clear the counter.
  */
-import { db } from './db';
+import type { BackendKind } from '$lib/types';
+import { store } from './db';
 import { log } from './log';
 
 /** How long a run of failures is remembered. */
 const WINDOW_MS = 15 * 60 * 1000;
 /** Attempts allowed per username before that username is throttled. */
 const MAX_PER_USERNAME = 10;
+/** Attempts allowed per known device, at the account it is known for. */
+const MAX_PER_DEVICE = 10;
 /** Attempts allowed per source address. Generous, see the note above. */
 const MAX_PER_ADDRESS = 60;
 
@@ -84,9 +88,25 @@ let warnedSharedAddress = false;
  * The keys a single attempt counts against. Usernames are lower-cased so that
  * `Alice` and `alice` cannot be used as two separate budgets against one
  * account, and prefixed so a username can never collide with an address.
+ *
+ * The backend is part of the username key. With both servers configured,
+ * `alice` on Navidrome and `alice` on Jellyfin are two accounts that may
+ * belong to two people, and a success clears the key. Shared, nine guesses at
+ * one followed by a correct sign-in to the other reset the count, and the
+ * guessing went on without limit.
  */
-export function loginKeys(username: string, address: string): Array<[string, number]> {
-	const keys: Array<[string, number]> = [[`user:${username.toLowerCase()}`, MAX_PER_USERNAME]];
+export function loginKeys(
+	backend: BackendKind,
+	username: string,
+	address: string,
+	device: string | null = null
+): Array<[string, number]> {
+	// A browser that has signed in as this account before is counted on its
+	// own, and not against the username or the address, which anybody can
+	// run up. See `rememberDevice` in auth.ts.
+	if (device) return [[`device:${device}`, MAX_PER_DEVICE]];
+
+	const keys: Array<[string, number]> = [[`user:${backend}:${username.toLowerCase()}`, MAX_PER_USERNAME]];
 
 	if (perVisitorAddress(address)) {
 		keys.push([`addr:${address}`, MAX_PER_ADDRESS]);
@@ -143,22 +163,27 @@ function retryAfterFor(windowFrom: number, timestamp: number): number {
  * the same pre-burst total. Every key is incremented even when an earlier one
  * has already refused, so that a throttled username still costs its address.
  */
-export function reserveLoginAttempt(keys: Array<[string, number]>): RateVerdict {
+export async function reserveLoginAttempt(keys: Array<[string, number]>): Promise<RateVerdict> {
 	const timestamp = Date.now();
-	const statement = db().prepare<
-		[string, number, number, number, number],
-		{ failures: number; window_from: number }
-	>(
+	const database = await store();
+	const sql = (
 		`INSERT INTO login_attempts (key, failures, window_from) VALUES (?, 1, ?)
 		 ON CONFLICT(key) DO UPDATE SET
-		   failures = CASE WHEN ? - window_from > ${WINDOW_MS} THEN 1 ELSE failures + 1 END,
-		   window_from = CASE WHEN ? - window_from > ${WINDOW_MS} THEN ? ELSE window_from END
+		   failures = CASE WHEN ? - login_attempts.window_from > ${WINDOW_MS} THEN 1 ELSE login_attempts.failures + 1 END,
+		   window_from = CASE WHEN ? - login_attempts.window_from > ${WINDOW_MS} THEN ? ELSE login_attempts.window_from END
 		 RETURNING failures, window_from`
 	);
 
 	let worst = 0;
 	for (const [key, limit] of keys) {
-		const row = statement.get(key, timestamp, timestamp, timestamp, timestamp);
+		const row = await database.get<{ failures: number; window_from: number }>(
+			sql,
+			key,
+			timestamp,
+			timestamp,
+			timestamp,
+			timestamp
+		);
 		if (!row || row.failures <= limit) continue;
 		worst = Math.max(worst, retryAfterFor(row.window_from, timestamp));
 	}
@@ -173,11 +198,16 @@ export function reserveLoginAttempt(keys: Array<[string, number]>): RateVerdict 
  * Only a rejected credential should count. An unreachable music server is not a
  * wrong guess, and counting it would let an upstream outage lock every user out.
  */
-export function refundLoginAttempt(keys: Array<[string, number]>): void {
-	const statement = db().prepare<[string]>(
-		'UPDATE login_attempts SET failures = MAX(failures - 1, 0) WHERE key = ?'
-	);
-	for (const [key] of keys) statement.run(key);
+export async function refundLoginAttempt(keys: Array<[string, number]>): Promise<void> {
+	const database = await store();
+	// A CASE rather than SQLite's two-argument MAX(), which PostgreSQL spells
+	// GREATEST.
+	for (const [key] of keys) {
+		await database.run(
+			'UPDATE login_attempts SET failures = CASE WHEN failures > 0 THEN failures - 1 ELSE 0 END WHERE key = ?',
+			key
+		);
+	}
 }
 
 /**
@@ -185,16 +215,16 @@ export function refundLoginAttempt(keys: Array<[string, number]>): void {
  * cleared: the address key is shared by everyone behind a proxy, so one correct
  * password must not wipe the backstop for everybody else.
  */
-export function clearLoginFailures(keys: Array<[string, number]>): void {
-	const statement = db().prepare<[string]>('DELETE FROM login_attempts WHERE key = ?');
+export async function clearLoginFailures(keys: Array<[string, number]>): Promise<void> {
+	const database = await store();
 	for (const [key] of keys) {
-		if (key.startsWith('user:')) statement.run(key);
+		if (key.startsWith('user:') || key.startsWith('device:')) {
+			await database.run('DELETE FROM login_attempts WHERE key = ?', key);
+		}
 	}
 }
 
 /** Drops rows whose window has long since rolled off. */
-export function pruneLoginAttempts(): void {
-	db()
-		.prepare<[number]>('DELETE FROM login_attempts WHERE window_from < ?')
-		.run(Date.now() - WINDOW_MS * 4);
+export async function pruneLoginAttempts(): Promise<void> {
+	await (await store()).run('DELETE FROM login_attempts WHERE window_from < ?', Date.now() - WINDOW_MS * 4);
 }

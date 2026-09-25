@@ -1,7 +1,7 @@
 <script lang="ts">
 	import '$lib/styles/app.css';
 	import { untrack } from 'svelte';
-	import { onNavigate } from '$app/navigation';
+	import { afterNavigate, onNavigate } from '$app/navigation';
 	import { player } from '$lib/client/player.svelte';
 	import { tintFrom } from '$lib/client/artwork';
 	import { ambience } from '$lib/client/ambience.svelte';
@@ -12,19 +12,31 @@
 		supportsViewTransitions
 	} from '$lib/client/sleeve-transition.svelte';
 	import { handOff } from '$lib/client/handoff';
+	import { installPress } from '$lib/client/press';
 	import Cover from '$lib/components/Cover.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import NowPlayingPanel from '$lib/components/NowPlayingPanel.svelte';
 	import PlaylistPicker from '$lib/components/PlaylistPicker.svelte';
+	import ShareDialog from '$lib/components/ShareDialog.svelte';
 	import Sidebar from '$lib/components/Sidebar.svelte';
-	import type { LayoutData } from './$types';
+	import type { LayoutData, Snapshot } from './$types';
+	import type { Song } from '$lib/types';
 
 	let { data, children }: { data: LayoutData; children: import('svelte').Snippet } = $props();
+
+	// The press effect on every `.hh-button`; see `client/press.ts`.
+	$effect(() => installPress());
 
 	let primaryAudio = $state<HTMLAudioElement | null>(null);
 	let secondaryAudio = $state<HTMLAudioElement | null>(null);
 
-	const signedIn = $derived(Boolean(data.account) && !data.isLoginPage);
+	/*
+	 * A shared link is drawn bare, as the login page is, for visitors with or
+	 * without an account. It plays through an audio element of its own, so the
+	 * player is not attached there either; it attaches, and the queue is
+	 * restored, when a signed-in visitor goes on into the library.
+	 */
+	const signedIn = $derived(Boolean(data.account) && !data.isLoginPage && !data.isSharePage);
 
 	/*
 	 * The fade in when the app arrives from the login page.
@@ -81,14 +93,19 @@
 		// Reading them as a dependency here would detach and re-attach the
 		// player, and restore the queue over the top of itself, every time a
 		// setting changed.
-		player.attach(primaryAudio, secondaryAudio, untrack(() => data.settings));
+		// The whole call untracked, not only the settings: `attach` reads player
+		// state on its way, and anything it reads here becomes a reason to
+		// detach and re-attach the player, which stops playback.
+		const primary = primaryAudio;
+		const secondary = secondaryAudio;
+		untrack(() => player.attach(primary, secondary, data.settings));
 		void restoreQueue();
 		return () => player.detach();
 	});
 
 	// Settings can change from the settings page while the player is running.
 	$effect(() => {
-		player.settings = data.settings;
+		player.applySettings(data.settings);
 	});
 
 	// `data-theme` is written into the document by the server-side HTML
@@ -104,6 +121,11 @@
 	// next full page load. Mirroring it here closes that.
 	$effect(() => {
 		document.documentElement.dataset.scale = data.settings.uiScale;
+	});
+
+	// The font as well, for the same reason.
+	$effect(() => {
+		document.documentElement.dataset.font = data.settings.font;
 	});
 
 	/*
@@ -124,7 +146,9 @@
 		// responded to where you are again. So a paused track yields to whatever
 		// page you are looking at, and only takes the room back if the page has
 		// nothing of its own to offer.
-		const playing = player.playing ? player.current?.coverArt : null;
+		// `engaged` rather than `playing`: `playing` drops for about 17ms at every
+		// track change, which sent the room to the page's cover and back.
+		const playing = player.engaged ? player.current?.coverArt : null;
 		// `incoming` outranks `page`: during a navigation the page being left is
 		// still mounted and still offering its cover, and the room should be on
 		// its way to the one being opened.
@@ -138,6 +162,11 @@
 	 * The queue lives on the server, so it survives a reload and follows the
 	 * account to another device. Only ids are stored; the metadata is re-fetched
 	 * here so a renamed or re-tagged track shows its current details.
+	 *
+	 * The current track is looked up first and put on screen, and the rest of
+	 * the queue follows. On Subsonic every id is its own upstream call, eight at
+	 * a time, so a queue of 1000 tracks held the player empty until the last of
+	 * 1000 calls had answered.
 	 */
 	async function restoreQueue() {
 		try {
@@ -145,23 +174,47 @@
 			if (!response.ok) return;
 			const state = await response.json();
 			if (!Array.isArray(state.songIds) || state.songIds.length === 0) return;
-
-			const songsResponse = await fetch('/api/songs', {
-				method: 'POST',
-				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({ ids: state.songIds })
-			});
-			if (!songsResponse.ok) return;
-			const { songs } = await songsResponse.json();
-			await player.restore(songs, {
-				index: state.index ?? 0,
-				position: state.position ?? 0,
+			const ids: string[] = state.songIds;
+			const savedIndex = Math.min(Math.max(0, state.index ?? 0), ids.length - 1);
+			const settings = {
 				repeat: state.repeat ?? 'off',
 				shuffle: state.shuffle ?? false
-			});
+			};
+
+			const [current] = await lookUp([ids[savedIndex]]);
+			if (current && ids.length > 1) {
+				await player.restore(
+					[current],
+					{ index: 0, position: state.position ?? 0, ...settings },
+					{ ids, index: savedIndex }
+				);
+				player.completeRestore(await lookUp(ids));
+				return;
+			}
+			if (current) {
+				await player.restore([current], { index: 0, position: state.position ?? 0, ...settings });
+				return;
+			}
+
+			// The current track was removed from the library since the queue was
+			// saved. The rest comes back without it, which shifts every position
+			// after it, and the queue resumes at the same position from the start
+			// of the track now there.
+			const songs = await lookUp(ids);
+			await player.restore(songs, { index: savedIndex, position: 0, ...settings });
 		} catch {
 			// A missing queue is not worth an error message.
 		}
+	}
+
+	async function lookUp(ids: string[]): Promise<Song[]> {
+		const response = await fetch('/api/songs', {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ ids })
+		});
+		if (!response.ok) throw new Error(`songs ${response.status}`);
+		return ((await response.json()) as { songs: Song[] }).songs;
 	}
 
 	/**
@@ -188,7 +241,23 @@
 			if (!sleeveTransition.armReturn(target)) sleeveTransition.end();
 		}
 
-		if (!supportsViewTransitions() || prefersReducedMotion()) {
+		if (prefersReducedMotion()) {
+			sleeveTransition.end();
+			return;
+		}
+
+		// No sleeve in flight: nothing is named, so a view transition would only
+		// freeze the page while it captured nothing. The page fades through the
+		// room instead, when it is a different page and not a new sort or page
+		// number of the same one.
+		if (sleeveTransition.activeId === null) {
+			const samePage = navigation.from?.url.pathname === navigation.to?.url.pathname;
+			const leavingShell = !navigation.to || /^\/(login|share)(\/|$)/.test(navigation.to.url.pathname);
+			if (!shellShown || samePage || leavingShell) return;
+			return fadeThroughRoom(navigation);
+		}
+
+		if (!supportsViewTransitions()) {
 			sleeveTransition.end();
 			return;
 		}
@@ -205,6 +274,92 @@
 			});
 		});
 	});
+
+	/*
+	 * Moving between pages.
+	 *
+	 * A veil the colour of the room rises over the page being left, the new page
+	 * is put in underneath it, and the veil falls away. It is one plain layer
+	 * above the content column and below the rail and the player, which are
+	 * lifted over it by z-index.
+	 *
+	 * This is the only shape of page transition that the glass allows, and the
+	 * two others were tried. A named view transition paints a surface from a
+	 * snapshot of itself, which has nothing behind it to blur: that was the
+	 * black rectangle over the rail on iPadOS and Windows. Fading the page
+	 * itself puts every glass card and button in it under an ancestor below full
+	 * opacity, which is a backdrop root, so each one would lose its blur for the
+	 * length of the fade and snap back at the end. The veil is a sibling of all
+	 * of it; nothing under it changes opacity, and nothing is snapshotted.
+	 *
+	 * The first half is short, since it is time the reader is waiting, and it
+	 * starts after the new page's data has already arrived. It was 90ms, which
+	 * read as a flicker rather than a fade; 150ms is five frames of it. The
+	 * second half is the travel length, and the page rises into place under it
+	 * (`rising`, below).
+	 */
+	const VEIL_IN_MS = 150;
+	let veil = $state<'off' | 'in' | 'out'>('off');
+	const shellShown = $derived(signedIn && Boolean(data.account));
+
+	/*
+	 * The page arriving: it rises 12px into place while the veil clears, and
+	 * any `.hh-stagger` list in it (card grids, track lists) comes in item by
+	 * item. Translate on the page, which is not a backdrop root, so the glass
+	 * in it keeps its blur; opacity only on the list items, which hold none.
+	 * Only for a navigation: a server-rendered page is whole in its first paint.
+	 *
+	 * Held for the longest of those animations (the travel length plus 12
+	 * items of stagger), since taking the class off early would cut the late
+	 * items short and snap them into place.
+	 */
+	let rising = $state(false);
+	let risingTimer: ReturnType<typeof setTimeout> | undefined;
+	const RISE_HOLD_MS = 900;
+
+	async function fadeThroughRoom(navigation: import('@sveltejs/kit').OnNavigate): Promise<void> {
+		veil = 'in';
+		navigation.complete.then(
+			() => {
+				veil = 'out';
+				rising = !prefersReducedMotion();
+				clearTimeout(risingTimer);
+				risingTimer = setTimeout(() => (rising = false), RISE_HOLD_MS);
+			},
+			() => (veil = 'off')
+		);
+		await new Promise((resolve) => setTimeout(resolve, VEIL_IN_MS));
+	}
+
+	/*
+	 * Where the content column is the scroller, above 60rem, a page opened from
+	 * a link starts at its top and Back returns to where the page was left.
+	 *
+	 * SvelteKit does both for the document and nothing for an element that
+	 * scrolls inside it, so the column kept one position for every page: an
+	 * album opened from 400px down the library opened 400px down its own page,
+	 * with the cover the sleeve was flying to out of view. A new sort or page
+	 * number of the same page keeps its place, as those links ask for with
+	 * `data-sveltekit-noscroll`. SvelteKit restores the snapshot on Back after
+	 * the new page is in and before the view transition takes its picture, so
+	 * the sleeve's way back finds the card where it was.
+	 *
+	 * On a narrow screen the document scrolls and SvelteKit handles it; the
+	 * column has nothing to scroll there.
+	 */
+	let content = $state<HTMLElement | null>(null);
+
+	afterNavigate(({ type, from, to }) => {
+		if (type === 'enter' || type === 'popstate') return;
+		if (from?.url.pathname === to?.url.pathname) return;
+		// `instant`: the column scrolls smoothly for everything else.
+		content?.scrollTo({ top: 0, behavior: 'instant' });
+	});
+
+	export const snapshot: Snapshot<number> = {
+		capture: () => content?.scrollTop ?? 0,
+		restore: (top) => content?.scrollTo({ top, behavior: 'instant' })
+	};
 
 	function showPanel() {
 		player.togglePanel();
@@ -244,6 +399,9 @@
 	<title>{tabTitle ?? data.appName}</title>
 	<meta name="description" content="High-resolution music player for your own library." />
 	<meta name="color-scheme" content="dark light" />
+	<!-- The label under the home-screen icon on iOS, which reads this and not
+	     the manifest. -->
+	<meta name="apple-mobile-web-app-title" content={data.appName} />
 </svelte:head>
 
 <!--
@@ -257,7 +415,12 @@
 
 {#if signedIn && data.account}
 	<div class="app" class:player-open={player.panelOpen} class:viewport-known={player.viewportKnown}>
-		<div class="hh-ambience" aria-hidden="true"></div>
+		<!-- The room, and the aurora drifting in it when turned on; see `.aurora` in app.css. -->
+		<div class="hh-ambience" aria-hidden="true">
+			{#if data.settings?.aurora === 'moving' || data.settings?.aurora === 'still'}
+				<div class="aurora" class:still={data.settings.aurora === 'still'}></div>
+			{/if}
+		</div>
 
 		<Sidebar appName={data.appName} />
 
@@ -270,7 +433,7 @@
 			does not model scrollable regions, so it is wrong here.
 		-->
 		<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-		<main class="content" tabindex="0">
+		<main class="content" class:rising tabindex="0" bind:this={content}>
 			{@render children()}
 		</main>
 
@@ -312,6 +475,20 @@
 		</div>
 
 		<PlaylistPicker />
+		{#if data.sharing}
+			<ShareDialog />
+		{/if}
+
+		{#if veil !== 'off'}
+			<div
+				class="page-veil hh-ambience"
+				class:out={veil === 'out'}
+				aria-hidden="true"
+				onanimationend={() => {
+					if (veil === 'out') veil = 'off';
+				}}
+			></div>
+		{/if}
 
 		{#if arriving}
 			<!--
@@ -346,21 +523,81 @@
 	 * This is a sibling of all of that, so every glass surface under it stays at
 	 * opacity 1 throughout and is only revealed.
 	 *
-	 * It borrows `.hh-ambience` for the wash and adds the ground underneath it,
-	 * which the class leaves transparent. Both declarations have to outrank that
-	 * class, hence the descendant selector.
+	 * It borrows `.hh-ambience` for the wash and the ground. The z-index has to
+	 * outrank that class, hence the descendant selector.
 	 *
 	 * It rests at 0 and is animated from 1. Left the other way round, a browser
 	 * that never ran the animation would keep an opaque sheet over the app.
 	 */
 	.app .arrival {
 		z-index: 60;
-		background-color: var(--bg-base);
 		opacity: 0;
-		animation: arrive 420ms cubic-bezier(0.4, 0, 0.2, 1) forwards;
+		animation: arrive var(--dur-travel) var(--ease-out) forwards;
 	}
 
 	@keyframes arrive {
+		from {
+			opacity: 1;
+		}
+		to {
+			opacity: 0;
+		}
+	}
+
+	/*
+	 * Over the content (z-index 1, and later in the document), in the content's
+	 * own grid cell, so nothing of it is behind the rail or the player.
+	 *
+	 * It covered the whole screen at first, under the rail and the player, on
+	 * the reasoning that they blur whatever is behind them and it repeats the
+	 * room's ground, so they would look the same over it. In Chromium they did.
+	 * In Safari and Firefox both went dark for a moment on every page change,
+	 * with or without a change of colour: a layer animating its opacity behind
+	 * `backdrop-filter` is not blurred cleanly there while it moves. No part of
+	 * the veil is under glass now, so neither panel has anything changing
+	 * behind it.
+	 *
+	 * `.hh-ambience` places it fixed over the whole viewport; the grid cell
+	 * replaces that. The room's gradients are attached to the viewport, as they
+	 * are on the room itself, so the veil matches what is around it. iOS Safari
+	 * ignores `background-attachment: fixed` and draws them against the cell,
+	 * which shifts the wash slightly for the 350ms the veil is up.
+	 *
+	 * Rests at 0 and is animated up, then down from 1, so a browser that never
+	 * runs the animation is not left behind an opaque sheet.
+	 */
+	.app .page-veil {
+		grid-area: content;
+		position: relative;
+		inset: auto;
+		background-attachment: fixed;
+		z-index: 1;
+		opacity: 0;
+		animation: page-veil-in 150ms var(--ease-out) forwards;
+	}
+
+	.app .page-veil.out {
+		animation: page-veil-out var(--dur-travel) var(--ease-out) forwards;
+	}
+
+	/* The page rising into place as the veil clears; see `rising`. */
+	.content.rising > :global(*) {
+		animation: page-rise var(--dur-travel) var(--ease-out) both;
+	}
+
+	@keyframes page-rise {
+		from {
+			translate: 0 0.75rem;
+		}
+	}
+
+	@keyframes page-veil-in {
+		to {
+			opacity: 1;
+		}
+	}
+
+	@keyframes page-veil-out {
 		from {
 			opacity: 1;
 		}
@@ -386,7 +623,7 @@
 		 */
 		grid-template-columns: var(--rail-width) minmax(0, 1fr) minmax(0, var(--player-width));
 		gap: var(--float-gap);
-		padding: var(--float-gap);
+		padding: var(--edge-top) var(--edge-right) var(--edge-bottom) var(--edge-left);
 		height: 100vh;
 		height: 100dvh;
 		/*
@@ -397,7 +634,7 @@
 		 * dialog and the ambient wash inside a box the height of the grid.
 		 */
 		overflow-x: clip;
-		transition: grid-template-columns var(--transition);
+		transition: grid-template-columns var(--slide);
 	}
 
 	/*
@@ -457,6 +694,8 @@
 		grid-area: player;
 		min-height: 0;
 		position: relative;
+		/* Over the page veil. */
+		z-index: 2;
 	}
 
 	/*
@@ -471,16 +710,24 @@
 
 	.body {
 		height: 100%;
-		transition: opacity var(--transition);
+		visibility: visible;
+		transition: visibility 0s linear 0s;
 	}
 
 	/*
-	 * Faded out behind the sliver rather than left showing through it. The
-	 * panel's first 44px are a column of padding, a slice of the title and the
-	 * left edge of one tool button, and none of that reads as anything.
+	 * Hidden behind the sliver rather than left showing through it. The panel's
+	 * first 44px are a column of padding, a slice of the title and the left edge
+	 * of one tool button, and none of that reads as anything.
+	 *
+	 * Hidden once the slide has finished, not faded while it runs. This used to
+	 * fade, and an ancestor below full opacity is a backdrop root: for the whole
+	 * fade the panel's glass lost its blur and its darkening and showed the page
+	 * through it, then snapped back when the fade ended. That flash, on every
+	 * close, was most of what made the slide look rough.
 	 */
 	.app:not(.player-open) .body {
-		opacity: 0;
+		visibility: hidden;
+		transition: visibility 0s linear var(--slide-duration);
 	}
 
 	/*
@@ -511,13 +758,19 @@
 		border-radius: var(--r-xl) 0 0 var(--r-xl);
 		color: var(--text-muted);
 		opacity: 0;
+		/* Opening: out of the way at once, so the panel slides in clear of it. */
 		transition:
-			opacity var(--transition),
+			opacity var(--dur-press) var(--ease-exit),
 			color var(--transition);
 	}
 
+	/* Closing: it arrives over the second half of the slide, as the panel's
+	   edge reaches the place it takes over from. */
 	.app:not(.player-open) .grip {
 		opacity: 1;
+		transition:
+			opacity var(--dur-hover) var(--ease-out) calc(var(--slide-duration) - var(--dur-hover)),
+			color var(--transition);
 	}
 
 	.grip:hover,
@@ -567,23 +820,108 @@
 	 * phone: the full-screen now-playing view rather than a side panel.
 	 */
 	@media (max-width: 60rem) {
+		/*
+		 * The document scrolls here, not the content column. Safari on iOS 26
+		 * draws the page behind its toolbar, and under the status bar once
+		 * scrolled, only from the document's own scroll. A column scrolling
+		 * inside a box one screen tall ended at the top of the toolbar: on an
+		 * iPhone the page stopped about 150pt above the bottom of the screen,
+		 * with the canvas colour below it. The document scroll is also what
+		 * Safari folds its toolbar away on, and what a tap on the status bar
+		 * returns to the top.
+		 *
+		 * The grid grows with the page and is at least one screen tall. `svh`
+		 * rather than `dvh`: `dvh` grows as the toolbar folds away, and a page
+		 * between the two heights would grow with it and have nothing left to
+		 * scroll.
+		 *
+		 * The first row is the rail's height. The rail spans both rows so that
+		 * it can stay pinned over the page; see `Sidebar.svelte`.
+		 */
 		.app,
 		.app:not(.player-open) {
 			grid-template-areas:
 				'rail'
 				'content';
 			grid-template-columns: minmax(0, 1fr);
-			grid-template-rows: auto minmax(0, 1fr);
+			grid-template-rows: var(--rail-height) minmax(0, 1fr);
+			height: auto;
+			min-height: 100svh;
 		}
 
 		.content {
+			overflow-y: visible;
 			padding: var(--space-4);
 		}
 
+		/*
+		 * A jump to an anchor lands below the pinned rail rather than under it.
+		 *
+		 * `none` turns pull-to-refresh off. The content column never offered it,
+		 * and the document scroll would: a pull past the top would reload the
+		 * page and stop playback.
+		 *
+		 * Only with the app on the page: the sign-in and shared-link pages have
+		 * no rail.
+		 */
+		:global(html:has(.app)) {
+			scroll-padding-top: calc(var(--edge-top) + var(--rail-height));
+			overscroll-behavior-y: none;
+		}
+
+		/*
+		 * The open sheet covers the page. Without this, a wheel over it scrolled
+		 * the document underneath in Chromium, and a drag would scroll it in
+		 * Safari and fold the toolbar away. Only once the client knows the width:
+		 * the server renders the panel open.
+		 */
+		:global(html:has(.app.player-open.viewport-known)) {
+			overflow: hidden;
+		}
+
+		/*
+		 * The content cell runs the length of the page here and passes behind the
+		 * rail once scrolled, and a layer fading behind glass darkens it in Safari
+		 * and Firefox (see the veil above). So the veil is fixed to the screen
+		 * below the rail, with the same gap the grid keeps between the two.
+		 *
+		 * iOS Safari draws the wash against the veil's own box. Fixed, that box is
+		 * the screen less the rail rather than the whole length of the page.
+		 */
+		.app .page-veil {
+			position: fixed;
+			inset: calc(var(--edge-top) + var(--rail-height) + var(--float-gap)) var(--edge-right) 0 var(--edge-left);
+		}
+
+		/*
+		 * The sheet slides up from below the screen and back down, rather than
+		 * appearing and vanishing. It moves with `translate`, which the compositor
+		 * runs without laying the page out again, and it rests at `none`, so an
+		 * open sheet carries no transform at all. The transform is on this
+		 * wrapper and not on the glass inside it, and a transform is not a
+		 * backdrop root, so the panel keeps its blur all the way up.
+		 *
+		 * Closed, it is hidden once it has gone, which also takes it out of
+		 * hit-testing. `inert` on the body already keeps it out of the tab order.
+		 */
 		.player {
 			position: fixed;
-			inset: calc(var(--rail-height) + var(--float-gap) * 2) var(--float-gap) var(--float-gap);
+			inset: calc(var(--edge-top) + var(--rail-height) + var(--float-gap)) var(--edge-right) var(--edge-bottom)
+				var(--edge-left);
 			z-index: 45;
+			translate: none;
+			visibility: visible;
+			transition:
+				translate var(--sheet-in),
+				visibility 0s linear 0s;
+		}
+
+		.app:not(.player-open) .player {
+			translate: 0 calc(100% + var(--float-gap) * 2 + env(safe-area-inset-bottom, 0px));
+			visibility: hidden;
+			transition:
+				translate var(--sheet-out),
+				visibility 0s linear var(--sheet-out-duration);
 		}
 
 		.dock {
@@ -598,10 +936,6 @@
 		 * Closed means gone here, and the rail carries the way back.
 		 */
 		.grip {
-			display: none;
-		}
-
-		.app:not(.player-open) .player {
 			display: none;
 		}
 
@@ -622,8 +956,13 @@
 	 */
 	@media (prefers-reduced-motion: reduce) {
 		.app,
+		.app:not(.player-open),
 		.body,
-		.grip {
+		.app:not(.player-open) .body,
+		.grip,
+		.app:not(.player-open) .grip,
+		.player,
+		.app:not(.player-open) .player {
 			transition: none;
 		}
 	}

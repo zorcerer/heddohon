@@ -1,8 +1,12 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import { invalidateAll } from '$app/navigation';
+	import { page } from '$app/state';
+	import type { SubmitFunction } from '@sveltejs/kit';
 	import { untrack } from 'svelte';
+	import Cover from '$lib/components/Cover.svelte';
 	import Icon from '$lib/components/Icon.svelte';
+	import { player } from '$lib/client/player.svelte';
 	import type { ActionData, PageData } from './$types';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -11,6 +15,10 @@
 	let settings = $state(untrack(() => ({ ...data.settings })));
 	let saving = $state(false);
 	let clearing = $state(false);
+	let withdrawing = $state<string | null>(null);
+
+	const shortDate = (at: number) =>
+		new Date(at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 
 	// The action returns fresh figures; before it runs, the loader's are current.
 	const cache = $derived(
@@ -36,6 +44,47 @@
 				})
 			: null
 	);
+
+	/** Which service's form is waiting on the server. */
+	let linking = $state<'lastfm' | 'listenbrainz' | null>(null);
+
+	/** What the return from last.fm said, from the query `/settings/lastfm` redirects with. */
+	const lastfmNotice = $derived(
+		{
+			linked: 'Last.fm is linked.',
+			failed: 'The music server did not accept the approval from last.fm. Try linking again.',
+			refused: 'That approval was not started from this session, or it took longer than 5 minutes. Try linking again.'
+		}[page.url.searchParams.get('lastfm') ?? ''] ?? null
+	);
+
+	/** An enhanced form that re-reads the page, so the link state follows the change. */
+	function refreshAfter(service: 'lastfm' | 'listenbrainz'): SubmitFunction {
+		return () => {
+			linking = service;
+			return async ({ update }) => {
+				await update({ reset: false });
+				await invalidateAll();
+				linking = null;
+			};
+		};
+	}
+
+	/**
+	 * Sends the browser to last.fm. The action returns the URL rather than
+	 * redirecting to it: `form-action 'self'` refuses a redirect to another
+	 * origin after a form post, and the enhanced form's `goto` refuses one too.
+	 */
+	const toLastfm: SubmitFunction = () => {
+		linking = 'lastfm';
+		return async ({ result, update }) => {
+			if (result.type === 'success' && typeof result.data?.lastfmUrl === 'string') {
+				window.location.assign(result.data.lastfmUrl);
+				return;
+			}
+			await update({ reset: false });
+			linking = null;
+		};
+	};
 
 	const hoursLeft = $derived(
 		data.sessionExpiresAt
@@ -84,10 +133,15 @@
 			</div>
 
 			<label class="row">
-				<span class="label">Theme</span>
+				<span class="label">
+					Theme
+					<span class="hint hh-muted">
+						Liquid is dark glass lit by the artwork. Sleek is light, in soft greys.
+					</span>
+				</span>
 				<select class="hh-input control" name="theme" bind:value={settings.theme}>
-					<option value="dark">Dark</option>
-					<option value="light">Light</option>
+					<option value="dark">Liquid</option>
+					<option value="light">Sleek</option>
 				</select>
 			</label>
 
@@ -105,6 +159,27 @@
 					<option value="125">125%</option>
 					<option value="150">150%</option>
 					<option value="175">175%</option>
+				</select>
+			</label>
+
+			<label class="row">
+				<span class="label">
+					Font
+					<span class="hint hh-muted">
+						The typeface across the interface. Figures and labels stay in the mono face.
+					</span>
+					<!-- In the face chosen, before it is saved; see `[data-font]` in app.css. -->
+					<span class="font-sample" data-font={settings.font} aria-hidden="true">
+						Album of the year · 24 tracks
+					</span>
+				</span>
+				<select class="hh-input control" name="font" bind:value={settings.font}>
+					<option value="manrope">Manrope</option>
+					<option value="inter">Inter</option>
+					<option value="geist">Geist</option>
+					<option value="plex">IBM Plex Sans</option>
+					<option value="atkinson">Atkinson Hyperlegible</option>
+					<option value="system">System</option>
 				</select>
 			</label>
 
@@ -145,6 +220,22 @@
 				</span>
 				<input type="checkbox" name="showQualityBadge" bind:checked={settings.showQualityBadge} />
 			</label>
+
+			<label class="row">
+				<span class="label">
+					<span class="name">Aurora <span class="tag">Experimental</span></span>
+					<span class="hint hh-muted">
+						A glow in the artwork's colours behind the glass. Moving, it drifts slowly, and the glass
+						redraws its blur as it does; still or off costs nothing, for older or low-powered
+						hardware and for battery.
+					</span>
+				</span>
+				<select class="hh-input control" name="aurora" bind:value={settings.aurora}>
+					<option value="moving">Moving</option>
+					<option value="still">Still</option>
+					<option value="off">Off</option>
+				</select>
+			</label>
 		</section>
 
 		<section class="hh-card hh-glass group">
@@ -173,7 +264,15 @@
 
 			{#if settings.transition === 'crossfade'}
 				<label class="row">
-					<span class="label">Crossfade length</span>
+					<span class="label">
+						Crossfade length
+						{#if !player.rampsVolume}
+							<span class="hint hh-muted">
+								On this device only its buttons set the volume, as on an iPhone or iPad, so tracks
+								change with a tight handoff instead.
+							</span>
+						{/if}
+					</span>
 					<span class="control range">
 						<input
 							type="range"
@@ -204,8 +303,9 @@
 				<span class="label">
 					Volume normalisation
 					<span class="hint hh-muted">
-						Applies gain to even out loudness between tracks. Off by default because it alters the
-						signal.
+						Uses the ReplayGain data {data.serverLabel || 'the music server'} reports to bring loud
+						tracks down to the level of quieter ones. Tracks without that data play unchanged. The
+						file itself is not altered; only the playback level is.
 					</span>
 				</span>
 				<input type="checkbox" name="normalizeVolume" bind:checked={settings.normalizeVolume} />
@@ -327,6 +427,205 @@
 		</form>
 	</section>
 
+	<!-- Only where the music server can link at least one service: Navidrome,
+	     with Last.fm or ListenBrainz turned on. -->
+	{#await data.scrobblerLinks then links}
+		{#if links && (links.lastfm.available || links.listenbrainz.available)}
+			<section class="hh-card hh-glass group" id="scrobbling">
+				<div class="group-head">
+					<h2>Scrobbling</h2>
+					<p class="hh-muted">
+						Links your account on {data.serverLabel} to Last.fm or ListenBrainz. The music server sends
+						what you play to them, from Heddohon or any other player, while “Report playback” above is on.
+					</p>
+				</div>
+
+				{#if lastfmNotice}
+					<p class="hh-muted note-inline" role="status">{lastfmNotice}</p>
+				{/if}
+				{#if form && 'scrobblerError' in form && form.scrobblerError}
+					<p class="hh-muted note-inline" role="alert">{form.scrobblerError}</p>
+				{/if}
+
+				{#if links.lastfm.available}
+					<div class="row switch">
+						<span class="label">
+							Last.fm
+							<span class="hint hh-muted">
+								{links.lastfm.linked
+									? 'Linked.'
+									: 'You approve access on last.fm, which brings you back here.'}
+							</span>
+						</span>
+						{#if links.lastfm.linked}
+							<form method="POST" action="?/unlinkScrobbler" use:enhance={refreshAfter('lastfm')}>
+								<input type="hidden" name="service" value="lastfm" />
+								<button class="hh-button danger" type="submit" disabled={linking === 'lastfm'}>
+									{linking === 'lastfm' ? 'Unlinking…' : 'Unlink'}
+								</button>
+							</form>
+						{:else}
+							<form method="POST" action="?/startLastfm" use:enhance={toLastfm}>
+								<button class="hh-button" type="submit" disabled={linking === 'lastfm'}>
+									{linking === 'lastfm' ? 'Opening last.fm…' : 'Link on last.fm'}
+								</button>
+							</form>
+						{/if}
+					</div>
+				{/if}
+
+				{#if links.listenbrainz.available}
+					<div class="row switch">
+						<span class="label">
+							ListenBrainz
+							<span class="hint hh-muted">
+								{links.listenbrainz.linked
+									? 'Linked.'
+									: 'Paste the user token from your ListenBrainz settings page.'}
+							</span>
+						</span>
+						{#if links.listenbrainz.linked}
+							<form method="POST" action="?/unlinkScrobbler" use:enhance={refreshAfter('listenbrainz')}>
+								<input type="hidden" name="service" value="listenbrainz" />
+								<button class="hh-button danger" type="submit" disabled={linking === 'listenbrainz'}>
+									{linking === 'listenbrainz' ? 'Unlinking…' : 'Unlink'}
+								</button>
+							</form>
+						{/if}
+					</div>
+					{#if !links.listenbrainz.linked}
+						<form
+							class="token-row"
+							method="POST"
+							action="?/linkListenBrainz"
+							use:enhance={refreshAfter('listenbrainz')}
+						>
+							<input
+								class="hh-input"
+								type="password"
+								name="token"
+								required
+								maxlength="128"
+								autocomplete="off"
+								spellcheck="false"
+								aria-label="ListenBrainz user token"
+								placeholder="ListenBrainz user token"
+							/>
+							<button class="hh-button" type="submit" disabled={linking === 'listenbrainz'}>
+								{linking === 'listenbrainz' ? 'Linking…' : 'Link'}
+							</button>
+						</form>
+					{/if}
+				{/if}
+
+				<p class="hh-muted note">
+					Heddohon keeps neither. A ListenBrainz token is passed to the music server once, which checks
+					it with ListenBrainz and stores it. Last.fm access is granted on last.fm to the music server.
+					Unlinking here removes it from the music server.
+				</p>
+			</section>
+		{/if}
+	{/await}
+
+	<!-- Kept while sharing is off if the account still has links, so they can
+	     be withdrawn before the operator turns it back on. -->
+	{#if data.sharing || data.shares.length > 0}
+	<section class="hh-card hh-glass group">
+		<div class="group-head">
+			<h2>Shared links</h2>
+			<p class="hh-muted">
+				Links you have made to songs. Anyone who has one can listen to that song without an account,
+				and it plays through your account on the music server.
+			</p>
+		</div>
+
+		{#if !data.sharing}
+			<p class="hh-muted note-inline">
+				Sharing is turned off on this server, so these links do not open. They work again if it is
+				turned back on, unless you withdraw them.
+			</p>
+		{/if}
+
+		{#if form && 'shareError' in form && form.shareError}
+			<p class="hh-muted note-inline" role="alert">{form.shareError}</p>
+		{/if}
+
+		{#if data.shares.length === 0}
+			<p class="hh-muted empty">
+				No live links. Use the share button in the player or on a track to make one.
+			</p>
+		{:else}
+			<ul class="shares">
+				{#each data.shares as share (share.id)}
+					<li class="share">
+						<span class="share-art">
+							<Cover coverArt={share.song?.coverArt} size={96} alt="" radius="var(--r-sm)" />
+						</span>
+						<span class="share-text">
+							<span class="share-title hh-truncate">
+								{share.song?.title ?? 'A song your server no longer returns'}
+							</span>
+							<span class="share-sub hh-truncate hh-muted">
+								{#if share.song?.artist}{share.song.artist} · {/if}until
+								<span class="hh-numeric">{shortDate(share.expiresAt)}</span>
+							</span>
+						</span>
+						<form
+							method="POST"
+							action="?/revokeShare"
+							use:enhance={() => {
+								withdrawing = share.id;
+								return async ({ update }) => {
+									await update({ reset: false });
+									await invalidateAll();
+									withdrawing = null;
+								};
+							}}
+						>
+							<input type="hidden" name="id" value={share.id} />
+							<button
+								class="hh-button danger withdraw"
+								type="submit"
+								disabled={withdrawing === share.id}
+								aria-label="Withdraw the link to {share.song?.title ?? 'this song'}"
+							>
+								{withdrawing === share.id ? 'Withdrawing…' : 'Withdraw'}
+							</button>
+						</form>
+					</li>
+				{/each}
+			</ul>
+		{/if}
+
+		<p class="hh-muted note">
+			A link is shown once, when it is made. The server keeps a fingerprint of it rather than the
+			link, so it cannot be shown again, and withdrawing it stops it working at once, including for
+			anyone listening at the time. Links expire on their own after the period chosen when they were
+			made. Signing out does not withdraw them.
+		</p>
+
+		{#if data.shares.length > 1}
+			<form
+				method="POST"
+				action="?/revokeAllShares"
+				use:enhance={() => {
+					withdrawing = 'all';
+					return async ({ update }) => {
+						await update({ reset: false });
+						await invalidateAll();
+						withdrawing = null;
+					};
+				}}
+			>
+				<button class="hh-button danger" type="submit" disabled={withdrawing === 'all'}>
+					<Icon name="trash" size={16} />
+					{withdrawing === 'all' ? 'Withdrawing…' : `Withdraw all ${data.shares.length} links`}
+				</button>
+			</form>
+		{/if}
+	</section>
+	{/if}
+
 	<section class="hh-card hh-glass group">
 		<div class="group-head">
 			<h2>Cover cache</h2>
@@ -396,6 +695,11 @@
 			</form>
 		{/if}
 	</section>
+
+	<footer class="about">
+		<span>{data.appName}</span>
+		<span class="hh-numeric">v{data.appVersion}</span>
+	</footer>
 </div>
 
 <style>
@@ -470,10 +774,38 @@
 		font-size: 0.9375rem;
 	}
 
+	/* On one line with the name, where the label itself is a column. */
+	.name {
+		display: inline-flex;
+		align-items: center;
+		gap: var(--space-2);
+	}
+
+	/* Drawn like the lossless badge beside the transport: an outline in the accent. */
+	.tag {
+		padding: 0.05rem 0.4rem;
+		border-radius: var(--r-sm);
+		border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+		color: var(--accent);
+		font-size: 0.6875rem;
+		font-weight: 500;
+		letter-spacing: 0.01em;
+		line-height: 1.5;
+	}
+
 	.hint {
 		font-weight: 400;
 		font-size: 0.8125rem;
 		max-width: 48ch;
+	}
+
+	.font-sample {
+		margin-top: var(--space-1);
+		font-family: var(--font-display);
+		font-weight: 700;
+		font-size: 1.125rem;
+		letter-spacing: -0.02em;
+		color: var(--text-strong);
 	}
 
 	.control {
@@ -554,6 +886,77 @@
 	.danger:hover {
 		color: var(--danger);
 		border-color: var(--danger);
+	}
+
+	.about {
+		display: flex;
+		justify-content: center;
+		gap: var(--space-2);
+		padding: var(--space-2) 0 var(--space-4);
+		font-size: 0.75rem;
+		color: var(--text-faint);
+	}
+
+	.empty,
+	.note-inline {
+		margin: 0;
+		font-size: 0.875rem;
+	}
+
+	.shares {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+		display: grid;
+		gap: var(--space-2);
+	}
+
+	.share {
+		display: grid;
+		grid-template-columns: 2.5rem minmax(0, 1fr) auto;
+		align-items: center;
+		gap: var(--space-3);
+	}
+
+	/* The form around the button is a grid item here, not a settings block. */
+	.share form,
+	.row form {
+		display: block;
+	}
+
+	.token-row {
+		display: flex;
+		gap: var(--space-2);
+	}
+
+	.token-row .hh-input {
+		flex: 1;
+		min-width: 0;
+	}
+
+	.share-text {
+		display: grid;
+		min-width: 0;
+	}
+
+	.share-title {
+		color: var(--text-strong);
+		font-weight: 500;
+		font-size: 0.9375rem;
+	}
+
+	.share-sub {
+		font-size: 0.8125rem;
+	}
+
+	.withdraw {
+		padding: 0.4rem 0.8rem;
+		font-size: 0.8125rem;
+	}
+
+	.withdraw:disabled {
+		opacity: 0.6;
+		cursor: progress;
 	}
 
 	@media (max-width: 40rem) {

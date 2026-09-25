@@ -93,8 +93,8 @@
 		font-size: 0.625rem;
 	}
 
-	/* Lossless gets a quiet frost border; hi-res gets the one purple accent in
-	   the whole interface. Both stay well short of a glow. */
+	/* Both from the artwork: lossless as an outline in the accent, hi-res as a
+	   filled badge in the stronger accent. Both stay well short of a glow. */
 	.lossless {
 		border-color: color-mix(in srgb, var(--accent) 45%, transparent);
 		color: var(--accent);

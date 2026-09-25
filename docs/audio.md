@@ -59,5 +59,12 @@ throttled to a stop in a background tab, which is where an unattended queue
 does its crossfading. The ramp only moves the two gains; advancing the queue
 stays the job of the outgoing element's `ended` event, so the two cannot race.
 
+On an iPhone or iPad there is no crossfade. iOS leaves the level to the
+hardware buttons and ignores a volume set by the page, so a ramp would start
+the next track at full level over the end of the current one. The player
+detects this and makes the tight handoff instead, and Settings says so under
+the crossfade length. Volume normalisation and the sleep timer's fade work
+through the same volume, and do nothing there either.
+
 Codec support is the browser's: Chromium and Firefox decode FLAC and ALAC
 natively; DSD is not supported by any browser and will not play.
