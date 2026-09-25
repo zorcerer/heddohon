@@ -1,0 +1,69 @@
+# Runs on every push and pull request.
+#
+# `check` is the gate every commit has to pass: `npm run check`,
+# which is `svelte-kit sync` followed by `svelte-check --fail-on-warnings`, so a
+# warning fails the job as well as an error.
+#
+# `test` builds the app and runs it against the mock music servers in
+# `tests/`: the HTTP suite (`test:e2e`), the curl suite (`tests/e2e/run.sh`,
+# which needs the curl and jq the runner image ships with) and the browser
+# suite (`test:browser`) in Chromium. The image itself is built by the release
+# workflow in zorcerer/heddohon.
+name: check
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+# A newer push to the same branch or pull request makes the older run moot.
+concurrency:
+  group: check-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      # 22 to match `engines` in package.json and the Dockerfile's base image.
+      # Where `.npmrc` sets `engine-strict`, `npm ci` refuses an older Node.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci --no-audit --no-fund
+
+      - run: npm run check
+
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci --no-audit --no-fund
+
+      - run: npm run build
+
+      - run: npm run test:e2e
+
+      # Authentication, CSRF, media proxying, lyrics, playlists, shared links and
+      # the regressions each security review added, on fixed ports 3322, 3323,
+      # 4533 and 8096.
+      - run: tests/e2e/run.sh
+
+      # The version installed is the one package-lock.json pins.
+      - run: npx playwright install --with-deps chromium
+
+      - run: npm run test:browser

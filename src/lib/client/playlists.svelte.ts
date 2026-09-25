@@ -62,18 +62,33 @@ class PlaylistPicker {
 	/** Set briefly after a successful add, for the confirmation line. */
 	done = $state<string | null>(null);
 
+	/**
+	 * Whether the dialog is showing. Separate from `request`, which is kept
+	 * until the closing fade has finished: clearing it on close emptied the
+	 * dialog on the first frame of its fade-out.
+	 */
+	visible = $state(false);
+	#clearTimer: ReturnType<typeof setTimeout> | undefined;
+
 	open(songIds: string[], label: string) {
 		if (songIds.length === 0) return;
+		clearTimeout(this.#clearTimer);
 		this.request = { songIds, label };
 		this.error = null;
 		this.done = null;
+		this.visible = true;
 		void this.refresh();
 	}
 
 	close() {
-		this.request = null;
-		this.done = null;
-		this.error = null;
+		if (!this.visible) return;
+		this.visible = false;
+		// The fade in app.css is 150ms.
+		this.#clearTimer = setTimeout(() => {
+			this.request = null;
+			this.done = null;
+			this.error = null;
+		}, 200);
 	}
 
 	async refresh() {

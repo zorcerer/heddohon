@@ -14,6 +14,8 @@ declare global {
 		interface PageData {
 			account?: Account | null;
 			settings?: UserSettings;
+			sharing?: boolean;
+			downloads?: boolean;
 		}
 	}
 }

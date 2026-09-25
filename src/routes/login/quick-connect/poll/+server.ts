@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { createSession, signInWithQuickConnect } from '$lib/server/auth';
+import { createSession, rememberDevice, signInWithQuickConnect } from '$lib/server/auth';
 import { backendFor, UpstreamError, type QuickConnectState } from '$lib/server/backends';
 import { safeNext } from '$lib/server/next';
 import { config } from '$lib/server/config';
@@ -92,7 +92,8 @@ export const POST: RequestHandler = async (event) => {
 	}
 
 	clearPending(event);
-	createSession(event, account, event.request.headers.get('user-agent'));
+	await createSession(event, account, event.request.headers.get('user-agent'));
+	rememberDevice(event, pending.backend, account.username);
 	log.info('signed-in', {
 		username: account.username,
 		backend: pending.backend,

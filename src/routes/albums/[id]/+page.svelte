@@ -10,14 +10,43 @@
 	import SectionHeader from '$lib/components/SectionHeader.svelte';
 	import TrackList from '$lib/components/TrackList.svelte';
 	import { playContainer } from '$lib/client/actions';
-	import { formatLongDuration } from '$lib/client/format';
+	import { ALBUM_HERO_COVER_SIZE, formatLongDuration } from '$lib/client/format';
 	import { ambience } from '$lib/client/ambience.svelte';
 	import { addSongsToPlaylist } from '$lib/client/playlists.svelte';
+	import { heroSweep, motion } from '$lib/client/motion';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
 
 	const album = $derived(data.album);
+
+	// The heading sweeps in from the left after a navigation; see `heroSweep`.
+	const sweep = heroSweep();
+
+	/*
+	 * The sleeve turns toward the pointer, up to 9 degrees each way, as a record
+	 * sleeve does when it is held and tipped to the light; a highlight follows
+	 * the pointer across it. Mouse only, and not under reduced motion. It
+	 * settles flat on leaving, and on a press, so a click never starts a
+	 * navigation with the cover turned.
+	 */
+	let holder = $state<HTMLDivElement | null>(null);
+	let tilting = $state(false);
+	function tilt(event: PointerEvent) {
+		if (!holder || event.pointerType !== 'mouse' || motion(1) === 0) return;
+		const box = holder.getBoundingClientRect();
+		const x = Math.min(Math.max((event.clientX - box.left) / box.width, 0), 1);
+		const y = Math.min(Math.max((event.clientY - box.top) / box.height, 0), 1);
+		holder.style.setProperty('--tilt-x', ((x - 0.5) * 18).toFixed(2));
+		holder.style.setProperty('--tilt-y', ((0.5 - y) * 18).toFixed(2));
+		holder.style.setProperty('--sheen-x', `${(x * 100).toFixed(1)}%`);
+		holder.style.setProperty('--sheen-y', `${(y * 100).toFixed(1)}%`);
+		tilting = true;
+	}
+	function untilt() {
+		tilting = false;
+		for (const name of ['--tilt-x', '--tilt-y', '--sheen-x', '--sheen-y']) holder?.style.removeProperty(name);
+	}
 
 
 	const isPlayingThisAlbum = $derived(player.current?.albumId === album.id && player.playing);
@@ -64,18 +93,21 @@
 
 <div class="page">
 	<header class="hero">
-
-		<div class="art">
-			<Sleeve
-				coverArt={album.coverArt}
-				size={640}
-				alt="Cover of {album.name}"
-				transitionId={album.id}
-				radius="var(--r-lg)"
-			/>
+		<!-- Decoration under the pointer; the cover is not a control. -->
+		<div class="art" role="presentation" onpointermove={tilt} onpointerleave={untilt} onpointerdown={untilt}>
+			<div class="holder" class:tilting bind:this={holder}>
+				<Sleeve
+					coverArt={album.coverArt}
+					size={ALBUM_HERO_COVER_SIZE}
+					alt="Cover of {album.name}"
+					transitionId={album.id}
+					radius="var(--r-lg)"
+				/>
+				<span class="sheen" aria-hidden="true"></span>
+			</div>
 		</div>
 
-		<div class="details">
+		<div class="details" {@attach sweep}>
 			<span class="hh-eyebrow">Album</span>
 			<HeroTitle text={album.name} />
 
@@ -106,33 +138,41 @@
 					class="hh-button hh-button--primary"
 					onclick={() => player.playNow(album.songs)}
 					disabled={album.songs.length === 0}
+					aria-label="Play"
+					title="Play"
 				>
 					<Icon name="play" size={16} />
-					Play
+					<span class="label">Play</span>
 				</button>
 				<button
 					class="hh-button"
 					onclick={() => player.playShuffled(album.songs)}
 					disabled={album.songs.length < 2}
+					aria-label="Shuffle"
+					title="Shuffle"
 				>
 					<Icon name="shuffle" size={16} />
-					Shuffle
+					<span class="label">Shuffle</span>
 				</button>
 				<button
 					class="hh-button"
 					onclick={() => player.addToQueue(album.songs)}
 					disabled={album.songs.length === 0}
+					aria-label="Add to queue"
+					title="Add to queue"
 				>
 					<Icon name="queue" size={16} />
-					Queue
+					<span class="label">Queue</span>
 				</button>
 				<button
 					class="hh-button"
 					onclick={() => addSongsToPlaylist(album.songs, album.name)}
 					disabled={album.songs.length === 0}
+					aria-label="Add to playlist"
+					title="Add to playlist"
 				>
 					<Icon name="plus" size={16} />
-					Add to playlist
+					<span class="label">Add to playlist</span>
 				</button>
 				<FavouriteButton id={album.id} kind="album" starred={album.starred} size={20} />
 			</div>
@@ -228,6 +268,63 @@
 		overflow: hidden;
 	}
 
+	/* The depth the turn is seen from: close enough that the near edge grows. */
+	.art {
+		perspective: 50rem;
+	}
+
+	/*
+	 * The turn, and a lift toward the viewer with it. While the pointer moves it
+	 * follows in 120ms; on leaving it settles flat on the spring, a little past
+	 * level and back. Only this wrapper turns: the sleeve inside carries the
+	 * view-transition name, and this is flat again before any navigation.
+	 */
+	.holder {
+		position: relative;
+		transform: rotateY(calc(var(--tilt-x, 0) * 1deg)) rotateX(calc(var(--tilt-y, 0) * 1deg));
+		transition:
+			transform var(--dur-travel) var(--ease-spring),
+			filter var(--dur-state) var(--ease-out);
+	}
+
+	.holder.tilting {
+		transform: rotateY(calc(var(--tilt-x, 0) * 1deg)) rotateX(calc(var(--tilt-y, 0) * 1deg))
+			translateZ(1.25rem);
+		/*
+		 * Kept inside the hero's 24px of padding, which clips: at 1.4rem of blur
+		 * pushed up to 0.72rem sideways, the glow reached 33px past the sleeve and
+		 * was cut off along the edge by the rail. Now at most 0.2rem sideways and
+		 * 0.55rem of blur, 12px, at 16 percent of the accent.
+		 */
+		filter: drop-shadow(
+			calc(var(--tilt-x, 0) * -0.022rem) calc(0.4rem + var(--tilt-y, 0) * 0.02rem) 0.55rem
+				color-mix(in srgb, var(--accent) 16%, transparent)
+		);
+		transition:
+			transform 120ms var(--ease-out),
+			filter var(--dur-state) var(--ease-out);
+	}
+
+	/* Light off the sleeve's face where the pointer is, as off a glossy print. */
+	.sheen {
+		position: absolute;
+		inset: 0;
+		border-radius: var(--r-lg);
+		background: radial-gradient(
+			circle at var(--sheen-x, 50%) var(--sheen-y, 50%),
+			rgb(255 255 255 / 0.22),
+			rgb(255 255 255 / 0.05) 35%,
+			transparent 60%
+		);
+		mix-blend-mode: soft-light;
+		opacity: 0;
+		pointer-events: none;
+		transition: opacity var(--dur-state) var(--ease-out);
+	}
+
+	.tilting .sheen {
+		opacity: 1;
+	}
 
 	.details {
 		/* The hero title sizes itself against this column — see HeroTitle. */
@@ -297,5 +394,37 @@
 		}
 
 		/* Stacked, the text sits below the sleeve and nothing can overlap it. */
+	}
+
+	/*
+	 * A phone: glyphs only. With labels the four buttons and the heart wrapped
+	 * onto two rows, and "Add to playlist" alone took most of the first. Each
+	 * button carries its name in `aria-label` and `title`, so the label that
+	 * goes is only the painted one. 44px squares, the size a finger needs; play
+	 * stays the accent, round, to keep it the first thing to press.
+	 */
+	@media (max-width: 36rem) {
+		.actions .label {
+			display: none;
+		}
+
+		.actions .hh-button {
+			width: 2.75rem;
+			height: 2.75rem;
+			padding: 0;
+		}
+
+		.actions .hh-button--primary {
+			width: 3.25rem;
+			height: 3.25rem;
+			border-radius: 50%;
+		}
+
+		/* Icon sizes itself inline, so only `!important` reaches it. 16px was
+		   drawn to sit beside a word; alone in a 44px button it read as a dot. */
+		.actions .hh-button :global(svg) {
+			width: 1.25rem !important;
+			height: 1.25rem !important;
+		}
 	}
 </style>

@@ -1,51 +1,49 @@
-<div align="center">
+<p align="center">
+  <img src="docs/assets/header.jpg" alt="Heddohon, a self-hosted music player for Navidrome, Subsonic and Jellyfin">
+</p>
 
-<img src="docs/assets/logo.svg" width="96" height="96" alt="">
+<p align="center">
+  <a href="https://github.com/zorcerer/heddohon/releases"><img src="https://img.shields.io/github/v/release/zorcerer/heddohon?sort=semver" alt="Release"></a>
+  <a href="https://github.com/zorcerer/heddohon/actions/workflows/release.yml"><img src="https://img.shields.io/github/actions/workflow/status/zorcerer/heddohon/release.yml?label=build" alt="Build"></a>
+  <a href="https://hub.docker.com/r/zorcererd/heddohon"><img src="https://img.shields.io/docker/pulls/zorcererd/heddohon" alt="Docker pulls"></a>
+  <a href="https://hub.docker.com/r/zorcererd/heddohon"><img src="https://img.shields.io/docker/image-size/zorcererd/heddohon?sort=semver" alt="Docker image size"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/zorcerer/heddohon" alt="License"></a>
+</p>
 
-# Heddohon
-
-**Server-rendered music player for Navidrome/Subsonic and Jellyfin.**
-
-[![Release](https://img.shields.io/github/v/release/zorcerer/heddohon?sort=semver)](https://github.com/zorcerer/heddohon/releases)
-[![Build](https://img.shields.io/github/actions/workflow/status/zorcerer/heddohon/release.yml?label=build)](https://github.com/zorcerer/heddohon/actions/workflows/release.yml)
-[![Docker Pulls](https://img.shields.io/docker/pulls/zorcererd/heddohon)](https://hub.docker.com/r/zorcererd/heddohon)
-[![Docker Image Size](https://img.shields.io/docker/image-size/zorcererd/heddohon?sort=semver)](https://hub.docker.com/r/zorcererd/heddohon)
-[![License](https://img.shields.io/github/license/zorcerer/heddohon)](LICENSE)
-<br>
-![SvelteKit](https://img.shields.io/badge/SvelteKit-FF3E00?logo=svelte&logoColor=white)
-![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white)
-![Node](https://img.shields.io/badge/node-%3E%3D22-339933?logo=nodedotjs&logoColor=white)
-
-</div>
-
-![The album view, with the now-playing panel on the right](docs/assets/album.jpg)
-
-Heddohon connects to your music server from its own backend, so the browser
-only talks to Heddohon. Audio and artwork are proxied through it, which makes
-Heddohon the only host you expose and keeps upstream credentials on the server.
+Heddohon is a web music player you host yourself. It signs in to your music
+server from its own backend and proxies the audio and artwork, so the browser
+only ever talks to Heddohon and your upstream credentials stay on the server.
 
 ```
  browser ──► Heddohon ──► Navidrome / Jellyfin
 ```
 
+![An album page, with the now-playing panel on the right](docs/assets/album.jpg)
+
 ## Features
 
-- **Original files by default:** audio streams as it sits on disk, and the player shows the decoded format (`FLAC 24/192`, `MP3 320`).
-- **Optional transcoding:** MP3, Opus or AAC at a chosen bitrate, toggled mid-track from the quality badge.
-- **Server-side rendering:** pages arrive with the theme and interface scale already applied.
-- **Per-account state:** settings and queue sync across devices.
-- **Cached cover art**, **synced lyrics** and **recommendations** from your music server.
-- **Fast track handoff:** the next track is pre-buffered so it starts right away. [Audio](docs/audio.md) covers the details.
-- **Accent colour** sampled from the current album cover.
+- **Original files**, up to FLAC 24/192, with the decoded format shown in the player. Optional transcoding to MP3, Opus or AAC, switched from the quality badge.
+- **Coloured by the artwork:** the interface takes its accent from the playing cover, in two themes, Liquid (dark) and Sleek (light).
+- **Library:** albums, artists, genres, playlists and favourites, with synced lyrics and recommendations from your music server.
+- **Song links** anyone can play without an account, for 1, 7 or 30 days.
+- **Follows you around:** the queue and settings sync across devices, and it installs as an app on phones and desktops.
+- **Scrobbling** to Last.fm and ListenBrainz through Navidrome, ReplayGain volume normalisation, and a sleep timer.
+- **SQLite or PostgreSQL**, with a one-time import from SQLite.
 
 <table>
   <tr>
     <td width="50%"><img src="docs/assets/lyrics.jpg" alt="Synced lyrics in the now-playing panel, the current line highlighted"></td>
-    <td width="50%"><img src="docs/assets/recommendations.jpg" alt="An album page with the artist's other records below the track list"></td>
+    <td width="50%"><img src="docs/assets/recommendations.jpg" alt="An album page with more from the artist below the track list"></td>
   </tr>
   <tr>
     <td align="center">Synced lyrics</td>
-    <td align="center">More from the artist and recommendations</td>
+    <td align="center">More from the artist</td>
+  </tr>
+  <tr>
+    <td colspan="2"><img src="docs/assets/share.jpg" alt="A shared song, playing in the browser without an account"></td>
+  </tr>
+  <tr>
+    <td colspan="2" align="center">A shared song, for anyone with the link</td>
   </tr>
 </table>
 
@@ -54,34 +52,38 @@ Heddohon the only host you expose and keeps upstream credentials on the server.
 ```bash
 git clone https://github.com/zorcerer/heddohon.git && cd heddohon
 cp .env.example .env
+echo "HEDDOHON_SECRET=$(openssl rand -base64 48)" >> .env
+echo "HEDDOHON_SUBSONIC_URL=http://10.0.0.10:4533" >> .env
 docker compose up -d
 ```
 
-Open `http://localhost:3000` and sign in with your music server account.
-To expose it publicly, set `ORIGIN` and read [SECURITY.md](SECURITY.md).
+Open `http://localhost:3000` and sign in with your music server account. To
+expose it publicly, set `ORIGIN` and read [SECURITY.md](SECURITY.md).
 
-Images: `ghcr.io/zorcerer/heddohon` or `zorcererd/heddohon`. An Unraid template
-is in [`templates/heddohon.xml`](templates/heddohon.xml). To run it with Node 22+
-instead of Docker: `npm ci && npm run build && node build/index.js`.
+Images are `ghcr.io/zorcerer/heddohon` and `zorcererd/heddohon`, and an Unraid
+template is in [`templates/heddohon.xml`](templates/heddohon.xml). Without
+Docker, on Node 22 or later: `npm ci && npm run build && node build/index.js`.
 
 ## Documentation
 
-- [Configuration](docs/configuration.md): environment variables, reverse proxy, Unraid
-- [Security](SECURITY.md): threat model, known gaps, reporting
-- [Audio](docs/audio.md): what "high-resolution" means in a browser
-- [Architecture](docs/architecture.md) · [Design notes](docs/design.md)
+| | |
+| --- | --- |
+| [Configuration](docs/configuration.md) | Environment variables, reverse proxies, PostgreSQL, Unraid |
+| [Security](SECURITY.md) | Threat model, known gaps, reporting a vulnerability |
+| [Audio](docs/audio.md) | Formats, transcoding, and what high resolution means in a browser |
+| [Architecture](docs/architecture.md) | How the server, the client and the music server fit together |
+| [Design notes](docs/design.md) | Why the interface looks and behaves as it does |
 
 ## AI disclosure
 
 Written with assistance from Claude. The code and security posture have been
 reviewed by me and by AI-assisted audits, documented in [SECURITY.md](SECURITY.md).
+A professional third-party audit has yet to be done.
 
 ## License
 
 [MIT](LICENSE)
 
-<div align="center">
-
-![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)
-
-</div>
+<p align="center">
+  <a href="https://ko-fi.com/zorcerer"><img src="https://ko-fi.com/img/githubbutton_sm.svg" alt="Support Heddohon on Ko-fi"></a>
+</p>

@@ -28,7 +28,9 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 	if (name.length > MAX_NAME) error(400, `Name must be ${MAX_NAME} characters or fewer`);
 
 	const songIds = Array.isArray(body?.songIds)
-		? body.songIds.filter((id): id is string => typeof id === 'string' && id.length > 0).slice(0, MAX_SONGS)
+		? body.songIds
+				.filter((id): id is string => typeof id === 'string' && id.length > 0 && id.length < 256)
+				.slice(0, MAX_SONGS)
 		: [];
 
 	try {

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Icon from '$lib/components/Icon.svelte';
 	import MediaCard from '$lib/components/MediaCard.svelte';
 	import MediaGrid from '$lib/components/MediaGrid.svelte';
 	import Pager from '$lib/components/Pager.svelte';
@@ -47,6 +48,11 @@
 		<div>
 			<span class="hh-eyebrow">Library</span>
 			<h1>Albums</h1>
+			<!-- The way to genres on a phone, where the rail has no room for it. -->
+			<a class="to-genres" href="/genres">
+				<Icon name="genre" size={14} />
+				Browse by genre
+			</a>
 		</div>
 		<SortChips
 			sorts={data.sorts}
@@ -103,5 +109,23 @@
 	.empty {
 		padding: var(--space-7);
 		text-align: center;
+	}
+
+	.to-genres {
+		display: inline-flex;
+		align-items: center;
+		gap: var(--space-1);
+		margin-top: var(--space-2);
+		font-size: 0.8125rem;
+		color: var(--text-muted);
+		text-decoration: none;
+		transition:
+			color var(--transition),
+			text-shadow var(--transition);
+	}
+
+	.to-genres:hover {
+		color: var(--glow-color);
+		text-shadow: var(--glow-text);
 	}
 </style>

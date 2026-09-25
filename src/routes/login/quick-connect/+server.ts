@@ -38,10 +38,10 @@ export const POST: RequestHandler = async (event) => {
 	}
 
 	const keys = quickConnectKeys(address);
-	const verdict = reserveLoginAttempt(keys);
+	const verdict = await reserveLoginAttempt(keys);
 	// Starts never reach the path that prunes after a rejected password, so the
 	// rows they leave are dropped here.
-	pruneLoginAttempts();
+	await pruneLoginAttempts();
 	if (!verdict.allowed) {
 		log.warn('quick-connect-throttled', { backend, address, retryAfter: verdict.retryAfter });
 		return json(
@@ -60,7 +60,7 @@ export const POST: RequestHandler = async (event) => {
 		started = await quickConnect.initiate(deviceId);
 	} catch (err) {
 		// Nothing is pending upstream after a failed start, so it costs nothing.
-		refundLoginAttempt(keys);
+		await refundLoginAttempt(keys);
 		if (err instanceof UpstreamError) {
 			log.warn('quick-connect-failed', { backend, address, step: 'initiate', detail: err.message });
 			return err.status === 401

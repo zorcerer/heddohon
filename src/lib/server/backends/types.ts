@@ -5,6 +5,7 @@ import type {
 	Artist,
 	ArtistDetail,
 	BackendKind,
+	Genre,
 	Playlist,
 	PlaylistDetail,
 	Lyrics,
@@ -12,6 +13,7 @@ import type {
 	Song,
 	StarKind
 } from '$lib/types';
+import type { LastfmStart, ScrobblerLinks, ScrobblerService } from './navidrome';
 
 /**
  * The secret material for one account, as stored (sealed) in the database.
@@ -94,6 +96,24 @@ export interface QuickConnect {
 }
 
 /**
+ * Linking the account to Last.fm and ListenBrainz on the music server, which
+ * then scrobbles to them itself. Only Navidrome offers it, through its own
+ * API rather than Subsonic's, so the member is optional and present on the
+ * Subsonic backend, where `status` answers null for a server that is not
+ * Navidrome. `backends/navidrome.ts` has the details.
+ */
+export interface Scrobblers {
+	status(cred: StoredCredential): Promise<ScrobblerLinks | null>;
+	/** False when ListenBrainz says the token is not valid. */
+	linkListenBrainz(cred: StoredCredential, token: string): Promise<boolean>;
+	unlink(cred: StoredCredential, service: ScrobblerService): Promise<void>;
+	/** Null when the server has Last.fm turned off. */
+	startLastfm(cred: StoredCredential): Promise<LastfmStart | null>;
+	/** False when the music server refuses the token last.fm returned. */
+	finishLastfm(linkToken: string, token: string): Promise<boolean>;
+}
+
+/**
  * Everything the app can ask of a music server. Implementations are stateless:
  * the caller passes the opened credential on every call, which keeps decrypted
  * secrets scoped to a single request rather than living in a long-lived client.
@@ -106,6 +126,9 @@ export interface MediaBackend {
 
 	/** Present only where the server supports Quick Connect. */
 	readonly quickConnect?: QuickConnect;
+
+	/** Present only where the server can link Last.fm and ListenBrainz. */
+	readonly scrobblers?: Scrobblers;
 
 	/** Cheap liveness/authorisation check for an existing credential. */
 	verify(cred: StoredCredential): Promise<boolean>;
@@ -165,6 +188,13 @@ export interface MediaBackend {
 		artistId: string | null,
 		limit: number
 	): Promise<Album[]>;
+
+	/** Every genre with at least one album, sorted by name. */
+	getGenres(cred: StoredCredential): Promise<Genre[]>;
+	/** Albums in one genre, by name, a page at a time. */
+	getGenreAlbums(cred: StoredCredential, genreId: string, limit: number, offset: number): Promise<Album[]>;
+	/** Up to `limit` songs from one genre in random order, for playing it. */
+	getGenreSongs(cred: StoredCredential, genreId: string, limit: number): Promise<Song[]>;
 
 	getPlaylists(cred: StoredCredential): Promise<Playlist[]>;
 	getPlaylist(cred: StoredCredential, id: string): Promise<PlaylistDetail>;

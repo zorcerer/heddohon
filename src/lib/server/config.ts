@@ -6,7 +6,7 @@
  * model is that *the operator* decides which upstream servers exist, and the
  * end user only ever supplies a username and a password.
  */
-import { accessSync, constants, mkdirSync } from 'node:fs';
+import { accessSync, constants, mkdirSync, readFileSync } from 'node:fs';
 import { building } from '$app/environment';
 
 export type BackendKind = 'subsonic' | 'jellyfin';
@@ -19,6 +19,26 @@ export interface UpstreamConfig {
 	label: string;
 }
 
+/**
+ * Where accounts, sessions, settings and links are kept. SQLite in the data
+ * directory unless `HEDDOHON_DATABASE_URL` names a PostgreSQL server.
+ */
+export type DatabaseConfig =
+	| { kind: 'sqlite' }
+	| {
+			kind: 'postgres';
+			/** The URL as given, credentials included if it carried any. Never logged. */
+			connectionString: string;
+			user: string | undefined;
+			password: string | undefined;
+			/** An `sslmode` to set on the URL, or undefined to leave the URL's own. */
+			sslmode: 'disable' | 'no-verify' | 'verify-full' | undefined;
+			/** Copy the SQLite database across on first start, if there is one. */
+			importSqlite: boolean;
+			/** `host:port/database`, for the log. */
+			label: string;
+	  };
+
 export interface AppConfig {
 	secret: string;
 	dataDir: string;
@@ -30,6 +50,13 @@ export interface AppConfig {
 	upstreams: UpstreamConfig[];
 	appName: string;
 	registrationHint: string | null;
+	/** Whether accounts may make song links, and whether links open. */
+	sharing: boolean;
+	/** Whether the original file can be downloaded from the player. */
+	downloads: boolean;
+	/** LRCLIB base URL for lyrics the music server lacks, or null when off. */
+	lrclibUrl: string | null;
+	database: DatabaseConfig;
 }
 
 export class ConfigError extends Error {}
@@ -77,6 +104,15 @@ function boolEnv(name: string, fallback: boolean | 'auto'): boolean | 'auto' {
 	if (['1', 'true', 'yes', 'on'].includes(raw)) return true;
 	if (['0', 'false', 'no', 'off'].includes(raw)) return false;
 	throw new ConfigError(`${name} must be true, false or auto`);
+}
+
+/** A plain on or off, for a setting where `boolEnv`'s `auto` means nothing. */
+function flagEnv(name: string, fallback: boolean): boolean {
+	const raw = env(name)?.toLowerCase();
+	if (raw === undefined) return fallback;
+	if (['1', 'true', 'yes', 'on'].includes(raw)) return true;
+	if (['0', 'false', 'no', 'off'].includes(raw)) return false;
+	throw new ConfigError(`${name} must be true or false`);
 }
 
 /**
@@ -199,7 +235,69 @@ function build(): AppConfig {
 		coverCacheBytes: intEnv('HEDDOHON_COVER_CACHE_MB', 512, 0, 65_536) * 1024 * 1024,
 		upstreams,
 		appName: env('HEDDOHON_APP_NAME') ?? 'Heddohon',
-		registrationHint: env('HEDDOHON_LOGIN_HINT') ?? null
+		registrationHint: env('HEDDOHON_LOGIN_HINT') ?? null,
+		sharing: flagEnv('HEDDOHON_SHARING', true),
+		downloads: flagEnv('HEDDOHON_DOWNLOADS', true),
+		// Off unless asked for: turning it on sends the artist, title, album and
+		// length of every track whose lyrics are opened to a third party.
+		lrclibUrl: flagEnv('HEDDOHON_LYRICS_LRCLIB', false)
+			? normaliseUrl('HEDDOHON_LYRICS_LRCLIB_URL', env('HEDDOHON_LYRICS_LRCLIB_URL') ?? 'https://lrclib.net')
+			: null,
+		database: databaseConfig()
+	};
+}
+
+/**
+ * `HEDDOHON_DATABASE_URL`, with the user and password from their own
+ * variables when set, so a password can stay out of the URL (or come from a
+ * Docker secret through `HEDDOHON_DATABASE_PASSWORD_FILE`).
+ *
+ * The error messages name the variable and never echo its value: the value is
+ * a URL that can hold a password.
+ */
+function databaseConfig(): DatabaseConfig {
+	const raw = env('HEDDOHON_DATABASE_URL');
+	if (!raw) return { kind: 'sqlite' };
+
+	let url: URL;
+	try {
+		url = new URL(raw);
+	} catch {
+		throw new ConfigError('HEDDOHON_DATABASE_URL is not a valid URL');
+	}
+	if (url.protocol !== 'postgres:' && url.protocol !== 'postgresql:') {
+		throw new ConfigError('HEDDOHON_DATABASE_URL must start with postgres:// (PostgreSQL is the one server supported)');
+	}
+	if (!url.hostname) throw new ConfigError('HEDDOHON_DATABASE_URL has no host');
+
+	let password = env('HEDDOHON_DATABASE_PASSWORD');
+	const passwordFile = env('HEDDOHON_DATABASE_PASSWORD_FILE');
+	if (passwordFile) {
+		try {
+			password = readFileSync(passwordFile, 'utf8').trim();
+		} catch {
+			throw new ConfigError(`HEDDOHON_DATABASE_PASSWORD_FILE ${passwordFile} could not be read`);
+		}
+	}
+
+	const sslSetting = env('HEDDOHON_DATABASE_SSL')?.toLowerCase();
+	let sslmode: 'disable' | 'no-verify' | 'verify-full' | undefined;
+	if (sslSetting === undefined) sslmode = undefined;
+	else if (['off', 'false', 'disable'].includes(sslSetting)) sslmode = 'disable';
+	// Encrypted, certificate not checked: a self-signed server on the LAN.
+	else if (sslSetting === 'require') sslmode = 'no-verify';
+	else if (['verify', 'verify-full'].includes(sslSetting)) sslmode = 'verify-full';
+	else throw new ConfigError('HEDDOHON_DATABASE_SSL must be off, require or verify-full');
+
+	const database = url.pathname.replace(/^\//, '') || 'postgres';
+	return {
+		kind: 'postgres',
+		connectionString: raw,
+		user: env('HEDDOHON_DATABASE_USER'),
+		password,
+		sslmode,
+		importSqlite: flagEnv('HEDDOHON_DATABASE_IMPORT', true),
+		label: `${url.hostname}:${url.port || '5432'}/${database}`
 	};
 }
 
@@ -219,7 +317,11 @@ export function config(): AppConfig {
 			coverCacheBytes: 0,
 			upstreams: [],
 			appName: 'Heddohon',
-			registrationHint: null
+			registrationHint: null,
+			sharing: true,
+			downloads: true,
+			lrclibUrl: null,
+			database: { kind: 'sqlite' }
 		};
 	}
 	if (!cached) cached = build();
