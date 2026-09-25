@@ -13,6 +13,8 @@
 	// `override` is null until the user acts, so until then the prop is the truth.
 	let override = $state<boolean | null>(null);
 	let pending = $state(false);
+	/** Set by a press that favourites, for the one-off pop below. */
+	let popped = $state(false);
 
 	const active = $derived(override ?? starred);
 
@@ -23,6 +25,7 @@
 
 		const nextValue = !active;
 		override = nextValue;
+		popped = nextValue;
 		pending = true;
 		try {
 			const response = await fetch('/api/star', {
@@ -42,6 +45,8 @@
 <button
 	class="fav"
 	class:active
+	class:popped={popped && active}
+	onanimationend={() => (popped = false)}
 	onclick={toggle}
 	aria-pressed={active}
 	aria-label={active ? 'Remove from favourites' : 'Add to favourites'}
@@ -73,5 +78,27 @@
 
 	.fav.active:hover {
 		color: var(--danger);
+	}
+
+	/*
+	 * The heart swells and settles as it fills, so the press is answered on the
+	 * glyph rather than only by a change of colour. The glyph moves and the
+	 * button does not: in the player panel this button carries a
+	 * backdrop-filter, and transforms stay off glass in this codebase.
+	 */
+	.fav.popped :global(svg) {
+		animation: heart-pop var(--dur-state) var(--ease-out);
+	}
+
+	@keyframes heart-pop {
+		0% {
+			scale: 1;
+		}
+		35% {
+			scale: 1.28;
+		}
+		100% {
+			scale: 1;
+		}
 	}
 </style>

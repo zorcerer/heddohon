@@ -16,6 +16,7 @@ import {
 	upstreamUrl,
 	type UpstreamParams
 } from './http';
+import { finishLastfm, linkListenBrainz, scrobblerLinks, startLastfm, unlinkScrobbler } from './navidrome';
 import type {
 	MediaBackend,
 	PlaybackReport,
@@ -33,8 +34,10 @@ import type {
 	Playlist,
 	PlaylistDetail,
 	LyricLine,
+	Genre,
 	Lyrics,
 	SearchResults,
+	ReplayGain,
 	Song,
 	StarKind
 } from '$lib/types';
@@ -138,9 +141,43 @@ function quality(raw: Record<string, any>): AudioQuality {
 	};
 }
 
+function shuffledCopy<T>(items: T[]): T[] {
+	const copy = [...items];
+	for (let i = copy.length - 1; i > 0; i--) {
+		const j = Math.floor(Math.random() * (i + 1));
+		[copy[i], copy[j]] = [copy[j], copy[i]];
+	}
+	return copy;
+}
+
 function numberOrNull(value: unknown): number | null {
 	const n = typeof value === 'string' ? Number(value) : value;
 	return typeof n === 'number' && Number.isFinite(n) ? n : null;
+}
+
+/**
+ * OpenSubsonic's `replayGain` object, which Navidrome fills from the file's
+ * tags. A plain Subsonic server leaves it out, and so does a file with no tags.
+ */
+function replayGainOf(raw: unknown): ReplayGain | null {
+	if (typeof raw !== 'object' || raw === null) return null;
+	const value = raw as Record<string, unknown>;
+	const gain = {
+		trackGain: numberOrNull(value.trackGain),
+		albumGain: numberOrNull(value.albumGain),
+		trackPeak: numberOrNull(value.trackPeak),
+		albumPeak: numberOrNull(value.albumPeak)
+	};
+	return gain.trackGain === null && gain.albumGain === null ? null : gain;
+}
+
+/**
+ * When an item was starred. Subsonic reports `starred` as the time of the star
+ * rather than a flag, and leaves it out of an item that is not starred.
+ */
+function starredAt(value: unknown): number | null {
+	const parsed = typeof value === 'string' ? Date.parse(value) : NaN;
+	return Number.isFinite(parsed) ? parsed : null;
 }
 
 function toSong(raw: Record<string, any>): Song {
@@ -159,8 +196,10 @@ function toSong(raw: Record<string, any>): Song {
 		genre: raw.genre ?? null,
 		coverArt: raw.coverArt ? String(raw.coverArt) : null,
 		starred: Boolean(raw.starred),
+		starredAt: starredAt(raw.starred),
 		playCount: numberOrNull(raw.playCount),
-		quality: quality(raw)
+		quality: quality(raw),
+		replayGain: replayGainOf(raw.replayGain)
 	};
 }
 
@@ -177,6 +216,7 @@ function toAlbum(raw: Record<string, any>): Album {
 		duration: numberOrNull(raw.duration),
 		coverArt: raw.coverArt ? String(raw.coverArt) : null,
 		starred: Boolean(raw.starred),
+		starredAt: starredAt(raw.starred),
 		createdAt: Number.isFinite(created) ? created : null
 	};
 }
@@ -187,7 +227,8 @@ function toArtist(raw: Record<string, any>): Artist {
 		name: raw.name ?? 'Unknown artist',
 		albumCount: numberOrNull(raw.albumCount),
 		coverArt: raw.coverArt ? String(raw.coverArt) : raw.artistImageUrl ? null : null,
-		starred: Boolean(raw.starred)
+		starred: Boolean(raw.starred),
+		starredAt: starredAt(raw.starred)
 	};
 }
 
@@ -242,6 +283,7 @@ function albumsFromSongs(
 			duration: null,
 			coverArt: raw.coverArt ? String(raw.coverArt) : null,
 			starred: false,
+			starredAt: null,
 			createdAt: null
 		});
 	}
@@ -279,6 +321,14 @@ const SORT_TO_LIST_TYPE: Record<AlbumQuery['sort'], string> = {
 
 export const subsonicBackend: MediaBackend = {
 	kind: 'subsonic',
+
+	scrobblers: {
+		status: scrobblerLinks,
+		linkListenBrainz,
+		unlink: unlinkScrobbler,
+		startLastfm,
+		finishLastfm
+	},
 
 	async login(username, password) {
 		const cred: StoredCredential = { kind: 'subsonic', username, password };
@@ -328,6 +378,42 @@ export const subsonicBackend: MediaBackend = {
 		}
 		const body = await call<{ albumList2?: { album?: unknown } }>(cred, 'getAlbumList2.view', params);
 		return asArray(body.albumList2?.album as Record<string, any>[]).map(toAlbum);
+	},
+
+	async getGenres(cred): Promise<Genre[]> {
+		const body = await call<{ genres?: { genre?: unknown } }>(cred, 'getGenres.view');
+		return asArray(body.genres?.genre as Record<string, any>[])
+			.map((raw) => {
+				const name = String(raw.value ?? raw.name ?? '');
+				return {
+					id: name,
+					name,
+					albumCount: numberOrNull(raw.albumCount),
+					songCount: numberOrNull(raw.songCount)
+				};
+			})
+			.filter((genre) => genre.name !== '' && (genre.albumCount ?? 1) > 0)
+			.sort((a, b) => a.name.localeCompare(b.name));
+	},
+
+	async getGenreAlbums(cred, genreId, limit, offset) {
+		const body = await call<{ albumList2?: { album?: unknown } }>(cred, 'getAlbumList2.view', {
+			type: 'byGenre',
+			genre: genreId,
+			size: Math.min(limit, 500),
+			offset
+		});
+		return asArray(body.albumList2?.album as Record<string, any>[]).map(toAlbum);
+	},
+
+	async getGenreSongs(cred, genreId, limit) {
+		const body = await call<{ songsByGenre?: { song?: unknown } }>(cred, 'getSongsByGenre.view', {
+			genre: genreId,
+			count: Math.min(limit, 500)
+		});
+		// Subsonic returns these in library order; shuffled here so that playing a
+		// genre is not the same first album every time.
+		return shuffledCopy(asArray(body.songsByGenre?.song as Record<string, any>[]).map(toSong));
 	},
 
 	async getAlbum(cred, id): Promise<AlbumDetail> {
@@ -439,9 +525,19 @@ export const subsonicBackend: MediaBackend = {
 	async getSongs(cred, ids) {
 		// One call per id, since Subsonic has no batch lookup, and bounded, since
 		// the caller may pass 1000 of them.
+		//
+		// A track removed from the library answers error 70 and is left out,
+		// as Jellyfin leaves it out of a batch. Rethrown, it rejected the whole
+		// lookup, and a saved queue holding one deleted track did not restore
+		// at all. Any other failure still rejects.
 		const songs = await mapLimited(ids, async (id) => {
-			const body = await call<{ song?: Record<string, any> }>(cred, 'getSong.view', { id });
-			return body.song ? toSong(body.song) : null;
+			try {
+				const body = await call<{ song?: Record<string, any> }>(cred, 'getSong.view', { id });
+				return body.song ? toSong(body.song) : null;
+			} catch (err) {
+				if (err instanceof UpstreamError && err.kind === 'not_found') return null;
+				throw err;
+			}
 		});
 		return songs.filter((song): song is Song => song !== null);
 	},

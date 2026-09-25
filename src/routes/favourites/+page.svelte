@@ -5,6 +5,7 @@
 	import MediaGrid from '$lib/components/MediaGrid.svelte';
 	import Pager from '$lib/components/Pager.svelte';
 	import SectionHeader from '$lib/components/SectionHeader.svelte';
+	import SortChips from '$lib/components/SortChips.svelte';
 	import TrackList from '$lib/components/TrackList.svelte';
 	import { playContainer } from '$lib/client/actions';
 	import { player } from '$lib/client/player.svelte';
@@ -15,11 +16,34 @@
 	const total = $derived(data.counts.songs + data.counts.albums + data.counts.artists);
 	const LABELS = { songs: 'Tracks', albums: 'Albums', artists: 'Artists' } as const;
 
+	type Sort = (typeof data.sorts)[number];
+
+	const SORT_LABELS: Record<Sort, string> = {
+		recentlyStarred: 'Recently starred',
+		alphabetical: 'A–Z',
+		byArtist: 'By artist',
+		byAlbum: 'By album',
+		byYear: 'By year',
+		mostPlayed: 'Most played',
+		recentlyAdded: 'Recently added',
+		mostAlbums: 'Most albums'
+	};
+
 	function tabHref(tab: (typeof data.tabs)[number]): string {
 		const params = new URLSearchParams();
 		params.set('tab', tab);
 		// A tab change starts at page one; carrying the page number over would
-		// land on an arbitrary point in a different list.
+		// land on an arbitrary point in a different list. The sort is dropped
+		// with it: each tab has its own orders.
+		return `/favourites?${params}`;
+	}
+
+	function sortHref(sort: Sort): string {
+		const params = new URLSearchParams(pageState.url.searchParams);
+		params.set('tab', data.tab);
+		params.set('sort', sort);
+		// A new ordering starts at the top, as on the albums page.
+		params.delete('page');
 		return `/favourites?${params}`;
 	}
 
@@ -27,6 +51,7 @@
 		const params = new URLSearchParams(pageState.url.searchParams);
 		params.set('tab', data.tab);
 		params.set('page', String(target));
+		params.set('sort', data.sort);
 		return `/favourites?${params}`;
 	}
 
@@ -64,22 +89,33 @@
 			</p>
 		</div>
 	{:else}
-		<nav class="tabs" aria-label="Favourite type">
-			{#each data.tabs as tab (tab)}
-				{#if data.counts[tab] > 0}
-					<a
-						class="tab"
-						class:active={tab === data.tab}
-						href={tabHref(tab)}
-						aria-current={tab === data.tab ? 'page' : undefined}
-						data-sveltekit-noscroll
-					>
-						{LABELS[tab]}
-						<span class="hh-numeric count">{data.counts[tab].toLocaleString()}</span>
-					</a>
-				{/if}
-			{/each}
-		</nav>
+		<div class="bar">
+			<nav class="tabs" aria-label="Favourite type">
+				{#each data.tabs as tab (tab)}
+					{#if data.counts[tab] > 0}
+						<a
+							class="tab"
+							class:active={tab === data.tab}
+							href={tabHref(tab)}
+							aria-current={tab === data.tab ? 'page' : undefined}
+							data-sveltekit-noscroll
+						>
+							{LABELS[tab]}
+							<span class="hh-numeric count">{data.counts[tab].toLocaleString()}</span>
+						</a>
+					{/if}
+				{/each}
+			</nav>
+			{#if data.counts[data.tab] > 1}
+				<SortChips
+					sorts={data.sorts}
+					active={data.sort}
+					labels={SORT_LABELS}
+					href={sortHref}
+					label="Sort favourites"
+				/>
+			{/if}
+		</div>
 
 		{#if data.songs}
 			<TrackList songs={data.songs.items} variant="artwork" showAlbum />
@@ -122,11 +158,19 @@
 		max-width: var(--grid-max);
 	}
 
+	.bar {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		flex-wrap: wrap;
+		gap: var(--space-2);
+		border-bottom: 1px solid var(--border-hairline);
+		padding-bottom: var(--space-2);
+	}
+
 	.tabs {
 		display: flex;
 		gap: var(--space-1);
-		border-bottom: 1px solid var(--border-hairline);
-		padding-bottom: var(--space-2);
 	}
 
 	.tab {

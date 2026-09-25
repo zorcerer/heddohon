@@ -83,7 +83,30 @@ export function nameRequestUser(user: string): void {
  */
 function render(value: string | number | boolean): string {
 	const text = String(value);
-	return /[\s"=]/.test(text) ? JSON.stringify(text) : text;
+	return /[\s"=\\\p{C}]/u.test(text) ? escapeInvisible(JSON.stringify(text)) : text;
+}
+
+/*
+ * Characters that change how a line reads without being seen, escaped as
+ * `\uXXXX`.
+ *
+ * A username and an Origin header are both written here by anyone who can
+ * reach the sign-in page, and the text format wrote them raw unless they held
+ * a space, a quote or an equals sign. An ESC sequence in a username cleared or
+ * recoloured the terminal of whoever ran `docker logs`, and a right-to-left
+ * override made `mallory<U+202E>gnp.exe` display as `malloryexe.png`.
+ * `JSON.stringify` escapes the C0 controls; this covers what it leaves alone:
+ * C1 controls, the Unicode format characters (bidi overrides and isolates,
+ * zero-width characters, the BOM) and the two line separators.
+ */
+function escapeInvisible(text: string): string {
+	return text.replace(
+		/[\u0080-\u009f\p{Cf}\u2028\u2029]/gu,
+		(char) => {
+			const point = char.codePointAt(0) ?? 0;
+			return point > 0xffff ? `\\u{${point.toString(16)}}` : `\\u${point.toString(16).padStart(4, '0')}`;
+		}
+	);
 }
 
 function emit(want: LogLevel, event: string, fields: LogFields = {}): void {
@@ -91,6 +114,12 @@ function emit(want: LogLevel, event: string, fields: LogFields = {}): void {
 
 	const active = context.getStore();
 	const all: LogFields = { ...fields };
+	// Every string field, not only the ones a call site thought to pass through
+	// `redact`: an error message can quote a path, and SvelteKit's "Failed to
+	// decode URI" quotes the whole of it, token included.
+	for (const [key, value] of Object.entries(all)) {
+		if (typeof value === 'string') all[key] = redact(value);
+	}
 	if (active?.user !== undefined && all.user === undefined) all.user = active.user;
 	if (active?.id !== undefined && all.req === undefined) all.req = active.id;
 
@@ -106,7 +135,7 @@ function emit(want: LogLevel, event: string, fields: LogFields = {}): void {
 				payload[key] = value;
 			}
 		}
-		line = JSON.stringify(payload);
+		line = escapeInvisible(JSON.stringify(payload));
 	} else {
 		const parts = Object.entries(all)
 			.filter((entry): entry is [string, string | number | boolean | null] => entry[1] !== undefined)
@@ -126,6 +155,51 @@ export const log = {
 	info: (event: string, fields?: LogFields) => emit('info', event, fields),
 	debug: (event: string, fields?: LogFields) => emit('debug', event, fields)
 };
+
+/**
+ * A path or query string with any share token taken out.
+ *
+ * A share link's token is a bearer credential carried in the path, and
+ * `/login?next=` carries it again, percent-encoded, for a visitor sent to sign
+ * in first. Request lines log both, so they pass through here. Matching is done
+ * on the decoded text: `/%73hare/...` routes to the same page, and the encoded
+ * `next` value decodes to the same shape. Text with neither a share segment
+ * nor a Last.fm callback parameter (`LINK_PARAMS`) is returned exactly as given.
+ */
+const SHARE_SEGMENT = /(\/share\/)[^/?#&\s"]+/gi;
+
+/**
+ * The query parameters of the Last.fm callback (`/settings/lastfm`): last.fm's
+ * token, Navidrome's link token and Heddohon's state. Each is a credential
+ * while it is valid, and the callback URL reaches the log as a request query
+ * or inside `next` when the session has to be signed in again first.
+ */
+const LINK_PARAMS = /([?&](?:token|uid|state)=)[^&#\s"]+/gi;
+
+/**
+ * One layer of percent-encoding removed, byte by byte, never throwing.
+ * `decodeURIComponent` stops at the first malformed escape, and a single `%E0`
+ * anywhere in a query was enough to leave an encoded token in the line.
+ */
+function unescapeOnce(text: string): string {
+	return text.replace(/%([0-9a-f]{2})/gi, (_, hex: string) => String.fromCharCode(parseInt(hex, 16)));
+}
+
+export function redact(text: string): string {
+	// Repeated until nothing changes, so `%252Fshare%252F...` and
+	// `?next=%2F%2573hare%2F...` both come down to `/share/`. Eight layers is
+	// far past anything a browser or a chat client produces.
+	let current = text;
+	for (let layer = 0; layer < 8; layer++) {
+		const next = unescapeOnce(current);
+		if (next === current) break;
+		current = next;
+	}
+	SHARE_SEGMENT.lastIndex = 0;
+	LINK_PARAMS.lastIndex = 0;
+	if (!SHARE_SEGMENT.test(current) && !LINK_PARAMS.test(current)) return text;
+	return current.replace(SHARE_SEGMENT, '$1-').replace(LINK_PARAMS, '$1-');
+}
 
 /**
  * The message of an unknown throw, for a field.

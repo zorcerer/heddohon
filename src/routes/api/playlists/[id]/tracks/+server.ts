@@ -10,7 +10,9 @@ export const POST: RequestHandler = async ({ locals, params, request }) => {
 
 	const body = (await request.json().catch(() => null)) as { songIds?: unknown } | null;
 	const songIds = Array.isArray(body?.songIds)
-		? body.songIds.filter((id): id is string => typeof id === 'string' && id.length > 0).slice(0, MAX_SONGS)
+		? body.songIds
+				.filter((id): id is string => typeof id === 'string' && id.length > 0 && id.length < 256)
+				.slice(0, MAX_SONGS)
 		: [];
 	if (songIds.length === 0) error(400, 'songIds must contain at least one track');
 
@@ -33,12 +35,23 @@ export const DELETE: RequestHandler = async ({ locals, params, request }) => {
 	if (!session) error(401, 'Not signed in');
 
 	const body = (await request.json().catch(() => null)) as { indices?: unknown } | null;
+	/*
+	 * Deduplicated and bounded like the songs above. Unbounded, 60,000 indices
+	 * became 60,000 `songIndexToRemove` parameters in one Subsonic URL, which the
+	 * music server refused for its length.
+	 */
 	const indices = Array.isArray(body?.indices)
-		? body.indices.filter(
-				(index): index is number => typeof index === 'number' && Number.isInteger(index) && index >= 0
-			)
+		? [
+				...new Set(
+					body.indices.filter(
+						(index): index is number =>
+							typeof index === 'number' && Number.isInteger(index) && index >= 0 && index < 100_000
+					)
+				)
+			]
 		: [];
 	if (indices.length === 0) error(400, 'indices must contain at least one position');
+	if (indices.length > MAX_SONGS) error(400, `at most ${MAX_SONGS} positions at once`);
 
 	try {
 		await backendFor(session.account.backend).removeFromPlaylist(session.credential, params.id, indices);

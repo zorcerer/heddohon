@@ -415,6 +415,7 @@
 			<Icon name="github" size={18} />
 			<span>Source on GitHub</span>
 		</a>
+		<span class="version hh-numeric">v{data.appVersion}</span>
 	</footer>
 </main>
 
@@ -476,18 +477,17 @@
 	/*
 	 * Resting at 0 and animated from 1, in both directions. The other way round,
 	 * a browser that never ran the animation would hold an opaque sheet over the
-	 * page. Both declarations have to outrank `.hh-ambience`, which sets its own
-	 * z-index and leaves the ground transparent, hence naming both classes.
+	 * page. The z-index has to outrank `.hh-ambience`, which sets its own, hence
+	 * naming both classes.
 	 */
 	.veil.hh-ambience {
 		z-index: 60;
-		background-color: var(--bg-base);
 		opacity: 0;
-		animation: veil-out 420ms cubic-bezier(0.4, 0, 0.2, 1) forwards;
+		animation: veil-out var(--dur-travel) var(--ease-out) forwards;
 	}
 
 	.veil.closing {
-		animation: veil-in 380ms cubic-bezier(0.4, 0, 0.2, 1) forwards;
+		animation: veil-in var(--dur-state) var(--ease-out) forwards;
 	}
 
 	@keyframes veil-out {
@@ -510,7 +510,7 @@
 	   behind it, which its own `backdrop-filter` samples. */
 	.crest-field.leaving,
 	.intro.leaving {
-		animation: soften 380ms cubic-bezier(0.4, 0, 0.2, 1) both;
+		animation: soften var(--dur-state) var(--ease-out) both;
 	}
 
 	@keyframes soften {
@@ -862,6 +862,14 @@
 		transition:
 			color var(--transition),
 			text-shadow var(--transition);
+	}
+
+	/* Under the source link, quieter than it: a fact for a bug report, not
+	   something to act on. */
+	.version {
+		font-size: 0.6875rem;
+		color: var(--text-faint);
+		opacity: 0.8;
 	}
 
 	.source:hover,

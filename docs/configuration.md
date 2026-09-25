@@ -105,10 +105,20 @@ npm run build && npm start   # production
 | `HEDDOHON_SUBSONIC_LABEL` | no | `Navidrome` | Name shown on the sign-in screen. |
 | `HEDDOHON_JELLYFIN_LABEL` | no | `Jellyfin` | Name shown on the sign-in screen. |
 | `HEDDOHON_SESSION_HOURS` | no | `72` | Session lifetime. Clamped to 72. |
-| `HEDDOHON_DATA_DIR` | no | `/data` | Where the SQLite database and the cover cache live. |
+| `HEDDOHON_DATA_DIR` | no | `/data` | Where the cover cache lives, and the SQLite database unless `HEDDOHON_DATABASE_URL` is set. |
+| `HEDDOHON_DATABASE_URL` | no | none | A PostgreSQL server to keep the database on, as `postgres://host:5432/database`. Unset, the database is SQLite in the data directory. See [PostgreSQL](#postgresql). |
+| `HEDDOHON_DATABASE_USER` | no | from the URL | PostgreSQL user, so it need not be in the URL. |
+| `HEDDOHON_DATABASE_PASSWORD` | no | from the URL | PostgreSQL password, so it need not be in the URL. |
+| `HEDDOHON_DATABASE_PASSWORD_FILE` | no | none | A file holding the password, for Docker secrets. Takes precedence over the variable above. |
+| `HEDDOHON_DATABASE_SSL` | no | from the URL | `off`, `require` (encrypted, certificate not checked) or `verify-full`. Unset, the URL's `sslmode` applies. |
+| `HEDDOHON_DATABASE_IMPORT` | no | `true` | Copy an existing SQLite database into an empty PostgreSQL one on first start. |
 | `HEDDOHON_COOKIE_SECURE` | no | `auto` | `auto` sets Secure when the request arrives over https, when `NODE_ENV=production`, or when the host is not loopback. The Docker image sets `NODE_ENV=production`, so there `auto` is always Secure and a deployment reached over plain http needs `false`. The cookie is named `__Host-heddohon_session` wherever it is Secure. |
 | `HEDDOHON_UPSTREAM_TIMEOUT_MS` | no | `20000` | Give-up time for music-server calls. |
 | `HEDDOHON_COVER_CACHE_MB` | no | `512` | Disk budget for cached cover art, in megabytes. `0` switches the cache off. |
+| `HEDDOHON_SHARING` | no | `true` | Song links. `false` hides the share buttons, refuses new links, and stops existing links from opening. Read at startup, so a change takes a restart. Links are kept, and open again if it is set back to `true`. |
+| `HEDDOHON_DOWNLOADS` | no | `true` | The "Download original" link in the player's track details, and the route behind it. `false` removes both. Signed-in browsers are sent the same files to play them, so this is not copy protection. |
+| `HEDDOHON_LYRICS_LRCLIB` | no | `false` | Lyrics from LRCLIB for tracks the music server has no synced lyrics for. When `true`, the server sends the artist, title, album and length of each such track to LRCLIB when its lyrics are opened. |
+| `HEDDOHON_LYRICS_LRCLIB_URL` | no | `https://lrclib.net` | Base URL of the LRCLIB instance to ask, for a self-hosted copy. Only read when the above is `true`. |
 | `HEDDOHON_LOG_LEVEL` | no | `error` | `error`, `warn`, `info` or `debug`. |
 | `HEDDOHON_LOG_FORMAT` | no | `text` | `json` emits one object per line instead. |
 | `HEDDOHON_LOG_SLOW_MS` | no | `2000` | Requests at or above this are logged as `request-slow`. `0` disables that. |
@@ -138,6 +148,58 @@ deployment, and 20 per client address where addresses identify visitors (see
 pending request matches the code a user types, so the total bounds how many
 codes a mistyped entry could match. Password sign-in is counted separately and
 is not affected when the Quick Connect limit is reached.
+
+## PostgreSQL
+
+The database is SQLite in the data directory unless `HEDDOHON_DATABASE_URL`
+names a PostgreSQL server. PostgreSQL is the only server supported.
+
+Create a database and a user for Heddohon on the server, for example:
+
+```sql
+CREATE USER heddohon WITH PASSWORD 'choose-one';
+CREATE DATABASE heddohon OWNER heddohon;
+```
+
+Then set:
+
+```
+HEDDOHON_DATABASE_URL=postgres://db.lan:5432/heddohon
+HEDDOHON_DATABASE_USER=heddohon
+HEDDOHON_DATABASE_PASSWORD=choose-one
+```
+
+Heddohon creates a `heddohon` schema and its tables in it on first start, so it
+needs to be allowed to create a schema in that database (the owner is). Keeping
+to its own schema means it can share a database with other applications
+without touching their tables. When the connection is not encrypted, a
+`database-unencrypted` line is logged at `warn` on start-up.
+
+**Moving from SQLite.** On the first start against an empty database, if
+`heddohon.db` is in `HEDDOHON_DATA_DIR`, it is copied across: accounts,
+settings, saved queues and share links. Sessions and sign-in counters are not,
+so everyone signs in once. Stored music-server credentials are copied sealed,
+so `HEDDOHON_SECRET` must stay the same. The copy is one transaction and the
+SQLite file is only read; a `sqlite_import` row in the `meta` table records
+that it has run, and it does not run again. The line `database-imported` is
+logged at `warn` with the counts. Set `HEDDOHON_DATABASE_IMPORT=false` to
+start empty instead.
+
+**What changes.**
+
+- The data directory is still needed, for the cover cache.
+- Sessions and settings are read on every request. Against PostgreSQL each is
+  remembered in memory for 5 seconds, so a page of covers does not make a
+  database round trip per image. Signing out, a changed credential and saved
+  settings clear the memory at once in the process that made the change.
+- One Heddohon process per database is the supported setup. A second process on
+  the same database would see a sign-out made through the first up to 5
+  seconds late.
+- `/healthz` checks the database and answers `503` with
+  `database-unavailable` when it does not reply within 3 seconds, which turns
+  the container's health check red. Requests fail with a plain error while the
+  database is down, and recover without a restart when it is back.
+- Queries time out after 8 seconds on the client and 10 on the server.
 
 ## Cover cache
 
@@ -201,8 +263,8 @@ The events at each level, by name:
 | Level | Events |
 | --- | --- |
 | `error` | `request` at 5xx or thrown, `unhandled` with a stack, `config-invalid`, `sign-in-failed`, `quick-connect-failed` on a fault in this server |
-| `warn` | `request-slow`, `cross-origin-blocked`, `sign-in-rejected`, `sign-in-throttled`, `quick-connect-throttled`, `quick-connect-failed`, `sessions-destroyed`, `upstream-timeout`, `upstream-unreachable`, `section-failed`, `cover-write-failed` |
-| `info` | `started`, `signed-in` (with `method=quick-connect` for a Quick Connect sign-in), `quick-connect-started`, `cover-cache-cleared`, `cover-cache-swept` |
+| `warn` | `request-slow`, `cross-origin-blocked`, `sign-in-rejected`, `sign-in-throttled`, `quick-connect-throttled`, `quick-connect-failed`, `sessions-destroyed`, `upstream-timeout`, `upstream-unreachable`, `section-failed`, `cover-write-failed`, `transcode-read-failed`, `scrobbler-failed` (with the `step`: status, a link, an unlink, or a refused Last.fm return) |
+| `info` | `started`, `signed-in` (with `method=quick-connect` for a Quick Connect sign-in), `quick-connect-started`, `scrobbler-linked`, `scrobbler-unlinked`, `cover-cache-cleared`, `cover-cache-swept` |
 | `debug` | `request` (one per request, with its path, status and duration), `upstream` (one per music-server call, with its time), `cover-hit`, `cover-miss`, `cover-stored`, `unauthenticated` |
 
 ### Working out why something is slow

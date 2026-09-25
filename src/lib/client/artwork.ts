@@ -153,8 +153,17 @@ function onPage(coverArt: string): HTMLImageElement | null {
 }
 
 async function extract(coverArt: string): Promise<ArtworkColor | null> {
-	const image = onPage(coverArt) ?? (await loadImage(coverUrl(coverArt, 96)));
+	return colorOfImage(onPage(coverArt) ?? (await loadImage(coverUrl(coverArt, 96))));
+}
 
+/**
+ * The colour of an image that is already decoded.
+ *
+ * For a page whose cover does not come from `/api/cover`: a shared link serves
+ * its cover from a route of its own, which `extract` has no id to build. The
+ * image has to be same-origin, or the canvas is tainted and this returns null.
+ */
+export function colorOfImage(image: HTMLImageElement): ArtworkColor | null {
 	const canvas = document.createElement('canvas');
 	canvas.width = SAMPLE_SIZE;
 	canvas.height = SAMPLE_SIZE;
@@ -219,14 +228,7 @@ export function applyArtworkColor(target: HTMLElement, color: ArtworkColor | nul
 	// hue takes the short way round there as well: `from` is already unwound.
 	if (typeof document !== 'undefined') {
 		const landing = { ...next, hue: from + shortest };
-		// A navigation applies the same colour twice: once when the card hands it
-		// over and again when the page it opened offers its own cover. Restarting
-		// the fade on the second one cut the first short, which put back the step
-		// this exists to remove.
-		if (!sameColor(shown, landing)) {
-			morphTintLayers({ ...shown, hue: from }, landing);
-			shown = landing;
-		}
+		requestMorph(landing);
 	}
 }
 
@@ -237,36 +239,129 @@ export function applyArtworkColor(target: HTMLElement, color: ArtworkColor | nul
  * document root by one caller that has no business knowing which elements
  * happen to paint it, and there are never more than two of them on screen.
  *
- * The `--tint-mix` reset has to be seen by the style engine as a finished state
- * before the new value starts a transition from it, hence the forced reflow.
- * Setting both in one task transitions from wherever the last fade had got to,
- * which on a quick second navigation is a fade that starts part-way and lands
- * early.
+ * The two layers take turns: the new colour goes into the one that is hidden,
+ * and `--tint-mix` moves towards it from wherever it is. `app.css`, by
+ * `.hh-tint-morph`, records the reset this replaced and the dark frame it is
+ * taken to have caused.
+ *
+ * The layer on screen is written as well, with the colour it is already
+ * showing. Until the first change it has no colour of its own and reads the
+ * room's `--art-*`, which start moving at the same moment. Only called with
+ * no fade in progress (see `requestMorph`), so neither write lands on a layer
+ * that is visible with a different colour.
  */
 function morphTintLayers(from: ArtworkColor, to: ArtworkColor): void {
 	const surfaces = document.querySelectorAll<HTMLElement>('.hh-tint-morph');
 	for (const surface of surfaces) {
-		surface.style.setProperty('--tint-was-h', from.hue.toFixed(1));
-		surface.style.setProperty('--tint-was-s', `${from.saturation.toFixed(1)}%`);
-		surface.style.setProperty('--tint-was-l', `${from.lightness.toFixed(1)}%`);
-		surface.style.setProperty('--tint-now-h', to.hue.toFixed(1));
-		surface.style.setProperty('--tint-now-s', `${to.saturation.toFixed(1)}%`);
-		surface.style.setProperty('--tint-now-l', `${to.lightness.toFixed(1)}%`);
-		surface.style.setProperty('transition', 'none');
-		surface.style.setProperty('--tint-mix', '0');
-		void surface.offsetWidth;
-		surface.style.removeProperty('transition');
-		surface.style.setProperty('--tint-mix', '1');
+		// `--tint-mix` starts at 1 in `app.css`, so the second layer is the one
+		// on screen for a surface that has not changed colour yet.
+		const front = fronts.get(surface) ?? 'b';
+		const back = front === 'a' ? 'b' : 'a';
+		paintTintLayer(surface, front, from);
+		paintTintLayer(surface, back, to);
+		surface.style.setProperty('--tint-mix', back === 'b' ? '1' : '0');
+		fronts.set(surface, back);
 	}
 }
 
-/** The colour the surfaces are currently showing, so a fade knows where it starts. */
+function paintTintLayer(surface: HTMLElement, layer: 'a' | 'b', color: ArtworkColor): void {
+	surface.style.setProperty(`--tint-${layer}-h`, color.hue.toFixed(1));
+	surface.style.setProperty(`--tint-${layer}-s`, `${color.saturation.toFixed(1)}%`);
+	surface.style.setProperty(`--tint-${layer}-l`, `${color.lightness.toFixed(1)}%`);
+}
+
+/** Which layer each surface is fading towards, or showing. */
+const fronts = new WeakMap<HTMLElement, 'a' | 'b'>();
+
+/** The colour the surfaces are showing, or fading towards. */
 let shown: ArtworkColor = DEFAULT_ARTWORK_COLOR;
 
-/** Equal to a tenth of a degree and a tenth of a percent, which is what is written out. */
+/**
+ * The fade in progress: the colour it left, and when it ends. Matches
+ * `--dur-colour` in `app.css`.
+ */
+const TINT_FADE_MS = 900;
+let fading: { from: ArtworkColor; until: number } | null = null;
+/** The latest colour asked for while a fade was running, applied when it ends. */
+let pending: ArtworkColor | null = null;
+let pendingTimer: ReturnType<typeof setTimeout> | null = null;
+
+/**
+ * Starts a fade to `to`, or arranges one, without repainting a layer that is
+ * on screen.
+ *
+ * During a fade both layers are partly visible, so there is no hidden layer to
+ * write a new colour into. Writing it into the one fading out changed a
+ * visible wash from one colour to another between two frames. Measured at a
+ * track change on an album page: the room was sent to the page's cover and
+ * back 17ms apart, the second write turned a layer at nearly full opacity from
+ * red to blue in one frame, and that was the dark flash reported on the rail
+ * and the player.
+ *
+ * So a change during a fade does one of three things. Back to the colour being
+ * left: the fade reverses, which moves only opacity. The colour already being
+ * faded to: nothing. Anything else: it waits for the fade to end, and only the
+ * latest such colour is applied.
+ *
+ * A navigation also asks for the same colour twice, once when the card hands
+ * it over and once when the page offers its cover; the second is the "nothing"
+ * case. Restarting the fade on it cut the first short.
+ */
+function requestMorph(to: ArtworkColor): void {
+	const now = Date.now();
+	if (fading && now >= fading.until) fading = null;
+
+	if (!fading) {
+		pending = null;
+		if (sameColor(shown, to)) return;
+		morphTintLayers(shown, to);
+		fading = { from: shown, until: now + TINT_FADE_MS };
+		shown = to;
+		return;
+	}
+
+	if (sameColor(shown, to)) {
+		pending = null;
+		return;
+	}
+	if (sameColor(fading.from, to)) {
+		pending = null;
+		reverseTintLayers();
+		// A reversed transition runs for as long as the forward one had run.
+		const ran = TINT_FADE_MS - (fading.until - now);
+		fading = { from: shown, until: now + ran };
+		shown = to;
+		return;
+	}
+	pending = to;
+	if (pendingTimer === null) {
+		pendingTimer = setTimeout(() => {
+			pendingTimer = null;
+			const next = pending;
+			pending = null;
+			if (next) requestMorph(next);
+		}, fading.until - now + 20);
+	}
+}
+
+/** Sends every surface back towards the layer it was fading away from. */
+function reverseTintLayers(): void {
+	for (const surface of document.querySelectorAll<HTMLElement>('.hh-tint-morph')) {
+		const back = (fronts.get(surface) ?? 'b') === 'a' ? 'b' : 'a';
+		surface.style.setProperty('--tint-mix', back === 'b' ? '1' : '0');
+		fronts.set(surface, back);
+	}
+}
+
+/**
+ * Equal to a tenth of a degree and a tenth of a percent, which is what is
+ * written out. Hues are compared round the wheel: the room's hue is unwound
+ * to take the short way, so the same colour can arrive as 128 or 488.
+ */
 function sameColor(a: ArtworkColor, b: ArtworkColor): boolean {
+	const turn = (((a.hue - b.hue) % 360) + 360) % 360;
 	return (
-		Math.abs(a.hue - b.hue) < 0.05 &&
+		(turn < 0.05 || turn > 359.95) &&
 		Math.abs(a.saturation - b.saturation) < 0.05 &&
 		Math.abs(a.lightness - b.lightness) < 0.05
 	);

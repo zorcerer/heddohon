@@ -42,19 +42,26 @@
 	const visible = $derived(data.items);
 
 	/**
-	 * Artist lists are long and alphabetical, so a jump bar beats scrolling.
-	 * Only letters that actually have artists behind them are shown.
+	 * The page's artists under their initials, as a printed index sets them.
+	 * The key skips a leading article, as Navidrome and Jellyfin do when they
+	 * sort ("The Beatles" is under B), so the groups follow the order the
+	 * server sent. Anything that does not start with a letter goes under #.
 	 */
-	const initials = $derived.by(() => {
-		const seen = new Map<string, string>();
+	const ARTICLE = /^(the|a|an|el|la|los|las|le|les|os|as|o)\s+/i;
+	const groups = $derived.by(() => {
+		const byKey = new Map<string, typeof visible>();
 		for (const artist of visible) {
-			const first = artist.name.trim()[0]?.toUpperCase() ?? '#';
+			const first = artist.name.trim().replace(ARTICLE, '')[0]?.toUpperCase() ?? '#';
 			const key = /[A-Z]/.test(first) ? first : '#';
-			if (!seen.has(key)) seen.set(key, artist.id);
+			const group = byKey.get(key);
+			if (group) group.push(artist);
+			else byKey.set(key, [artist]);
 		}
-		return [...seen.entries()];
+		return [...byKey.entries()];
 	});
 
+	const albumCount = (count: number | null) =>
+		count ? `${count} album${count === 1 ? '' : 's'}` : null;
 </script>
 
 <svelte:head>
@@ -66,6 +73,9 @@
 		<div>
 			<span class="hh-eyebrow">Library</span>
 			<h1>Artists</h1>
+			<p class="meta hh-numeric hh-muted">
+				{data.libraryTotal.toLocaleString()} artist{data.libraryTotal === 1 ? '' : 's'}
+			</p>
 		</div>
 		<input
 			class="hh-input filter"
@@ -77,28 +87,33 @@
 		/>
 	</header>
 
-	{#if initials.length > 1}
+	{#if groups.length > 1}
 		<nav class="jump" aria-label="Jump to letter">
-			{#each initials as [letter, id] (letter)}
-				<a href="#artist-{id}">{letter}</a>
+			{#each groups as [letter] (letter)}
+				<a href="#letter-{letter === '#' ? 'other' : letter}">{letter}</a>
 			{/each}
 		</nav>
 	{/if}
 
 	{#if visible.length > 0}
-		<MediaGrid density="compact">
-			{#each visible as artist (artist.id)}
-				<div id="artist-{artist.id}" class="anchor">
-					<MediaCard
-						href="/artists/{artist.id}"
-						title={artist.name}
-						subtitle={artist.albumCount ? `${artist.albumCount} albums` : null}
-						coverArt={artist.coverArt}
-						rounded
-					/>
-				</div>
+		<div class="index">
+			{#each groups as [letter, artists] (letter)}
+				<section class="group" id="letter-{letter === '#' ? 'other' : letter}" aria-label={letter}>
+					<span class="letter hh-display" aria-hidden="true">{letter}</span>
+					<MediaGrid density="compact">
+						{#each artists as artist (artist.id)}
+							<MediaCard
+								href="/artists/{artist.id}"
+								title={artist.name}
+								subtitle={albumCount(artist.albumCount)}
+								coverArt={artist.coverArt}
+								rounded
+							/>
+						{/each}
+					</MediaGrid>
+				</section>
 			{/each}
-		</MediaGrid>
+		</div>
 
 		<Pager {...data} href={pageHref} label="Artist pages" noun="artists" />
 	{:else}
@@ -123,6 +138,11 @@
 
 	.filter {
 		width: min(20rem, 100%);
+	}
+
+	.meta {
+		margin: var(--space-1) 0 0;
+		font-size: 0.8125rem;
 	}
 
 	.jump {
@@ -151,12 +171,57 @@
 		text-shadow: var(--glow-text);
 	}
 
-	/* Anchors need clearance so a jump does not land the card under the header. */
-	.anchor {
-		scroll-margin-top: var(--space-6);
+	.index {
+		display: grid;
+		gap: var(--space-4);
+	}
+
+	/*
+	 * The letter in the margin, large and quiet, the way a printed index sets
+	 * its section letters; it stays beside its group while the group scrolls.
+	 */
+	.group {
+		display: grid;
+		grid-template-columns: 3.5rem minmax(0, 1fr);
+		gap: var(--space-3);
+		align-items: start;
+		/* Clear of the top of the column when a jump lands on it. */
+		scroll-margin-top: var(--space-5);
+	}
+
+	.letter {
+		position: sticky;
+		top: 0;
+		padding-top: var(--space-2);
+		font-size: 2.75rem;
+		line-height: 1;
+		color: var(--accent);
+		opacity: 0.8;
+		text-align: center;
+	}
+
+	.group + .group {
+		padding-top: var(--space-4);
+		border-top: 1px solid var(--border-hairline);
+	}
+
+	/* A phone: the letter above its group rather than beside it. */
+	@media (max-width: 36rem) {
+		.group {
+			grid-template-columns: minmax(0, 1fr);
+			gap: var(--space-2);
+		}
+
+		.letter {
+			position: static;
+			text-align: left;
+			font-size: 1.75rem;
+			padding: 0 var(--space-1);
+		}
 	}
 
 	.empty {
+
 		padding: var(--space-7);
 		text-align: center;
 	}

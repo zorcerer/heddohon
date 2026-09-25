@@ -88,6 +88,24 @@ export function tokenDigest(token: string): string {
 	return createHmac('sha256', keyFor('session')).update(token).digest('base64url');
 }
 
+/**
+ * Share links carry a raw token the way the session cookie does, and the
+ * database holds only this digest. It is keyed apart from the session digest,
+ * so a share token presented as a session cookie, or the other way round,
+ * digests to a value the other table does not hold.
+ */
+export function shareDigest(token: string): string {
+	return createHmac('sha256', keyFor('share')).update(token).digest('base64url');
+}
+
+/**
+ * The signature on a known-device cookie; see `rememberDevice` in auth.ts.
+ * Keyed on its own, like every other digest here.
+ */
+export function deviceDigest(value: string): string {
+	return createHmac('sha256', keyFor('device')).update(value).digest('base64url');
+}
+
 /** Stable pseudonymous digest, used for audit fields that must not be reversible. */
 export function pseudonym(value: string): string {
 	return createHmac('sha256', keyFor('pseudonym')).update(value).digest('base64url').slice(0, 22);
@@ -107,4 +125,14 @@ export function subsonicToken(password: string, salt: string): string {
 
 export function randomSalt(bytes = 12): string {
 	return randomBytes(bytes).toString('hex');
+}
+
+/**
+ * Ties a Last.fm link to the Heddohon account that started it. The value is
+ * the account id and Navidrome's link token, and the digest travels in the
+ * callback URL beside the link token; see `routes/settings/lastfm`. Keyed on
+ * its own, like every other digest here.
+ */
+export function linkStateDigest(value: string): string {
+	return createHmac('sha256', keyFor('link-state')).update(value).digest('base64url');
 }

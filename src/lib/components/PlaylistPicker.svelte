@@ -7,11 +7,13 @@
 	import { playlistPicker } from '$lib/client/playlists.svelte';
 	import { formatLongDuration } from '$lib/client/format';
 	import Icon from './Icon.svelte';
+	import { slide } from 'svelte/transition';
+	import { DUR, easeOut, motion } from '$lib/client/motion';
 
 	let dialog = $state<HTMLDialogElement | null>(null);
 	let newName = $state('');
 
-	const open = $derived(playlistPicker.request !== null);
+	const open = $derived(playlistPicker.visible);
 	const count = $derived(playlistPicker.request?.songIds.length ?? 0);
 
 	$effect(() => {
@@ -44,17 +46,21 @@
 			</button>
 		</header>
 
+		<!-- The messages open and close by height, so the list below moves down
+		     and back up rather than jumping. -->
 		{#if playlistPicker.error}
-			<p class="alert" role="alert">{playlistPicker.error}</p>
+			<p class="alert" role="alert" transition:slide={{ duration: motion(DUR.state), easing: easeOut }}>
+				{playlistPicker.error}
+			</p>
 		{/if}
 
 		{#if playlistPicker.done}
-			<p class="done" role="status">
+			<p class="done" role="status" transition:slide={{ duration: motion(DUR.state), easing: easeOut }}>
 				Added to <strong>{playlistPicker.done}</strong>.
 			</p>
 		{/if}
 
-		<div class="list">
+		<div class="list hh-stagger">
 			{#if playlistPicker.loading}
 				<p class="hh-muted empty">Loading your playlists…</p>
 			{:else if playlistPicker.playlists.length === 0}
@@ -63,10 +69,14 @@
 				{#each playlistPicker.playlists as playlist (playlist.id)}
 					<button
 						class="row"
+						class:added={playlistPicker.done === playlist.name}
 						disabled={playlistPicker.busy}
 						onclick={() => playlistPicker.addTo(playlist)}
 					>
-						<span class="name hh-truncate">{playlist.name}</span>
+						<span class="name">
+							<span class="check" aria-hidden="true"><Icon name="check" size={14} /></span>
+							<span class="hh-truncate">{playlist.name}</span>
+						</span>
 						<span class="hh-numeric hh-muted meta">
 							{playlist.songCount ?? 0} · {formatLongDuration(playlist.duration) || '—'}
 						</span>
@@ -179,7 +189,16 @@
 		gap: 1px;
 	}
 
+	/*
+	 * The rows come in one after another as the list appears, 24ms apart
+	 * (`--stagger` from `.hh-stagger` in app.css), and hover like a track row:
+	 * an accent wash fades in behind and the name steps right. The rows are
+	 * buttons without glass inside the dialog's glass, so opacity and movement
+	 * on them leave its blur alone.
+	 */
 	.row {
+		position: relative;
+		isolation: isolate;
 		display: flex;
 		align-items: baseline;
 		justify-content: space-between;
@@ -188,14 +207,74 @@
 		padding: 0.5rem var(--space-3);
 		border-radius: var(--r-sm);
 		text-align: left;
+		animation: list-rise var(--dur-state) var(--ease-out) both;
+		animation-delay: calc(var(--stagger, 12) * 24ms);
 		transition:
 			text-shadow var(--transition),
 			color var(--transition);
 	}
 
+	.row::before {
+		content: '';
+		position: absolute;
+		inset: 0;
+		z-index: -1;
+		border-radius: inherit;
+		background: linear-gradient(
+			90deg,
+			color-mix(in srgb, var(--accent) 14%, transparent),
+			color-mix(in srgb, var(--accent) 4%, transparent) 60%,
+			transparent
+		);
+		transform-origin: left center;
+		opacity: 0;
+		scale: 0.97 1;
+		transition:
+			opacity var(--dur-state) var(--ease-out),
+			scale var(--dur-state) var(--ease-out);
+	}
+
 	.row:hover:not(:disabled) {
 		color: var(--glow-color);
 		text-shadow: var(--glow-text);
+	}
+
+	.row:hover:not(:disabled)::before,
+	.row:focus-visible::before,
+	.row.added::before {
+		opacity: 1;
+		scale: 1;
+	}
+
+	.name {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.35rem;
+		min-width: 0;
+		transition: translate var(--dur-state) var(--ease-spring);
+	}
+
+	.row:hover:not(:disabled) .name {
+		translate: 0.2rem 0;
+	}
+
+	/* The playlist just added to: a check springs in beside its name. */
+	.check {
+		display: grid;
+		width: 0;
+		opacity: 0;
+		scale: 0.4;
+		color: var(--accent);
+		transition:
+			width var(--dur-state) var(--ease-out),
+			opacity var(--dur-hover) var(--ease-out),
+			scale var(--dur-state) var(--ease-spring);
+	}
+
+	.added .check {
+		width: 14px;
+		opacity: 1;
+		scale: 1;
 	}
 
 	.row:disabled {

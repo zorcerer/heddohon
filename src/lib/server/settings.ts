@@ -5,7 +5,7 @@
  * in from a different browser gives the same player, and an operator wiping a
  * client device does not lose anyone's configuration.
  */
-import { db, now } from './db';
+import { now, store } from './db';
 import type { AlbumSort } from '$lib/types';
 
 export type ThemeName = 'dark' | 'light';
@@ -45,10 +45,17 @@ export interface UserSettings {
 	transition: CrossfadeMode;
 	/** Overlap length, 1–12s. Only read when `transition` is `crossfade`. */
 	crossfadeSeconds: number;
-	/** Replay Gain style normalisation. Off by default: it is lossy by nature. */
+	/** Level each track by its ReplayGain data. Off by default: it changes how loud a record plays. */
 	normalizeVolume: boolean;
 	/** Send now-playing / scrobble events upstream. */
 	reportPlayback: boolean;
+	/**
+	 * The aurora behind the glass: drifting, held still, or not drawn. Moving,
+	 * it is a layer under every glass surface that changes three times a
+	 * second, and each of them draws its blur again when it does. Off by
+	 * default, and then not in the page at all. See `.aurora` in app.css.
+	 */
+	aurora: 'moving' | 'still' | 'off';
 	/** Show the technical badge (FLAC 24/96) beside the transport. */
 	showQualityBadge: boolean;
 	/** Grid density on library pages. */
@@ -62,6 +69,12 @@ export interface UserSettings {
 	 * is the setting known to be right everywhere and the rest are opt-in.
 	 */
 	uiScale: '100' | '110' | '125' | '150' | '175';
+	/**
+	 * The typeface for the interface, from a short list of self-hosted faces
+	 * plus the device's own. Written on the root by the server, like the theme.
+	 * See `[data-font]` in app.css.
+	 */
+	font: 'manrope' | 'inter' | 'geist' | 'plex' | 'atkinson' | 'system';
 	/** Preload the next track's first bytes while the current one plays. */
 	preloadNext: boolean;
 	defaultAlbumSort: AlbumSort;
@@ -87,9 +100,11 @@ export const DEFAULT_SETTINGS: UserSettings = {
 	crossfadeSeconds: 4,
 	normalizeVolume: false,
 	reportPlayback: true,
+	aurora: 'off',
 	showQualityBadge: true,
 	gridSize: 'comfortable',
 	uiScale: '100',
+	font: 'manrope',
 	preloadNext: true,
 	defaultAlbumSort: 'recentlyAdded',
 	transcode: false,
@@ -137,6 +152,7 @@ export function sanitizeSettings(input: unknown, base: UserSettings = DEFAULT_SE
 		transition: pick('transition', ['off', 'gapless', 'crossfade'] as const, base.transition),
 		crossfadeSeconds: clamp(Number(raw.crossfadeSeconds ?? base.crossfadeSeconds), 1, 12, base.crossfadeSeconds),
 		normalizeVolume: typeof raw.normalizeVolume === 'boolean' ? raw.normalizeVolume : base.normalizeVolume,
+		aurora: pick('aurora', ['moving', 'still', 'off'] as const, base.aurora),
 		reportPlayback: typeof raw.reportPlayback === 'boolean' ? raw.reportPlayback : base.reportPlayback,
 		showQualityBadge:
 			typeof raw.showQualityBadge === 'boolean' ? raw.showQualityBadge : base.showQualityBadge,
@@ -144,6 +160,7 @@ export function sanitizeSettings(input: unknown, base: UserSettings = DEFAULT_SE
 		// Allowlisted like the theme: this value is interpolated into the served
 		// HTML, so it must never be an arbitrary string from the request body.
 		uiScale: pick('uiScale', ['100', '110', '125', '150', '175'] as const, base.uiScale),
+		font: pick('font', ['manrope', 'inter', 'geist', 'plex', 'atkinson', 'system'] as const, base.font),
 		preloadNext: typeof raw.preloadNext === 'boolean' ? raw.preloadNext : base.preloadNext,
 		// Allowlisted rather than "any string": this value is stored per account and
 		// later used as a lookup key against the backends' sort maps.
@@ -162,27 +179,62 @@ export function sanitizeSettings(input: unknown, base: UserSettings = DEFAULT_SE
 	};
 }
 
-export function getSettings(accountId: string): UserSettings {
-	const row = db()
-		.prepare<[string], { data: string }>('SELECT data FROM settings WHERE account_id = ?')
-		.get(accountId);
-	if (!row) return { ...DEFAULT_SETTINGS };
+/*
+ * Settings are read on every request, like the session, so on PostgreSQL they
+ * are remembered for five seconds per account and dropped the moment they are
+ * saved. See the session cache in auth.ts for why five and why not on SQLite.
+ */
+const SETTINGS_CACHE_MS = 5000;
+const settingsCache = new Map<string, { settings: UserSettings; until: number }>();
+let settingsEpoch = 0;
+
+export async function getSettings(accountId: string): Promise<UserSettings> {
+	const cached = settingsCache.get(accountId);
+	if (cached && cached.until > now()) return { ...cached.settings };
+
+	const database = await store();
+	// As for sessions: a save that lands while this read is out must not be
+	// undone by caching what the read saw.
+	const epoch = settingsEpoch;
+	const row = await database.get<{ data: string }>('SELECT data FROM settings WHERE account_id = ?', accountId);
+	let settings: UserSettings;
 	try {
-		return sanitizeSettings(JSON.parse(row.data));
+		settings = row ? sanitizeSettings(JSON.parse(row.data)) : { ...DEFAULT_SETTINGS };
 	} catch {
-		return { ...DEFAULT_SETTINGS };
+		settings = { ...DEFAULT_SETTINGS };
 	}
+	if (database.kind === 'postgres' && epoch === settingsEpoch) {
+		settingsCache.set(accountId, { settings, until: now() + SETTINGS_CACHE_MS });
+		if (settingsCache.size > 5000) settingsCache.delete(settingsCache.keys().next().value!);
+	}
+	return { ...settings };
 }
 
-export function saveSettings(accountId: string, patch: unknown): UserSettings {
-	const merged = sanitizeSettings(patch, getSettings(accountId));
-	db()
-		.prepare(
-			`INSERT INTO settings (account_id, data, updated_at) VALUES (?, ?, ?)
-			 ON CONFLICT(account_id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at`
-		)
-		.run(accountId, JSON.stringify(merged), now());
+export async function saveSettings(accountId: string, patch: unknown): Promise<UserSettings> {
+	const merged = sanitizeSettings(patch, await getSettings(accountId));
+	await (await store()).run(
+		`INSERT INTO settings (account_id, data, updated_at) VALUES (?, ?, ?)
+		 ON CONFLICT(account_id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at`,
+		accountId,
+		JSON.stringify(merged),
+		now()
+	);
+	// After the write, so a read that began before it cannot cache what it saw.
+	settingsEpoch++;
+	settingsCache.delete(accountId);
 	return merged;
+}
+
+/**
+ * Removes an account's settings and saved queue, for an account row that has
+ * passed to a different upstream user (see `storeAccount` in auth.ts).
+ */
+export async function clearAccountState(accountId: string): Promise<void> {
+	const database = await store();
+	await database.run('DELETE FROM settings WHERE account_id = ?', accountId);
+	await database.run('DELETE FROM play_state WHERE account_id = ?', accountId);
+	settingsEpoch++;
+	settingsCache.delete(accountId);
 }
 
 /**
@@ -211,10 +263,11 @@ const EMPTY_PLAY_STATE: PersistedPlayState = {
 
 const MAX_QUEUE = 1000;
 
-export function getPlayState(accountId: string): PersistedPlayState {
-	const row = db()
-		.prepare<[string], { data: string }>('SELECT data FROM play_state WHERE account_id = ?')
-		.get(accountId);
+export async function getPlayState(accountId: string): Promise<PersistedPlayState> {
+	const row = await (await store()).get<{ data: string }>(
+		'SELECT data FROM play_state WHERE account_id = ?',
+		accountId
+	);
 	if (!row) return { ...EMPTY_PLAY_STATE };
 	try {
 		return sanitizePlayState(JSON.parse(row.data));
@@ -239,13 +292,14 @@ export function sanitizePlayState(input: unknown): PersistedPlayState {
 	};
 }
 
-export function savePlayState(accountId: string, patch: unknown): PersistedPlayState {
+export async function savePlayState(accountId: string, patch: unknown): Promise<PersistedPlayState> {
 	const state = sanitizePlayState(patch);
-	db()
-		.prepare(
-			`INSERT INTO play_state (account_id, data, updated_at) VALUES (?, ?, ?)
-			 ON CONFLICT(account_id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at`
-		)
-		.run(accountId, JSON.stringify(state), now());
+	await (await store()).run(
+		`INSERT INTO play_state (account_id, data, updated_at) VALUES (?, ?, ?)
+		 ON CONFLICT(account_id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at`,
+		accountId,
+		JSON.stringify(state),
+		now()
+	);
 	return state;
 }
