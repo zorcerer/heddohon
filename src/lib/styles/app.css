@@ -22,6 +22,11 @@
 
 @import '@fontsource-variable/manrope';
 @import '@fontsource-variable/jetbrains-mono';
+/* The other faces Settings offers; a browser downloads only the one in use. */
+@import '@fontsource-variable/inter';
+@import '@fontsource-variable/geist';
+@import '@fontsource-variable/ibm-plex-sans';
+@import '@fontsource-variable/atkinson-hyperlegible-next';
 
 :root {
 	/* Typography */
@@ -32,8 +37,8 @@
 	 * anything, and its heaviest weights are strong enough to carry a headline
 	 * without needing contrast to do it.
 	 *
-	 * Swapping this line changes the whole voice of the app; nothing else names a
-	 * display family.
+	 * The default. Settings offers five others; see `[data-font]` below, which
+	 * sets these same two variables.
 	 */
 	--font-display: 'Manrope Variable', system-ui, -apple-system, 'Segoe UI', sans-serif;
 	--font-ui: 'Manrope Variable', system-ui, -apple-system, 'Segoe UI', sans-serif;
@@ -94,8 +99,80 @@
 	--rail-height: 0rem;
 	/* The air around every floating panel. One value keeps them aligned. */
 	--float-gap: 0.75rem;
+	/*
+	 * The same air measured from the safe area rather than the screen edge.
+	 * `viewport-fit=cover` in `app.html` lets the page run under the notch in
+	 * landscape and under the home indicator, and these keep the panels out
+	 * from under both. Every inset is 0 on a screen without them.
+	 */
+	--edge-top: calc(var(--float-gap) + env(safe-area-inset-top, 0px));
+	--edge-right: calc(var(--float-gap) + env(safe-area-inset-right, 0px));
+	--edge-bottom: calc(var(--float-gap) + env(safe-area-inset-bottom, 0px));
+	--edge-left: calc(var(--float-gap) + env(safe-area-inset-left, 0px));
 
-	--transition: 160ms cubic-bezier(0.32, 0.72, 0.35, 1);
+	/*
+	 * Motion. Every duration and curve in the interface is one of these; a
+	 * component that needs a value not here adds it here. Before they existed
+	 * the tree had eight curves and fourteen durations, from a 90ms page fade
+	 * nobody could see to 420ms on some dialogs and 150ms on others.
+	 * `client/motion.ts` carries the same numbers for Svelte transitions.
+	 *
+	 * Four lengths, by how far the eye has to follow:
+	 *  - press, 120ms: the answer to a finger or a click, on the element itself.
+	 *  - hover, 220ms: colour and glow in place.
+	 *  - state, 340ms: something changes form in place (a fold, a swap in the
+	 *    player's stage, a dialog, a row settling after a drag).
+	 *  - travel, 480ms: something crosses the screen (the player panel, the
+	 *    sheet, the sleeve, a page arriving). At 160ms a panel crossing 350px
+	 *    covered it in four or five frames on the album grid, where a frame of
+	 *    the column slide measured 25 to 46ms: a jump, not a slide.
+	 *
+	 * Three curves:
+	 *  - out: leaves at speed and settles slowly, so the first frame answers
+	 *    and the length goes on the landing. Almost everything.
+	 *  - exit: gathers speed and goes, for dismissal. A thing leaving does not
+	 *    need a landing.
+	 *  - spring: overshoots a little and settles, for things that are picked up
+	 *    and put down (a card lifting, a marker arriving, a heart filling).
+	 *    `linear()` draws a real damped spring where the browser has it; the
+	 *    cubic fallback overshoots once.
+	 */
+	--ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+	--ease-exit: cubic-bezier(0.55, 0, 1, 0.45);
+	--ease-spring: cubic-bezier(0.34, 1.36, 0.64, 1);
+	--dur-press: 120ms;
+	--dur-hover: 220ms;
+	--dur-state: 340ms;
+	--dur-travel: 480ms;
+	/* The room changing colour, and the rail and the player with it. They were
+	   on two curves and drifted apart in the middle of the change. Matches
+	   `TINT_FADE_MS` in `client/artwork.ts`. */
+	--dur-colour: 900ms;
+	--ease-colour: cubic-bezier(0.4, 0, 0.2, 1);
+
+	--transition: var(--dur-hover) var(--ease-out);
+
+	/* The player panel and its sheet. Up is the longer trip, since the eye
+	   follows it; down is dismissal. */
+	--slide-duration: var(--dur-travel);
+	--slide: var(--slide-duration) var(--ease-out);
+	--sheet-in: var(--dur-travel) var(--ease-out);
+	--sheet-out-duration: 300ms;
+	--sheet-out: var(--sheet-out-duration) var(--ease-exit);
+}
+
+/* A damped spring (damping ratio 0.7), sampled: 4.6 percent past the target at
+   43 percent of the way, settled within 0.2 percent by 75. Safari 17.2,
+   Chrome 113, Firefox 112; older browsers keep the cubic above. */
+@supports (transition-timing-function: linear(0, 1)) {
+	:root {
+		--ease-spring: linear(
+			0, 0.008 1.2%, 0.045 3.1%, 0.119 5.4%, 0.226 8%, 0.356 10.8%, 0.496 13.8%,
+			0.633 17%, 0.757 20.4%, 0.86 23.9%, 0.938 27.5%, 0.993 31.3%, 1.026 35.2%,
+			1.042 39.2%, 1.046 43.4%, 1.042 47.6%, 1.033 51.9%, 1.024 56.3%, 1.015 60.9%,
+			1.008 65.5%, 1.003 70.2%, 1 75%, 0.998 84.7%, 1
+		);
+	}
 }
 
 @media (max-width: 60rem) {
@@ -153,9 +230,9 @@
 	 * site composes the hsl() itself so substitution happens where it is read.
 	 */
 	transition:
-		--art-h 900ms cubic-bezier(0.4, 0, 0.2, 1),
-		--art-s 900ms cubic-bezier(0.4, 0, 0.2, 1),
-		--art-l 900ms cubic-bezier(0.4, 0, 0.2, 1);
+		--art-h var(--dur-colour) var(--ease-colour),
+		--art-s var(--dur-colour) var(--ease-colour),
+		--art-l var(--dur-colour) var(--ease-colour);
 }
 
 /* ── Dark (default) ──────────────────────────────────────────────────────── */
@@ -166,21 +243,26 @@
 	 * purpose: translucency only reads as glass when there is a real difference
 	 * in luminance between the pane and the ground behind it, and the artwork
 	 * wash only glows when it has somewhere dark to glow against.
+	 *
+	 * Taken a step darker on 2026-09-25 (ground #101114 to #0b0c0f, panes
+	 * #17191d to #111317), with the text a step brighter, after it read as
+	 * grey: the ground and the panes were close enough to the text that the
+	 * whole screen sat in a middle band.
 	 */
-	--bg-base: #101114;
-	--bg-sunken: #0b0c0e;
-	--bg-surface: #17191d;
-	--bg-raised: #1e2126;
-	--bg-hover: #262930;
-	--bg-active: #2f333b;
+	--bg-base: #0b0c0f;
+	--bg-sunken: #07080a;
+	--bg-surface: #111317;
+	--bg-raised: #181a1f;
+	--bg-hover: #202329;
+	--bg-active: #292c33;
 
-	--text-strong: #f4f5f7;
-	--text-default: #d9dbe0;
-	--text-muted: #979ba4;
-	--text-faint: #6a6e78;
+	--text-strong: #f7f8fa;
+	--text-default: #e1e3e7;
+	--text-muted: #a2a6ae;
+	--text-faint: #767a84;
 
-	--border-hairline: #24272d;
-	--border-strong: #343841;
+	--border-hairline: #1f2227;
+	--border-strong: #30343c;
 
 	/*
 	 * The accent is the artwork's own hue, lifted clear of the wash: brighter
@@ -202,14 +284,17 @@
 	--positive: #7fc8a9;
 	--warning: #e0c07e;
 	--danger: #e0777f;
-	--highres: #ab9cf2;
+	/* The hi-res badge. From the artwork like everything else, one step
+	   brighter than the lossless badge's accent; the badge adds a fill and a
+	   heavier weight. `--accent-strong` holds the same worst-hue contrast. */
+	--highres: var(--accent-strong);
 
 	--shadow-low: 0 1px 2px rgb(0 0 0 / 0.4);
 	--shadow-mid: 0 8px 22px -10px rgb(0 0 0 / 0.7);
 	--shadow-high: 0 24px 56px -26px rgb(0 0 0 / 0.85);
 
 	/* Glass: a translucent base, an artwork wash, and a blur. */
-	--glass-base: 52%;
+	--glass-base: 58%;
 	--glass-tint: 14%;
 	/*
 	 * Note the saturation goes *down*, not up. It was 160%, which is a filter
@@ -218,14 +303,14 @@
 	 * the artwork's colour read as a light shone at the screen rather than as
 	 * something seen through the panel.
 	 */
-	--glass-blur: blur(30px) saturate(88%) brightness(0.5);
+	--glass-blur: blur(30px) saturate(88%) brightness(0.42);
 	/*
 	 * The player bar is the one pane with content scrolling directly under it,
 	 * so it is the one where a 30px blur still reads as "that is an album cover
 	 * behind the glass" rather than as frost. Heavier blur, a little more
 	 * opacity, and a touch more attenuation.
 	 */
-	--glass-blur-deep: blur(52px) saturate(82%) brightness(0.42);
+	--glass-blur-deep: blur(52px) saturate(82%) brightness(0.36);
 	--glass-base-deep: 66%;
 	/* Controls are small panes of the same material rather than grey slabs. */
 	--control-face: color-mix(in srgb, var(--bg-raised) 46%, transparent);
@@ -282,95 +367,102 @@
 	color-scheme: dark;
 }
 
-/* ── Light ───────────────────────────────────────────────────────────────── */
+/* ── Light: Sleek ────────────────────────────────────────────────────────── */
+/*
+ * Shown in Settings as "Sleek", against "Liquid" for the dark theme; the
+ * stored values stay `light` and `dark`.
+ *
+ * A light theme done as light themes are: the page is a soft cool grey, not
+ * white, and the panels on it are a step lighter, so nothing on screen is at
+ * full brightness except the few things meant to catch the eye. Text is a
+ * soft charcoal rather than near-black. The first version ran #f2f3f6 under
+ * near-white panes lifted to 125% brightness, with #15171b headlines and an
+ * accent at 27% lightness: glare on one side, ink blots on the other.
+ *
+ * The finish borrows from the menus of Nintendo's Wii and 3DS without copying
+ * them: pale grey plastic with a gloss along its top edge, fine pinstripes in
+ * the room, and a soft ring of the accent around what the pointer is on,
+ * rather than a lift in shadow. See "Sleek finish" further down.
+ */
 [data-theme='light'] {
-	--bg-base: #f2f3f6;
-	--bg-sunken: #e8eaee;
-	--bg-surface: #fbfbfd;
-	--bg-raised: #ffffff;
-	--bg-hover: #eceef2;
-	--bg-active: #e0e3e9;
+	--bg-base: #e3e6eb;
+	--bg-sunken: #d9dde3;
+	--bg-surface: #eef0f3;
+	--bg-raised: #f7f8fa;
+	--bg-hover: #e6e9ee;
+	--bg-active: #dde1e7;
 
-	--text-strong: #15171b;
-	--text-default: #34383f;
-	--text-muted: #626770;
-	--text-faint: #7b8088;
+	--text-strong: #373c44;
+	--text-default: #4a5059;
+	--text-muted: #6b727c;
+	--text-faint: #858c96;
 
-	--border-hairline: #dfe2e8;
-	--border-strong: #c2c7cf;
+	--border-hairline: #d2d7de;
+	--border-strong: #b9c0ca;
 
-	/* The same hue, taken down rather than up: on paper a control reads as
-	   deliberate when it is darker than its surroundings, not brighter. Light
-	   needs to go considerably darker than dark needs to go bright — white is a
-	   harder background to sit on than near-black. Same worst-hue sweep. */
-	--accent: hsl(var(--art-h) min(calc(var(--art-s) + 12%), 50%) 27%);
-	--accent-strong: hsl(var(--art-h) min(calc(var(--art-s) + 16%), 54%) 22%);
-	--accent-quiet: hsl(var(--art-h) min(calc(var(--art-s) + 4%), 40%) 84%);
+	/*
+	 * The artwork's hue, bright enough to read as a colour, dark enough to
+	 * hold white type. How light a hue can go and keep 4.5:1 under white
+	 * depends on the hue: yellow and cyan are bright at any lightness, blue
+	 * and violet are dark. So the lightness rises toward blue, where it can
+	 * afford to, and stays low toward yellow: 31% at yellow, green and red,
+	 * 40% at blue and violet. At one flat 27% blue read as black. Worst hues
+	 * computed: yellow 4.9:1 and cyan 4.3:1 against white at full saturation.
+	 */
+	--accent-l: calc(31% + 9% * max(0, cos((var(--art-h) - 255) * 1deg)));
+	--accent: hsl(var(--art-h) min(calc(var(--art-s) + 14%), 58%) var(--accent-l));
+	--accent-strong: hsl(var(--art-h) min(calc(var(--art-s) + 18%), 62%) calc(var(--accent-l) - 5%));
+	/* The ring and the washes: the same hue, pale. */
+	--accent-quiet: hsl(var(--art-h) min(calc(var(--art-s) + 20%), 70%) 78%);
 	--accent-contrast: #ffffff;
 
 	--positive: #3f7a5c;
 	--warning: #8a6a22;
 	--danger: #b04a53;
-	--highres: #6354ab;
+	--highres: var(--accent-strong);
 
-	--shadow-low: 0 1px 2px rgb(21 23 27 / 0.06);
-	--shadow-mid: 0 8px 22px -12px rgb(21 23 27 / 0.24);
-	--shadow-high: 0 24px 56px -28px rgb(21 23 27 / 0.32);
+	/* Shadows in the grey of the page, not black: a lit room's shade is blue-grey. */
+	--shadow-low: 0 1px 2px rgb(54 64 80 / 0.08);
+	--shadow-mid: 0 8px 22px -12px rgb(54 64 80 / 0.22);
+	--shadow-high: 0 24px 56px -28px rgb(54 64 80 / 0.28);
 
 	/*
-	 * Light surfaces need considerably more opacity than dark ones. The dark
-	 * theme separates layers by luminance and can afford to be see-through; the
-	 * light theme separates them by only a few percent of grey, and translucency
-	 * eats exactly that difference. So: mostly opaque, a weaker tint, and a
-	 * firmer edge to carry the layering that the fill no longer can.
+	 * Frosted plastic rather than clear glass: mostly opaque, the page's own
+	 * grey a step lighter, and no brightness lift. The lift was what put the
+	 * panels at full white.
 	 */
-	--glass-base: 76%;
-	--glass-tint: 9%;
-	/* Muted for the same reason as the dark pane, a little less hard: a pale
-	   ground has less colour to lose before the hue stops being identifiable. */
-	--glass-blur: blur(26px) saturate(96%) brightness(1.25);
-	--glass-blur-deep: blur(46px) saturate(90%) brightness(1.32);
-	--glass-base-deep: 86%;
-	/*
-	 * Mixed from the surface rather than from white, and with no brightness lift
-	 * of its own. Both of those were fighting the effect: on a pale ground a
-	 * white face at any opacity composites to white, and lifting the backdrop
-	 * bleached out the very field the control is meant to be showing.
-	 */
-	--control-face: color-mix(in srgb, var(--bg-surface) 52%, transparent);
-	--control-face-hover: color-mix(in srgb, var(--bg-raised) 78%, transparent);
-	--control-blur: blur(14px) saturate(96%);
-	--field-face: color-mix(in srgb, var(--bg-sunken) 52%, transparent);
-	--field-face-focus: color-mix(in srgb, var(--bg-surface) 84%, transparent);
-	--field-blur: blur(14px) saturate(96%);
+	--glass-base: 74%;
+	--glass-tint: 7%;
+	--glass-blur: blur(26px) saturate(100%) brightness(1.02);
+	--glass-blur-deep: blur(46px) saturate(96%) brightness(1.03);
+	--glass-base-deep: 84%;
+	--control-face: color-mix(in srgb, var(--bg-raised) 60%, transparent);
+	--control-face-hover: color-mix(in srgb, var(--bg-raised) 85%, transparent);
+	--control-blur: blur(14px) saturate(100%);
+	--field-face: color-mix(in srgb, var(--bg-sunken) 50%, transparent);
+	--field-face-focus: color-mix(in srgb, var(--bg-raised) 88%, transparent);
+	--field-blur: blur(14px) saturate(100%);
 	--field-edge: var(--text-faint-through);
-	--text-muted-through: #4c4e52;
-	--text-faint-through: #66686c;
+	--text-muted-through: #555b64;
+	--text-faint-through: #6d737c;
 
 	/*
-	 * A glow works by adding light, which a pale ground has no room for — a halo
-	 * behind dark text there reads as a printing fault, not as illumination. So
-	 * the light theme spends the same idea differently: the text takes the
-	 * room's colour and gets the faintest bloom, and the lift comes mostly from
-	 * the colour shift.
+	 * On a pale ground a glow has no light to add, so hover takes the room's
+	 * colour and a faint bloom; the ring (see "Sleek finish") does the rest.
 	 */
-	/*
-	 * On paper the lift has to come from the colour, not the halo. Lighting text
-	 * means adding light and a pale ground has none to spare, so the label takes
-	 * the room's own colour — as visible here as a glow is on a dark ground —
-	 * and the bloom is left as a whisper behind it.
-	 */
-	/* Dark type on a pale ground: the separation comes from a light halo rather
-	   than a dark shadow, which on paper reads as ink bleeding. */
-	--text-shade: 0 1px 2px rgb(255 255 255 / 0.55);
+	--text-shade: 0 1px 1px rgb(255 255 255 / 0.6);
 	--glow-color: var(--accent);
 	--glow-text: var(--text-shade),
-		0 0 10px color-mix(in srgb, hsl(var(--art-h) var(--art-s) 52%) 30%, transparent);
-	--glow-icon: drop-shadow(0 0 4px color-mix(in srgb, hsl(var(--art-h) var(--art-s) 48%) 34%, transparent));
-	--glass-edge: color-mix(in srgb, #15171b 12%, transparent);
-	--glass-sheen: rgb(255 255 255 / 0.55);
-	--ambience-strength: 26%;
-	--float-shadow: 0 20px 44px -26px rgb(21 23 27 / 0.45), 0 2px 8px -5px rgb(21 23 27 / 0.3);
+		0 0 10px color-mix(in srgb, hsl(var(--art-h) var(--art-s) 60%) 26%, transparent);
+	--glow-icon: drop-shadow(0 0 4px color-mix(in srgb, hsl(var(--art-h) var(--art-s) 56%) 30%, transparent));
+	--glass-edge: rgb(80 92 110 / 0.16);
+	--glass-sheen: rgb(255 255 255 / 0.85);
+	--ambience-strength: 24%;
+	--float-shadow: 0 18px 40px -22px rgb(54 64 80 / 0.32), 0 2px 8px -5px rgb(54 64 80 / 0.18);
+
+	/* Headlines at 700: at 800 in charcoal they were the darkest thing on screen. */
+	--display-weight: 700;
+	--display-tracking: -0.028em;
 
 	color-scheme: light;
 }
@@ -459,6 +551,31 @@ body {
 	}
 }
 
+/*
+ * The canvas, which shows wherever the room does not reach: past either end of
+ * the page on an overscroll, and on iOS 26 the strip under the status bar and
+ * the band behind Safari's toolbar. Safari 26 ignores `theme-color` and fills
+ * those two from the page's background colour, and it does not draw a
+ * `position: fixed` layer below the top of its toolbar, so the room stops
+ * there. At `--bg-base` they showed as a dark bar above and below a lit page.
+ *
+ * So the canvas carries the room's colour at the share its edges average.
+ * Measured in Chromium at 393x641 over four cover colours: the top and bottom
+ * 8px of the room are 16.9% and 20.4% of the cover colour over the ground in
+ * the dark theme (strength 38%), and 13% and 15% in the light one (26%). Half
+ * the strength gives 19% and 13%.
+ *
+ * The room paints its own ground (`.hh-ambience`), and the body paints
+ * `--bg-base` over the first screen, so on the page itself nothing changes.
+ */
+html {
+	background-color: color-mix(
+		in srgb,
+		hsl(var(--art-h) var(--art-s) var(--art-l)) calc(var(--ambience-strength) * 0.5),
+		var(--bg-base)
+	);
+}
+
 body {
 	margin: 0;
 	background: var(--bg-base);
@@ -469,6 +586,47 @@ body {
 	line-height: 1.55;
 	-webkit-font-smoothing: antialiased;
 	text-rendering: optimizeLegibility;
+}
+
+/*
+ * The typeface, chosen in Settings (`font`) and written on the root by the
+ * server like the theme, so the first paint is in it. Manrope is the default
+ * above. The mono face for figures and labels stays JetBrains Mono under all
+ * of them. An attribute rather than a root-only rule, so the preview in
+ * Settings can carry one of its own.
+ *
+ * Headlines stay at weight 800; IBM Plex Sans stops at 700 and draws them at
+ * that.
+ */
+[data-font='manrope'] {
+	--font-display: 'Manrope Variable', system-ui, -apple-system, 'Segoe UI', sans-serif;
+	--font-ui: 'Manrope Variable', system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+
+[data-font='inter'] {
+	--font-display: 'Inter Variable', system-ui, -apple-system, 'Segoe UI', sans-serif;
+	--font-ui: 'Inter Variable', system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+
+[data-font='geist'] {
+	--font-display: 'Geist Variable', system-ui, -apple-system, 'Segoe UI', sans-serif;
+	--font-ui: 'Geist Variable', system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+
+[data-font='plex'] {
+	--font-display: 'IBM Plex Sans Variable', system-ui, -apple-system, 'Segoe UI', sans-serif;
+	--font-ui: 'IBM Plex Sans Variable', system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+
+[data-font='atkinson'] {
+	--font-display: 'Atkinson Hyperlegible Next Variable', system-ui, -apple-system, 'Segoe UI', sans-serif;
+	--font-ui: 'Atkinson Hyperlegible Next Variable', system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+
+/* The device's own: San Francisco on Apple, Segoe UI on Windows, Roboto on Android. */
+[data-font='system'] {
+	--font-display: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+	--font-ui: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
 }
 
 h1,
@@ -598,13 +756,37 @@ textarea {
  * Any subtree can override --art-h/s/l to tint its own glass from a different
  * cover — the album page does exactly that.
  */
+/*
+ * Dither for the long, faint gradients.
+ *
+ * The glass tint runs from 14% of the room colour to nothing over the height
+ * of the rail and the player, 876px on a 900px window, and the ambient field
+ * does the same across the whole screen. At 8 bits per channel that is a step
+ * of one level every twenty-odd pixels, which reads as horizontal lines, and
+ * the blur and the darkening on the glass make the steps sharper rather than
+ * softer. Measured on the player with the contrast stretched: about thirty
+ * bands between the artwork and the controls.
+ *
+ * `grain.png` is a 128px tile of black and white pixels at alpha 0 to 5, so a
+ * pixel moves by up to four levels and the average by less than one. That
+ * breaks each step into noise the eye averages out. It is a file rather than a
+ * `data:` URL, which `img-src 'self'` would refuse.
+ */
+:root {
+	--grain: url('/grain.png');
+	--grain-size: 128px;
+}
+
 .hh-glass {
 	background-color: color-mix(in srgb, var(--bg-surface) var(--glass-base), transparent);
-	background-image: linear-gradient(
-		to bottom,
-		color-mix(in srgb, hsl(var(--art-h) var(--art-s) var(--art-l)) var(--glass-tint), transparent),
-		transparent
-	);
+	background-image:
+		var(--grain),
+		linear-gradient(
+			to bottom,
+			color-mix(in srgb, hsl(var(--art-h) var(--art-s) var(--art-l)) var(--glass-tint), transparent),
+			transparent
+		);
+	background-size: var(--grain-size), auto;
 	-webkit-backdrop-filter: var(--glass-blur);
 	backdrop-filter: var(--glass-blur);
 }
@@ -669,6 +851,13 @@ textarea {
  * across the screen reads as a coloured background, while pools that fall off at
  * different rates read as light with a direction to it. Fixed, so the field
  * stays put while content scrolls over it.
+ *
+ * It paints its own ground, the last layer, so the canvas behind it can carry
+ * a different colour (see `html`). On a phone the document scrolls, and past
+ * the first screen the body's ground has scrolled away from under the room.
+ * The ground is an image layer rather than `background-color`: Safari 26
+ * takes the colour for its bars from the `background-color` of a fixed
+ * element at the edge of the viewport, and this one covers every edge.
  */
 .hh-ambience {
 	position: fixed;
@@ -676,6 +865,7 @@ textarea {
 	z-index: 0;
 	pointer-events: none;
 	background:
+		var(--grain) 0 0 / var(--grain-size) var(--grain-size) repeat,
 		radial-gradient(
 			90% 70% at 4% 96%,
 			color-mix(in srgb, hsl(var(--art-h) var(--art-s) var(--art-l)) var(--ambience-strength), transparent) 0%,
@@ -695,7 +885,85 @@ textarea {
 			160deg,
 			color-mix(in srgb, hsl(var(--art-h) var(--art-s) var(--art-l)) calc(var(--ambience-strength) * 0.28), transparent) 0%,
 			transparent 60%
-		);
+		),
+		linear-gradient(var(--bg-base), var(--bg-base));
+}
+
+/*
+ * An aurora drifting in the room, after Aceternity's "Aurora Background"
+ * (animation-svelte.vercel.app), rewritten here in plain CSS.
+ *
+ * Bands of the room's own colour, two neighbours on the wheel either side of
+ * it, laid diagonally, blurred to nothing hard, and gathered across the
+ * middle of the room. The mask ends about a tenth of the height short of the
+ * top and bottom edges, with room for the drift: on a phone the canvas behind
+ * the status bar and the toolbar is painted the colour of the room's edges
+ * (see the layout), and a glow reaching them showed there as a band of
+ * another colour. Every hue is taken from the artwork like the rest of the
+ * interface; the original's fixed blues and violets would be a second colour
+ * competing with the record's.
+ *
+ * It moves by `transform` alone, on a layer blurred once: the compositor
+ * slides the finished picture and nothing is painted or blurred again for it.
+ * What does redraw is every glass surface over it, whose backdrop changes each
+ * time it moves. So it moves in steps, three a second (210 over 70 seconds,
+ * about 1.2px each at 1440px wide, which the 48px blur hides) rather than on
+ * every frame. Measured in headless Chromium at 1440x900, which blurs in
+ * software: a full core at every frame, 63 percent at six steps a second, 33
+ * at three, and 1 percent held still. A GPU blurs the glass in a few
+ * milliseconds, so the cost there is a small part of that. It is off by
+ * default and then not in the page; Settings turns it on moving or held still
+ * (`.aurora.still`). The drift is 70 seconds each way.
+ *
+ * The element fills the room and clips; the bands are its `::before`, larger
+ * than the room so the drift never shows an edge.
+ *
+ * Reduced motion holds it still with everything else; reduced transparency
+ * hides it with the room.
+ */
+.aurora {
+	position: absolute;
+	inset: 0;
+	overflow: hidden;
+	opacity: var(--aurora-strength, 0.5);
+	pointer-events: none;
+}
+
+.aurora::before {
+	content: '';
+	position: absolute;
+	inset: -25% -15%;
+	background-image: repeating-linear-gradient(
+		100deg,
+		transparent 0%,
+		hsl(calc(var(--art-h) + 40) calc(var(--art-s) + 14%) calc(var(--art-l) + 6%) / 0.7) 9%,
+		hsl(var(--art-h) calc(var(--art-s) + 18%) var(--art-l) / 0.5) 16%,
+		hsl(calc(var(--art-h) - 35) calc(var(--art-s) + 14%) calc(var(--art-l) + 4%) / 0.65) 23%,
+		transparent 32%
+	);
+	background-size: 180% 100%;
+	filter: blur(48px);
+	-webkit-mask-image: radial-gradient(ellipse 70% 36% at 62% 50%, #000 10%, transparent 72%);
+	mask-image: radial-gradient(ellipse 70% 36% at 62% 50%, #000 10%, transparent 72%);
+	animation: aurora 70s steps(210) infinite alternate;
+	will-change: transform;
+}
+
+:root[data-theme='light'] .aurora {
+	--aurora-strength: 0.32;
+}
+
+.aurora.still::before {
+	animation-play-state: paused;
+}
+
+@keyframes aurora {
+	from {
+		transform: translate3d(-9%, 2%, 0) rotate(-2deg);
+	}
+	to {
+		transform: translate3d(9%, -3%, 0) rotate(2deg);
+	}
 }
 
 /*
@@ -721,6 +989,11 @@ textarea {
 	.hh-ambience {
 		display: none;
 	}
+
+	/* With the room gone, the canvas is the ground past the first screen. */
+	html {
+		background-color: var(--bg-base);
+	}
 }
 
 
@@ -739,8 +1012,25 @@ textarea {
  * for nothing per frame: no gradient re-resolved, no backdrop re-blurred behind
  * a value that is still moving.
  *
- * `client/artwork.ts` stamps `--tint-was-*` and `--tint-now-*` and runs
- * `--tint-mix` from 0 to 1.
+ * The two layers take turns. `client/artwork.ts` writes the new colour into
+ * whichever layer is hidden and moves `--tint-mix` towards it, so the layer on
+ * screen fades out as the other fades in. `--tint-mix` is the share of the
+ * second layer: 0 shows `--tint-a-*`, 1 shows `--tint-b-*`.
+ *
+ * It used to reset instead: the old colour went into the first layer, the new
+ * one into the second, and `--tint-mix` was forced to 0 before running to 1.
+ * The reset hid the layer on screen and showed the other in the same frame
+ * (measured: one layer's opacity moved by 1.0 between two frames). Taking
+ * turns means no layer goes from hidden to shown, or back, in one frame.
+ *
+ * That was not the dark flash on the rail and the player, which stayed after
+ * it. The flash was a second colour arriving during a fade: with no hidden
+ * layer to write it into, it went into the one fading out, which changed a
+ * visible wash from red to blue between two frames. At a track change the room
+ * was sent to the open page's cover and back 17ms apart, which is how it came
+ * up on album pages. `requestMorph` in `client/artwork.ts` now reverses or
+ * waits instead, and `player.engaged` stops the detour. `tests/browser` checks
+ * both, and fails on the code before them.
  */
 @property --tint-mix {
 	syntax: '<number>';
@@ -752,12 +1042,27 @@ textarea {
 }
 
 .hh-tint-morph {
-	/* The wash is painted by the layers below instead. */
-	background-image: none;
+	/* The wash is painted by the layers below instead. The grain stays: these
+	   two surfaces are the tallest gradients in the interface. */
+	background-image: var(--grain);
+	background-size: var(--grain-size);
 	position: relative;
-	transition: --tint-mix var(--tint-morph-ms, 900ms) cubic-bezier(0.22, 0.61, 0.36, 1);
+	/* Holds the layers' negative z-index inside this surface, so they paint
+	   over its ground and not behind it. */
+	isolation: isolate;
+	transition: --tint-mix var(--dur-colour) var(--ease-colour);
 }
 
+/*
+ * Above the element's own translucent ground, below everything in it.
+ *
+ * At `z-index: 0` they were painted among the positioned contents in document
+ * order, and `::after` comes after all of them: the second wash lay over the
+ * player's cover and the rail's icons whenever it was the one on screen, which
+ * is every other colour change and every page load. Measured on the player
+ * with both washes red: the top of the cover went from 11,12,14 to 42,10,12
+ * when the second one showed.
+ */
 .hh-tint-morph::before,
 .hh-tint-morph::after {
 	content: '';
@@ -765,35 +1070,45 @@ textarea {
 	inset: 0;
 	border-radius: inherit;
 	pointer-events: none;
-	/* Above the element's own translucent ground, below everything in it. The
-	   rail's and the panel's contents are positioned, so they paint over this
-	   without needing a z-index of their own. */
-	z-index: 0;
+	z-index: -1;
+}
+
+/*
+ * Each wash is a flat colour faded by a mask, not a gradient from the colour
+ * to transparent.
+ *
+ * The two draw the same thing: a gradient to `transparent` interpolates in
+ * premultiplied colour, which is a fixed colour under a falling alpha. But as
+ * a gradient, the GPU rounds the colour channels and the alpha channel to
+ * 8 bits separately, and over 876px of a 14% tint they step on different
+ * rows. Where one had stepped and the other not, a row came out lighter: thin
+ * lines in the room's colour every ten pixels or so, down the whole rail and
+ * the whole player, reported on a desktop GPU. Headless Chromium draws the
+ * gradient without them, so they could not be measured here. A mask carries
+ * alpha alone, so nothing can step out of line with it, and the grain above
+ * breaks up the alpha's own steps.
+ */
+.hh-tint-morph::before,
+.hh-tint-morph::after {
+	-webkit-mask-image: linear-gradient(to bottom, #000, transparent);
+	mask-image: linear-gradient(to bottom, #000, transparent);
 }
 
 .hh-tint-morph::before {
-	background: linear-gradient(
-		to bottom,
-		color-mix(
-			in srgb,
-			hsl(var(--tint-was-h, var(--art-h)) var(--tint-was-s, var(--art-s)) var(--tint-was-l, var(--art-l)))
-				var(--glass-tint),
-			transparent
-		),
+	background: color-mix(
+		in srgb,
+		hsl(var(--tint-a-h, var(--art-h)) var(--tint-a-s, var(--art-s)) var(--tint-a-l, var(--art-l)))
+			var(--glass-tint),
 		transparent
 	);
 	opacity: calc(1 - var(--tint-mix));
 }
 
 .hh-tint-morph::after {
-	background: linear-gradient(
-		to bottom,
-		color-mix(
-			in srgb,
-			hsl(var(--tint-now-h, var(--art-h)) var(--tint-now-s, var(--art-s)) var(--tint-now-l, var(--art-l)))
-				var(--glass-tint),
-			transparent
-		),
+	background: color-mix(
+		in srgb,
+		hsl(var(--tint-b-h, var(--art-h)) var(--tint-b-s, var(--art-s)) var(--tint-b-l, var(--art-l)))
+			var(--glass-tint),
 		transparent
 	);
 	opacity: var(--tint-mix);
@@ -804,6 +1119,87 @@ textarea {
  * colour transition is not either, and a surface that snapped while everything
  * around it faded would be more jarring than the fade. Nothing here moves.
  */
+
+/* ── Sleek finish ────────────────────────────────────────────────────────── */
+/*
+ * What the light theme adds beyond its palette, after the menus of the Wii
+ * and the 3DS: plastic with a gloss along its top, pinstripes in the room,
+ * and a ring of the accent around the thing under the pointer. Each is a
+ * layer of paint on something that already exists; nothing here moves, and
+ * the glass keeps its blur.
+ */
+
+/* Fine horizontal lines across the room, 1px in every 5, under the pools. */
+[data-theme='light'] .hh-ambience {
+	background-image:
+		repeating-linear-gradient(to bottom, rgb(255 255 255 / 0.26) 0 1px, transparent 1px 5px),
+		var(--grain),
+		radial-gradient(
+			90% 70% at 4% 96%,
+			color-mix(in srgb, hsl(var(--art-h) var(--art-s) var(--art-l)) var(--ambience-strength), transparent) 0%,
+			transparent 70%
+		),
+		radial-gradient(
+			80% 60% at 98% 2%,
+			color-mix(in srgb, hsl(var(--art-h) var(--art-s) var(--art-l)) calc(var(--ambience-strength) * 0.8), transparent) 0%,
+			transparent 68%
+		),
+		radial-gradient(
+			70% 90% at 78% 100%,
+			color-mix(in srgb, hsl(var(--art-h) var(--art-s) var(--art-l)) calc(var(--ambience-strength) * 0.5), transparent) 0%,
+			transparent 66%
+		),
+		linear-gradient(
+			160deg,
+			color-mix(in srgb, hsl(var(--art-h) var(--art-s) var(--art-l)) calc(var(--ambience-strength) * 0.28), transparent) 0%,
+			transparent 60%
+		),
+		linear-gradient(var(--bg-base), var(--bg-base));
+	background-size: auto, var(--grain-size) var(--grain-size), auto, auto, auto, auto, auto;
+	background-repeat: repeat, repeat, no-repeat, no-repeat, no-repeat, no-repeat, no-repeat;
+}
+
+/* A gloss down the top of each pane, fading out over its first 9rem. */
+[data-theme='light'] .hh-glass {
+	background-image:
+		linear-gradient(to bottom, rgb(255 255 255 / 0.5), rgb(255 255 255 / 0) 9rem),
+		var(--grain),
+		linear-gradient(
+			to bottom,
+			color-mix(in srgb, hsl(var(--art-h) var(--art-s) var(--art-l)) var(--glass-tint), transparent),
+			transparent
+		);
+	background-size: auto, var(--grain-size), auto;
+}
+
+/* Buttons: a rounded plastic key, glossed along its top half, with a bright
+   edge on top and a soft one below. */
+[data-theme='light'] .hh-button {
+	background-image: linear-gradient(to bottom, rgb(255 255 255 / 0.7), rgb(255 255 255 / 0) 60%);
+	border-color: var(--border-hairline);
+	box-shadow:
+		inset 0 1px 0 rgb(255 255 255 / 0.9),
+		0 1px 2px rgb(54 64 80 / 0.12);
+}
+
+[data-theme='light'] .hh-button--primary {
+	background-image: linear-gradient(to bottom, rgb(255 255 255 / 0.2), rgb(255 255 255 / 0) 55%);
+	border-color: var(--accent-strong);
+	box-shadow:
+		inset 0 1px 0 rgb(255 255 255 / 0.28),
+		0 2px 6px -2px color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+/* The selection ring: the pale accent around the key, as those menus light the
+   tile the cursor is on. */
+[data-theme='light'] .hh-button:hover,
+[data-theme='light'] .hh-button:focus-visible {
+	border-color: color-mix(in srgb, var(--accent) 55%, var(--border-hairline));
+	box-shadow:
+		inset 0 1px 0 rgb(255 255 255 / 0.9),
+		0 0 0 3px color-mix(in srgb, var(--accent-quiet) 75%, transparent),
+		0 2px 8px -3px color-mix(in srgb, var(--accent) 30%, transparent);
+}
 
 /* ── View transitions ────────────────────────────────────────────────────── */
 
@@ -828,24 +1224,26 @@ textarea {
  * seconds, sampled from compositor frames rather than screenshots) showed any
  * darkening at all.
  *
- * What replaces it: the old page is dropped rather than faded, and the new one
- * is shown at once. `::view-transition-new(root)` is the live page rather than
- * a still of it, so anything arriving on it keeps moving while the sleeve
- * travels. No surface in the chrome is ever painted from a snapshot of itself.
+ * The root takes no part either. It used to, with its old image hidden and its
+ * new image shown unanimated, on the reading that `::view-transition-new(root)`
+ * is the live page. It is an image of the page, and in Firefox the glass in
+ * that image is drawn without the room behind it: recorded on 2026-09-25, an
+ * empty strip of the rail read 40 before a card click, 31 for the length of
+ * the transition, 45 on the frame it ended and 38 after, and the player the
+ * same. That was the dark flash reported on album pages. With no name on the
+ * root nothing but the sleeve is captured, and the page, glass included, is
+ * drawn as itself underneath it throughout. `tests/browser` checks that only
+ * the sleeve is captured; the Firefox recording is not in the suite, since it
+ * needs video and ffmpeg.
  */
-::view-transition-old(root) {
-	display: none;
-}
-
-::view-transition-new(root) {
-	animation: none;
-	mix-blend-mode: normal;
-	opacity: 1;
+:root {
+	view-transition-name: none;
 }
 
 ::view-transition-group(*) {
-	animation-duration: 420ms;
-	animation-timing-function: cubic-bezier(0.34, 0.82, 0.28, 1);
+	/* The sleeve lands on the spring, a few pixels past and back. */
+	animation-duration: var(--dur-travel);
+	animation-timing-function: var(--ease-spring);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -919,6 +1317,81 @@ textarea {
 .hh-button--primary:active {
 	background: var(--accent-strong);
 	border-color: var(--accent-strong);
+}
+
+/*
+ * A press, drawn without moving the button. The button is glass, and a
+ * transform on it builds the layer the note above warns about, so the press
+ * is paint and the button's children:
+ *
+ *  - a ripple spreads from the point pressed (`--press-x`, `--press-y`, set
+ *    by `client/press.ts`) and fades as it covers the face. It fades with the
+ *    square of its progress, so it is still seen once it has spread: fading
+ *    linearly, it was down to 7 percent 140ms into the press. It is a gradient
+ *    in the button's own `::after`, grown by animating a registered number,
+ *    so no layer is built for it;
+ *  - a ring in the accent pulses outward from the edge, as a box-shadow;
+ *  - the icon and the label give under the press and spring back.
+ *
+ * `press.ts` restarts the animation on every press, so a second tap ripples
+ * again rather than finishing the first.
+ */
+@property --press {
+	syntax: '<number>';
+	/* Read by the `::after`, which inherits it from the button. */
+	inherits: true;
+	initial-value: 1;
+}
+
+.hh-button {
+	position: relative;
+}
+
+.hh-button::after {
+	content: '';
+	position: absolute;
+	inset: 0;
+	border-radius: inherit;
+	pointer-events: none;
+	background: radial-gradient(
+		circle at var(--press-x, 50%) var(--press-y, 50%),
+		color-mix(in srgb, currentColor calc((1 - var(--press) * var(--press)) * 42%), transparent)
+			calc(var(--press) * 160%),
+		transparent calc(var(--press) * 160% + 1%)
+	);
+}
+
+.hh-button.pressed {
+	animation:
+		press-ripple var(--dur-travel) var(--ease-out),
+		press-ring var(--dur-travel) var(--ease-out);
+}
+
+@keyframes press-ripple {
+	from {
+		--press: 0;
+	}
+	to {
+		--press: 1;
+	}
+}
+
+@keyframes press-ring {
+	from {
+		box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 65%, transparent);
+	}
+	to {
+		box-shadow: 0 0 0 0.6rem transparent;
+	}
+}
+
+.hh-button > * {
+	transition: scale var(--dur-state) var(--ease-spring);
+}
+
+.hh-button:active:not(:disabled) > * {
+	scale: 0.9;
+	transition-duration: var(--dur-press);
 }
 
 .hh-button--primary {
@@ -1082,6 +1555,124 @@ textarea {
 	clip: rect(0 0 0 0);
 	white-space: nowrap;
 	border: 0;
+}
+
+/* ── Touch feedback ──────────────────────────────────────────────────────── */
+
+/*
+ * A press answered the moment the finger lands.
+ *
+ * Every control here lights up on hover, and a touch screen has no hover, so
+ * on a phone a tap changed nothing until whatever it started had happened: the
+ * transport, the rows and the cards all looked dead under the finger. Opacity
+ * and nothing else, with no transition on the way down, so it is on the frame
+ * of the touch; the element's own transition brings it back.
+ *
+ * Opacity on the pressed element only. None of these contains a glass surface,
+ * and an ancestor below full opacity would take the blur off one; an element's
+ * own opacity does not touch its own backdrop.
+ */
+@media (hover: none) {
+	:where(button, a, [role='button']):active:not(:disabled) {
+		opacity: 0.62;
+		transition-duration: 0s;
+	}
+}
+
+/* ── Lists arriving ──────────────────────────────────────────────────────── */
+
+/*
+ * On a navigation, the items of a card grid or a track list come in one after
+ * another as the page rises (`.content.rising`, in the layout): 24ms apart for
+ * the first twelve, and the rest with the twelfth, so a list of 500 is no
+ * slower than a list of 12. Opacity and a short rise on the items themselves,
+ * which hold no glass. A server-rendered page does not do this.
+ */
+.content.rising .hh-stagger > * {
+	animation: list-rise var(--dur-state) var(--ease-out) both;
+	animation-delay: calc(var(--stagger, 12) * 24ms);
+}
+
+.hh-stagger > :nth-child(1) { --stagger: 0; }
+.hh-stagger > :nth-child(2) { --stagger: 1; }
+.hh-stagger > :nth-child(3) { --stagger: 2; }
+.hh-stagger > :nth-child(4) { --stagger: 3; }
+.hh-stagger > :nth-child(5) { --stagger: 4; }
+.hh-stagger > :nth-child(6) { --stagger: 5; }
+.hh-stagger > :nth-child(7) { --stagger: 6; }
+.hh-stagger > :nth-child(8) { --stagger: 7; }
+.hh-stagger > :nth-child(9) { --stagger: 8; }
+.hh-stagger > :nth-child(10) { --stagger: 9; }
+.hh-stagger > :nth-child(11) { --stagger: 10; }
+.hh-stagger > :nth-child(12) { --stagger: 11; }
+
+@keyframes list-rise {
+	from {
+		opacity: 0;
+		translate: 0 0.5rem;
+	}
+}
+
+/* ── Dialogs ─────────────────────────────────────────────────────────────── */
+
+/*
+ * Every dialog fades in and out with its backdrop, instead of appearing whole
+ * and vanishing. Opacity only: the dialogs are glass, and the codebase keeps
+ * transforms off glass surfaces after the artefacts they caused on iOS.
+ *
+ * The close needs `display` and `overlay` to wait for the fade, which is what
+ * `allow-discrete` does. A browser without it (Safari before 17.5) closes at
+ * once and still fades in, from the keyframes.
+ *
+ * What moves is the dialog's content, which rises 8px into the pane as it
+ * fades up: a translate on a descendant of glass, which leaves the pane's own
+ * blur alone. Opening takes the state length; closing is shorter and on the
+ * exit curve.
+ */
+dialog {
+	transition:
+		opacity var(--dur-hover) var(--ease-exit),
+		display var(--dur-hover) allow-discrete,
+		overlay var(--dur-hover) allow-discrete;
+}
+
+dialog[open] {
+	animation: dialog-in var(--dur-state) var(--ease-out);
+}
+
+dialog[open] > * {
+	animation: dialog-content-in var(--dur-state) var(--ease-out);
+}
+
+dialog:not([open]) {
+	opacity: 0;
+}
+
+dialog::backdrop {
+	transition:
+		opacity var(--dur-hover) var(--ease-exit),
+		display var(--dur-hover) allow-discrete,
+		overlay var(--dur-hover) allow-discrete;
+}
+
+dialog[open]::backdrop {
+	animation: dialog-in var(--dur-state) var(--ease-out);
+}
+
+@keyframes dialog-content-in {
+	from {
+		translate: 0 0.5rem;
+	}
+}
+
+dialog:not([open])::backdrop {
+	opacity: 0;
+}
+
+@keyframes dialog-in {
+	from {
+		opacity: 0;
+	}
 }
 
 @media (prefers-reduced-motion: reduce) {

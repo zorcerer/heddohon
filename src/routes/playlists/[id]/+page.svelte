@@ -7,9 +7,13 @@
 	import { formatLongDuration } from '$lib/client/format';
 	import { player } from '$lib/client/player.svelte';
 	import { addSongsToPlaylist, deletePlaylist, removeTracks, renamePlaylist } from '$lib/client/playlists.svelte';
+	import { heroSweep } from '$lib/client/motion';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
+
+	// The heading sweeps in from the left after a navigation; see `heroSweep`.
+	const sweep = heroSweep();
 
 	const playlist = $derived(data.playlist);
 	const totalDuration = $derived(
@@ -98,7 +102,7 @@
 				radius="var(--r-lg)"
 			/>
 		</div>
-		<div class="details">
+		<div class="details" {@attach sweep}>
 			<span class="hh-eyebrow">Playlist</span>
 
 			{#if renaming}

@@ -1,22 +1,8 @@
 import { error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { proxyMedia, streamRequestFrom } from '$lib/server/proxy';
-import { coverScope, readCover, writeCover } from '$lib/server/covercache';
+import { nearestCoverSize, proxyMedia, streamRequestFrom } from '$lib/server/proxy';
+import { MAX_ENTRY_BYTES, coverScope, readCover, writeCover } from '$lib/server/covercache';
 
-/**
- * Allowed cover sizes, so the upstream cannot be asked to render arbitrary
- * dimensions. 1536 is here for the player panel's artwork at twice the density:
- * measured on a 2560x1440 display at devicePixelRatio 2, that panel draws its
- * cover into a box 1052x1700 device pixels, and the largest size below this one
- * would be stretched to fill it.
- */
-const SIZES = [64, 96, 128, 192, 256, 384, 512, 768, 1024, 1536];
-
-function nearestSize(requested: string | null): number {
-	const value = Number(requested);
-	if (!Number.isFinite(value)) return 256;
-	return SIZES.reduce((best, size) => (Math.abs(size - value) < Math.abs(best - value) ? size : best), SIZES[0]);
-}
 
 /**
  * The headers a cached cover is served with.
@@ -41,7 +27,7 @@ function cachedHeaders(contentType: string, etag: string): Headers {
 const handler: RequestHandler = async (event) => {
 	const session = event.locals.session;
 	if (!session) error(401, 'Not signed in');
-	const size = nearestSize(event.url.searchParams.get('size'));
+	const size = nearestCoverSize(event.url.searchParams.get('size'));
 	const id = event.params.id;
 	// A cached cover skips the music server entirely, so the upstream's own
 	// permission check never runs on a hit. The scope is what stands in for it:
@@ -72,24 +58,54 @@ const handler: RequestHandler = async (event) => {
 	/*
 	 * Cache on the way past.
 	 *
-	 * The body is read into memory rather than written to disk as it streams: a
-	 * cover is small, MAX_ENTRY_BYTES caps what is held, and a buffer cannot
-	 * leave a half-written file behind if the client disconnects. Only a plain
-	 * 200 is kept; a 206 is a fragment and a 304 has no body.
+	 * The body is split in two as it arrives: one half goes to the browser and
+	 * the other is collected here and written once it is complete, so a buffer
+	 * cannot leave a half-written file behind if the client disconnects. The
+	 * cover used to be read whole before the first byte was sent, which held
+	 * every cover not yet cached for the length of its transfer from the music
+	 * server. Only a plain 200 is kept; a 206 is a fragment and a 304 has no
+	 * body.
 	 *
-	 * The stream is consumed here rather than cloned. A clone leaves the
-	 * original body unread, and an unread body holds the upstream connection
-	 * open until it is collected.
+	 * Both halves are read to the end. A clone left one unread, and an unread
+	 * body holds the upstream connection open until it is collected. A client
+	 * that goes away cancels only its own half; this one still finishes, and
+	 * the cover is still stored.
 	 */
-	if (response.status === 200 && event.request.method === 'GET') {
+	if (response.status === 200 && event.request.method === 'GET' && response.body) {
 		const type = response.headers.get('content-type') ?? '';
-		const body = Buffer.from(await response.arrayBuffer());
-		void writeCover(scope, id, size, type, body);
-		return new Response(new Uint8Array(body), { status: 200, headers: response.headers });
+		const [toClient, toCache] = response.body.tee();
+		void collect(toCache).then((body) => {
+			if (body) return writeCover(scope, id, size, type, body);
+		});
+		return new Response(toClient, { status: 200, headers: response.headers });
 	}
 
 	return response;
 };
+
+/**
+ * Reads a stream to the end into one buffer, or gives up with null past
+ * `MAX_ENTRY_BYTES` (which `writeCover` would refuse) or on a failed read.
+ */
+async function collect(stream: ReadableStream<Uint8Array>): Promise<Buffer | null> {
+	const reader = stream.getReader();
+	const chunks: Uint8Array[] = [];
+	let total = 0;
+	try {
+		for (;;) {
+			const { done, value } = await reader.read();
+			if (done) return Buffer.concat(chunks, total);
+			total += value.byteLength;
+			if (total > MAX_ENTRY_BYTES) {
+				await reader.cancel();
+				return null;
+			}
+			chunks.push(value);
+		}
+	} catch {
+		return null;
+	}
+}
 
 export const GET = handler;
 export const HEAD = handler;

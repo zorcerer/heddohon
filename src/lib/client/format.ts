@@ -74,6 +74,31 @@ export function coverUrl(coverArt: string | null | undefined, size: number): str
 }
 
 /**
+ * The size the album page asks for its cover at. Album cards fetch the same
+ * size ahead of a click (see `warmAlbumCover`), so it has to be one number.
+ */
+export const ALBUM_HERO_COVER_SIZE = 640;
+
+const warmed = new Set<string>();
+
+/**
+ * Fetches an album's hero-size cover into the browser cache ahead of the page.
+ *
+ * The card holds a smaller copy, and the hero's is a separate file the music
+ * server has to resize, which on Navidrome can take longer than the page
+ * itself. Started when a card is hovered, focused or pressed, the moments
+ * SvelteKit starts loading the page's data; once per cover per page load.
+ */
+export function warmAlbumCover(coverArt: string | null | undefined): void {
+	const url = coverUrl(coverArt, ALBUM_HERO_COVER_SIZE);
+	if (!url || warmed.has(url) || typeof Image === 'undefined') return;
+	warmed.add(url);
+	const image = new Image();
+	image.decoding = 'async';
+	image.src = url;
+}
+
+/**
  * The stream URL, carrying the delivery mode.
  *
  * The server decides what to send from the account's settings and ignores this

@@ -37,6 +37,14 @@
 		| 'collapse'
 		| 'lyrics'
 		| 'info'
+		| 'share'
+		| 'genre'
+		| 'download'
+		| 'grip'
+		| 'link'
+		| 'copy'
+		| 'check'
+		| 'moon'
 		| 'github';
 
 	let {
@@ -84,6 +92,20 @@
 		// The dot is drawn as a hairline stroke rather than a fill, so it keeps
 		// the same weight as every other glyph in the set.
 		info: 'M12 4.2a7.8 7.8 0 1 0 0 15.6 7.8 7.8 0 0 0 0-15.6ZM12 10.8v5.4M12 7.9v.5',
+		// Three nodes and the two lines between them, the common share mark.
+		share:
+			'M17.5 3.8a2.6 2.6 0 1 1 0 5.2 2.6 2.6 0 0 1 0-5.2ZM6.5 9.4a2.6 2.6 0 1 1 0 5.2 2.6 2.6 0 0 1 0-5.2ZM17.5 15a2.6 2.6 0 1 1 0 5.2 2.6 2.6 0 0 1 0-5.2ZM8.8 10.8l6.4-3.4M8.8 13.2l6.4 3.4',
+		link: 'M10.2 13.8a3.8 3.8 0 0 0 5.4 0l3-3a3.8 3.8 0 0 0-5.4-5.4l-1.1 1.1M13.8 10.2a3.8 3.8 0 0 0-5.4 0l-3 3a3.8 3.8 0 0 0 5.4 5.4l1.1-1.1',
+		copy: 'M9 8.5h9.1a1.4 1.4 0 0 1 1.4 1.4v9.2a1.4 1.4 0 0 1-1.4 1.4H9a1.4 1.4 0 0 1-1.4-1.4V9.9A1.4 1.4 0 0 1 9 8.5ZM16.4 8.5V5.4A1.4 1.4 0 0 0 15 4H5.9a1.4 1.4 0 0 0-1.4 1.4v9.2A1.4 1.4 0 0 0 5.9 16h1.7',
+		check: 'M5 12.6l4.4 4.4L19 7.4',
+		// A crescent, the usual mark for a sleep timer.
+		moon: 'M19.5 14.6A7.8 7.8 0 0 1 9.4 4.5a7.8 7.8 0 1 0 10.1 10.1Z',
+		// A tag, the usual mark for a category.
+		genre:
+			'M4.5 12.4V5.9A1.4 1.4 0 0 1 5.9 4.5h6.5l7.1 7.1a1.4 1.4 0 0 1 0 2l-5.9 5.9a1.4 1.4 0 0 1-2 0l-7.1-7.1ZM8.6 7.4a1.2 1.2 0 1 0 0 2.4 1.2 1.2 0 0 0 0-2.4Z',
+		download: 'M12 4.5v10.5M7.5 10.5 12 15l4.5-4.5M5 19.5h14',
+		// Six dots, the handle a row is dragged by.
+		grip: 'M9 6.5h.01M15 6.5h.01M9 12h.01M15 12h.01M9 17.5h.01M15 17.5h.01',
 		// The one glyph in this set not drawn to the rules above. It is GitHub's
 		// mark, and a mark redrawn as a 1.6 stroke is a different mark, so it is
 		// carried as the filled original. It is also the only icon here that
@@ -115,11 +137,11 @@
 	aria-label={label}
 	aria-hidden={label ? undefined : 'true'}
 >
-	{#if name === 'pause' || name === 'more'}
+	{#if name === 'pause' || name === 'more' || name === 'grip'}
 		<!-- These two are drawn from bare strokes rather than closed shapes, so
 		     they need more weight than the outline icons to match them. A caller
 		     asking for something heavier still is honoured. -->
-		<path d={PATHS[name]} stroke-width={Math.max(strokeWidth, name === 'more' ? 2.4 : 2)} />
+		<path d={PATHS[name]} stroke-width={Math.max(strokeWidth, name === 'pause' ? 2 : 2.4)} />
 	{:else}
 		<path d={PATHS[name]} />
 	{/if}

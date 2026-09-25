@@ -20,6 +20,16 @@ import {
  * goes through the guard as well as the encoder.
  */
 const seg = (id: string) => encodeURIComponent(assertSafeId(id));
+
+/**
+ * A genre id for the `GenreIds` query parameter. Jellyfin reads that as a
+ * comma-separated list, so an id is held to the GUID shape the server issues
+ * and one request cannot widen itself to several genres.
+ */
+function genreIdOf(id: string): string {
+	if (!/^[0-9a-fA-F-]{32,36}$/.test(id)) throw new UpstreamError('Not found', 404, 'not_found');
+	return id;
+}
 import type {
 	MediaBackend,
 	PlaybackReport,
@@ -35,6 +45,7 @@ import type {
 	Artist,
 	ArtistDetail,
 	AudioQuality,
+	Genre,
 	Playlist,
 	PlaylistDetail,
 	LyricLine,
@@ -44,9 +55,12 @@ import type {
 	StarKind
 } from '$lib/types';
 import { randomUUID } from 'node:crypto';
+import { APP_VERSION } from '../version';
 
 const CLIENT = 'Heddohon';
-const CLIENT_VERSION = '0.1.5';
+// From `package.json`. It was a literal here and had to be bumped by hand with
+// every release, which two release commits did separately.
+const CLIENT_VERSION = APP_VERSION;
 
 /** Fields Jellyfin only returns when explicitly asked for. */
 const ITEM_FIELDS = 'Genres,DateCreated,ChildCount,ParentId,PrimaryImageAspectRatio';
@@ -156,6 +170,11 @@ interface JellyfinItem {
 	ChildCount?: number;
 	DateCreated?: string;
 	Overview?: string;
+	/** On genres, with `Fields=ItemCounts`. */
+	AlbumCount?: number;
+	SongCount?: number;
+	/** Track loudness correction in dB, from Jellyfin 10.9's normalisation scan. */
+	NormalizationGain?: number;
 	MediaSources?: JellyfinMediaSource[];
 	Type?: string;
 	/** Present only on /Playlists/{id}/Items — identifies the entry, not the song. */
@@ -236,8 +255,17 @@ function toSong(item: JellyfinItem): Song {
 		genre: item.Genres?.[0] ?? null,
 		coverArt: coverHandle(item),
 		starred: Boolean(item.UserData?.IsFavorite),
+		// Jellyfin records that an item is a favourite and not when it became
+		// one, so the favourites page offers no "recently starred" order here.
+		starredAt: null,
 		playCount: item.UserData?.PlayCount ?? null,
-		quality: quality(item)
+		quality: quality(item),
+		// Jellyfin 10.9 and later measure each track against its own loudness
+		// target and report the correction as one number; there is no peak.
+		replayGain:
+			typeof item.NormalizationGain === 'number'
+				? { trackGain: item.NormalizationGain, albumGain: null, trackPeak: null, albumPeak: null }
+				: null
 	};
 }
 
@@ -255,6 +283,7 @@ function toAlbum(item: JellyfinItem): Album {
 		duration: ticksToSeconds(item.RunTimeTicks) || null,
 		coverArt: coverHandle(item),
 		starred: Boolean(item.UserData?.IsFavorite),
+		starredAt: null,
 		createdAt: Number.isFinite(created) ? created : null
 	};
 }
@@ -265,7 +294,8 @@ function toArtist(item: JellyfinItem): Artist {
 		name: item.Name ?? 'Unknown artist',
 		albumCount: item.ChildCount ?? null,
 		coverArt: coverHandle(item),
-		starred: Boolean(item.UserData?.IsFavorite)
+		starred: Boolean(item.UserData?.IsFavorite),
+		starredAt: null
 	};
 }
 
@@ -519,6 +549,55 @@ export const jellyfinBackend: MediaBackend = {
 		return (body.Items ?? []).map(toAlbum);
 	},
 
+	async getGenres(cred): Promise<Genre[]> {
+		const { userId } = creds(cred);
+		const body = await call<ItemsResponse>(cred, '/MusicGenres', {
+			userId,
+			SortBy: 'SortName',
+			SortOrder: 'Ascending',
+			Fields: 'ItemCounts',
+			Recursive: 'true'
+		});
+		return (body.Items ?? [])
+			.filter((item) => item.Id && item.Name && (item.AlbumCount ?? 1) > 0)
+			.map((item) => ({
+				id: item.Id,
+				name: item.Name ?? '',
+				albumCount: item.AlbumCount ?? null,
+				songCount: item.SongCount ?? null
+			}));
+	},
+
+	async getGenreAlbums(cred, genreId, limit, offset) {
+		const { userId } = creds(cred);
+		const body = await call<ItemsResponse>(cred, '/Items', {
+			userId,
+			GenreIds: genreIdOf(genreId),
+			IncludeItemTypes: 'MusicAlbum',
+			Recursive: 'true',
+			Fields: ITEM_FIELDS,
+			SortBy: 'SortName',
+			SortOrder: 'Ascending',
+			Limit: limit,
+			StartIndex: offset
+		});
+		return (body.Items ?? []).map(toAlbum);
+	},
+
+	async getGenreSongs(cred, genreId, limit) {
+		const { userId } = creds(cred);
+		const body = await call<ItemsResponse>(cred, '/Items', {
+			userId,
+			GenreIds: genreIdOf(genreId),
+			IncludeItemTypes: 'Audio',
+			Recursive: 'true',
+			Fields: SONG_FIELDS,
+			SortBy: 'Random',
+			Limit: Math.min(limit, 500)
+		});
+		return (body.Items ?? []).map(toSong);
+	},
+
 	async getAlbum(cred, id): Promise<AlbumDetail> {
 		const { userId } = creds(cred);
 		const [album, tracks] = await Promise.all([
@@ -536,17 +615,57 @@ export const jellyfinBackend: MediaBackend = {
 		return { ...toAlbum(album), songs: (tracks.Items ?? []).map(toSong) };
 	},
 
+	/**
+	 * Every album artist, from two `/Items` queries rather than from
+	 * `/Artists/AlbumArtists`.
+	 *
+	 * Measured on Jellyfin 12.1.0 with 5000 album artists, each warmed and run
+	 * five times: `/Artists/AlbumArtists` took 9.8 to 11.2s per request whatever
+	 * `Limit` was, 100 or 500 or 2000 or none, and whichever parameters were
+	 * dropped, so paging it would pay that once per page. `/Items` answered
+	 * every `MusicArtist` in 0.28s and every `MusicAlbum` in 0.30 to 0.33s.
+	 *
+	 * The artist query alone also returns artists that only appear on tracks
+	 * (a guest on one song, each name on a compilation), which the album-artist
+	 * endpoint leaves out: 23 extra in the measurement above. They are removed
+	 * by keeping only the artists some album names as an album artist, and the
+	 * same pass counts each one's albums, which Jellyfin does not report on an
+	 * artist.
+	 *
+	 * This replaced a single request with `Limit: 2000`, which left every album
+	 * artist after the 2000th by sort name off the artists page.
+	 */
 	async getArtists(cred) {
 		const { userId } = creds(cred);
-		const body = await call<ItemsResponse>(cred, '/Artists/AlbumArtists', {
-			userId,
-			Recursive: 'true',
-			Fields: ITEM_FIELDS,
-			SortBy: 'SortName',
-			SortOrder: 'Ascending',
-			Limit: 2000
-		});
-		return (body.Items ?? []).map(toArtist);
+		const [artists, albums] = await Promise.all([
+			call<ItemsResponse>(cred, '/Items', {
+				userId,
+				IncludeItemTypes: 'MusicArtist',
+				Recursive: 'true',
+				Fields: ITEM_FIELDS,
+				SortBy: 'SortName',
+				SortOrder: 'Ascending',
+				EnableTotalRecordCount: 'false'
+			}),
+			call<ItemsResponse>(cred, '/Items', {
+				userId,
+				IncludeItemTypes: 'MusicAlbum',
+				Recursive: 'true',
+				EnableImages: 'false',
+				EnableUserData: 'false',
+				EnableTotalRecordCount: 'false'
+			})
+		]);
+
+		const albumCounts = new Map<string, number>();
+		for (const album of albums.Items ?? []) {
+			for (const artist of album.AlbumArtists ?? []) {
+				albumCounts.set(artist.Id, (albumCounts.get(artist.Id) ?? 0) + 1);
+			}
+		}
+		return (artists.Items ?? [])
+			.filter((item) => albumCounts.has(item.Id))
+			.map((item) => ({ ...toArtist(item), albumCount: albumCounts.get(item.Id) ?? null }));
 	},
 
 	async getArtist(cred, id): Promise<ArtistDetail> {
@@ -679,6 +798,16 @@ export const jellyfinBackend: MediaBackend = {
 		return (body.Items ?? []).map(toSong);
 	},
 
+	/**
+	 * Every favourite, of each kind.
+	 *
+	 * This was limited to 200 of each, which left the rest off the favourites
+	 * page and out of "play favourites". Measured on Jellyfin 12.1.0: 2500
+	 * favourite songs took 2.2s and 5.5MB uncapped, 1.5s without
+	 * `MediaSources`, which the track list's quality badge reads. The result is
+	 * held for 30 seconds per account (`listings.ts`), and the home page
+	 * streams its eight rather than waiting for them.
+	 */
 	async getStarred(cred): Promise<SearchResults> {
 		const { userId } = creds(cred);
 		const fetchFavourites = (types: string, fields: string) =>
@@ -689,7 +818,7 @@ export const jellyfinBackend: MediaBackend = {
 				Filters: 'IsFavorite',
 				Fields: fields,
 				SortBy: 'SortName',
-				Limit: 200
+				EnableTotalRecordCount: 'false'
 			});
 		const [songs, albums, artists] = await Promise.all([
 			fetchFavourites('Audio', SONG_FIELDS),

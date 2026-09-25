@@ -3,6 +3,8 @@
 	import { player } from '$lib/client/player.svelte';
 	import { formatDuration } from '$lib/client/format';
 	import { addSongsToPlaylist } from '$lib/client/playlists.svelte';
+	import { shareComposer } from '$lib/client/share.svelte';
+	import { page } from '$app/state';
 	import Cover from './Cover.svelte';
 	import FavouriteButton from './FavouriteButton.svelte';
 	import Icon from './Icon.svelte';
@@ -15,6 +17,12 @@
 		showAlbum = false,
 		showQuality = true,
 		groupByDisc = false,
+		/**
+		 * Two columns, reading down the first and then the second, once the list
+		 * has 52rem to itself. For a short list of songs from different records,
+		 * where one column at that width left most of each row empty.
+		 */
+		columns = false,
 		/** Supplied by the playlist page so rows can be removed from it. */
 		onremove = null
 	}: {
@@ -23,6 +31,7 @@
 		showAlbum?: boolean;
 		showQuality?: boolean;
 		groupByDisc?: boolean;
+		columns?: boolean;
 		onremove?: ((index: number) => void) | null;
 	} = $props();
 
@@ -60,19 +69,31 @@
 	}
 </script>
 
-<ol class="tracks" class:artwork={variant === 'artwork'}>
+{#snippet list()}
+<ol
+	class="tracks hh-stagger"
+	class:artwork={variant === 'artwork'}
+	class:columns
+	style:--rows={columns ? Math.ceil(songs.length / 2) : null}
+>
 	{#each songs as song, index (song.id + ':' + index)}
 		{@const isCurrent = song.id === currentId}
 		{#if discs && (index === 0 || (songs[index - 1].disc ?? 1) !== (song.disc ?? 1))}
 			<li class="disc-header hh-eyebrow" aria-hidden="true">Disc {song.disc ?? 1}</li>
 		{/if}
-		<li>
+		<li class:column-start={columns && index === Math.ceil(songs.length / 2)}>
 			<div
 				class="track"
 				class:current={isCurrent}
 				role="button"
 				tabindex="0"
-				ondblclick={() => activate(index)}
+				ondblclick={(event) => {
+					// A double press on the heart, a link or another control in the row is
+					// that control's, not the row's: `stopPropagation` on their clicks does
+					// not stop the `dblclick` that follows, and it started the row's song.
+					if ((event.target as Element).closest('button, a')) return;
+					activate(index);
+				}}
 				onkeydown={(event) => onKey(event, index)}
 				aria-current={isCurrent ? 'true' : undefined}
 			>
@@ -83,10 +104,10 @@
 						</div>
 					{:else}
 						<!--
-							The number is the play control. On hover it becomes the glyph
-							rather than being covered by one: a 32px button laid over a
-							two-character number was the largest thing in a row whose
-							point is the title.
+							The number is the play control. On hover it glows in the accent
+							and swells a little, rather than turning into a play glyph: the
+							glyph was a second picture in a column of numbers. The label
+							says what a press does.
 						-->
 						<button
 							class="index hh-numeric"
@@ -96,22 +117,22 @@
 							<span class="resting">
 								{#if isCurrent && player.playing}
 									<span class="bars" aria-hidden="true">
-										<i></i><i></i><i></i>
+										<i></i><i></i><i></i><i></i>
 									</span>
 								{:else}
 									{song.track ?? index + 1}
 								{/if}
 							</span>
-							<span class="glyph" aria-hidden="true">
-								<Icon name={isCurrent && player.playing ? 'pause' : 'play'} size={13} />
-							</span>
 						</button>
 					{/if}
 					{#if variant === 'artwork'}
-						<!-- No number to swap here, so the cover keeps the overlay. -->
-						<button class="play-overlay" onclick={() => activate(index)} aria-label="Play {song.title}">
-							<Icon name={isCurrent && player.playing ? 'pause' : 'play'} size={14} />
-						</button>
+						<!-- The cover is the play control here, and lifts and glows on
+						     hover the way the number does in a numbered list. -->
+						<button
+							class="play-overlay"
+							onclick={() => activate(index)}
+							aria-label={isCurrent && player.playing ? `Pause ${song.title}` : `Play ${song.title}`}
+						></button>
 					{/if}
 				</div>
 
@@ -162,6 +183,19 @@
 					>
 						<Icon name="plus" size={16} />
 					</button>
+					{#if page.data.sharing}
+						<button
+							class="row-action"
+							onclick={(event) => {
+								event.stopPropagation();
+								shareComposer.open(song);
+							}}
+							aria-label="Share a link to {song.title}"
+							title="Share"
+						>
+							<Icon name="share" size={15} />
+						</button>
+					{/if}
 					{#if onremove}
 						<button
 							class="row-action row-action--danger"
@@ -182,6 +216,15 @@
 		</li>
 	{/each}
 </ol>
+{/snippet}
+
+<!-- The columns are chosen by the width the list has, not the window's, so the
+     list gets a box of its own to measure. -->
+{#if columns}
+	<div class="frame">{@render list()}</div>
+{:else}
+	{@render list()}
+{/if}
 
 {#if songs.length === 0}
 	<p class="empty hh-muted">Nothing here yet.</p>
@@ -213,7 +256,41 @@
 		padding: 0.55rem var(--space-2);
 		border-top: 1px solid var(--border-hairline);
 		cursor: default;
-		transition: background var(--transition);
+		position: relative;
+		isolation: isolate;
+	}
+
+	/*
+	 * The hover wash: the accent, strongest at the number and gone by two
+	 * thirds of the way across, fading in and growing a little from the left.
+	 * A layer of its own under the row's content, so only its opacity and
+	 * scale move. The rows hold no glass.
+	 */
+	.track::before {
+		content: '';
+		position: absolute;
+		inset: 0;
+		z-index: -1;
+		border-radius: var(--r-sm);
+		background: linear-gradient(
+			90deg,
+			color-mix(in srgb, var(--accent) 13%, transparent),
+			color-mix(in srgb, var(--accent) 4%, transparent) 55%,
+			transparent
+		);
+		transform-origin: left center;
+		opacity: 0;
+		scale: 0.97 1;
+		pointer-events: none;
+		transition:
+			opacity var(--dur-state) var(--ease-out),
+			scale var(--dur-state) var(--ease-out);
+	}
+
+	.track:hover::before,
+	.track:focus-visible::before {
+		opacity: 1;
+		scale: 1;
 	}
 
 	.tracks.artwork .track {
@@ -225,6 +302,24 @@
 	li:first-child .track,
 	.disc-header + li .track {
 		border-top: none;
+	}
+
+	.frame {
+		container-type: inline-size;
+	}
+
+	@container (min-width: 52rem) {
+		.tracks.columns {
+			display: grid;
+			grid-template-columns: repeat(2, minmax(0, 1fr));
+			grid-template-rows: repeat(var(--rows), auto);
+			grid-auto-flow: column;
+			column-gap: var(--space-6);
+		}
+
+		.tracks.columns .column-start .track {
+			border-top: none;
+		}
 	}
 
 	.track:hover,
@@ -274,56 +369,62 @@
 		font-variant-numeric: tabular-nums;
 	}
 
-	.index .resting,
-	.index .glyph {
-		grid-area: 1 / 1;
+	/* On hover the number lights up in the accent and swells on the spring. */
+	.index .resting {
 		display: grid;
 		place-items: center end;
-		transition: opacity var(--transition);
-	}
-
-	.index .glyph {
-		opacity: 0;
-		color: var(--text-strong);
+		transform-origin: right center;
+		transition:
+			color var(--dur-state) var(--ease-out),
+			text-shadow var(--dur-state) var(--ease-out),
+			filter var(--dur-state) var(--ease-out),
+			scale var(--dur-state) var(--ease-spring);
 	}
 
 	.track:hover .index .resting,
 	.index:focus-visible .resting {
-		opacity: 0;
+		color: var(--glow-color);
+		text-shadow:
+			0 0 6px color-mix(in srgb, var(--accent) 70%, transparent),
+			0 0 16px color-mix(in srgb, var(--accent) 45%, transparent);
+		scale: 1.2;
 	}
 
-	.track:hover .index .glyph,
-	.index:focus-visible .glyph {
-		opacity: 1;
+	/* The bars cannot take a text-shadow; they glow as a filter instead. */
+	.track:hover .index .bars,
+	.index:focus-visible .bars {
+		filter: drop-shadow(0 0 5px color-mix(in srgb, var(--accent) 80%, transparent));
 	}
 
-	@media (prefers-reduced-motion: reduce) {
-		.index .resting,
-		.index .glyph {
-			transition: none;
-		}
-	}
-
+	/* The cover as the play control: transparent over it, and the cover lifts
+	   and takes a glow in the accent on hover. */
 	.play-overlay {
 		position: absolute;
 		inset: 0;
-		display: grid;
-		place-items: center;
-		opacity: 0;
-		background: color-mix(in srgb, var(--bg-sunken) 78%, transparent);
-		color: var(--text-strong);
 		border-radius: var(--r-sm);
-		transition: opacity var(--transition);
 	}
 
-	.track:hover .play-overlay,
-	.play-overlay:focus-visible {
-		opacity: 1;
+	.thumb {
+		transition:
+			scale var(--dur-state) var(--ease-spring),
+			filter var(--dur-state) var(--ease-out);
 	}
 
+	.track:hover .thumb,
+	.lead:has(.play-overlay:focus-visible) .thumb {
+		scale: 1.08;
+		filter: drop-shadow(0 0 8px color-mix(in srgb, var(--accent) 55%, transparent));
+	}
+
+	/* The title and artist step a little to the right under the pointer. */
 	.meta {
 		display: grid;
 		min-width: 0;
+		transition: translate var(--dur-state) var(--ease-spring);
+	}
+
+	.track:hover .meta {
+		translate: 0.2rem 0;
 	}
 
 	.title {
@@ -350,17 +451,43 @@
 		align-items: center;
 	}
 
+	/*
+	 * The row's actions come in one after another from the right, 35ms apart,
+	 * and all go at once when the pointer leaves.
+	 */
 	.actions {
 		display: flex;
 		align-items: center;
 		gap: 0.125rem;
-		opacity: 0;
-		transition: opacity var(--transition);
 	}
 
-	.track:hover .actions,
-	.track:focus-within .actions {
+	.actions > :global(*) {
+		opacity: 0;
+		translate: 0.4rem 0;
+		transition:
+			opacity var(--dur-hover) var(--ease-out),
+			translate var(--dur-state) var(--ease-out);
+	}
+
+	.track:hover .actions > :global(*),
+	.track:focus-within .actions > :global(*) {
 		opacity: 1;
+		translate: 0 0;
+	}
+
+	.track:hover .actions > :global(:nth-child(2)),
+	.track:focus-within .actions > :global(:nth-child(2)) {
+		transition-delay: 35ms;
+	}
+
+	.track:hover .actions > :global(:nth-child(3)),
+	.track:focus-within .actions > :global(:nth-child(3)) {
+		transition-delay: 70ms;
+	}
+
+	.track:hover .actions > :global(:nth-child(n + 4)),
+	.track:focus-within .actions > :global(:nth-child(n + 4)) {
+		transition-delay: 105ms;
 	}
 
 	.row-action {
@@ -388,46 +515,75 @@
 		color: var(--text-faint);
 	}
 
-	/* Three bars rising and falling while the track plays. Motion, not glow. */
+	/*
+	 * Four bars rising and falling from one baseline while the track plays.
+	 *
+	 * There were three, each scaled about its own centre while the row aligned
+	 * their bottoms, so their feet floated up and down; and all three ran one
+	 * 1-second cycle from 40 percent, which took the shortest to a 2px dot.
+	 * Each bar now grows from the baseline over a range and a period of its
+	 * own (0.7 to 1.1s, periods that do not divide into each other), so the
+	 * four never line up into a visible loop.
+	 */
 	.bars {
 		display: flex;
 		align-items: flex-end;
 		gap: 2px;
-		height: 0.85rem;
+		height: 0.9rem;
 	}
 
 	.bars i {
-		width: 2px;
+		width: 3px;
+		height: 100%;
+		border-radius: 1.5px;
 		background: var(--accent);
-		border-radius: 1px;
-		animation: pulse 1s ease-in-out infinite;
+		transform-origin: bottom;
+		animation: bar var(--period) ease-in-out var(--offset) infinite alternate;
 	}
 
 	.bars i:nth-child(1) {
-		height: 40%;
-		animation-delay: -0.2s;
+		--low: 0.3;
+		--high: 0.75;
+		--period: 0.83s;
+		--offset: -0.3s;
 	}
 	.bars i:nth-child(2) {
-		height: 100%;
+		--low: 0.45;
+		--high: 1;
+		--period: 0.71s;
+		--offset: -0.55s;
 	}
 	.bars i:nth-child(3) {
-		height: 60%;
-		animation-delay: -0.45s;
+		--low: 0.25;
+		--high: 0.85;
+		--period: 1.07s;
+		--offset: -0.1s;
+	}
+	.bars i:nth-child(4) {
+		--low: 0.35;
+		--high: 0.65;
+		--period: 0.93s;
+		--offset: -0.7s;
 	}
 
-	@keyframes pulse {
-		0%,
-		100% {
-			transform: scaleY(0.4);
+	@keyframes bar {
+		from {
+			scale: 1 var(--low);
 		}
-		50% {
-			transform: scaleY(1);
+		to {
+			scale: 1 var(--high);
 		}
 	}
 
 	.empty {
 		padding: var(--space-6);
 		text-align: center;
+	}
+
+	@keyframes actions-in {
+		from {
+			opacity: 0;
+		}
 	}
 
 	@media (max-width: 40rem) {
@@ -438,6 +594,21 @@
 
 		.quality {
 			display: none;
+		}
+
+		/*
+		 * A phone has no hover, so the row actions sat invisible and still took
+		 * their width: four of them left an iPhone 16 (393px) about 120px of
+		 * title. They are laid out only for the row that has focus, which a tap
+		 * gives it.
+		 */
+		.actions {
+			display: none;
+		}
+
+		.track:focus-within .actions {
+			display: flex;
+			animation: actions-in var(--dur-hover) var(--ease-out);
 		}
 	}
 </style>

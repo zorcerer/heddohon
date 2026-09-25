@@ -16,6 +16,7 @@
  *    gapless, so this is a tight handoff, not true gapless decoding.
  */
 import { browser } from '$app/environment';
+import { untrack } from 'svelte';
 import type { Song } from '$lib/types';
 import type { UserSettings } from '$lib/server/settings';
 import { coverUrl, streamUrl } from './format';
@@ -27,9 +28,13 @@ export type RepeatMode = 'off' | 'all' | 'one';
  * gesture so the second audio element carries its own activation — Safari and
  * Firefox grant autoplay per element, not per document, and the element that
  * takes over at a track boundary has otherwise never been touched by the user.
+ *
+ * A file rather than a `data:` URL. It was one until the Content-Security-
+ * Policy arrived, whose `media-src 'self'` refuses `data:`: the sample never
+ * loaded, the second element was never unlocked, and a phone could stop at the
+ * first track boundary it reached in the background.
  */
-const SILENCE =
-	'data:audio/wav;base64,UklGRiUAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQEAAACA';
+const SILENCE = '/silence.wav';
 /** A play counts as a scrobble past this fraction, matching Subsonic convention. */
 const SCROBBLE_FRACTION = 0.5;
 const SCROBBLE_MIN_SECONDS = 30;
@@ -46,12 +51,36 @@ const SCROBBLE_MIN_SECONDS = 30;
  */
 const RECOVERY_ATTEMPTS = 4;
 const RECOVERY_BACKOFF_MS = 600;
+/** How often, and how many times, a resume asks again for a position it cannot seek to yet. */
+const SEEK_HOLD_MS = 1000;
+const SEEK_HOLD_ATTEMPTS = 30;
+
+/** Whether `time` is inside a range the element can seek to. */
+function seekableTo(element: HTMLMediaElement, time: number): boolean {
+	for (let i = 0; i < element.seekable.length; i++) {
+		if (element.seekable.start(i) <= time && time <= element.seekable.end(i)) return true;
+	}
+	return false;
+}
 /**
  * Largest body sent with `keepalive`, in bytes. Half the 64KB the browser
  * allows across every in-flight keepalive request, so a play-state write and a
  * playback report leaving together both fit.
  */
 const KEEPALIVE_LIMIT = 32_000;
+/**
+ * The sleep timer's lengths in minutes, and how long the level takes to come
+ * down before it pauses. The fade is stepped from `timeupdate`, which Chromium
+ * fires about four times a second, so 12 seconds is about 48 steps.
+ */
+export const SLEEP_MINUTES = [15, 30, 45, 60, 90] as const;
+const SLEEP_FADE_SECONDS = 12;
+
+/**
+ * A sleep timer: pause at a time on the clock, or when the current track ends.
+ * Transient, like `queueOpen`: a reload drops it.
+ */
+export type SleepTimer = { kind: 'at'; at: number; minutes: number } | { kind: 'track' };
 
 /** Fisher-Yates, in place on a copy. */
 function shuffled<T>(items: T[]): T[] {
@@ -78,6 +107,18 @@ export class Player {
 	playing = $state(false);
 	/** True between a play() call and the first frame of audio. */
 	loading = $state(false);
+	/**
+	 * Whether the listener means playback to be running: set by play(), cleared
+	 * by pause(), stop(), the end of the queue and the sleep timer. A blocked
+	 * play() is retried while it holds.
+	 *
+	 * Unlike `playing`, it holds across a track change. The outgoing element
+	 * fires `pause` about 17ms before the incoming one fires `play` (measured in
+	 * Chromium), and anything that followed `playing` saw playback stop and
+	 * start again. The room's colour did: it went to the open page's cover and
+	 * back within one fade, which showed as a flash on the rail and the player.
+	 */
+	engaged = $state(false);
 	currentTime = $state(0);
 	duration = $state(0);
 	buffered = $state(0);
@@ -110,6 +151,14 @@ export class Player {
 	 * first client render, so a phone never paints a sheet it was not asked for.
 	 */
 	viewportKnown = $state(false);
+	sleep = $state<SleepTimer | null>(null);
+	/**
+	 * Which way the queue last moved: 1 forward (next, the end of a track, a
+	 * new queue), -1 back (previous). The now-playing text slides in from that
+	 * side. The index alone cannot tell a step back from the last track to the
+	 * first from a wrap forward past the end.
+	 */
+	direction = $state<1 | -1>(1);
 
 	settings = $state<UserSettings | null>(null);
 
@@ -133,10 +182,23 @@ export class Player {
 	#lifecycleOff: Array<() => void> = [];
 	/** True once the second element has been unlocked by a user gesture. */
 	#primed = false;
-	/** What the user last asked for, so a blocked play() can be retried. */
-	#intendsToPlay = false;
 	/** Seconds to seek to once the restored track's metadata arrives. */
 	#pendingSeek: number | null = null;
+	/**
+	 * A restored queue that holds only its current track while the rest is
+	 * looked up: the queue it was restored as, and the saved ids and index it
+	 * stands in for. Cleared by `completeRestore`, or by anything that replaces
+	 * the queue.
+	 */
+	#partial: { queue: Song[]; ids: string[]; index: number } | null = null;
+	/**
+	 * Set while a resume waits for the position to become seekable; see
+	 * `#holdForSeek`. The retries on `canplay` and on the tab coming back leave
+	 * the element alone while it is set, or they would play it from the start.
+	 */
+	#holding = false;
+	#seekHolds = 0;
+	#holdTimer: ReturnType<typeof setTimeout> | null = null;
 	/** Consecutive attempts to pick the current track back up after a drop. */
 	#recoveries = 0;
 	#recoveryTimer: ReturnType<typeof setTimeout> | null = null;
@@ -145,10 +207,24 @@ export class Player {
 	#fadeStartedAt = 0;
 	#fadeSeconds = 0;
 
+	/**
+	 * Whether this browser applies a `volume` set from script.
+	 *
+	 * iOS does not: the level belongs to the hardware buttons, a write is
+	 * ignored and a read gives 1, as Apple's Safari audio guide documents. A
+	 * crossfade there started the incoming track at full level, up to 12s
+	 * before the outgoing one ended, which is heard as the end of a song being
+	 * skipped. Read from a spare element so the playing ones are not touched.
+	 */
+	rampsVolume = $state(true);
+
 	/** Called once from the root layout after the audio elements are mounted. */
 	attach(primary: HTMLAudioElement, secondary: HTMLAudioElement, settings: UserSettings) {
 		this.#primary = primary;
 		this.#secondary = secondary;
+		const probe = document.createElement('audio');
+		probe.volume = 0.5;
+		this.rampsVolume = probe.volume === 0.5;
 		this.settings = settings;
 		this.volume = settings.volume;
 		this.#bind(primary);
@@ -165,6 +241,7 @@ export class Player {
 		this.#lifecycleOff = [];
 		if (this.#progressTimer) clearInterval(this.#progressTimer);
 		if (this.#positionTimer) clearInterval(this.#positionTimer);
+		this.#cancelHold();
 		this.#cancelRecovery();
 		this.#abandonCrossfade();
 		// Clearing the debounce timer on its own threw away whatever the last
@@ -177,6 +254,7 @@ export class Player {
 	/** Replaces the queue and starts at `startAt`. */
 	async playNow(songs: Song[], startAt = 0) {
 		if (songs.length === 0) return;
+		this.direction = 1;
 		this.queue = [...songs];
 		this.index = Math.min(Math.max(0, startAt), songs.length - 1);
 		this.#preloadedFor = null;
@@ -235,6 +313,33 @@ export class Player {
 		this.#persist();
 	}
 
+	/**
+	 * Moves one entry to another position. The playing track keeps playing
+	 * wherever it ends up, and `index` follows it.
+	 *
+	 * The buffered next track is only dropped when the move changed which track
+	 * is next; reordering further down the queue keeps it.
+	 */
+	move(from: number, to: number) {
+		const length = this.queue.length;
+		if (from === to || from < 0 || to < 0 || from >= length || to >= length) return;
+		const nextBefore = this.upNext?.id ?? null;
+
+		const queue = [...this.queue];
+		const [moved] = queue.splice(from, 1);
+		queue.splice(to, 0, moved);
+
+		let index = this.index;
+		if (from === index) index = to;
+		else if (from < index && to >= index) index -= 1;
+		else if (from > index && to <= index) index += 1;
+
+		this.queue = queue;
+		this.index = index;
+		if ((this.upNext?.id ?? null) !== nextBefore) this.#invalidatePreload();
+		this.#persist();
+	}
+
 	clearQueue() {
 		this.stop();
 		this.queue = [];
@@ -244,6 +349,7 @@ export class Player {
 
 	async jumpTo(position: number) {
 		if (position < 0 || position >= this.queue.length) return;
+		this.direction = position >= this.index ? 1 : -1;
 		this.index = position;
 		this.#invalidatePreload();
 		await this.#loadCurrent(true);
@@ -265,7 +371,10 @@ export class Player {
 		// here — which is the only moment the browser will grant the second
 		// element an activation.
 		this.#primeSecondary();
-		this.#intendsToPlay = true;
+		this.engaged = true;
+		// A timer that ran out while paused would pause again on the first
+		// `timeupdate`. Pressing play after it is a decision to keep listening.
+		if (this.sleep?.kind === 'at' && Date.now() >= this.sleep.at) this.setSleep(null);
 
 		// A queue restored from the server has no src loaded yet, and carries the
 		// position it was stored at.
@@ -325,14 +434,15 @@ export class Player {
 
 	pause() {
 		this.#cancelRecovery();
-		this.#intendsToPlay = false;
+		this.engaged = false;
 		this.#abandonCrossfade();
 		this.#primary?.pause();
 		this.#persist();
 	}
 
 	stop() {
-		this.#intendsToPlay = false;
+		this.engaged = false;
+		this.#cancelHold();
 		this.#abandonCrossfade();
 		if (this.#primary) {
 			this.#primary.pause();
@@ -346,6 +456,7 @@ export class Player {
 
 	async next(userInitiated = true) {
 		if (this.queue.length === 0) return;
+		this.direction = 1;
 		// A skip discards the overlap; the end of a track consummates it.
 		if (userInitiated) this.#abandonCrossfade();
 
@@ -361,7 +472,7 @@ export class Player {
 				this.index = 0;
 			} else if (!userInitiated) {
 				// Natural end of the queue: stop rather than wrap.
-				this.#intendsToPlay = false;
+				this.engaged = false;
 				this.playing = false;
 				this.#persist();
 				return;
@@ -378,6 +489,7 @@ export class Player {
 
 	async previous() {
 		if (this.queue.length === 0) return;
+		this.direction = -1;
 		this.#abandonCrossfade();
 		// Standard transport behaviour: restart the track unless we are near the
 		// very beginning, in which case step back.
@@ -464,6 +576,18 @@ export class Player {
 	}
 
 	/**
+	 * Sets the sleep timer: a number of minutes from now, `'track'` for the end
+	 * of the current track, or `null` to cancel it. Cancelling during the fade
+	 * puts the level back at once.
+	 */
+	setSleep(choice: number | 'track' | null) {
+		if (choice === null) this.sleep = null;
+		else if (choice === 'track') this.sleep = { kind: 'track' };
+		else this.sleep = { kind: 'at', at: Date.now() + choice * 60_000, minutes: choice };
+		this.#applyVolume();
+	}
+
+	/**
 	 * Where the panel is a sheet over the page rather than a column beside it,
 	 * it starts closed — arriving at your library with the player covering it is
 	 * not a player, it is a door. The breakpoint is the one the layout uses to
@@ -504,6 +628,7 @@ export class Player {
 		if (!song || !this.#primary) return;
 
 		if (!resume) this.#pendingSeek = null;
+		this.#cancelHold();
 
 		// The ramp addresses `#primary` and `#secondary` by reference, and the
 		// swap below exchanges them. A timer that outlived that swap would go on
@@ -531,6 +656,7 @@ export class Player {
 
 		this.#applyVolume();
 		this.#updateMediaSession(song);
+		this.#warmNext();
 		this.#preloadedFor = null;
 
 		if (autoplay) await this.play();
@@ -563,8 +689,13 @@ export class Player {
 		if (this.#fadeTimer !== null) return;
 		const settings = this.settings;
 		if (!settings || settings.transition !== 'crossfade') return;
+		// Without a ramp this would be two tracks at full level. The `ended`
+		// handler makes the tight handoff instead, from the buffered element.
+		if (!this.rampsVolume) return;
 		// Repeating one track would have to fade an element into itself.
 		if (this.repeat === 'one') return;
+		// The next track would start before the `ended` handler could stop there.
+		if (this.sleep?.kind === 'track') return;
 
 		const outgoing = this.#primary;
 		const incoming = this.#secondary;
@@ -597,10 +728,12 @@ export class Player {
 		const incoming = this.#secondary;
 		if (!outgoing || !incoming) return this.#abandonCrossfade();
 
-		const level = this.muted ? 0 : this.volume;
+		const level = (this.muted ? 0 : this.volume) * this.#sleepGain();
 		const t = Math.min(1, (Date.now() - this.#fadeStartedAt) / (this.#fadeSeconds * 1000));
-		outgoing.volume = level * Math.cos((t * Math.PI) / 2);
-		incoming.volume = level * Math.sin((t * Math.PI) / 2);
+		// Each side ramps to its own corrected level, so the join does not jump
+		// when the two tracks were mastered at different loudness.
+		outgoing.volume = level * this.#gainFor(this.current) * Math.cos((t * Math.PI) / 2);
+		incoming.volume = level * this.#gainFor(this.#preloadedSong()) * Math.sin((t * Math.PI) / 2);
 
 		// The ramp only moves the two gains. Advancing the queue stays the job of
 		// the outgoing element's `ended` event — which fires at the end of the
@@ -644,6 +777,47 @@ export class Player {
 	}
 
 	/**
+	 * Waits, silent, for a position the element cannot seek to yet, and asks
+	 * for the track again.
+	 *
+	 * A transcode is read whole on the server before it can be answered in
+	 * ranges (`transcodes.ts`), which takes seconds; until then it arrives as a
+	 * stream without ranges, and a seek into it lands nowhere. Resuming a track
+	 * at a position (after a dropped stream, a restored queue, or transcoding
+	 * switched on mid-track) then played it from the start: heard as the song
+	 * starting over, most often with the tab in the background, where a stream
+	 * is most often dropped. So the element is paused and asked again every
+	 * second, up to 30 times (a 10-minute AAC transcode was read whole in 17s),
+	 * with a query the server ignores so that the browser does not answer from
+	 * its own copy. After that it plays from the start, as it did.
+	 */
+	#cancelHold() {
+		if (this.#holdTimer !== null) clearTimeout(this.#holdTimer);
+		this.#holdTimer = null;
+		this.#holding = false;
+		this.#seekHolds = 0;
+	}
+
+	#holdForSeek(element: HTMLAudioElement) {
+		const song = this.current;
+		if (!song) return;
+		this.#holding = true;
+		this.loading = true;
+		element.pause();
+		if (this.#holdTimer !== null) clearTimeout(this.#holdTimer);
+		this.#holdTimer = setTimeout(() => {
+			this.#holdTimer = null;
+			if (this.#primary !== element || this.current !== song || this.#pendingSeek === null || !this.engaged) {
+				this.#holding = false;
+				return;
+			}
+			this.#seekHolds += 1;
+			element.src = `${streamUrl(song.id, this.deliveryMode)}&attempt=${this.#seekHolds}`;
+			element.load();
+		}, SEEK_HOLD_MS);
+	}
+
+	/**
 	 * Asks for the rest of the current track from where it stopped arriving.
 	 *
 	 * `playing` is deliberately left alone. This is a gap in the audio, not a
@@ -667,7 +841,7 @@ export class Player {
 		this.#recoveryTimer = setTimeout(() => {
 			this.#recoveryTimer = null;
 			// The listener pressed pause while we were waiting. Their call wins.
-			if (!this.#intendsToPlay || this.#primary !== element) return;
+			if (!this.engaged || this.#primary !== element) return;
 			this.#pendingSeek = position;
 			element.src = streamUrl(song.id, this.deliveryMode);
 			element.load();
@@ -683,6 +857,26 @@ export class Player {
 	#clearFadeTimer() {
 		if (this.#fadeTimer !== null) clearInterval(this.#fadeTimer);
 		this.#fadeTimer = null;
+	}
+
+	/**
+	 * Starts the server reading the next track's transcode as this one
+	 * starts, with a HEAD request that downloads nothing.
+	 *
+	 * The server answers a transcode in ranges only once it has read it whole
+	 * (`transcodes.ts`), and until then as a stream without ranges, which a
+	 * browser cannot seek into or pick back up at a position. The next track is
+	 * preloaded 20 seconds before its turn; started here, its read is whole by
+	 * then (2.7 to 17 seconds measured), so the element that plays it has ranges
+	 * from the first byte and a stream that drops can be resumed. Original
+	 * files are answered in ranges by the music server itself and need none of
+	 * this.
+	 */
+	#warmNext() {
+		if (!browser || !this.settings?.transcode) return;
+		const next = this.upNext ?? (this.repeat === 'all' ? this.queue[0] : null);
+		if (!next || next.id === this.current?.id) return;
+		void fetch(streamUrl(next.id, this.deliveryMode), { method: 'HEAD' }).catch(() => undefined);
 	}
 
 	/** Buffers the upcoming track so the handoff does not wait on the network. */
@@ -722,13 +916,22 @@ export class Player {
 			// seek can only happen once the element knows how long the file is.
 			if (this.#pendingSeek !== null) {
 				const target = this.#pendingSeek;
+				const wanted = target > 1 && target < this.duration - 1;
+				if (wanted && !seekableTo(element, target) && this.#seekHolds < SEEK_HOLD_ATTEMPTS) {
+					this.#holdForSeek(element);
+					return;
+				}
 				this.#pendingSeek = null;
-				if (target > 1 && target < this.duration - 1) this.seek(target);
+				this.#seekHolds = 0;
+				this.#holding = false;
+				if (wanted) this.seek(target);
+				if (this.engaged && element.paused) void element.play().catch(() => undefined);
 			}
 		});
 
 		on('timeupdate', () => {
 			this.currentTime = element.currentTime;
+			this.#maybeSleep();
 			this.#maybeScrobble();
 			this.#maybePreloadNext();
 			this.#maybeCrossfade();
@@ -766,12 +969,13 @@ export class Player {
 		on('canplay', () => {
 			// The track is ready but we are not playing and the user never asked us
 			// to stop: an earlier play() was refused, so try again now.
-			if (this.#intendsToPlay && element.paused) void element.play().catch(() => undefined);
+			if (this.engaged && element.paused && !this.#holding) void element.play().catch(() => undefined);
 		});
 
 		on('ended', () => {
 			this.#reportStop(true);
-			void this.next(false);
+			if (this.sleep?.kind === 'track') void this.#sleepAtTrackEnd();
+			else void this.next(false);
 		});
 
 		on('error', () => {
@@ -782,7 +986,7 @@ export class Player {
 			const fatal =
 				code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED || code === MediaError.MEDIA_ERR_DECODE;
 
-			if (!fatal && this.#intendsToPlay && this.#recoveries < RECOVERY_ATTEMPTS) {
+			if (!fatal && this.engaged && this.#recoveries < RECOVERY_ATTEMPTS) {
 				this.#recoverStream();
 				return;
 			}
@@ -797,9 +1001,111 @@ export class Player {
 
 
 	#applyVolume() {
-		const value = this.muted ? 0 : this.volume;
-		if (this.#primary) this.#primary.volume = value;
-		if (this.#secondary) this.#secondary.volume = value;
+		// Untracked. This reads the queue and the settings, and it is called
+		// from inside effects (`attach`, the layout's settings effect). Tracked,
+		// those reads made the effect that attaches the player depend on them,
+		// so the settings arriving with every navigation re-ran it, and its
+		// teardown detached the player: every page change stopped the music.
+		untrack(() => {
+			const value = (this.muted ? 0 : this.volume) * this.#sleepGain();
+			if (this.#primary) this.#primary.volume = value * this.#gainFor(this.current);
+			if (this.#secondary) this.#secondary.volume = value * this.#gainFor(this.#preloadedSong());
+		});
+	}
+
+	/** The song the second element holds, if it holds one. */
+	#preloadedSong(): Song | null {
+		if (!this.#preloadedFor) return null;
+		return this.queue.find((song) => song.id === this.#preloadedFor) ?? null;
+	}
+
+	/**
+	 * The volume correction for one song, from its ReplayGain data.
+	 *
+	 * Applied through each element's `volume`, which is a multiplier from 0 to 1,
+	 * so a correction can lower a track and cannot raise one. Most commercial
+	 * releases carry a negative track gain (about -6 to -10 dB against the
+	 * 89 dB reference), so in practice loud records come down to meet quiet
+	 * ones. Raising a quiet track would need Web Audio between the element and
+	 * the speakers, which changes the whole playback path, including the
+	 * background playback iOS allows a plain `<audio>` element.
+	 *
+	 * Track gain is used, with album gain as the fallback. The peak caps the
+	 * factor so a correction cannot push the loudest sample past full scale. A
+	 * file without data plays unchanged.
+	 */
+	#gainFor(song: Song | null): number {
+		if (!this.settings?.normalizeVolume || !song?.replayGain) return 1;
+		const { trackGain, albumGain, trackPeak, albumPeak } = song.replayGain;
+		const gain = trackGain ?? albumGain;
+		if (gain === null) return 1;
+		let factor = 10 ** (gain / 20);
+		const peak = trackGain !== null ? trackPeak : albumPeak;
+		if (peak !== null && peak > 0) factor = Math.min(factor, 1 / peak);
+		return Math.min(1, Math.max(0, factor));
+	}
+
+	// ── Sleep timer ────────────────────────────────────────────────────────
+
+	/**
+	 * The level multiplier for the sleep timer's fade: 1 until the last
+	 * `SLEEP_FADE_SECONDS`, then down to 0 on the same quarter-cosine the
+	 * crossfade uses.
+	 */
+	#sleepGain(): number {
+		const sleep = this.sleep;
+		if (sleep?.kind !== 'at') return 1;
+		const left = (sleep.at - Date.now()) / 1000;
+		if (left >= SLEEP_FADE_SECONDS) return 1;
+		if (left <= 0) return 0;
+		return Math.sin(((left / SLEEP_FADE_SECONDS) * Math.PI) / 2);
+	}
+
+	/**
+	 * Steps the fade and pauses when the time is up.
+	 *
+	 * Driven by `timeupdate` rather than a timer of its own: a timer in a
+	 * background tab can be throttled, and `timeupdate` keeps firing for as long
+	 * as there is sound to fade. A timer that runs out while paused does nothing
+	 * until playback resumes, and `play()` clears it then.
+	 */
+	#maybeSleep() {
+		const sleep = this.sleep;
+		if (sleep?.kind !== 'at') return;
+		if (Date.now() < sleep.at) {
+			if (sleep.at - Date.now() < SLEEP_FADE_SECONDS * 1000) this.#applyVolume();
+			return;
+		}
+		this.pause();
+		this.setSleep(null);
+	}
+
+	/**
+	 * Stops at the end of a track, with the next one loaded and not playing, so
+	 * pressing play carries on from where the queue had reached.
+	 */
+	async #sleepAtTrackEnd() {
+		this.sleep = null;
+		this.engaged = false;
+		this.playing = false;
+		if (this.repeat === 'one') {
+			this.seek(0);
+			return;
+		}
+		const last = this.index >= this.queue.length - 1;
+		if (last && this.repeat !== 'all') {
+			this.#persist();
+			return;
+		}
+		this.index = last ? 0 : this.index + 1;
+		await this.#loadCurrent(false);
+		this.#persist();
+	}
+
+	/** Takes new settings from the layout and re-levels the elements to them. */
+	applySettings(settings: UserSettings) {
+		this.settings = settings;
+		this.#applyVolume();
 	}
 
 	// ── Playback reporting ─────────────────────────────────────────────────
@@ -836,9 +1142,9 @@ export class Player {
 	#watchVisibility() {
 		if (!browser) return;
 		const resume = () => {
-			if (!this.#intendsToPlay || document.hidden) return;
+			if (!this.engaged || document.hidden) return;
 			const element = this.#primary;
-			if (element && element.src && element.paused) {
+			if (element && element.src && element.paused && !this.#holding) {
 				void element.play().catch(() => undefined);
 			}
 		};
@@ -928,9 +1234,13 @@ export class Player {
 		if (!browser) return;
 		if (this.#persistTimer) clearTimeout(this.#persistTimer);
 		this.#persistTimer = null;
+		// While a restore holds only the current track, a write carries the queue
+		// it stands in for. Written as it stands, a play pressed before the rest
+		// arrived saved a queue of one track over the saved one.
+		const partial = this.#partial && this.queue === this.#partial.queue ? this.#partial : null;
 		const payload: PersistPayload = {
-			songIds: this.queue.map((song) => song.id),
-			index: this.index,
+			songIds: partial ? partial.ids : this.queue.map((song) => song.id),
+			index: partial ? partial.index : this.index,
 			position: this.currentTime,
 			repeat: this.repeat,
 			shuffle: this.shuffle
@@ -1038,10 +1348,20 @@ export class Player {
 		navigator.mediaSession.playbackState = this.playing ? 'playing' : 'paused';
 	}
 
-	/** Restores a queue persisted server-side. Does not autoplay. */
-	async restore(songs: Song[], state: { index: number; position: number; repeat: RepeatMode; shuffle: boolean }) {
+	/**
+	 * Restores a queue persisted server-side. Does not autoplay.
+	 *
+	 * `partial` is given when `songs` is only the current track and the rest of
+	 * the saved queue is still being looked up; `completeRestore` puts it in.
+	 */
+	async restore(
+		songs: Song[],
+		state: { index: number; position: number; repeat: RepeatMode; shuffle: boolean },
+		partial?: { ids: string[]; index: number }
+	) {
 		if (songs.length === 0) return;
 		this.queue = songs;
+		this.#partial = partial ? { queue: this.queue, ids: partial.ids, index: partial.index } : null;
 		this.index = Math.min(Math.max(0, state.index), songs.length - 1);
 		this.repeat = state.repeat;
 		this.shuffle = state.shuffle;
@@ -1051,6 +1371,32 @@ export class Player {
 		// Deliberately no src assignment: browsers block autoplay anyway, and
 		// loading a 100 MB FLAC nobody asked for is rude. The first play() call
 		// takes care of it.
+	}
+
+	/**
+	 * Puts the rest of a partly restored queue in, around the track already
+	 * there, without touching what is playing.
+	 *
+	 * The current track keeps its object, so nothing that follows it sees a
+	 * change of track. Nothing is done if the queue was replaced in the
+	 * meantime: the listener chose something else to play.
+	 */
+	completeRestore(songs: Song[]) {
+		const partial = this.#partial;
+		this.#partial = null;
+		if (!partial || this.queue !== partial.queue) return;
+		const current = this.queue[0];
+		// The occurrence nearest the saved position, for a queue that holds one
+		// track twice. Tracks deleted since the save shift it earlier.
+		let at = -1;
+		songs.forEach((song, i) => {
+			if (song.id === current.id && (at < 0 || Math.abs(i - partial.index) < Math.abs(at - partial.index))) at = i;
+		});
+		if (at < 0) return;
+		const queue = [...songs];
+		queue[at] = current;
+		this.queue = queue;
+		this.index = at;
 	}
 }
 

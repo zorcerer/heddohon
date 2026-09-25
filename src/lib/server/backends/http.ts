@@ -55,7 +55,7 @@ export async function upstreamFetch(url: string, init: RequestInit = {}): Promis
 	}
 
 	try {
-		const response = await fetch(url, { ...init, signal: controller.signal, redirect: 'follow' });
+		const response = await fetchWithinOrigin(url, { ...init, signal: controller.signal }, path);
 		// Time to headers, not to the last byte: for a stream those are minutes
 		// apart, and it is the wait before anything happens that is worth seeing.
 		// A page opens dozens of covers, so the line is only built when one of
@@ -92,6 +92,72 @@ export async function upstreamFetch(url: string, init: RequestInit = {}): Promis
 		// Only the timeout is stood down here. The timer guards the wait for
 		// headers; once they are in, a slow-but-healthy stream must not be shot.
 		clearTimeout(timer);
+	}
+}
+
+/** Redirects one upstream call may follow before it is treated as a failure. */
+const MAX_REDIRECTS = 5;
+
+/**
+ * Whether a redirect from `from` to `to` stays on the configured music server.
+ *
+ * The same origin, or the same host moving from http to https, which is what a
+ * reverse proxy in front of Jellyfin does. Anything else is refused, including
+ * https to http: that would put a Subsonic query string, which carries the
+ * account's token, on the wire in clear.
+ */
+function sameServer(from: URL, to: URL): boolean {
+	if (to.origin === from.origin) return true;
+	return from.protocol === 'http:' && to.protocol === 'https:' && to.hostname === from.hostname;
+}
+
+/**
+ * `fetch`, following redirects only while they stay on the music server.
+ *
+ * `redirect: 'follow'` went wherever the upstream pointed. A compromised or
+ * misconfigured music server could aim Heddohon at the internal network, and a
+ * Jellyfin login body was replayed to the target. With shared links that
+ * became reachable without an account, since a link's audio and cover are
+ * fetched for anonymous visitors.
+ *
+ * Followed by hand with the method rules fetch applies: 303 becomes a GET
+ * without a body, as do 301 and 302 after a POST; 307 and 308 keep both.
+ * Jellyfin's `/Audio/{id}/universal` redirects within the server, which is why
+ * redirects are followed at all rather than refused.
+ */
+async function fetchWithinOrigin(url: string, init: RequestInit, path: string): Promise<Response> {
+	const start = new URL(url);
+	let current = start;
+	let request: RequestInit = { ...init, redirect: 'manual' };
+
+	for (let hop = 0; ; hop++) {
+		const response = await fetch(current, request);
+		const location = response.headers.get('location');
+		if (response.status < 300 || response.status > 399 || response.status === 304 || !location) {
+			return response;
+		}
+		await response.body?.cancel().catch(() => undefined);
+
+		let target: URL;
+		try {
+			target = new URL(location, current);
+		} catch {
+			throw new Error('the music server sent a redirect that is not a URL');
+		}
+		if (!sameServer(start, target)) {
+			log.warn('upstream-redirect-refused', { path, status: response.status, to: target.host });
+			throw new Error('the music server redirected to another address');
+		}
+		if (hop + 1 >= MAX_REDIRECTS) throw new Error('the music server redirected too many times');
+
+		const method = (request.method ?? 'GET').toUpperCase();
+		if (response.status === 303 || ((response.status === 301 || response.status === 302) && method === 'POST')) {
+			const headers = new Headers(request.headers);
+			headers.delete('content-type');
+			headers.delete('content-length');
+			request = { ...request, method: method === 'HEAD' ? 'HEAD' : 'GET', body: undefined, headers };
+		}
+		current = target;
 	}
 }
 

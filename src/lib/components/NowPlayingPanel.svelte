@@ -21,13 +21,17 @@
 	 * fighting over it looked like a bug. The footer row is what switches them,
 	 * which is also how the reference gets to its queue.
 	 */
-	import { player } from '$lib/client/player.svelte';
+	import { untrack } from 'svelte';
+	import { SLEEP_MINUTES, player } from '$lib/client/player.svelte';
 	import { handOff } from '$lib/client/handoff';
-	import { formatDuration } from '$lib/client/format';
+	import { formatBytes, formatDuration } from '$lib/client/format';
 	import { lyricsWindow } from '$lib/client/lyrics.svelte';
 	import { playlistPicker } from '$lib/client/playlists.svelte';
 	import { prefersReducedMotion } from '$lib/client/sleeve-transition.svelte';
-	import { cubicOut } from 'svelte/easing';
+	import { shareComposer } from '$lib/client/share.svelte';
+	import { page } from '$app/state';
+	import { DUR, EASE_OUT_CSS, easeExit, easeOut, motion } from '$lib/client/motion';
+	import { flip } from 'svelte/animate';
 	import Cover from './Cover.svelte';
 	import FavouriteButton from './FavouriteButton.svelte';
 	import Icon from './Icon.svelte';
@@ -48,16 +52,53 @@
 	 * `distance` is in pixels and signed: the words come up from below, and go
 	 * back down the way they came.
 	 */
-	function lift(node: Element, { duration = 260, distance = 14 } = {}) {
+	function lift(
+		node: Element,
+		{ duration = DUR.state, distance = 14, leaving = false }: { duration?: number; distance?: number; leaving?: boolean } = {}
+	) {
 		if (prefersReducedMotion()) return { duration: 0 };
 		return {
 			duration,
-			easing: cubicOut,
+			easing: leaving ? easeExit : easeOut,
 			css: (t: number, u: number) => `opacity: ${t}; transform: translate3d(0, ${u * distance}px, 0)`
 		};
 	}
 
 	const song = $derived(player.current);
+
+	/*
+	 * The title, artist and album slide in from the side the queue moved to
+	 * when the track changes, as the artwork above them crossfades: from the
+	 * right for the next track (and the one after a track ends), from the left
+	 * for the previous one (`player.direction`),
+	 * with a slight blur clearing as they land. The same elements are animated
+	 * rather than a keyed block crossfading two copies: two headings with two
+	 * titles would be on the page at once for the length of it, to a screen
+	 * reader and to anything that reads the title. Opacity and filter on the
+	 * text block, which holds no glass; the round buttons beside it are its
+	 * siblings.
+	 *
+	 * Not on the first render, so a page that arrives with a track loaded does
+	 * not animate one in.
+	 */
+	let arrivedFor: string | null | undefined = undefined;
+	function arrive(key: string | null) {
+		return (node: HTMLElement) => {
+			const first = arrivedFor === undefined;
+			const changed = arrivedFor !== key;
+			const direction = untrack(() => player.direction);
+			arrivedFor = key;
+			if (first || !changed || prefersReducedMotion()) return;
+			const animation = node.animate(
+				[
+					{ opacity: 0, translate: `${direction * 1.25}rem 0`, filter: 'blur(3px)' },
+					{ opacity: 1, translate: '0 0', filter: 'blur(0px)' }
+				],
+				{ duration: DUR.travel, easing: EASE_OUT_CSS }
+			);
+			return () => animation.cancel();
+		};
+	}
 
 	let details = $state(false);
 	/*
@@ -66,6 +107,27 @@
 	 * is the one piece of transport that is worse for being tidied away.
 	 */
 	let volumeOpen = $state(true);
+	let sleepOpen = $state(false);
+
+	/*
+	 * The clock the sleep timer's countdown is read against. It ticks only
+	 * while a timed sleep is set, and each tick is one re-render of the badge.
+	 */
+	let now = $state(Date.now());
+	$effect(() => {
+		if (player.sleep?.kind !== 'at') return;
+		now = Date.now();
+		const tick = setInterval(() => (now = Date.now()), 1000);
+		return () => clearInterval(tick);
+	});
+	const sleepMinutesLeft = $derived(
+		player.sleep?.kind === 'at' ? Math.max(0, Math.ceil((player.sleep.at - now) / 60_000)) : null
+	);
+
+	function chooseSleep(choice: number | 'track' | null) {
+		player.setSleep(choice);
+		sleepOpen = false;
+	}
 
 	/*
 	 * The stage shows one thing at a time, so the two views that can take the
@@ -90,11 +152,101 @@
 		lyricsWindow.toggle(player.current);
 	}
 
-	const remaining = $derived(Math.max(0, player.duration - player.currentTime));
+	// From the whole second played, so it ticks in the same frame as the elapsed
+	// time and the seek bar. From the exact time it ticked at the fraction of a
+	// second the duration carries, which is a second repaint of the panel
+	// (and of its blur) every second.
+	const remaining = $derived(Math.max(0, player.duration - Math.floor(player.currentTime)));
 	const volumeIcon = $derived(
 		player.muted || player.volume === 0 ? 'mute' : player.volume < 0.5 ? 'volume-low' : 'volume'
 	);
 	const queueTotal = $derived(player.queue.reduce((sum, track) => sum + track.duration, 0));
+
+	/*
+	 * Reordering the queue.
+	 *
+	 * Rows are keyed by song id and how many times that id has come before, not
+	 * by position. A position key gave every row a new identity whenever
+	 * anything moved, so nothing could animate to its new place and the
+	 * keyboard lost the row it was moving.
+	 */
+	const queueKeys = $derived.by(() => {
+		const seen = new Map<string, number>();
+		return player.queue.map((track) => {
+			const count = seen.get(track.id) ?? 0;
+			seen.set(track.id, count + 1);
+			return `${track.id}#${count}`;
+		});
+	});
+
+	let queueList = $state<HTMLOListElement | null>(null);
+
+	/*
+	 * A drag is followed with transforms and applied once, on release. The row
+	 * under the pointer moves with it and the rows it passes step out of the
+	 * way by one row height; the queue itself is not touched until the drop, so
+	 * the player never sees a half-made order. `animate:flip` then settles the
+	 * dropped row from where it was let go.
+	 */
+	let drag = $state<{ from: number; to: number; offset: number; startY: number; rowHeight: number } | null>(
+		null
+	);
+
+	function rowShift(index: number): string | undefined {
+		if (!drag) return undefined;
+		if (index === drag.from) return `0 ${drag.offset}px`;
+		if (drag.from < index && index <= drag.to) return `0 ${-drag.rowHeight}px`;
+		if (drag.to <= index && index < drag.from) return `0 ${drag.rowHeight}px`;
+		return undefined;
+	}
+
+	function startDrag(event: PointerEvent, index: number) {
+		if (event.button !== 0) return;
+		const row = (event.currentTarget as HTMLElement).closest('li');
+		if (!row) return;
+		event.preventDefault();
+		(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+		drag = { from: index, to: index, offset: 0, startY: event.clientY, rowHeight: row.offsetHeight };
+	}
+
+	function moveDrag(event: PointerEvent) {
+		if (!drag) return;
+		const offset = event.clientY - drag.startY;
+		const steps = Math.round(offset / drag.rowHeight);
+		const to = Math.min(player.queue.length - 1, Math.max(0, drag.from + steps));
+		drag = { ...drag, offset, to };
+
+		// Near either end of the list, scroll it, so a row can be carried past
+		// what is on screen.
+		if (queueList) {
+			const box = queueList.getBoundingClientRect();
+			if (event.clientY < box.top + 36) queueList.scrollTop -= 8;
+			else if (event.clientY > box.bottom - 36) queueList.scrollTop += 8;
+		}
+	}
+
+	function endDrag() {
+		if (!drag) return;
+		const { from, to } = drag;
+		drag = null;
+		player.move(from, to);
+	}
+
+	function cancelDrag() {
+		drag = null;
+	}
+
+	/** One place up or down from the keyboard, keeping focus on the moved row. */
+	function nudge(event: KeyboardEvent, index: number) {
+		const to = event.key === 'ArrowUp' ? index - 1 : event.key === 'ArrowDown' ? index + 1 : null;
+		if (to === null) return;
+		event.preventDefault();
+		if (to < 0 || to >= player.queue.length) return;
+		player.move(index, to);
+		requestAnimationFrame(() => {
+			queueList?.querySelectorAll<HTMLButtonElement>('.row-grip')[to]?.focus();
+		});
+	}
 
 	const facts = $derived(
 		song
@@ -120,8 +272,8 @@
 		{#if lyricsWindow.open}
 			<div
 				class="layer lyrics-layer"
-				in:lift={{ duration: 280, distance: 14 }}
-				out:lift={{ duration: 190, distance: 10 }}
+				in:lift={{ duration: DUR.state, distance: 14 }}
+				out:lift={{ duration: DUR.hover, distance: 10, leaving: true }}
 			>
 				<LyricsView />
 			</div>
@@ -137,10 +289,31 @@
 				     with no scrollbar, the keyboard is the pointer-free way to
 				     scroll a long queue. -->
 				<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-				<ol class="queue-list" tabindex="0">
-					{#each player.queue as track, index (track.id + ':' + index)}
-						<li>
+				<ol class="queue-list" tabindex="0" bind:this={queueList}>
+					{#each player.queue as track, index (queueKeys[index])}
+						<li
+							animate:flip={{ duration: motion(DUR.state), easing: easeOut }}
+							class:dragged={drag?.from === index}
+							style:translate={rowShift(index)}
+						>
 							<div class="row" class:current={index === player.index} class:past={index < player.index}>
+								<!--
+									Dragged by pointer or finger, or moved one place at a time with
+									the arrow keys while it has focus.
+								-->
+								<button
+									class="row-grip"
+									type="button"
+									aria-label="Move {track.title}. Use the up and down arrow keys."
+									title="Drag to reorder"
+									onpointerdown={(event) => startDrag(event, index)}
+									onpointermove={moveDrag}
+									onpointerup={endDrag}
+									onpointercancel={cancelDrag}
+									onkeydown={(event) => nudge(event, index)}
+								>
+									<Icon name="grip" size={14} />
+								</button>
 								<button class="row-art" onclick={() => player.jumpTo(index)} aria-label="Play {track.title}">
 									<Cover coverArt={track.coverArt} size={96} alt="" radius="var(--r-sm)" />
 									<span class="row-play"><Icon name="play" size={12} /></span>
@@ -173,8 +346,8 @@
 		{:else}
 			<a
 				class="art layer"
-				in:lift={{ duration: 220, distance: 0 }}
-				out:lift={{ duration: 190, distance: 0 }}
+				in:lift={{ duration: DUR.state, distance: 0 }}
+				out:lift={{ duration: DUR.hover, distance: 0, leaving: true }}
 				href={song?.albumId ? `/albums/${song.albumId}` : '#'}
 				aria-label={song ? 'Open album' : 'Nothing playing'}
 				aria-disabled={song?.albumId ? undefined : 'true'}
@@ -199,7 +372,7 @@
 	<div class="chrome">
 		<!-- Title block: the text, and the two round actions beside it. -->
 		<div class="head">
-			<div class="text">
+			<div class="text" {@attach arrive(song?.id ?? null)}>
 				{#if song}
 					<h2 class="title hh-clamp-2">{song.title}</h2>
 					<p class="artist hh-truncate">
@@ -250,6 +423,17 @@
 							</div>
 						{/each}
 					</dl>
+					{#if page.data.downloads}
+						<!-- With the rest of the file's facts, where its format and size
+						     are already written, rather than as a seventh tool. -->
+						<a class="download" href="/api/download/{encodeURIComponent(song.id)}" download>
+							<Icon name="download" size={14} />
+							Download original{song.quality.format ? ` ${song.quality.format.toUpperCase()}` : ''}{song
+								.quality.sizeBytes
+								? ` · ${formatBytes(song.quality.sizeBytes)}`
+								: ''}
+						</a>
+					{/if}
 				</div>
 			</div>
 		{/if}
@@ -263,6 +447,7 @@
 				onseek={(seconds) => player.seek(seconds)}
 				ariaLabel="Seek within track"
 				formatValue={(value) => formatDuration(value)}
+				unit={1}
 			/>
 			<div class="times">
 				<span class="hh-numeric">{formatDuration(player.currentTime)}</span>
@@ -323,9 +508,13 @@
 				{#if player.loading && player.playing}
 					<span class="spinner" aria-hidden="true"></span>
 				{:else}
-					<!-- Heavier than the set's default: at 34px the standard 2px stroke
-				     reads as a hairline beside the artwork above it. -->
-				<Icon name={player.playing ? 'pause' : 'play'} size={34} strokeWidth={3.4} />
+					<!-- Both glyphs are drawn, one over the other, and the one not wanted
+					     shrinks away as the other grows in: a press turns the button over
+					     rather than swapping a picture. Heavier than the set's default: at
+					     34px the standard 2px stroke reads as a hairline beside the artwork
+					     above it. -->
+					<span class="glyph" class:on={!player.playing}><Icon name="play" size={34} strokeWidth={3.4} /></span>
+					<span class="glyph" class:on={player.playing}><Icon name="pause" size={34} strokeWidth={3.4} /></span>
 				{/if}
 			</button>
 
@@ -374,6 +563,32 @@
 			</div>
 		</div>
 
+		<div class="fold" class:open={sleepOpen} inert={!sleepOpen}>
+			<div>
+				<div class="sleep" role="group" aria-label="Sleep timer">
+					{#each SLEEP_MINUTES as minutes (minutes)}
+						<button
+							class="chip"
+							class:active={player.sleep?.kind === 'at' && player.sleep.minutes === minutes}
+							onclick={() => chooseSleep(minutes)}
+						>
+							{minutes} min
+						</button>
+					{/each}
+					<button
+						class="chip"
+						class:active={player.sleep?.kind === 'track'}
+						onclick={() => chooseSleep('track')}
+					>
+						End of track
+					</button>
+					{#if player.sleep}
+						<button class="chip" onclick={() => chooseSleep(null)}>Off</button>
+					{/if}
+				</div>
+			</div>
+		</div>
+
 		<!-- The footer row, which is what switches the stage. -->
 		<div class="tools">
 			<button
@@ -400,6 +615,20 @@
 				<Icon name="lyrics" size={18} />
 			</button>
 
+			<!-- Here rather than beside the favourite and playlist buttons: a third
+			     44px round there leaves the title about 160px on a docked panel. -->
+			{#if page.data.sharing}
+				<button
+					class="tool"
+					onclick={() => song && shareComposer.open(song)}
+					disabled={!song}
+					aria-label="Share a link to this song"
+					title="Share"
+				>
+					<Icon name="share" size={18} />
+				</button>
+			{/if}
+
 			<button
 				class="tool"
 				class:on={volumeOpen}
@@ -409,6 +638,24 @@
 				title="Volume"
 			>
 				<Icon name={volumeIcon} size={18} />
+			</button>
+
+			<button
+				class="tool"
+				class:on={sleepOpen || player.sleep !== null}
+				onclick={() => (sleepOpen = !sleepOpen)}
+				aria-expanded={sleepOpen}
+				aria-label={sleepMinutesLeft !== null
+					? `Sleep timer, pausing in ${sleepMinutesLeft} minutes`
+					: player.sleep
+						? 'Sleep timer, pausing at the end of this track'
+						: 'Sleep timer'}
+				title="Sleep timer"
+			>
+				<Icon name="moon" size={18} />
+				{#if sleepMinutesLeft !== null}
+					<span class="count hh-numeric">{sleepMinutesLeft}</span>
+				{/if}
 			</button>
 
 			<button
@@ -444,7 +691,7 @@
 
 <style>
 	.panel {
-		--fold: 220ms cubic-bezier(0.32, 0.72, 0.35, 1);
+		--fold: var(--dur-state) var(--ease-out);
 		height: 100%;
 		display: flex;
 		flex-direction: column;
@@ -569,7 +816,7 @@
 	 * instead, and cross over each other in the stage's single cell.
 	 */
 	.stage > :global(*:not(.layer)) {
-		animation: stage-in 200ms cubic-bezier(0.32, 0.72, 0.35, 1) both;
+		animation: stage-in var(--dur-state) var(--ease-out) both;
 	}
 
 	@keyframes stage-in {
@@ -610,6 +857,21 @@
 		pointer-events: none;
 	}
 
+	/* Dither over the artwork, so its fade into the controls does not step.
+	   See `--grain` in app.css. Inside the mask, so it fades out with it. */
+	.art {
+		position: relative;
+	}
+
+	.art::after {
+		content: '';
+		position: absolute;
+		inset: 0;
+		background: var(--grain) 0 0 / var(--grain-size) var(--grain-size) repeat;
+		border-radius: inherit;
+		pointer-events: none;
+	}
+
 	/* ── Queue, in the stage's place ──────────────────────────────────── */
 
 	.queue {
@@ -639,9 +901,47 @@
 		flex: 1;
 	}
 
+	/* Rows the dragged one passes step aside smoothly; the dragged row itself
+	   follows the pointer with no lag. */
+	.queue-list > li {
+		position: relative;
+		transition: translate var(--dur-hover) var(--ease-out);
+	}
+
+	.queue-list > li.dragged {
+		z-index: 2;
+		transition: none;
+		background: var(--bg-raised);
+		border-radius: var(--r-sm);
+		box-shadow: var(--shadow-mid);
+	}
+
+	.row-grip {
+		display: grid;
+		place-items: center;
+		width: 1.25rem;
+		height: 2.25rem;
+		color: var(--text-faint);
+		cursor: grab;
+		/* The handle takes the gesture; without this a finger scrolls the list. */
+		touch-action: none;
+		border-radius: var(--r-sm);
+		transition: color var(--transition);
+	}
+
+	.row-grip:hover,
+	.row-grip:focus-visible,
+	.dragged .row-grip {
+		color: var(--glow-color);
+	}
+
+	.dragged .row-grip {
+		cursor: grabbing;
+	}
+
 	.row {
 		display: grid;
-		grid-template-columns: 2.25rem minmax(0, 1fr) auto;
+		grid-template-columns: 1.25rem 2.25rem minmax(0, 1fr) auto;
 		align-items: center;
 		gap: var(--space-3);
 		padding: 0.3rem 0;
@@ -837,6 +1137,24 @@
 		color: var(--text-default);
 	}
 
+	.download {
+		display: inline-flex;
+		align-items: center;
+		gap: var(--space-2);
+		margin-top: var(--space-2);
+		font-size: 0.75rem;
+		color: var(--text-muted);
+		text-decoration: none;
+		transition:
+			color var(--transition),
+			text-shadow var(--transition);
+	}
+
+	.download:hover {
+		color: var(--glow-color);
+		text-shadow: var(--glow-text);
+	}
+
 	/* ── Scrubber ────────────────────────────────────────────────────── */
 
 	.scrub {
@@ -879,7 +1197,44 @@
 		transition:
 			color var(--transition),
 			filter var(--transition),
-			opacity var(--transition);
+			opacity var(--transition),
+			scale var(--dur-state) var(--ease-spring);
+	}
+
+	/*
+	 * Pressed, the transport gives under the pointer and springs back on
+	 * release. `scale` on the buttons themselves, which carry no glass. Touch
+	 * screens get the opacity cue in `app.css` instead.
+	 */
+	@media (hover: hover) {
+		.edge:active:not(:disabled),
+		.step:active:not(:disabled),
+		.play:active:not(:disabled),
+		.tool:active:not(:disabled) {
+			scale: 0.88;
+			transition-duration: var(--dur-press);
+		}
+	}
+
+	.play {
+		position: relative;
+	}
+
+	/* Play and pause, one over the other. The one not wanted shrinks to
+	   60 percent and fades; the wanted one springs back to full size. */
+	.glyph {
+		grid-area: 1 / 1;
+		display: grid;
+		opacity: 0;
+		scale: 0.6;
+		transition:
+			opacity var(--dur-hover) var(--ease-out),
+			scale var(--dur-state) var(--ease-spring);
+	}
+
+	.glyph.on {
+		opacity: 1;
+		scale: 1;
 	}
 
 	.edge {
@@ -962,6 +1317,41 @@
 		min-width: 0;
 	}
 
+	/* The chip look of `SortChips`, as buttons: a timer is not a URL. */
+	.sleep {
+		display: flex;
+		flex-wrap: wrap;
+		gap: var(--space-1);
+	}
+
+	.chip {
+		padding: 0.3rem 0.75rem;
+		border-radius: var(--r-pill);
+		border: 1px solid var(--border-hairline);
+		background: var(--control-face);
+		color: var(--text-muted-through);
+		font-size: 0.8125rem;
+		font-weight: 500;
+		white-space: nowrap;
+		transition:
+			text-shadow var(--transition),
+			color var(--transition),
+			border-color var(--transition);
+	}
+
+	.chip:hover {
+		color: var(--glow-color);
+		text-shadow: var(--glow-text);
+		border-color: var(--border-strong);
+	}
+
+	.chip.active {
+		background: var(--accent);
+		border-color: var(--accent);
+		color: var(--accent-contrast);
+		text-shadow: none;
+	}
+
 	.tools {
 		flex: none;
 		display: flex;
@@ -981,7 +1371,8 @@
 		color: var(--text-faint);
 		transition:
 			color var(--transition),
-			filter var(--transition);
+			filter var(--transition),
+			scale var(--dur-state) var(--ease-spring);
 	}
 
 	.tool:hover,

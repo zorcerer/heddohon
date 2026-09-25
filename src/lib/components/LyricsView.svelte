@@ -88,7 +88,7 @@
 <div class="lyrics">
 	<div class="head">
 		<span class="hh-eyebrow">
-			Lyrics{#if lyricsWindow.lyrics?.synced}&nbsp;· synced{/if}
+			Lyrics{#if lyricsWindow.lyrics?.synced}&nbsp;· synced{/if}{#if lyricsWindow.lyrics?.source === 'lrclib'}&nbsp;· LRCLIB{/if}
 		</span>
 		{#if !lyricsWindow.following}
 			<span class="hh-numeric hh-muted paused">following paused</span>

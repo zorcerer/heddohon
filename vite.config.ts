@@ -53,7 +53,13 @@ const targets = {
  */
 export default defineConfig({
 	css: { lightningcss: { targets } },
-	build: { cssMinify: 'lightningcss' },
+	/*
+	 * Nothing inlined as a `data:` URL. Vite inlines any asset under 4 KB by
+	 * default, and the small subsets of both variable fonts came under it: the
+	 * built CSS carried them as `data:font/woff2` URLs, which `font-src 'self'`
+	 * refuses, so those subsets never loaded. Served as files they are `self`.
+	 */
+	build: { cssMinify: 'lightningcss', assetsInlineLimit: 0 },
 	plugins: [
 		sveltekit({
 			compilerOptions: {
