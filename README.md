@@ -73,6 +73,7 @@ Docker, on Node 22 or later: `npm ci && npm run build && node build/index.js`.
 | [Audio](docs/audio.md) | Formats, transcoding, and what high resolution means in a browser |
 | [Architecture](docs/architecture.md) | How the server, the client and the music server fit together |
 | [Design notes](docs/design.md) | Why the interface looks and behaves as it does |
+| [Contributing](CONTRIBUTING.md) | Reporting bugs, suggesting features, and sending pull requests |
 
 ## AI disclosure
 
