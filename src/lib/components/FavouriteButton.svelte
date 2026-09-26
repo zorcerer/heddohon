@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { isPending, isStarred, setStarred } from '$lib/client/favourites.svelte';
 	import type { StarKind } from '$lib/types';
 	import Icon from './Icon.svelte';
 
@@ -9,36 +10,28 @@
 		size = 18
 	}: { id: string; kind: StarKind; starred?: boolean; size?: number } = $props();
 
-	// Optimistic: the star flips immediately and reverts if the server disagrees.
-	// `override` is null until the user acts, so until then the prop is the truth.
-	let override = $state<boolean | null>(null);
-	let pending = $state(false);
 	/** Set by a press that favourites, for the one-off pop below. */
 	let popped = $state(false);
 
-	const active = $derived(override ?? starred);
+	// Optimistic: the heart flips immediately and reverts if the server
+	// disagrees. The state is kept per item in favourites.svelte.ts, not here,
+	// since the player passes this one instance a new `id` at each track change.
+	const active = $derived(isStarred(kind, id, starred));
 
-	async function toggle(event: MouseEvent) {
+	// A pop started for one item does not carry over to the next.
+	$effect.pre(() => {
+		void id;
+		popped = false;
+	});
+
+	function toggle(event: MouseEvent) {
 		event.stopPropagation();
 		event.preventDefault();
-		if (pending) return;
+		if (isPending(kind, id)) return;
 
 		const nextValue = !active;
-		override = nextValue;
 		popped = nextValue;
-		pending = true;
-		try {
-			const response = await fetch('/api/star', {
-				method: 'POST',
-				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({ id, kind, starred: nextValue })
-			});
-			if (!response.ok) override = !nextValue;
-		} catch {
-			override = !nextValue;
-		} finally {
-			pending = false;
-		}
+		void setStarred(kind, id, nextValue);
 	}
 </script>
 

@@ -887,6 +887,45 @@ describe('the aurora', () => {
 	});
 });
 
+describe('the heart in the player', () => {
+	/*
+	 * The player keeps one heart and hands it each new song. It kept the state
+	 * from the last press instead, so a song starred in the player showed as
+	 * starred on every song after it.
+	 */
+	test('follows the song on a skip, and agrees with the track row', async () => {
+		const { page, problems } = await watchedPage();
+		const heart = page.locator('aside.panel .rounds .fav');
+		const pressed = (locator) => locator.getAttribute('aria-pressed');
+		try {
+			await page.goto(app.url + '/albums/al2', { waitUntil: 'networkidle' });
+			await page.getByRole('button', { name: 'Play Song 2a', exact: true }).click();
+			await page.waitForFunction(() => document.querySelector('aside.panel h2.title')?.textContent === 'Song 2a');
+			assert.equal(await pressed(heart), 'false');
+
+			await heart.click();
+			await page.waitForResponse((r) => r.url().endsWith('/api/star'));
+			assert.equal(await pressed(heart), 'true');
+
+			await page.locator('aside.panel button.step').nth(1).click();
+			await page.waitForFunction(() => document.querySelector('aside.panel h2.title')?.textContent === 'Song 2b');
+			assert.equal(await pressed(heart), 'false', 'the next song showed the last song\'s heart');
+
+			await page.locator('aside.panel button.step').nth(0).click();
+			await page.waitForFunction(() => document.querySelector('aside.panel h2.title')?.textContent === 'Song 2a');
+			assert.equal(await pressed(heart), 'true', 'going back lost the star');
+			assert.equal(await pressed(page.locator('.track').nth(0).locator('.fav')), 'true', 'the row disagreed');
+
+			// Put the mock back as it was for the tests after this one.
+			await heart.click();
+			await page.waitForResponse((r) => r.url().endsWith('/api/star'));
+		} finally {
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+});
+
 describe('the player on a skip', () => {
 	test('the song text slides in from the right on next and from the left on previous', async () => {
 		const { page, problems } = await watchedPage();
