@@ -20,6 +20,15 @@ const USERS = {
 	dave: { password: 'dave-first', admin: false }
 };
 
+/**
+ * The account a request names, or undefined. `Object.hasOwn`, not a bare
+ * index: `USERS["__proto__"]` is `Object.prototype`, and `/__password` would
+ * then have written a `password` onto every object in the process.
+ */
+function userNamed(name) {
+	return Object.hasOwn(USERS, name) ? USERS[name] : undefined;
+}
+
 // 250 albums of one track each, so album and artist listings need three pages
 // at 100 per page. Artists mirror the albums.
 const ALBUMS = Array.from({ length: 250 }, (_, i) => ({
@@ -105,7 +114,7 @@ function sendJson(res, payload, status = 200) {
 }
 
 function authenticate(params) {
-	const user = USERS[params.get('u') ?? ''];
+	const user = userNamed(params.get('u') ?? '');
 	if (!user) return null;
 	const salt = params.get('s') ?? '';
 	const token = params.get('t') ?? '';
@@ -153,7 +162,7 @@ const server = createServer((req, res) => {
 	// Sets a user's password, as a password change or a name given to someone
 	// else does. Navidrome reports no user id, so the two look the same.
 	if (url.pathname === '/__password') {
-		const user = USERS[url.searchParams.get('name') ?? ''];
+		const user = userNamed(url.searchParams.get('name') ?? '');
 		if (user) user.password = url.searchParams.get('password') ?? '';
 		return sendJson(res, { ok: Boolean(user) });
 	}
