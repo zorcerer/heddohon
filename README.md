@@ -18,7 +18,6 @@ only ever talks to Heddohon and your upstream credentials stay on the server.
  browser ──► Heddohon ──► Navidrome / Jellyfin
 ```
 
-![An album page, with the now-playing panel on the right](docs/assets/album.jpg)
 
 ## Features
 
