@@ -14,6 +14,7 @@
   <Screenshot>https://raw.githubusercontent.com/zorcerer/heddohon/main/docs/assets/album.jpg</Screenshot>
   <Screenshot>https://raw.githubusercontent.com/zorcerer/heddohon/main/docs/assets/lyrics.jpg</Screenshot>
   <Screenshot>https://raw.githubusercontent.com/zorcerer/heddohon/main/docs/assets/recommendations.jpg</Screenshot>
+  <Screenshot>https://raw.githubusercontent.com/zorcerer/heddohon/main/docs/assets/share.jpg</Screenshot>
   <Category>MediaApp:Music</Category>
   <ExtraSearchTerms>navidrome subsonic jellyfin music player flac lossless lyrics</ExtraSearchTerms>
   <License>MIT</License>
@@ -40,11 +41,13 @@
 
     **Permissions:** the image runs unprivileged. This template runs it as 99:100 so it can write to appdata. Create the appdata path before the first start and give it to that user, `mkdir -p /mnt/user/appdata/heddohon && chown -R 99:100 /mnt/user/appdata/heddohon`. If the path is missing at the first start, Docker creates it owned by root, and an unprivileged container cannot write to it. If you remove `--user 99:100` from Extra Parameters, run `chown -R 1000:1000 /mnt/user/appdata/heddohon` instead.
 
+    **Optional:** the database is SQLite in appdata by default. The PostgreSQL settings under Advanced move it to an existing PostgreSQL server instead, and can be left empty.
+
     Full configuration: https://github.com/zorcerer/heddohon/blob/main/docs/configuration.md]]>
   </Description>
 
   <Config Name="WebUI" Target="3000" Default="3000" Mode="tcp" Description="Port the interface is served on." Type="Port" Display="always" Required="true" Mask="false">3000</Config>
-  <Config Name="Appdata" Target="/data" Default="/mnt/user/appdata/heddohon" Mode="rw" Description="Holds the SQLite database and the cover cache." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/heddohon</Config>
+  <Config Name="Appdata" Target="/data" Default="/mnt/user/appdata/heddohon" Mode="rw" Description="Holds the cover cache, and the SQLite database unless a PostgreSQL URL is set." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/heddohon</Config>
   <Config Name="Secret" Target="HEDDOHON_SECRET" Default="" Description="Encrypts stored music-server credentials and derives session keys. Minimum 32 characters: openssl rand -base64 48. Changing it signs everyone out." Type="Variable" Display="always" Required="true" Mask="true"/>
   <Config Name="Navidrome / Subsonic URL" Target="HEDDOHON_SUBSONIC_URL" Default="" Description="Base URL of your Navidrome or Subsonic server, resolved by this container rather than by the browser. Leave empty if you only use Jellyfin." Type="Variable" Display="always" Required="false" Mask="false"/>
   <Config Name="Jellyfin URL" Target="HEDDOHON_JELLYFIN_URL" Default="" Description="Base URL of your Jellyfin server. Leave empty if you only use Navidrome." Type="Variable" Display="always" Required="false" Mask="false"/>
@@ -58,4 +61,14 @@
   <Config Name="Jellyfin label" Target="HEDDOHON_JELLYFIN_LABEL" Default="Jellyfin" Description="Name shown for this server on the sign-in screen." Type="Variable" Display="advanced" Required="false" Mask="false">Jellyfin</Config>
   <Config Name="Sign-in hint" Target="HEDDOHON_LOGIN_HINT" Default="" Description="An optional line of text on the sign-in screen, for telling users which account to use." Type="Variable" Display="advanced" Required="false" Mask="false"/>
   <Config Name="Upstream timeout" Target="HEDDOHON_UPSTREAM_TIMEOUT_MS" Default="20000" Description="Milliseconds to wait on the music server before giving up." Type="Variable" Display="advanced" Required="false" Mask="false">20000</Config>
+  <Config Name="Song links" Target="HEDDOHON_SHARING" Default="true" Description="true lets accounts share a song by link, playable by anyone with the link for 1, 7 or 30 days. false hides the share buttons and stops existing links from opening; they open again if this is set back to true. Read at startup." Type="Variable" Display="advanced" Required="false" Mask="false">true</Config>
+  <Config Name="Downloads" Target="HEDDOHON_DOWNLOADS" Default="true" Description="The Download original link in the player's track details. false removes it and its route." Type="Variable" Display="advanced" Required="false" Mask="false">true</Config>
+  <Config Name="Lyrics from LRCLIB" Target="HEDDOHON_LYRICS_LRCLIB" Default="false" Description="true fetches lyrics from LRCLIB for tracks the music server has none for, sending the artist, title, album and length of each such track to LRCLIB when its lyrics are opened." Type="Variable" Display="advanced" Required="false" Mask="false">false</Config>
+  <Config Name="LRCLIB URL" Target="HEDDOHON_LYRICS_LRCLIB_URL" Default="" Description="Optional. A self-hosted LRCLIB to ask instead of https://lrclib.net. Only read when Lyrics from LRCLIB is true." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="PostgreSQL URL (optional)" Target="HEDDOHON_DATABASE_URL" Default="" Description="Optional. Leave empty to keep the database as SQLite in appdata. Set to postgres://host:5432/database to keep it on a PostgreSQL server instead; an existing SQLite database is copied across on the first start." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="PostgreSQL user (optional)" Target="HEDDOHON_DATABASE_USER" Default="" Description="Optional, only with a PostgreSQL URL. The user, if it is not in the URL." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="PostgreSQL password (optional)" Target="HEDDOHON_DATABASE_PASSWORD" Default="" Description="Optional, only with a PostgreSQL URL. The password, if it is not in the URL." Type="Variable" Display="advanced" Required="false" Mask="true"/>
+  <Config Name="PostgreSQL password file (optional)" Target="HEDDOHON_DATABASE_PASSWORD_FILE" Default="" Description="Optional, only with a PostgreSQL URL. A file inside the container holding the password, in place of the variable above." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="PostgreSQL TLS (optional)" Target="HEDDOHON_DATABASE_SSL" Default="" Description="Optional, only with a PostgreSQL URL. off, require (encrypted, certificate not checked) or verify-full. Empty uses the URL's sslmode." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="PostgreSQL import (optional)" Target="HEDDOHON_DATABASE_IMPORT" Default="true" Description="Optional, only with a PostgreSQL URL. true copies an existing SQLite database into an empty PostgreSQL one on the first start." Type="Variable" Display="advanced" Required="false" Mask="false">true</Config>
 </Container>
