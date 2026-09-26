@@ -1,0 +1,70 @@
+name: Bug report
+description: Something in Heddohon does not work as it should.
+labels: ['bug']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Security problems go through the Security tab's **Report a vulnerability** button, not here.
+  - type: input
+    id: version
+    attributes:
+      label: Heddohon version
+      description: Shown at the foot of Settings and on the sign-in page.
+      placeholder: '0.2.0'
+    validations:
+      required: true
+  - type: dropdown
+    id: server
+    attributes:
+      label: Music server
+      options:
+        - Navidrome
+        - Another Subsonic server
+        - Jellyfin
+    validations:
+      required: true
+  - type: input
+    id: server-version
+    attributes:
+      label: Music server version
+      placeholder: 'Navidrome 0.62.0'
+  - type: dropdown
+    id: install
+    attributes:
+      label: How Heddohon is installed
+      options:
+        - Docker
+        - Unraid template
+        - Node (npm run build)
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: browser
+    attributes:
+      label: Browser and device
+      placeholder: 'Safari on iPhone, iOS 26.0'
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what happened, and what you expected instead. Screenshots help with anything visual.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open an album
+        2. Press Play
+        3. ...
+  - type: textarea
+    id: logs
+    attributes:
+      label: Server log
+      description: With `HEDDOHON_LOG_LEVEL=debug`, the lines around the problem. Remove hostnames or usernames you do not want public; the log never contains passwords or session tokens.
+      render: text

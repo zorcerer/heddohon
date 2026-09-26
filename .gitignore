@@ -21,3 +21,6 @@ Thumbs.db
 # Vite
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
+
+# Local data directory (HEDDOHON_DATA_DIR=./data in CONTRIBUTING.md)
+/data/
