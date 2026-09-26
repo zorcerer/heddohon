@@ -1,0 +1,26 @@
+name: Feature request
+description: Suggest something Heddohon could do.
+labels: ['enhancement']
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What you are trying to do
+      description: The task, and where Heddohon gets in the way of it today.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What you have in mind
+      description: How it could work. Mockups, or the same feature in another player, help.
+  - type: dropdown
+    id: server
+    attributes:
+      label: Music server
+      description: Some features depend on what the music server's API offers.
+      multiple: true
+      options:
+        - Navidrome
+        - Another Subsonic server
+        - Jellyfin
