@@ -77,9 +77,8 @@ Docker, on Node 22 or later: `npm ci && npm run build && node build/index.js`.
 
 ## AI disclosure
 
-Written with assistance from Claude. The code and security posture have been
-reviewed by me and by AI-assisted audits, documented in [SECURITY.md](SECURITY.md).
-A professional third-party audit has yet to be done.
+Written with agentic assistance from Claude. The code and security posture have been
+reviewed by me and by multiple AI-assisted audits, documented in [SECURITY.md](SECURITY.md)
 
 ## License
 
