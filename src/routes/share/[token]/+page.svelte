@@ -12,7 +12,7 @@
 	 * music server, and a visitor here may have no account at all. The audio and
 	 * the cover come from this link's own routes, which serve this one song.
 	 */
-	import { onMount } from 'svelte';
+	import { onMount, tick } from 'svelte';
 	import { goto } from '$app/navigation';
 	import {
 		applyArtworkColor,
@@ -34,17 +34,30 @@
 	let { data }: { data: PageData } = $props();
 
 	const ready = $derived(data.state === 'ready' ? data : null);
-	const song = $derived(ready?.song ?? null);
+	/*
+	 * A song link is a list of one. An album or playlist link plays its tracks
+	 * in order from the one chosen, each fetched by its position in the list,
+	 * which is the only thing the page ever asks the link for.
+	 */
+	const tracks = $derived(ready?.tracks ?? []);
+	const many = $derived(tracks.length > 1);
+	let current = $state(0);
+	const song = $derived(tracks[current] ?? null);
+	const noun = $derived(ready?.item.kind ?? 'song');
+	const aNoun = $derived(noun === 'album' ? 'an album' : `a ${noun}`);
+	const capitalized = $derived(aNoun[0].toUpperCase() + aNoun.slice(1));
 	const signedIn = $derived(Boolean(data.account));
 	const expires = $derived(
 		ready
 			? new Date(ready.expiresAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
 			: null
 	);
-	const coverSrc = $derived(ready && song?.hasCover ? `${ready.media}/cover?size=512` : null);
-	const coverSrcset = $derived(
-		ready && song?.hasCover ? `${ready.media}/cover?size=512 1x, ${ready.media}/cover?size=1024 2x` : undefined
+	/** The playing track's cover, or the album's or playlist's own where the track has none. */
+	const coverPath = $derived(
+		!ready ? null : song?.hasCover ? `${ready.media}/cover/${current}` : ready.item.hasCover ? `${ready.media}/cover` : null
 	);
+	const coverSrc = $derived(coverPath ? `${coverPath}?size=512` : null);
+	const coverSrcset = $derived(coverPath ? `${coverPath}?size=512 1x, ${coverPath}?size=1024 2x` : undefined);
 
 	/*
 	 * The room's colour. A playable link takes it from its own cover once that
@@ -154,6 +167,34 @@
 		seek(0);
 	}
 
+	/*
+	 * To a track by its position, playing. The element's source changes with
+	 * `current`, so play() waits a tick for it. From the transport, the end of
+	 * a track, the lock screen or the list.
+	 */
+	async function playAt(position: number) {
+		if (position < 0 || position >= tracks.length) return;
+		failed = false;
+		time = 0;
+		current = position;
+		await tick();
+		try {
+			await audio?.play();
+		} catch {
+			// A refused play() leaves the element paused, which the button shows.
+		}
+	}
+
+	/** Back to the start of the track, or to the one before within its first three seconds. */
+	function previous() {
+		if (many && current > 0 && time < 3) void playAt(current - 1);
+		else restart();
+	}
+
+	function next() {
+		if (current < tracks.length - 1) void playAt(current + 1);
+	}
+
 	/* An attachment and not `onerror`, for the reason given on the cover. */
 	function watchFailure(element: HTMLAudioElement) {
 		const fail = () => {
@@ -184,10 +225,16 @@
 		});
 		navigator.mediaSession.setActionHandler('play', () => void toggle());
 		navigator.mediaSession.setActionHandler('pause', () => audio?.pause());
+		if (many) {
+			navigator.mediaSession.setActionHandler('previoustrack', previous);
+			navigator.mediaSession.setActionHandler('nexttrack', next);
+		}
 		return () => {
 			navigator.mediaSession.metadata = null;
 			navigator.mediaSession.setActionHandler('play', null);
 			navigator.mediaSession.setActionHandler('pause', null);
+			navigator.mediaSession.setActionHandler('previoustrack', null);
+			navigator.mediaSession.setActionHandler('nexttrack', null);
 		};
 	});
 
@@ -233,11 +280,11 @@
 
 		<h1 class="lede">
 			{#if ready?.ownLink}
-				A song you shared.
+				{capitalized} you shared.
 			{:else if ready?.sharedBy}
-				<strong>{ready.sharedBy}</strong> shared a song with you.
+				<strong>{ready.sharedBy}</strong> shared {aNoun} with you.
 			{:else if song}
-				A song, shared with you.
+				{capitalized}, shared with you.
 			{:else}
 				A shared link.
 			{/if}
@@ -252,7 +299,7 @@
 	</aside>
 
 	{#if ready && song}
-		<article class="card hh-glass hh-glass--deep hh-float" aria-label="Shared song">
+		<article class="card hh-glass hh-glass--deep hh-float" aria-label="Shared {noun}">
 			<div class="art" aria-hidden="true">
 				{#if coverSrc}
 					<img bind:this={coverImage} src={coverSrc} srcset={coverSrcset} alt="" decoding="async" />
@@ -287,7 +334,12 @@
 				</div>
 
 				<div class="transport">
-					<button class="edge" onclick={restart} aria-label="Back to the start" title="Back to the start">
+					<button
+						class="edge"
+						onclick={previous}
+						aria-label={many ? 'Previous track' : 'Back to the start'}
+						title={many ? 'Previous' : 'Back to the start'}
+					>
 						<Icon name="previous" size={22} />
 					</button>
 
@@ -304,6 +356,18 @@
 						{/if}
 					</button>
 
+					{#if many}
+						<button
+							class="edge"
+							onclick={next}
+							disabled={current >= tracks.length - 1}
+							aria-label="Next track"
+							title="Next"
+						>
+							<Icon name="next" size={22} />
+						</button>
+					{/if}
+
 					<button
 						class="edge"
 						class:on={muted}
@@ -318,8 +382,33 @@
 
 				{#if failed}
 					<p class="error" role="alert">
-						This song could not be played. The link may have expired or been withdrawn.
+						This track could not be played. The link may have expired or been withdrawn.
 					</p>
+				{/if}
+
+				{#if many}
+					<!-- The album or playlist, in order. A press plays from that track on. -->
+					<ol class="tracklist" aria-label="Tracks">
+						{#each tracks as track, index (index)}
+							<li>
+								<button
+									class="entry"
+									class:current={index === current}
+									aria-current={index === current ? 'true' : undefined}
+									onclick={() => void playAt(index)}
+								>
+									<span class="num hh-numeric">{index + 1}</span>
+									<span class="entry-text">
+										<span class="entry-title hh-truncate">{track.title}</span>
+										{#if noun === 'playlist' && track.artist}
+											<span class="entry-sub hh-truncate hh-muted">{track.artist}</span>
+										{/if}
+									</span>
+									<span class="dur hh-numeric hh-muted">{formatDuration(track.duration)}</span>
+								</button>
+							</li>
+						{/each}
+					</ol>
 				{/if}
 			</div>
 
@@ -331,7 +420,8 @@
 			-->
 			<audio
 				bind:this={audio}
-				src="{ready.media}/stream"
+				src="{ready.media}/stream/{current}"
+				onended={next}
 				preload="none"
 				bind:paused
 				bind:currentTime={time}
@@ -351,7 +441,7 @@
 					<h2>Sharing is turned off</h2>
 					<p class="hh-muted sub">This server does not open shared links at the moment.</p>
 				{:else if data.state === 'unavailable'}
-					<h2>This song is not available</h2>
+					<h2>This music is not available</h2>
 					<p class="hh-muted sub">
 						The music server no longer returns it for this link. It may have been removed.
 					</p>
@@ -629,6 +719,69 @@
 			color var(--transition),
 			filter var(--transition),
 			background var(--transition);
+	}
+
+	/*
+	 * An album's or playlist's tracks, under the transport: a column of
+	 * them the card scrolls within, about six rows tall, so the card stays the
+	 * size of the song card it grew from.
+	 */
+	.tracklist {
+		list-style: none;
+		margin: 0 calc(var(--space-2) * -1);
+		padding: var(--space-2) 0 0;
+		max-height: 16rem;
+		overflow-y: auto;
+		border-top: 1px solid var(--border-hairline);
+		scrollbar-width: none;
+	}
+
+	.entry {
+		width: 100%;
+		display: grid;
+		grid-template-columns: 1.75rem minmax(0, 1fr) auto;
+		align-items: center;
+		gap: var(--space-2);
+		padding: 0.45rem var(--space-2);
+		border-radius: var(--r-sm);
+		text-align: left;
+		color: var(--text-default);
+	}
+
+	.entry:hover {
+		background: var(--bg-hover);
+	}
+
+	.entry.current {
+		color: var(--glow-color);
+		text-shadow: var(--glow-text);
+	}
+
+	.num {
+		font-size: 0.75rem;
+		color: var(--text-faint);
+		text-align: right;
+	}
+
+	.entry-text {
+		display: grid;
+		min-width: 0;
+	}
+
+	.entry-title {
+		font-size: 0.875rem;
+	}
+
+	.entry-sub {
+		font-size: 0.75rem;
+	}
+
+	.dur {
+		font-size: 0.75rem;
+	}
+
+	.edge:disabled {
+		opacity: 0.35;
 	}
 
 	.edge {

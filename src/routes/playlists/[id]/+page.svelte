@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { goto, invalidateAll } from '$app/navigation';
 	import Icon from '$lib/components/Icon.svelte';
+	import { page } from '$app/state';
+	import { shareComposer } from '$lib/client/share.svelte';
 	import HeroTitle from '$lib/components/HeroTitle.svelte';
 	import Sleeve from '$lib/components/Sleeve.svelte';
 	import TrackList from '$lib/components/TrackList.svelte';
@@ -166,6 +168,23 @@
 						<Icon name="queue" size={16} />
 						Queue
 					</button>
+					{#if page.data.sharing}
+						<button
+							class="hh-button"
+							onclick={() =>
+								shareComposer.open({
+									kind: 'playlist',
+									id: playlist.id,
+									title: playlist.name,
+									subtitle: null,
+									coverArt: playlist.coverArt
+								})}
+							disabled={playlist.songs.length === 0}
+						>
+							<Icon name="share" size={16} />
+							Share
+						</button>
+					{/if}
 				</div>
 
 				<div class="group group--edit">

@@ -724,6 +724,37 @@ describe('instant mix', () => {
 	});
 });
 
+describe('an album link', () => {
+	test('is made from the album page, and plays from any track on the shared page', async () => {
+		subsonic.state.audio = { type: 'audio/wav', body: silentWav(30) };
+		const { page, problems } = await watchedPage();
+		const visitor = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+		try {
+			await page.goto(app.url + '/albums/al10', { waitUntil: 'networkidle' });
+			await page.getByRole('button', { name: 'Share a link to this album' }).click();
+			await page.getByText('Share an album').waitFor();
+			await page.getByRole('button', { name: 'Create link' }).click();
+			const url = await page.locator('dialog input.url').inputValue();
+			assert.match(url, /\/share\/[A-Za-z0-9_-]{43}$/);
+
+			const shared = await visitor.newPage();
+			await shared.goto(url, { waitUntil: 'networkidle' });
+			await shared.getByText('An album, shared with you.').waitFor();
+			await shared.getByRole('list', { name: 'Tracks' }).getByRole('button', { name: /Song 10b/ }).click();
+			await shared.waitForFunction(() => document.querySelector('.card h2.title')?.textContent === 'Song 10b');
+			await shared.waitForFunction(() => {
+				const audio = document.querySelector('.card audio');
+				return audio && !audio.paused && audio.src.endsWith('/stream/1');
+			});
+		} finally {
+			subsonic.state.audio = null;
+			await visitor.close();
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+});
+
 describe('track rows', () => {
 	test('a double press on a row\'s heart does not play that row', async () => {
 		const { page, problems } = await watchedPage();
