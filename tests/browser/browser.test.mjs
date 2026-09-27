@@ -749,6 +749,12 @@ describe('an album link', () => {
 		} finally {
 			subsonic.state.audio = null;
 			await visitor.close();
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+});
+
 describe('reordering a playlist', () => {
 	const titles = (page) =>
 		page.evaluate(() => [...document.querySelectorAll('main .track .title')].map((el) => el.textContent));
@@ -769,12 +775,14 @@ describe('reordering a playlist', () => {
 				await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2 + (rowHeight * 2 * step) / 10);
 				await page.waitForTimeout(16);
 			}
+			// The move is saved by this request; network idle can come before it starts.
+			const saved = page.waitForResponse((r) => r.request().method() === 'PATCH' && r.url().endsWith('/tracks'));
 			await page.mouse.up();
 
 			await page.waitForFunction(
 				() => [...document.querySelectorAll('main .track .title')].map((el) => el.textContent).join() === 'Song 2a,Song 3a,Song 1a'
 			);
-			await page.waitForLoadState('networkidle');
+			await saved;
 			assert.deepEqual(subsonic.state.playlistEntries, ['s2a', 's3a', 's1a']);
 		} finally {
 			subsonic.state.playlistEntries = ['s1a', 's2a'];
@@ -789,11 +797,12 @@ describe('reordering a playlist', () => {
 		try {
 			await page.goto(app.url + '/playlists/pl1', { waitUntil: 'networkidle' });
 			await page.locator('main .grip').first().focus();
+			const saved = page.waitForResponse((r) => r.request().method() === 'PATCH' && r.url().endsWith('/tracks'));
 			await page.keyboard.press('ArrowDown');
 			await page.waitForFunction(
 				() => [...document.querySelectorAll('main .track .title')].map((el) => el.textContent).join() === 'Song 2a,Song 1a,Song 3a'
 			);
-			await page.waitForLoadState('networkidle');
+			await saved;
 			assert.deepEqual(subsonic.state.playlistEntries, ['s2a', 's1a', 's3a']);
 			const focused = await page.evaluate(() => document.activeElement?.getAttribute('aria-label') ?? '');
 			assert.match(focused, /^Move Song 1a, number 2 of 3/);

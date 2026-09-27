@@ -843,6 +843,9 @@ describe('links to albums and playlists', () => {
 		assert.match(html, /Album 8/);
 		assert.match(html, /Album ·/);
 		await user.request(`/api/shares/${album.body.id}`, { method: 'DELETE' });
+	});
+});
+
 describe('reordering a playlist', () => {
 	const move = (client, id, body) => client.json(`/api/playlists/${id}/tracks`, 'PATCH', body);
 
