@@ -63,6 +63,10 @@ Images are `ghcr.io/zorcerer/heddohon` and `zorcererd/heddohon`, and an Unraid
 template is in [`templates/heddohon.xml`](templates/heddohon.xml). Without
 Docker, on Node 22 or later: `npm ci && npm run build && node build/index.js`.
 
+`latest` is the newest release. `dev` is built from every change that passes
+the test suites ahead of the next release, for trying what is coming; it can
+break, and a database it has migrated may not open in the release before it.
+
 ## Documentation
 
 | | |
