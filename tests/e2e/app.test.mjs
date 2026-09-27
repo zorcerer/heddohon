@@ -282,6 +282,20 @@ describe('favourites', () => {
 	});
 });
 
+describe('release years', () => {
+	test('an album shows the year it first came out, not its edition\'s', async () => {
+		const { response, html } = await user.page('/albums/al29');
+		assert.equal(response.status, 200, explain('album page failed'));
+		assert.match(html, /1979/);
+		assert.ok(!html.includes('2009'), 'the edition year is still shown');
+	});
+
+	test('an original date without a year leaves the edition\'s year', async () => {
+		const { html } = await user.page('/albums/al28');
+		assert.match(html, /2008/);
+	});
+});
+
 describe('the phone\'s library and search tabs', () => {
 	test('the library page links to each part of the library and to settings', async () => {
 		const { response, html } = await user.page('/library');
