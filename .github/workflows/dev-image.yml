@@ -49,6 +49,12 @@ jobs:
           echo "short=$short" >> "$GITHUB_OUTPUT"
           echo "version=$(jq -r .version package.json)-dev.$short" >> "$GITHUB_OUTPUT"
 
+      # The runtime stage runs as the target, which is arm64 half the time;
+      # the build stage does not (see the Dockerfile).
+      - uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
       - uses: docker/setup-buildx-action@v3
 
       - uses: docker/login-action@v3
@@ -65,7 +71,7 @@ jobs:
       - uses: docker/build-push-action@v6
         with:
           context: .
-          platforms: linux/amd64
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: |
             ${{ env.GHCR }}:dev
@@ -77,3 +83,11 @@ jobs:
             org.opencontainers.image.revision=${{ github.event.workflow_run.head_sha }}
           cache-from: type=gha,scope=dev
           cache-to: type=gha,scope=dev,mode=max
+
+      # Nothing in the build runs the arm64 image. Open a database in it, under
+      # the same emulation, so an image that cannot load its native module is
+      # reported here rather than by the first person to start it on a Pi.
+      - name: Open a database in the arm64 image
+        run: |
+          docker run --rm --platform linux/arm64 -w /app "$GHCR:dev-${{ steps.version.outputs.short }}" \
+            node -e "new (require('better-sqlite3'))(':memory:').prepare('select 1').get(); console.log(process.arch, 'ok')"
