@@ -1,8 +1,9 @@
 /**
- * Making and withdrawing song links, and the state behind the share dialog.
+ * Making and withdrawing shared links (to a song, an album or a playlist),
+ * and the state behind the share dialog.
  *
  * The dialog is mounted once in the root layout, like the playlist picker, and
- * opened from wherever a song is on screen.
+ * opened from wherever a song, an album or a playlist is on screen.
  *
  * A link is shown once. The server keeps only a digest of its token, so the
  * link held here is the only copy there is, and closing the dialog drops it.
@@ -16,6 +17,16 @@ export const SHARE_LIFETIMES = [
 ] as const;
 
 export type ShareDays = (typeof SHARE_LIFETIMES)[number]['days'];
+
+/** What the dialog is making a link to. */
+export interface ShareSubject {
+	kind: 'song' | 'album' | 'playlist';
+	id: string;
+	title: string;
+	/** The artist, for a song or an album. */
+	subtitle: string | null;
+	coverArt: string | null;
+}
 
 export interface MadeLink {
 	url: string;
@@ -34,7 +45,7 @@ export async function withdrawShare(id: string): Promise<void> {
 }
 
 class ShareComposer {
-	song = $state<Song | null>(null);
+	subject = $state<ShareSubject | null>(null);
 	days = $state<ShareDays>(7);
 	busy = $state(false);
 	error = $state<string | null>(null);
@@ -52,9 +63,13 @@ class ShareComposer {
 	visible = $state(false);
 	#clearTimer: ReturnType<typeof setTimeout> | undefined;
 
-	open(song: Song) {
+	/** A song, or anything else as a subject. */
+	open(item: Song | ShareSubject) {
 		clearTimeout(this.#clearTimer);
-		this.song = song;
+		this.subject =
+			'kind' in item
+				? item
+				: { kind: 'song', id: item.id, title: item.title, subtitle: item.artist, coverArt: item.coverArt };
 		this.days = 7;
 		this.busy = false;
 		this.error = null;
@@ -69,7 +84,7 @@ class ShareComposer {
 		this.visible = false;
 		// The fade in app.css is 150ms.
 		this.#clearTimer = setTimeout(() => {
-			this.song = null;
+			this.subject = null;
 			this.link = null;
 			this.error = null;
 			this.copied = false;
@@ -77,20 +92,20 @@ class ShareComposer {
 	}
 
 	async create() {
-		if (!this.song || this.busy) return;
-		const song = this.song;
+		if (!this.subject || this.busy) return;
+		const subject = this.subject;
 		this.busy = true;
 		this.error = null;
 		try {
 			const response = await fetch('/api/shares', {
 				method: 'POST',
 				headers: { 'content-type': 'application/json', accept: 'application/json' },
-				body: JSON.stringify({ songId: song.id, days: this.days })
+				body: JSON.stringify({ kind: subject.kind, id: subject.id, days: this.days })
 			});
 			if (!response.ok) throw new Error(await readError(response, 'Could not make a link'));
 			const body = (await response.json()) as { path: string; expiresAt: number };
-			// Closed, or pointed at another song, while the request was out.
-			if (!this.visible || this.song !== song) return;
+			// Closed, or pointed at something else, while the request was out.
+			if (!this.visible || this.subject !== subject) return;
 			// The origin this page was loaded from, which is the one the reader can
 			// reach. The server's own idea of it can differ behind a proxy.
 			this.link = { url: new URL(body.path, location.origin).href, expiresAt: body.expiresAt };
