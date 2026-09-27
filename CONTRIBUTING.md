@@ -40,18 +40,18 @@ or a clear bug with an obvious fix can go straight to a pull request. For a new
 feature, a behaviour change or a larger refactor, open an issue first, so the
 approach is agreed before you spend time on it.
 
-Pull requests go against `main` on
-[zorcerer/heddohon](https://github.com/zorcerer/heddohon). Heddohon is
-developed in a separate repository, so an accepted pull request is merged here
-and carried over by the maintainer; it ships in the next release, and the
-release notes credit you.
+Pull requests go against the `dev` branch of
+[zorcerer/heddohon](https://github.com/zorcerer/heddohon), where development
+happens; `main` holds the released code. An accepted pull request is merged
+into `dev`, is in the `:dev` image once its checks pass, and ships in the
+next release, whose notes credit you.
 
 ### Setting up
 
 Node 22 or later.
 
 ```bash
-git clone https://github.com/zorcerer/heddohon.git && cd heddohon
+git clone -b dev https://github.com/zorcerer/heddohon.git && cd heddohon
 npm ci
 export HEDDOHON_SECRET="$(openssl rand -base64 48)"
 export HEDDOHON_SUBSONIC_URL=http://192.168.1.10:4533   # or HEDDOHON_JELLYFIN_URL
