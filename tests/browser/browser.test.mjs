@@ -724,6 +724,37 @@ describe('instant mix', () => {
 	});
 });
 
+describe('an album link', () => {
+	test('is made from the album page, and plays from any track on the shared page', async () => {
+		subsonic.state.audio = { type: 'audio/wav', body: silentWav(30) };
+		const { page, problems } = await watchedPage();
+		const visitor = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+		try {
+			await page.goto(app.url + '/albums/al10', { waitUntil: 'networkidle' });
+			await page.getByRole('button', { name: 'Share a link to this album' }).click();
+			await page.getByText('Share an album').waitFor();
+			await page.getByRole('button', { name: 'Create link' }).click();
+			const url = await page.locator('dialog input.url').inputValue();
+			assert.match(url, /\/share\/[A-Za-z0-9_-]{43}$/);
+
+			const shared = await visitor.newPage();
+			await shared.goto(url, { waitUntil: 'networkidle' });
+			await shared.getByText('An album, shared with you.').waitFor();
+			await shared.getByRole('list', { name: 'Tracks' }).getByRole('button', { name: /Song 10b/ }).click();
+			await shared.waitForFunction(() => document.querySelector('.card h2.title')?.textContent === 'Song 10b');
+			await shared.waitForFunction(() => {
+				const audio = document.querySelector('.card audio');
+				return audio && !audio.paused && audio.src.endsWith('/stream/1');
+			});
+		} finally {
+			subsonic.state.audio = null;
+			await visitor.close();
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+});
+
 describe('reordering a playlist', () => {
 	const titles = (page) =>
 		page.evaluate(() => [...document.querySelectorAll('main .track .title')].map((el) => el.textContent));
@@ -744,12 +775,14 @@ describe('reordering a playlist', () => {
 				await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2 + (rowHeight * 2 * step) / 10);
 				await page.waitForTimeout(16);
 			}
+			// The move is saved by this request; network idle can come before it starts.
+			const saved = page.waitForResponse((r) => r.request().method() === 'PATCH' && r.url().endsWith('/tracks'));
 			await page.mouse.up();
 
 			await page.waitForFunction(
 				() => [...document.querySelectorAll('main .track .title')].map((el) => el.textContent).join() === 'Song 2a,Song 3a,Song 1a'
 			);
-			await page.waitForLoadState('networkidle');
+			await saved;
 			assert.deepEqual(subsonic.state.playlistEntries, ['s2a', 's3a', 's1a']);
 		} finally {
 			subsonic.state.playlistEntries = ['s1a', 's2a'];
@@ -764,11 +797,12 @@ describe('reordering a playlist', () => {
 		try {
 			await page.goto(app.url + '/playlists/pl1', { waitUntil: 'networkidle' });
 			await page.locator('main .grip').first().focus();
+			const saved = page.waitForResponse((r) => r.request().method() === 'PATCH' && r.url().endsWith('/tracks'));
 			await page.keyboard.press('ArrowDown');
 			await page.waitForFunction(
 				() => [...document.querySelectorAll('main .track .title')].map((el) => el.textContent).join() === 'Song 2a,Song 1a,Song 3a'
 			);
-			await page.waitForLoadState('networkidle');
+			await saved;
 			assert.deepEqual(subsonic.state.playlistEntries, ['s2a', 's1a', 's3a']);
 			const focused = await page.evaluate(() => document.activeElement?.getAttribute('aria-label') ?? '');
 			assert.match(focused, /^Move Song 1a, number 2 of 3/);
@@ -1108,11 +1142,15 @@ describe('sliders and the playlist picker', () => {
 
 			await row.click();
 			await page.locator('dialog.picker .row.added').waitFor({ timeout: 5000 });
-			await page.waitForTimeout(500);
+			// Until the fade has finished. A fixed 500ms read 0.99 on a slow CI runner.
+			await page.waitForFunction(
+				() => getComputedStyle(document.querySelector('dialog.picker .row.added .check')).opacity === '1',
+				null,
+				{ timeout: 3000 }
+			);
 			const check = await page
 				.locator('dialog.picker .row.added .check')
-				.evaluate((el) => ({ opacity: getComputedStyle(el).opacity, width: el.getBoundingClientRect().width }));
-			assert.equal(check.opacity, '1');
+				.evaluate((el) => ({ width: el.getBoundingClientRect().width }));
 			assert.ok(check.width > 10, 'the check did not open beside the name');
 		} finally {
 			await page.close();

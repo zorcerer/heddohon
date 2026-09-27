@@ -1,6 +1,6 @@
 import type { PageServerLoad } from './$types';
 import { config } from '$lib/server/config';
-import { shareAccess, sharedSong } from '$lib/server/shares';
+import { shareAccess, sharedItem } from '$lib/server/shares';
 import { log } from '$lib/server/log';
 
 /**
@@ -38,8 +38,8 @@ export const load: PageServerLoad = async ({ locals, params, setHeaders }) => {
 	if (!access) return { ...base, state: 'gone' as const };
 
 	const { share, credential } = access;
-	const song = await sharedSong(share, credential);
-	if (!song) return { ...base, state: 'unavailable' as const };
+	const item = await sharedItem(share, credential);
+	if (!item || item.tracks.length === 0) return { ...base, state: 'unavailable' as const };
 
 	log.info('share-opened', {
 		share: share.id,
@@ -54,7 +54,14 @@ export const load: PageServerLoad = async ({ locals, params, setHeaders }) => {
 		expiresAt: share.expiresAt,
 		// Relative to the page, which is the only place the token is written.
 		media: `/share/${params.token}`,
-		song: {
+		item: {
+			kind: item.kind,
+			title: clip(item.title) ?? 'Untitled',
+			subtitle: clip(item.subtitle),
+			hasCover: Boolean(item.coverArt ?? item.tracks[0]?.coverArt)
+		},
+		// In order; a track is played by its position, `media/stream/<n>`.
+		tracks: item.tracks.map((song) => ({
 			title: clip(song.title) ?? 'Unknown title',
 			artist: clip(song.artist),
 			album: clip(song.album),
@@ -62,6 +69,6 @@ export const load: PageServerLoad = async ({ locals, params, setHeaders }) => {
 			duration: song.duration,
 			hasCover: Boolean(song.coverArt),
 			quality: song.quality
-		}
+		}))
 	};
 };

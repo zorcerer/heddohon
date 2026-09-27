@@ -609,8 +609,8 @@
 		<div class="group-head">
 			<h2>Shared links</h2>
 			<p class="hh-muted">
-				Links you have made to songs. Anyone who has one can listen to that song without an account,
-				and it plays through your account on the music server.
+				Links you have made to songs, albums and playlists. Anyone who has one can listen without an
+				account, and it plays through your account on the music server.
 			</p>
 		</div>
 
@@ -627,21 +627,23 @@
 
 		{#if data.shares.length === 0}
 			<p class="hh-muted empty">
-				No live links. Use the share button in the player or on a track to make one.
+				No live links. Use the share button in the player, on a track, or on an album or playlist
+				page to make one.
 			</p>
 		{:else}
 			<ul class="shares">
 				{#each data.shares as share (share.id)}
 					<li class="share">
 						<span class="share-art">
-							<Cover coverArt={share.song?.coverArt} size={96} alt="" radius="var(--r-sm)" />
+							<Cover coverArt={share.item?.coverArt} size={96} alt="" radius="var(--r-sm)" />
 						</span>
 						<span class="share-text">
 							<span class="share-title hh-truncate">
-								{share.song?.title ?? 'A song your server no longer returns'}
+								{share.item?.title ?? `${share.kind === 'album' ? 'An album' : `A ${share.kind}`} your server no longer returns`}
 							</span>
 							<span class="share-sub hh-truncate hh-muted">
-								{#if share.song?.artist}{share.song.artist} · {/if}until
+								{share.kind === 'song' ? 'Song' : share.kind === 'album' ? 'Album' : 'Playlist'} ·
+								{#if share.item?.subtitle}{share.item.subtitle} · {/if}until
 								<span class="hh-numeric">{shortDate(share.expiresAt)}</span>
 							</span>
 						</span>
@@ -662,7 +664,7 @@
 								class="hh-button danger withdraw"
 								type="submit"
 								disabled={withdrawing === share.id}
-								aria-label="Withdraw the link to {share.song?.title ?? 'this song'}"
+								aria-label="Withdraw the link to {share.item?.title ?? `this ${share.kind}`}"
 							>
 								{withdrawing === share.id ? 'Withdrawing…' : 'Withdraw'}
 							</button>
