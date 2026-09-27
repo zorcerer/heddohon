@@ -156,6 +156,22 @@ function numberOrNull(value: unknown): number | null {
 }
 
 /**
+ * The year a record first came out, where the server knows it, rather than
+ * the year of the edition in the library. A 2011 remaster of a 1973 album is
+ * 1973 here.
+ *
+ * `originalReleaseDate` is OpenSubsonic's (`{ year, month, day }`), which
+ * Navidrome fills from the ORIGINALDATE or ORIGINALYEAR tag; `year` stays the
+ * edition's. A server without it, or a file without the tag, falls back to
+ * `year`, and so does a year of 0, which Navidrome sends for a date it has no
+ * year for.
+ */
+function yearOf(raw: Record<string, any>): number | null {
+	const original = numberOrNull(raw.originalReleaseDate?.year);
+	return original !== null && original > 0 ? original : numberOrNull(raw.year);
+}
+
+/**
  * OpenSubsonic's `replayGain` object, which Navidrome fills from the file's
  * tags. A plain Subsonic server leaves it out, and so does a file with no tags.
  */
@@ -192,7 +208,7 @@ function toSong(raw: Record<string, any>): Song {
 		duration: numberOrNull(raw.duration) ?? 0,
 		track: numberOrNull(raw.track),
 		disc: numberOrNull(raw.discNumber),
-		year: numberOrNull(raw.year),
+		year: yearOf(raw),
 		genre: raw.genre ?? null,
 		coverArt: raw.coverArt ? String(raw.coverArt) : null,
 		starred: Boolean(raw.starred),
@@ -210,7 +226,7 @@ function toAlbum(raw: Record<string, any>): Album {
 		name: raw.name ?? raw.album ?? 'Unknown album',
 		artistId: raw.artistId ? String(raw.artistId) : null,
 		artist: raw.artist ?? null,
-		year: numberOrNull(raw.year),
+		year: yearOf(raw),
 		genre: raw.genre ?? null,
 		songCount: numberOrNull(raw.songCount),
 		duration: numberOrNull(raw.duration),
@@ -277,7 +293,7 @@ function albumsFromSongs(
 			name: raw.album ?? 'Unknown album',
 			artistId,
 			artist: raw.artist ?? null,
-			year: numberOrNull(raw.year),
+			year: yearOf(raw),
 			genre: raw.genre ?? null,
 			songCount: null,
 			duration: null,
