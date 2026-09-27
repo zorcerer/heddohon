@@ -767,6 +767,85 @@ describe('instant mix', () => {
 	});
 });
 
+describe('links to albums and playlists', () => {
+	const share = async (body) => {
+		const response = await user.json('/api/shares', 'POST', body);
+		return { status: response.status, body: response.ok ? await response.json() : null };
+	};
+	const anonymous = () => new Client(app.url);
+
+	test('an album link lists its tracks and plays each by its position, and nothing past them', async () => {
+		const made = await share({ kind: 'album', id: 'al5', days: 1 });
+		assert.equal(made.status, 200, explain('album link failed'));
+		const visitor = anonymous();
+		const { response, html } = await visitor.page(made.body.path);
+		assert.equal(response.status, 200);
+		for (const text of ['Album 5', 'Song 5a', 'Song 5b']) assert.match(html, new RegExp(text));
+		assert.ok(!html.includes('al5') && !html.includes('s5a'), 'an upstream id reached the page');
+
+		const status = async (path) => (await visitor.request(made.body.path + path)).status;
+		assert.equal(await status('/stream/0'), 200);
+		assert.equal(await status('/stream/1'), 200);
+		assert.equal(await status('/cover'), 200);
+		assert.equal(await status('/cover/1'), 200);
+		for (const path of ['/stream/2', '/stream/01', '/stream/-1', '/stream/abc', '/stream/99999', '/cover/2']) {
+			assert.equal(await status(path), 404, path);
+		}
+
+		// Withdrawn: every position stops.
+		assert.equal((await user.request(`/api/shares/${made.body.id}`, { method: 'DELETE' })).status, 200);
+		assert.equal(await status('/stream/1'), 404);
+	});
+
+	test('a playlist link plays the playlist as its owner has it', async () => {
+		const made = await share({ kind: 'playlist', id: 'pl1' });
+		assert.equal(made.status, 200, explain('playlist link failed'));
+		const { html } = await anonymous().page(made.body.path);
+		assert.match(html, /Mock Playlist/);
+		assert.match(html, /Song 1a/);
+		assert.match(html, /Song 2a/);
+		await user.request(`/api/shares/${made.body.id}`, { method: 'DELETE' });
+	});
+
+	test('an album its owner can no longer see stops playing through the link', async () => {
+		const made = await share({ kind: 'album', id: 'al6' });
+		subsonic.state.missing.add('al6');
+		try {
+			const visitor = anonymous();
+			assert.equal((await visitor.request(`${made.body.path}/stream/0`)).status, 404);
+			const { html } = await visitor.page(made.body.path);
+			assert.match(html, /This music is not available/);
+		} finally {
+			subsonic.state.missing.delete('al6');
+			await user.request(`/api/shares/${made.body.id}`, { method: 'DELETE' });
+		}
+	});
+
+	test('only a kind it knows, and an item the owner can see, becomes a link', async () => {
+		assert.equal((await share({ kind: 'artist', id: 'ar5' })).status, 400);
+		assert.equal((await share({ kind: 'album', id: 'al9999' })).status, 404);
+		assert.equal((await share({ kind: 'playlist', id: 'nope' })).status, 404);
+	});
+
+	test('a song link made the old way still works, at position 0 only', async () => {
+		const made = await share({ songId: 's7a' });
+		assert.equal(made.status, 200);
+		const visitor = anonymous();
+		assert.equal((await visitor.request(`${made.body.path}/stream`)).status, 200);
+		assert.equal((await visitor.request(`${made.body.path}/stream/0`)).status, 200);
+		assert.equal((await visitor.request(`${made.body.path}/stream/1`)).status, 404);
+		await user.request(`/api/shares/${made.body.id}`, { method: 'DELETE' });
+	});
+
+	test('Settings names each link by what it is to', async () => {
+		const album = await share({ kind: 'album', id: 'al8' });
+		const { html } = await user.page('/settings');
+		assert.match(html, /Album 8/);
+		assert.match(html, /Album ·/);
+		await user.request(`/api/shares/${album.body.id}`, { method: 'DELETE' });
+	});
+});
+
 describe('reordering a playlist', () => {
 	const move = (client, id, body) => client.json(`/api/playlists/${id}/tracks`, 'PATCH', body);
 

@@ -101,7 +101,7 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 			['s0a', '2026-01-01T00:00:00Z'],
 			['s1a', '2026-01-02T00:00:00Z']
 		]),
-		/** Song ids that answer `getSong` with error 70, as a deleted track does. */
+		/** Song and album ids that answer `getSong` or `getAlbum` with error 70, as a deleted one does. */
 		missing: new Set(),
 		/** Milliseconds to hold an endpoint's answer, by method name. */
 		delays: new Map(),
@@ -313,7 +313,7 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 			case 'getAlbum': {
 				const id = p.get('id') ?? '';
 				const i = index(id);
-				if (!(i >= 0 && i < artistCount)) return send(failed(70, 'Album not found'));
+				if (state.missing.has(id) || !(i >= 0 && i < artistCount)) return send(failed(70, 'Album not found'));
 				const songs = Array.from({ length: state.albumSongs }, (_, k) => song(i, String.fromCharCode(97 + k)));
 				return send(ok({ album: { ...album(i, id), song: songs } }));
 			}

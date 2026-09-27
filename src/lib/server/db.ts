@@ -48,6 +48,7 @@ export interface ShareRow {
 	song_id: string;
 	created_at: number;
 	expires_at: number;
+	kind: string | null;
 }
 
 const SQLITE_SCHEMA = `
@@ -103,9 +104,13 @@ CREATE TABLE IF NOT EXISTS shares (
   token_digest  TEXT NOT NULL UNIQUE,
   account_id    TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
   backend       TEXT NOT NULL,
+  -- The shared item's id: a song, or by kind an album or a playlist.
   song_id       TEXT NOT NULL,
   created_at    INTEGER NOT NULL,
-  expires_at    INTEGER NOT NULL
+  expires_at    INTEGER NOT NULL,
+  -- "song", "album" or "playlist"; null in a row from before albums and
+  -- playlists could be shared, which is a song.
+  kind          TEXT
 );
 CREATE INDEX IF NOT EXISTS shares_account_idx ON shares(account_id);
 CREATE INDEX IF NOT EXISTS shares_expiry_idx ON shares(expires_at);
@@ -131,7 +136,8 @@ CREATE TABLE IF NOT EXISTS meta (
  * end; each is nullable, so rows written before it read as null.
  */
 const ADDED_COLUMNS: { table: string; column: string; type: string }[] = [
-	{ table: 'sessions', column: 'device', type: 'TEXT' }
+	{ table: 'sessions', column: 'device', type: 'TEXT' },
+	{ table: 'shares', column: 'kind', type: 'TEXT' }
 ];
 
 function addColumnsSqlite(instance: Database.Database) {
@@ -386,7 +392,7 @@ async function importFromSqlite(pool: pg.Pool): Promise<void> {
 		accounts: ['id', 'backend', 'username', 'remote_user_id', 'credential', 'created_at', 'last_login_at'],
 		settings: ['account_id', 'data', 'updated_at'],
 		play_state: ['account_id', 'data', 'updated_at'],
-		shares: ['id', 'token_digest', 'account_id', 'backend', 'song_id', 'created_at', 'expires_at']
+		shares: ['id', 'token_digest', 'account_id', 'backend', 'song_id', 'created_at', 'expires_at', 'kind']
 	} as const;
 	const counts: Record<string, number> = {};
 
@@ -394,10 +400,25 @@ async function importFromSqlite(pool: pg.Pool): Promise<void> {
 	try {
 		await client.query('BEGIN');
 		// Accounts first: the other three refer to them.
-		for (const [table, columns] of Object.entries(tables)) {
+		for (const [table, wanted] of Object.entries(tables)) {
+			// Only the columns the file has: one from before a column was added
+			// (`ADDED_COLUMNS`) is copied without it, and the column reads as null.
+			// Asked for by name, a missing column failed the whole table, and a
+			// table that fails is skipped as one that does not exist.
+			let present: Set<string>;
+			try {
+				present = new Set(
+					(source.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((info) => info.name)
+				);
+			} catch {
+				present = new Set();
+			}
+			const columns = wanted.filter((column) => present.has(column));
 			let rows: Record<string, unknown>[];
 			try {
-				rows = source.prepare(`SELECT ${columns.join(', ')} FROM ${table}`).all() as Record<string, unknown>[];
+				rows = columns.length
+					? (source.prepare(`SELECT ${columns.join(', ')} FROM ${table}`).all() as Record<string, unknown>[])
+					: [];
 			} catch {
 				// A database from before this table existed.
 				rows = [];

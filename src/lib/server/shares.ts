@@ -1,12 +1,15 @@
 /**
- * Song links, which anyone holding one can open without an account.
+ * Shared links, to a song, an album or a playlist, which anyone holding one
+ * can open without an account.
  *
- * A link is a bearer capability for exactly one song. Whoever presents the
- * token gets that song's details, its cover and its audio, fetched with the
- * sharer's stored credential, and nothing else: the song id is read from the
- * row, never from the request, and no route under `/share` takes an id, a
- * path or a write. The credential stays in this process, as it does for every
- * other request.
+ * A link is a bearer capability for exactly one item. Whoever presents the
+ * token gets its details, its covers and its audio, fetched with the sharer's
+ * stored credential, and nothing else: the item's id is read from the row,
+ * never from the request. The one thing a request names is a track's position
+ * in the album or playlist (`/stream/3`), which is looked up in the item as
+ * the sharer sees it, so it cannot reach outside it. No route under `/share`
+ * takes an id, a path or a write. The credential stays in this process, as it
+ * does for every other request.
  *
  * The token is handled the way the session cookie is: 256 random bits in the
  * link, and only an HMAC digest in the database, under a key of its own. A
@@ -46,6 +49,26 @@ export function isShareLifetime(value: unknown): value is ShareLifetime {
 	return SHARE_LIFETIMES_DAYS.includes(value as ShareLifetime);
 }
 
+/** What a link can be to. */
+export const SHARE_KINDS = ['song', 'album', 'playlist'] as const;
+export type ShareKind = (typeof SHARE_KINDS)[number];
+
+export function isShareKind(value: unknown): value is ShareKind {
+	return SHARE_KINDS.includes(value as ShareKind);
+}
+
+/** A row from before albums and playlists could be shared has no kind, and is a song. */
+function kindOf(row: ShareRow): ShareKind {
+	return isShareKind(row.kind) ? row.kind : 'song';
+}
+
+/**
+ * The most tracks an album or playlist link serves, from its start. A
+ * playlist can hold thousands, each one a row on the page and a position the
+ * stream route answers for; 500 is about 30 hours.
+ */
+export const MAX_SHARED_TRACKS = 500;
+
 export class ShareLimitError extends Error {}
 
 export interface CreatedShare {
@@ -57,7 +80,8 @@ export interface CreatedShare {
 
 export async function createShare(
 	account: Account,
-	songId: string,
+	kind: ShareKind,
+	itemId: string,
 	days: ShareLifetime
 ): Promise<CreatedShare> {
 	await pruneExpiredShares();
@@ -74,14 +98,15 @@ export async function createShare(
 	 * `exclusive` in db.ts for why the lock is needed on PostgreSQL as well.
 	 */
 	const inserted = await database.exclusive(`shares:${account.id}`, (tx) => tx.run(
-		`INSERT INTO shares (id, token_digest, account_id, backend, song_id, created_at, expires_at)
-		 SELECT ?, ?, ?, ?, ?, CAST(? AS BIGINT), CAST(? AS BIGINT)
+		`INSERT INTO shares (id, token_digest, account_id, backend, song_id, kind, created_at, expires_at)
+		 SELECT ?, ?, ?, ?, ?, ?, CAST(? AS BIGINT), CAST(? AS BIGINT)
 		 WHERE (SELECT COUNT(*) FROM shares WHERE account_id = ? AND expires_at > ?) < ?`,
 		id,
 		shareDigest(token),
 		account.id,
 		account.backend,
-		songId,
+		itemId,
+		kind,
 		timestamp,
 		expiresAt,
 		account.id,
@@ -100,7 +125,9 @@ export async function createShare(
 export interface ResolvedShare {
 	id: string;
 	backend: BackendKind;
-	songId: string;
+	kind: ShareKind;
+	/** The song, album or playlist, by `kind`. */
+	itemId: string;
 	/** The sharer's username, as the music server spells it. */
 	sharedBy: string;
 	sharerAccountId: string;
@@ -133,7 +160,8 @@ export async function resolveShare(token: string): Promise<ResolvedShare | null>
 	return {
 		id: row.id,
 		backend: row.backend as BackendKind,
-		songId: row.song_id,
+		kind: kindOf(row),
+		itemId: row.song_id,
 		sharedBy: row.username,
 		sharerAccountId: row.account_id,
 		expiresAt: row.expires_at
@@ -158,7 +186,10 @@ export async function sharerCredential(share: ResolvedShare): Promise<StoredCred
 }
 
 /**
- * The shared song, as the sharer's account sees it now, or null.
+ * The track at `position` in what the link is to (the song itself, for a song
+ * link), as the sharer's account sees it now, or null. The position is the
+ * only thing a request names, and it is looked up in the owner's own album or
+ * playlist, so a request cannot reach a track outside it.
  *
  * Null covers the song having been removed and the sharer's credential having
  * stopped working upstream. Both mean the link cannot be played, and a visitor
@@ -169,11 +200,56 @@ export async function sharerCredential(share: ResolvedShare): Promise<StoredCred
  */
 export async function sharedSong(
 	share: ResolvedShare,
-	credential: StoredCredential
+	credential: StoredCredential,
+	position = 0
 ): Promise<Song | null> {
+	return (await sharedItem(share, credential))?.tracks[position] ?? null;
+}
+
+export interface SharedItem {
+	kind: ShareKind;
+	/** The song's title, or the album's or playlist's name. */
+	title: string;
+	/** The artist of a song or album; null for a playlist. */
+	subtitle: string | null;
+	coverArt: string | null;
+	/** In order, at most `MAX_SHARED_TRACKS`. One for a song link. */
+	tracks: Song[];
+}
+
+/**
+ * What a link is to, as the sharer's account sees it now, or null, on the
+ * same terms as `sharedSong`. The tracks are read on every request, so a
+ * track removed from the album, or a playlist its owner has reordered or can
+ * no longer see, is what the link serves from then on.
+ */
+export async function sharedItem(share: ResolvedShare, credential: StoredCredential): Promise<SharedItem | null> {
+	const backend = backendFor(share.backend);
 	try {
-		const [song] = await backendFor(share.backend).getSongs(credential, [share.songId]);
-		return song ?? null;
+		if (share.kind === 'album') {
+			const album = await backend.getAlbum(credential, share.itemId);
+			return {
+				kind: 'album',
+				title: album.name,
+				subtitle: album.artist,
+				coverArt: album.coverArt,
+				tracks: album.songs.slice(0, MAX_SHARED_TRACKS)
+			};
+		}
+		if (share.kind === 'playlist') {
+			const playlist = await backend.getPlaylist(credential, share.itemId);
+			return {
+				kind: 'playlist',
+				title: playlist.name,
+				subtitle: null,
+				coverArt: playlist.coverArt,
+				tracks: playlist.songs.slice(0, MAX_SHARED_TRACKS)
+			};
+		}
+		const [song] = await backend.getSongs(credential, [share.itemId]);
+		return song
+			? { kind: 'song', title: song.title, subtitle: song.artist, coverArt: song.coverArt, tracks: [song] }
+			: null;
 	} catch (err) {
 		if (err instanceof UpstreamError && (err.kind === 'auth' || err.kind === 'not_found')) {
 			return null;
@@ -200,7 +276,8 @@ export async function shareAccess(
 
 export interface OwnShare {
 	id: string;
-	songId: string;
+	kind: ShareKind;
+	itemId: string;
 	createdAt: number;
 	expiresAt: number;
 }
@@ -213,23 +290,30 @@ export async function listShares(accountId: string): Promise<OwnShare[]> {
 		now()
 	);
 	return rows.map((row) => ({
-			id: row.id,
-			songId: row.song_id,
-			createdAt: row.created_at,
-			expiresAt: row.expires_at
-		}));
+		id: row.id,
+		kind: kindOf(row),
+		itemId: row.song_id,
+		createdAt: row.created_at,
+		expiresAt: row.expires_at
+	}));
+}
+
+/** What a link is to, for the list in Settings. */
+export interface ShareSubject {
+	title: string;
+	subtitle: string | null;
+	coverArt: string | null;
 }
 
 export interface DescribedShare extends OwnShare {
-	/** Null when the music server no longer returns the song to its sharer. */
-	song: Song | null;
+	/** Null when the music server no longer returns the item to its sharer. */
+	item: ShareSubject | null;
 }
 
 /**
- * An account's links with the songs they point at, looked up with that
- * account's own credential. Titles are not stored with the link, so the
- * database holds an id per link and nothing a reader could take as a
- * listening history.
+ * An account's links with what they point at, looked up with that account's
+ * own credential. Titles are not stored with the link, so the database holds
+ * an id per link and nothing a reader could take as a listening history.
  *
  * A music server that fails here costs the titles and not the list: the links
  * are still shown, and can still be withdrawn.
@@ -239,24 +323,36 @@ export async function describeShares(session: AuthenticatedSession): Promise<Des
 	if (shares.length === 0) return [];
 
 	/*
-	 * One lookup per song. A batch fails whole on Subsonic when any one id is
+	 * One lookup per item. A batch fails whole on Subsonic when any one id is
 	 * gone, so a single removed track took every other link's title with it.
 	 * `mapLimited` holds this to the same fan-out as every other upstream burst.
 	 */
 	const backend = backendFor(session.account.backend);
-	const ids = [...new Set(shares.map((share) => share.songId))];
-	const found = await mapLimited(ids, async (id) => {
+	const cred = session.credential;
+	const keys = [...new Set(shares.map((share) => `${share.kind}:${share.itemId}`))];
+	const found = await mapLimited(keys, async (key): Promise<[string, ShareSubject | null]> => {
+		const [kind, ...rest] = key.split(':');
+		const id = rest.join(':');
 		try {
-			return (await backend.getSongs(session.credential, [id]))[0] ?? null;
+			if (kind === 'album') {
+				const album = await backend.getAlbum(cred, id);
+				return [key, { title: album.name, subtitle: album.artist, coverArt: album.coverArt }];
+			}
+			if (kind === 'playlist') {
+				const playlist = await backend.getPlaylist(cred, id);
+				return [key, { title: playlist.name, subtitle: null, coverArt: playlist.coverArt }];
+			}
+			const [song] = await backend.getSongs(cred, [id]);
+			return [key, song ? { title: song.title, subtitle: song.artist, coverArt: song.coverArt } : null];
 		} catch (err) {
 			if (!(err instanceof UpstreamError && err.kind === 'not_found')) {
 				log.warn('shares-describe-failed', { detail: reason(err) });
 			}
-			return null;
+			return [key, null];
 		}
 	});
-	const byId = new Map(found.filter((song): song is Song => song !== null).map((song) => [song.id, song]));
-	return shares.map((share) => ({ ...share, song: byId.get(share.songId) ?? null }));
+	const byKey = new Map(found);
+	return shares.map((share) => ({ ...share, item: byKey.get(`${share.kind}:${share.itemId}`) ?? null }));
 }
 
 /**

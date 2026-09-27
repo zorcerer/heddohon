@@ -5,6 +5,8 @@
 	import FavouriteButton from '$lib/components/FavouriteButton.svelte';
 	import MixButton from '$lib/components/MixButton.svelte';
 	import Icon from '$lib/components/Icon.svelte';
+	import { page } from '$app/state';
+	import { shareComposer } from '$lib/client/share.svelte';
 	import MediaCard from '$lib/components/MediaCard.svelte';
 	import MediaGrid from '$lib/components/MediaGrid.svelte';
 	import QualityBadge from '$lib/components/QualityBadge.svelte';
@@ -176,6 +178,24 @@
 					<span class="label">Add to playlist</span>
 				</button>
 				<MixButton of="album" id={album.id} />
+				{#if page.data.sharing}
+					<button
+						class="hh-button"
+						onclick={() =>
+							shareComposer.open({
+								kind: 'album',
+								id: album.id,
+								title: album.name,
+								subtitle: album.artist,
+								coverArt: album.coverArt
+							})}
+						aria-label="Share a link to this album"
+						title="Share"
+					>
+						<Icon name="share" size={16} />
+						<span class="label">Share</span>
+					</button>
+				{/if}
 				<FavouriteButton id={album.id} kind="album" starred={album.starred} size={20} />
 			</div>
 		</div>

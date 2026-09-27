@@ -200,8 +200,9 @@ which closes that. Switching between the two names signs sessions out once.
 
 ## Shared links
 
-A signed-in account can make a link to one song. Anyone who has the link can
-listen to that song without an account. The link is `/share/<token>`.
+A signed-in account can make a link to one song, one album or one playlist.
+Anyone who has the link can listen to it without an account. The link is
+`/share/<token>`.
 `HEDDOHON_SHARING=false` turns the feature off: new links are refused with a
 403, and every route under `/share` answers without resolving the token, so
 existing links stop opening. It is read at startup; the restart that applies it
@@ -210,26 +211,38 @@ ends any stream in progress. Rows are kept, and open again once it is `true`.
 | Property | Value |
 | --- | --- |
 | Token | 256 random bits, base64url, 43 characters |
-| Stored | `HMAC-SHA256(token)` under its own key, the song id, the owner and the expiry |
+| Stored | `HMAC-SHA256(token)` under its own key, the kind (song, album or playlist), its id, the owner and the expiry |
 | Lifetime | 1, 7 or 30 days, chosen when the link is made; anything else is refused |
 | Live links per account | 100 |
 | Withdrawal | The owner, from Settings, one link or all of them; streams in progress through the link are aborted |
-| Routes | `/share/<token>` (page), `/share/<token>/stream`, `/share/<token>/cover` |
+| Routes | `/share/<token>` (page), `/share/<token>/stream[/<n>]`, `/share/<token>/cover[/<n>]` |
+| Tracks served | An album's or playlist's first 500, by position `<n>` from 0 |
 
-**What a link grants.** The token is a bearer credential for one song. Its
-holder gets that song's title, artist, album, year, duration and audio format,
-its cover, and its audio as stored. The three routes read the song id from the
-row and fetch with the owner's stored credential, inside the process. No route
-under `/share` takes an id, a path or a write from the request, and every
-mutating method there is refused by the origin check or answers 405. The
-owner's credential, the upstream address and the upstream ids of the song, its
-album, its artist and its cover are not sent to the browser.
+**What a link grants.** The token is a bearer credential for one item: a song,
+an album or a playlist. Its holder gets the item's name and artist, and for
+each of its tracks the title, artist, album, year, duration and audio format,
+the cover and the audio as stored. The routes read the kind and the id from
+the row and fetch with the owner's stored credential, inside the process. The
+one thing a request names is a track's position, `<n>`: digits only, below
+500, looked up in the album or playlist as the owner's account returns it on
+that request, so it cannot reach a track outside the item. Anything else in
+that place is a 404. No route under `/share` takes an id, a path or a write
+from the request, and every mutating method there is refused by the origin
+check or answers 405. The owner's credential, the upstream address and the
+upstream ids of the item, its tracks, their albums, artists and covers are not
+sent to the browser.
+
+**A playlist link is the playlist as it is when opened.** It is read again on
+every request, so a track the owner adds or removes, or a new order, is what
+the link serves from then on. The share dialog says so. A link without a kind,
+made before albums and playlists could be shared, is a song link.
 
 - **`/share` is a public route.** The session gate does not apply under it. A
   path that leaves `/share` after decoding, such as `/share/%2e%2e/api/...`, is
   routed and gated as the path it resolves to.
-- **Made only for a song its owner can see.** Creating a link looks the song up
-  with the owner's credential first, so an arbitrary id does not become a row.
+- **Made only for what its owner can see.** Creating a link looks the song,
+  album or playlist up with the owner's credential first, so an arbitrary id
+  does not become a row.
 - **The owner's account is used for playback.** Upstream, a play through a link
   is a request by the owner's account. Heddohon does not report these plays to
   the music server. The audio is sent as the original file; transcoding
@@ -243,9 +256,10 @@ album, its artist and its cover are not sent to the browser.
   `private, max-age=300` on covers, so a withdrawn link stops working in the
   browser that played it. Shared covers bypass the cover cache.
 - **Every stream request is checked three ways.** The token is resolved, and
-  the song is looked up with the owner's credential, on each request, so a
-  song the owner can no longer see stops playing even where the upstream's
-  audio endpoint does not apply library permissions. A stream in progress is
+  the track is looked up in the owner's song, album or playlist with the
+  owner's credential, on each request, so a track the owner can no longer see
+  stops playing even where the upstream's audio endpoint does not apply
+  library permissions. A stream in progress is
   registered against its link and aborted when the link is withdrawn, and the
   expiry is checked on each chunk. A browser plays a track as one open-ended
   range, so a check at the start of the request alone let a withdrawn link
