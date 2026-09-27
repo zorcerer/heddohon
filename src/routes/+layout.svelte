@@ -13,6 +13,7 @@
 	} from '$lib/client/sleeve-transition.svelte';
 	import { handOff } from '$lib/client/handoff';
 	import { sheetDrag } from '$lib/client/sheet.svelte';
+	import { morphSheet, sheetMorph } from '$lib/client/sheet-morph.svelte';
 	import { installPress } from '$lib/client/press';
 	import Cover from '$lib/components/Cover.svelte';
 	import Icon from '$lib/components/Icon.svelte';
@@ -359,6 +360,30 @@
 	});
 
 	/*
+	 * On a phone the sheet turns into the dock as it closes and back out of it
+	 * as it opens (`client/sheet-morph.svelte.ts`), whatever opened or closed
+	 * it: the dock, the chevron, a pull, a link. Watched here, before the page
+	 * is updated, so the wrapper is held for the morph in the same update that
+	 * would otherwise start the CSS slide.
+	 *
+	 * Not the change `attach()` makes as it learns the width: on a phone that
+	 * closes the sheet the server rendered open, and nobody saw it open.
+	 */
+	let wasOpen = untrack(() => player.panelOpen);
+	let wasKnown = untrack(() => player.viewportKnown);
+	$effect.pre(() => {
+		const open = player.panelOpen;
+		const known = player.viewportKnown;
+		const changed = open !== wasOpen && wasKnown;
+		wasOpen = open;
+		wasKnown = known;
+		if (!changed) return;
+		untrack(() => {
+			if (player.sheetLayout && player.current && !prefersReducedMotion()) morphSheet(open);
+		});
+	});
+
+	/*
 	 * On a phone the sheet covers the page, so a link followed from inside it
 	 * (the artist, the album, the artwork) opened a page nobody could see until
 	 * the sheet was pulled down by hand. It goes down on its own instead, and
@@ -465,6 +490,8 @@
 		<div
 			class="player"
 			class:dragging={sheetDrag.offset !== null}
+			class:morphing={sheetMorph.phase === 'morphing'}
+			class:parking={sheetMorph.phase === 'parking'}
 			style:translate={sheetDrag.offset !== null ? `0 ${sheetDrag.offset}px` : undefined}
 		>
 			<div class="dock">
@@ -991,6 +1018,24 @@
 		 * with the class, so a release carries on from where the finger let go.
 		 */
 		.player.dragging {
+			transition: none;
+		}
+
+		/*
+		 * Turning into the dock or out of it (`client/sheet-morph.svelte.ts`):
+		 * held where the morph's transform can move it, whichever way
+		 * `player-open` says it is going. Then, for one frame after a close,
+		 * the closed state lands without its slide.
+		 */
+		.app .player.morphing,
+		.app:not(.player-open) .player.morphing {
+			translate: none;
+			visibility: visible;
+			transition: none;
+		}
+
+		.app .player.parking,
+		.app:not(.player-open) .player.parking {
 			transition: none;
 		}
 

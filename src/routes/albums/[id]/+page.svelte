@@ -196,7 +196,7 @@
 					eyebrow="More from"
 					href="/artists/{album.artistId}"
 				/>
-				<MediaGrid density="compact">
+				<MediaGrid density="compact" wholeRows>
 					{#each artistAlbums as other (other.id)}
 						<MediaCard
 							href="/albums/{other.id}"
@@ -224,7 +224,7 @@
 				<SectionHeader title="You might like" eyebrow="Related" />
 				<!-- Compact: a suggestion is secondary to the page it sits under, and at
 				     this size the whole shelf fits without dominating the scroll. -->
-				<MediaGrid density="compact">
+				<MediaGrid density="compact" wholeRows>
 					{#each similar as suggestion (suggestion.id)}
 						<MediaCard
 							href="/albums/{suggestion.id}"

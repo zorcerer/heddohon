@@ -1183,6 +1183,58 @@ describe('moving between pages', () => {
 	});
 });
 
+describe('a capped section of albums', () => {
+	/*
+	 * "You might like" asks for eight. Rows of three on a phone left two cards
+	 * and an empty third of a row; rows of seven at 1440 left one on a row of
+	 * its own. The section shows whole rows only.
+	 */
+	const suggestions = (page) =>
+		page.evaluate(() => {
+			const heading = [...document.querySelectorAll('h2')].find((h) => h.textContent === 'You might like');
+			const grid = heading?.closest('section')?.querySelector('.grid');
+			if (!grid) return null;
+			const shown = [...grid.children].filter((card) => getComputedStyle(card).display !== 'none').length;
+			const columns = getComputedStyle(grid).gridTemplateColumns.split(' ').length;
+			return { total: grid.children.length, shown, columns };
+		});
+
+	before(() => {
+		subsonic.state.similarAlbums = 8;
+	});
+
+	after(() => {
+		subsonic.state.similarAlbums = 0;
+	});
+
+	for (const [label, viewport, mobile] of [
+		['on a phone', { width: 393, height: 852 }, true],
+		['at 1440px', { width: 1440, height: 900 }, false]
+	]) {
+		test(`shows whole rows only, ${label}`, async () => {
+			const view = await browser.newContext({ viewport, isMobile: mobile, hasTouch: mobile });
+			const signIn = await view.request.post(`${app.url}/login`, {
+				form: { username: 'testuser', password: 'testpass', backend: 'subsonic', next: '/' },
+				headers: { origin: app.url, accept: 'text/html' },
+				maxRedirects: 0
+			});
+			assert.equal(signIn.status(), 303);
+			const page = await view.newPage();
+			try {
+				await page.goto(app.url + '/albums/al26', { waitUntil: 'networkidle' });
+				await page.waitForFunction(() => [...document.querySelectorAll('h2')].some((h) => h.textContent === 'You might like'));
+				const seen = await suggestions(page);
+				assert.equal(seen.total, 8, `the section has ${seen.total} albums`);
+				assert.equal(seen.shown % seen.columns, 0, `${seen.shown} shown in rows of ${seen.columns}`);
+				assert.equal(seen.shown, seen.total - (seen.total % seen.columns));
+				if (mobile) assert.equal(seen.shown, 6);
+			} finally {
+				await view.close();
+			}
+		});
+	}
+});
+
 describe('the phone dock on a wide screen', () => {
 	test('is not shown, and the rail is', async () => {
 		const { page, problems } = await watchedPage();
@@ -1456,6 +1508,48 @@ describe('on a phone', () => {
 				await page.waitForTimeout(600);
 				assert.equal(await sheetOpen(page), false, 'a 260px pull did not close the sheet');
 				assert.equal(page.url(), url, 'the pull followed the artwork link');
+			} finally {
+				await page.close();
+			}
+			assert.deepEqual(problems, []);
+		});
+
+		test('the sheet closes into the dock, and leaves nothing behind', async () => {
+			const { page, problems } = await phonePage('/');
+			try {
+				await playAlbum(page, 17);
+				await tap(page, page.locator('#dock-open'));
+				await page.waitForTimeout(700);
+
+				await tap(page, page.locator('#player-hide'));
+				await page.waitForTimeout(120);
+				const midway = await page.evaluate(() => {
+					const wrapper = document.querySelector('.app > .player');
+					const dock = document.querySelector('.phone-dock').getBoundingClientRect();
+					const sheet = wrapper.getBoundingClientRect();
+					return {
+						ghost: document.querySelectorAll('.hh-cover-ghost').length,
+						translate: getComputedStyle(wrapper).translate,
+						// Shrinking toward the dock, not sliding down past it.
+						shrinking: sheet.height < innerHeight - 24 && sheet.top > 12 && sheet.bottom <= dock.bottom + 1
+					};
+				});
+				assert.equal(midway.ghost, 1, 'no cover flying to the dock');
+				assert.equal(midway.translate, 'none', 'the sheet is sliding, not morphing');
+				assert.ok(midway.shrinking, 'the sheet is not shrinking into the dock');
+
+				await page.waitForTimeout(700);
+				const after = await page.evaluate(() => {
+					const wrapper = document.querySelector('.app > .player');
+					return {
+						ghost: document.querySelectorAll('.hh-cover-ghost').length,
+						visibility: getComputedStyle(wrapper).visibility,
+						transform: getComputedStyle(wrapper).transform,
+						held: wrapper.classList.contains('morphing') || wrapper.classList.contains('parking')
+					};
+				});
+				assert.deepEqual(after, { ghost: 0, visibility: 'hidden', transform: 'none', held: false });
+				assert.equal(await page.locator('.phone-dock').isVisible(), true, 'the dock is not back');
 			} finally {
 				await page.close();
 			}

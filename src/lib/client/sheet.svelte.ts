@@ -29,6 +29,15 @@ const SLOP = 8;
 
 export const sheetDrag = $state<{ offset: number | null }>({ offset: null });
 
+/** Where the last pull let go, read once by the morph that follows it. */
+let releasedAt = 0;
+
+export function takeRelease(): number {
+	const offset = releasedAt;
+	releasedAt = 0;
+	return offset;
+}
+
 interface Gesture {
 	pointerId: number;
 	startY: number;
@@ -85,6 +94,8 @@ function end(event: PointerEvent) {
 	gesture = null;
 	if (!pulling) return;
 	swallowClick = true;
+	// For the morph into the dock, which starts from here rather than from the top.
+	releasedAt = offset;
 	// The class that turns the transition back on and the offset go together,
 	// so the sheet travels from where the finger left it: shut, or back up.
 	sheetDrag.offset = null;
