@@ -37,6 +37,7 @@ export interface SessionRow {
 	expires_at: number;
 	last_seen_at: number;
 	client_pseudonym: string | null;
+	device: string | null;
 }
 
 export interface ShareRow {
@@ -67,7 +68,9 @@ CREATE TABLE IF NOT EXISTS sessions (
   created_at        INTEGER NOT NULL,
   expires_at        INTEGER NOT NULL,
   last_seen_at      INTEGER NOT NULL,
-  client_pseudonym  TEXT
+  client_pseudonym  TEXT,
+  -- "Firefox on Android", for the list in Settings; see device.ts.
+  device            TEXT
 );
 CREATE INDEX IF NOT EXISTS sessions_account_idx ON sessions(account_id);
 CREATE INDEX IF NOT EXISTS sessions_expiry_idx ON sessions(expires_at);
@@ -121,6 +124,31 @@ CREATE TABLE IF NOT EXISTS meta (
 );
 `;
 
+/**
+ * Columns added to a table after it first shipped. `CREATE TABLE IF NOT EXISTS`
+ * leaves a table that is already there as it was, so a database from an
+ * earlier version is given each of these when it opens. New ones go at the
+ * end; each is nullable, so rows written before it read as null.
+ */
+const ADDED_COLUMNS: { table: string; column: string; type: string }[] = [
+	{ table: 'sessions', column: 'device', type: 'TEXT' }
+];
+
+function addColumnsSqlite(instance: Database.Database) {
+	for (const { table, column, type } of ADDED_COLUMNS) {
+		const present = (instance.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).some(
+			(info) => info.name === column
+		);
+		if (!present) instance.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+	}
+}
+
+async function addColumnsPostgres(pool: pg.Pool) {
+	for (const { table, column, type } of ADDED_COLUMNS) {
+		await pool.query(`ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS ${column} ${type}`);
+	}
+}
+
 /** The PostgreSQL schema Heddohon keeps its tables in. */
 const SCHEMA = 'heddohon';
 
@@ -150,6 +178,7 @@ function openSqlite(file: string): Database.Database {
 	instance.pragma('foreign_keys = ON');
 	instance.pragma('busy_timeout = 5000');
 	instance.exec(SQLITE_SCHEMA);
+	addColumnsSqlite(instance);
 	return instance;
 }
 
@@ -305,6 +334,7 @@ async function open(): Promise<Store> {
 
 	await pool.query(`CREATE SCHEMA IF NOT EXISTS ${SCHEMA}`);
 	await pool.query(POSTGRES_SCHEMA);
+	await addColumnsPostgres(pool);
 	if (database.importSqlite) await importFromSqlite(pool);
 	log.info('database', { kind: 'postgres', at: database.label, schema: SCHEMA });
 

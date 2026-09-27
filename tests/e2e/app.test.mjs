@@ -792,3 +792,129 @@ describe('sessions ending', () => {
 		assert.equal(after.status, 303);
 	});
 });
+
+describe('signed in on', () => {
+	const FIREFOX_ANDROID = 'Mozilla/5.0 (Android 15; Mobile; rv:143.0) Gecko/143.0 Firefox/143.0';
+	const SAFARI_IPHONE =
+		'Mozilla/5.0 (iPhone; CPU iPhone OS 26_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Mobile/15E148 Safari/604.1';
+
+	/** A client signed in with `userAgent`, as a browser of that kind would be. */
+	async function signedIn(userAgent, account = { username: 'testuser', password: 'testpass', backend: 'subsonic' }) {
+		const client = new Client(app.url);
+		const response = await client.request('/login', {
+			method: 'POST',
+			headers: {
+				'content-type': 'application/x-www-form-urlencoded',
+				accept: 'text/html',
+				'user-agent': userAgent
+			},
+			body: new URLSearchParams({ ...account, next: '/' }).toString()
+		});
+		assert.equal(response.status, 303, explain('sign-in failed'));
+		return client;
+	}
+
+	/** The handles the settings page offers to sign out, in its order. */
+	async function handles(client) {
+		const { html } = await client.page('/settings');
+		return [...html.matchAll(/name="handle" value="([0-9a-f]{16})"/g)].map((match) => match[1]);
+	}
+
+	async function action(client, name, fields = {}) {
+		const response = await client.request(`/settings?/${name}`, {
+			method: 'POST',
+			headers: {
+				'content-type': 'application/x-www-form-urlencoded',
+				accept: 'application/json',
+				'x-sveltekit-action': 'true'
+			},
+			body: new URLSearchParams(fields).toString()
+		});
+		return { status: response.status, result: await response.json() };
+	}
+
+	const signedOut = async (client) => (await client.request('/', { headers: { accept: 'text/html' } })).status === 303;
+
+	test('settings lists each browser by name, and marks this one', async () => {
+		const phone = await signedIn(FIREFOX_ANDROID);
+		const iphone = await signedIn(SAFARI_IPHONE);
+		const { html } = await phone.page('/settings');
+		assert.match(html, /Firefox on Android/);
+		assert.match(html, /Safari on iPhone/);
+		assert.match(html, /This browser/);
+		// This browser has no sign-out button of its own in the list; the other does.
+		assert.ok((await handles(phone)).length >= 1);
+		assert.ok(!html.includes('Mozilla/5.0'), 'the whole user agent reached the page');
+		await iphone.request('/logout', { method: 'POST' });
+		await phone.request('/logout', { method: 'POST' });
+	});
+
+	test('another browser can be signed out, and only that one', async () => {
+		const phone = await signedIn(FIREFOX_ANDROID);
+		const iphone = await signedIn(SAFARI_IPHONE);
+		// Each browser is offered every session but its own, so the iPhone's is
+		// the one the phone is offered and the iPhone is not.
+		const iphoneSees = new Set(await handles(iphone));
+		const target = (await handles(phone)).find((handle) => !iphoneSees.has(handle));
+		assert.ok(target, 'no handle for the other browser');
+
+		const ended = await action(phone, 'endSession', { handle: target });
+		assert.equal(ended.result.type, 'success', JSON.stringify(ended.result));
+		assert.equal(await signedOut(iphone), true, 'the iPhone is still signed in');
+		assert.equal(await signedOut(phone), false, 'the phone signed itself out');
+		await phone.request('/logout', { method: 'POST' });
+	});
+
+	test('a handle that is not one of the account\'s own ends nothing', async () => {
+		const phone = await signedIn(FIREFOX_ANDROID);
+		const other = await signedIn(SAFARI_IPHONE, { username: 'jfuser', password: 'jfpass', backend: 'jellyfin' });
+		const otherHandles = await handles(await signedIn(FIREFOX_ANDROID, { username: 'jfuser', password: 'jfpass', backend: 'jellyfin' }));
+		assert.ok(otherHandles.length > 0);
+
+		for (const handle of [...otherHandles, 'ffffffffffffffff', 'not-a-handle', '']) {
+			const attempt = await action(phone, 'endSession', { handle });
+			assert.equal(attempt.result.type, 'failure', `${handle}: ${JSON.stringify(attempt.result)}`);
+		}
+		assert.equal(await signedOut(other), false, 'a session of another account ended');
+		await other.request('/logout', { method: 'POST' });
+		await phone.request('/logout', { method: 'POST' });
+	});
+
+	test('"everywhere else" leaves this browser signed in and the rest out', async () => {
+		const here = await signedIn(FIREFOX_ANDROID);
+		const others = [await signedIn(SAFARI_IPHONE), await signedIn(SAFARI_IPHONE)];
+		const ended = await action(here, 'endOtherSessions');
+		assert.equal(ended.result.type, 'success');
+		for (const client of others) assert.equal(await signedOut(client), true, 'another browser is still signed in');
+		assert.equal(await signedOut(here), false, 'this browser was signed out');
+		assert.deepEqual(await handles(here), [], 'the list still offers another session');
+	});
+
+	test('a database from before the device column opens and records it', async () => {
+		const { default: Database } = await import('better-sqlite3');
+		const { mkdtempSync } = await import('node:fs');
+		const { tmpdir } = await import('node:os');
+		const { join } = await import('node:path');
+		const dataDir = mkdtempSync(join(tmpdir(), 'heddohon-e2e-old-'));
+		const old = new Database(join(dataDir, 'heddohon.db'));
+		old.exec(`CREATE TABLE sessions (
+			token_digest TEXT PRIMARY KEY, account_id TEXT NOT NULL, created_at INTEGER NOT NULL,
+			expires_at INTEGER NOT NULL, last_seen_at INTEGER NOT NULL, client_pseudonym TEXT)`);
+		old.close();
+
+		const upgraded = await startApp({ subsonicUrl: subsonic.url, jellyfinUrl: jellyfin.url, dataDir });
+		try {
+			const client = new Client(upgraded.url);
+			const response = await client.request('/login', {
+				method: 'POST',
+				headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'text/html', 'user-agent': FIREFOX_ANDROID },
+				body: new URLSearchParams({ username: 'testuser', password: 'testpass', backend: 'subsonic', next: '/' }).toString()
+			});
+			assert.equal(response.status, 303, upgraded.output());
+			const { html } = await client.page('/settings');
+			assert.match(html, /Firefox on Android/);
+		} finally {
+			await upgraded.stop();
+		}
+	});
+});

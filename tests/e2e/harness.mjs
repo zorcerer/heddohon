@@ -25,11 +25,13 @@ function freePort() {
 }
 
 /** Starts the app and resolves once `/healthz` answers. */
-export async function startApp({ subsonicUrl, jellyfinUrl, env = {} }) {
+export async function startApp({ subsonicUrl, jellyfinUrl, env = {}, dataDir: given = null }) {
 	if (!existsSync(BUILD)) throw new Error('build/index.js is missing. Run `npm run build` first.');
 	const port = await freePort();
 	const url = `http://127.0.0.1:${port}`;
-	const dataDir = mkdtempSync(join(tmpdir(), 'heddohon-e2e-'));
+	// A directory of the caller's, for a database that has to be there before
+	// the app opens it (an upgrade from an earlier schema).
+	const dataDir = given ?? mkdtempSync(join(tmpdir(), 'heddohon-e2e-'));
 
 	const child = spawn(process.execPath, [BUILD], {
 		env: {
