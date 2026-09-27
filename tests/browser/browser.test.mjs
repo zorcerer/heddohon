@@ -1142,11 +1142,15 @@ describe('sliders and the playlist picker', () => {
 
 			await row.click();
 			await page.locator('dialog.picker .row.added').waitFor({ timeout: 5000 });
-			await page.waitForTimeout(500);
+			// Until the fade has finished. A fixed 500ms read 0.99 on a slow CI runner.
+			await page.waitForFunction(
+				() => getComputedStyle(document.querySelector('dialog.picker .row.added .check')).opacity === '1',
+				null,
+				{ timeout: 3000 }
+			);
 			const check = await page
 				.locator('dialog.picker .row.added .check')
-				.evaluate((el) => ({ opacity: getComputedStyle(el).opacity, width: el.getBoundingClientRect().width }));
-			assert.equal(check.opacity, '1');
+				.evaluate((el) => ({ width: el.getBoundingClientRect().width }));
 			assert.ok(check.width > 10, 'the check did not open beside the name');
 		} finally {
 			await page.close();
