@@ -180,6 +180,19 @@ logged. Links, settings and the queue are kept; see [Known gaps](#known-gaps).
 The shipped image sets `NODE_ENV=production`, so a deployment reached over plain
 http needs `HEDDOHON_COOKIE_SECURE=false`.
 
+**Settings lists the account's sessions** that have not expired, most recently
+used first: when each signed in and was last used (to the minute), and a label
+for the browser, such as "Firefox on Android". The label is the browser's
+family and the platform, taken from the `User-Agent` header at sign-in; the
+header itself is not stored, and versions and device models are not kept. A
+header it does not recognise stores nothing, and the list says "Unknown
+browser". Any other session can be signed out from the list, or all of them but
+the current one. The page names each session by a handle, 16 hex characters of
+a SHA-256 of the stored digest, so it holds neither the token nor the digest,
+and a handle is matched against the signed-in account's own sessions only: one
+from another account, or none at all, ends nothing. Ending a session deletes its
+row, and the next request from that browser goes to the sign-in page.
+
 **One cookie name is read.** Accepting both names would let a sibling subdomain
 plant `heddohon_session` with `Domain=.example.com` and pin a session that
 signing out cannot clear. Browsers refuse a `__Host-` cookie with a `Domain`,
@@ -582,7 +595,8 @@ session token and any `u`, `t`, `s` or `p` query parameter.
   three shortcut paths.
 - **Concurrent streams per account are uncapped.** Cap them at the proxy for wide exposure.
 - **Authentication is as strong as the upstream account.** There is no second
-  factor, sign-in notification or "sign out everywhere".
+  factor or sign-in notification. Settings lists the account's sessions and
+  signs out any of them, or all but the current one; see [Sessions](#sessions).
 - **The database is unencrypted at rest**, whether a SQLite file or PostgreSQL. Credentials inside it are sealed;
   usernames, settings and queues are plaintext.
 - **`npm audit --omit=dev` under-reports.** SvelteKit is a devDependency bundled
