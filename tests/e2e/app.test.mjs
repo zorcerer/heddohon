@@ -843,6 +843,73 @@ describe('links to albums and playlists', () => {
 		assert.match(html, /Album 8/);
 		assert.match(html, /Album ·/);
 		await user.request(`/api/shares/${album.body.id}`, { method: 'DELETE' });
+describe('reordering a playlist', () => {
+	const move = (client, id, body) => client.json(`/api/playlists/${id}/tracks`, 'PATCH', body);
+
+	test('an entry moves, and the playlist is written back in the new order', async () => {
+		subsonic.state.playlistEntries = ['s1a', 's2a', 's3a'];
+		try {
+			const response = await move(user, 'pl1', { from: 0, to: 2, songId: 's1a', count: 3 });
+			assert.equal(response.status, 200, explain('move failed'));
+			assert.deepEqual(subsonic.state.playlistEntries, ['s2a', 's3a', 's1a']);
+			assert.equal(subsonic.state.lastRequest.post, false, 'a short playlist went as a form');
+		} finally {
+			subsonic.state.playlistEntries = ['s1a', 's2a'];
+		}
+	});
+
+	test('a playlist changed since the page loaded is refused and left alone', async () => {
+		subsonic.state.playlistEntries = ['s1a', 's2a', 's3a'];
+		try {
+			// Another song at `from` now, and one entry more than the page saw.
+			for (const body of [
+				{ from: 0, to: 1, songId: 's9a', count: 3 },
+				{ from: 0, to: 1, songId: 's1a', count: 2 },
+				{ from: 0, to: 5, songId: 's1a', count: 3 }
+			]) {
+				const response = await move(user, 'pl1', body);
+				assert.equal(response.status, 409, JSON.stringify(body));
+			}
+			assert.deepEqual(subsonic.state.playlistEntries, ['s1a', 's2a', 's3a']);
+		} finally {
+			subsonic.state.playlistEntries = ['s1a', 's2a'];
+		}
+	});
+
+	test('a long playlist is written as a form rather than a URL', async () => {
+		const ids = Array.from({ length: 160 }, (_, i) => `s${i % 40}${String.fromCharCode(97 + Math.floor(i / 40))}`);
+		subsonic.state.playlistEntries = [...ids];
+		try {
+			const response = await move(user, 'pl1', { from: 159, to: 0, songId: ids[159], count: 160 });
+			assert.equal(response.status, 200, explain('long move failed'));
+			assert.equal(subsonic.state.lastRequest.post, true, 'the rewrite went in the URL');
+			assert.deepEqual(subsonic.state.playlistEntries, [ids[159], ...ids.slice(0, 159)]);
+		} finally {
+			subsonic.state.playlistEntries = ['s1a', 's2a'];
+		}
+	});
+
+	test('the positions have to be two different places in the list', async () => {
+		for (const body of [
+			{ from: 1, to: 1, songId: 's2a', count: 2 },
+			{ from: -1, to: 0, songId: 's1a', count: 2 },
+			{ from: 0, to: 1.5, songId: 's1a', count: 2 },
+			{ from: 0, to: 1, count: 2 }
+		]) {
+			assert.equal((await move(user, 'pl1', body)).status, 400, JSON.stringify(body));
+		}
+	});
+
+	test('Jellyfin moves the entry in place, by its entry id', async () => {
+		const client = new Client(app.url);
+		await client.signIn({ username: 'jfuser', password: 'jfpass', backend: 'jellyfin' });
+		const response = await move(client, 'jpl', { from: 0, to: 2, songId: 'jt1', count: 3 });
+		assert.equal(response.status, 200, explain('Jellyfin move failed'));
+		assert.equal(jellyfin.calls.get('POST /Playlists/jpl/Items/e1/Move/2'), 1);
+		// The page's view is now stale: the first entry is jt2.
+		const stale = await move(client, 'jpl', { from: 0, to: 1, songId: 'jt1', count: 3 });
+		assert.equal(stale.status, 409);
+		await move(client, 'jpl', { from: 2, to: 0, songId: 'jt1', count: 3 });
 	});
 });
 
