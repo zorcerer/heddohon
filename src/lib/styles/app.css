@@ -90,13 +90,6 @@
 	 * than a 5000px-wide rule with a heading at one end of it.
 	 */
 	--grid-max: 160rem;
-	/*
-	 * Vertical room the nav takes. Zero on a wide screen, where the rail is a
-	 * side column and costs no height; a real value once it folds into a top
-	 * bar. Anything floating over the page subtracts this so it does not cover
-	 * the only way out of itself.
-	 */
-	--rail-height: 0rem;
 	/* The air around every floating panel. One value keeps them aligned. */
 	--float-gap: 0.75rem;
 	/*
@@ -178,12 +171,13 @@
 @media (max-width: 60rem) {
 	:root {
 		/*
-		 * Sized from the touch target rather than chosen: 44px per control plus
-		 * the rail's own padding and a little air. The rail is pinned to this in
-		 * `Sidebar.svelte`, so the token cannot drift from the thing it
-		 * describes, and everything floating over the page subtracts it.
+		 * The phone dock (`PhoneDock.svelte`): the row with what is playing, and
+		 * the row of destinations under it. Each is a 44px target and the air
+		 * around it. The layout pads the foot of the page by the dock's height
+		 * so the last row of a page can be scrolled clear of it.
 		 */
-		--rail-height: 4.5rem;
+		--dock-now: 3.75rem;
+		--dock-tabs: 3.5rem;
 	}
 }
 

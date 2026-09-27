@@ -29,6 +29,7 @@
 	import { playlistPicker } from '$lib/client/playlists.svelte';
 	import { prefersReducedMotion } from '$lib/client/sleeve-transition.svelte';
 	import { shareComposer } from '$lib/client/share.svelte';
+	import { pullHandlers } from '$lib/client/sheet.svelte';
 	import { page } from '$app/state';
 	import { DUR, EASE_OUT_CSS, easeExit, easeOut, motion } from '$lib/client/motion';
 	import { flip } from 'svelte/animate';
@@ -107,6 +108,14 @@
 	 * is the one piece of transport that is worse for being tidied away.
 	 */
 	let volumeOpen = $state(true);
+	/*
+	 * Folded on a phone, where the sheet is the whole screen and the side
+	 * buttons set the level. iOS does not let a page set the volume at all, so
+	 * there the slider moved and the sound did not.
+	 */
+	$effect(() => {
+		if (player.sheetLayout) untrack(() => (volumeOpen = false));
+	});
 	let sleepOpen = $state(false);
 
 	/*
@@ -145,6 +154,8 @@
 		// The sliver left behind on the right-hand edge is what reopens it, so
 		// that is where the keyboard goes once this button is inert.
 		void handOff('player-grip');
+		// On a phone there is no sliver: the dock at the foot of the screen reopens it.
+		void handOff('dock-open');
 	}
 
 	function showLyrics() {
@@ -267,6 +278,15 @@
 </script>
 
 <aside class="panel hh-glass hh-glass--deep hh-tint-morph hh-float" aria-label="Now playing">
+	<!--
+		The handle a phone pulls the sheet down by, over the top of the artwork.
+		A tap on it closes the sheet too. It is a second way to do what the
+		chevron in the tool row does, for a finger, so it stays out of the tab
+		order and the accessibility tree, where that chevron already is.
+	-->
+	<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+	<div class="grabber" aria-hidden="true" onclick={hidePanel} {...pullHandlers}><span></span></div>
+
 	<!-- The stage: artwork, or the queue in its place. -->
 	<div class="stage">
 		{#if lyricsWindow.open}
@@ -346,6 +366,9 @@
 		{:else}
 			<a
 				class="art layer"
+				{...pullHandlers}
+				draggable="false"
+				ondragstart={(event) => event.preventDefault()}
 				in:lift={{ duration: DUR.state, distance: 0 }}
 				out:lift={{ duration: DUR.hover, distance: 0, leaving: true }}
 				href={song?.albumId ? `/albums/${song.albumId}` : '#'}
@@ -679,7 +702,10 @@
 				aria-label="Hide the player"
 				title="Hide the player"
 			>
-				<Icon name="chevron-right" size={18} />
+				<!-- Down on a phone, where the sheet goes down; right beside the page,
+				     where the panel goes off the right-hand edge. -->
+				<span class="beside"><Icon name="chevron-right" size={18} /></span>
+				<span class="below"><Icon name="chevron-down" size={18} /></span>
 			</button>
 		</div>
 
@@ -1408,6 +1434,16 @@
 		color: var(--danger);
 	}
 
+	/* The phone's handle and its downward chevron; see the narrow rules below. */
+	.grabber,
+	.below {
+		display: none;
+	}
+
+	.beside {
+		display: grid;
+	}
+
 	/* ── Narrow ──────────────────────────────────────────────────────── */
 
 	/*
@@ -1425,6 +1461,54 @@
 		 */
 		.panel {
 			--glass-base: 92%;
+		}
+
+		/*
+		 * The handle, a short bar across the top of the artwork where a sheet's
+		 * handle is on every phone. The strip it sits in is the whole width and
+		 * 28px tall, so the thumb does not have to find the bar itself.
+		 */
+		.grabber {
+			display: block;
+			position: absolute;
+			inset: 0 0 auto;
+			height: 1.75rem;
+			z-index: 3;
+			touch-action: none;
+		}
+
+		.grabber span {
+			position: absolute;
+			top: 0.5rem;
+			left: 50%;
+			width: 2.5rem;
+			height: 5px;
+			margin-left: -1.25rem;
+			border-radius: var(--r-pill);
+			background: rgb(255 255 255 / 0.62);
+			box-shadow: 0 1px 3px rgb(0 0 0 / 0.35);
+		}
+
+		/* Pulled down by, as well as the handle: it is most of the top of the
+		   sheet, and the first place a thumb goes. It is a link, so the press
+		   that starts a pull must not start dragging the link or its picture
+		   (which cancels the pull) or bring up iOS's link preview. */
+		.art {
+			touch-action: none;
+			-webkit-touch-callout: none;
+			-webkit-user-drag: none;
+		}
+
+		.art :global(img) {
+			-webkit-user-drag: none;
+		}
+
+		.beside {
+			display: none;
+		}
+
+		.below {
+			display: grid;
 		}
 	}
 </style>

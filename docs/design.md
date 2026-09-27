@@ -69,14 +69,14 @@ soft drop shadow. The content column is the one thing that is not a panel
 freely behind the panels and the blur has real artwork to work with.
 
 On a phone the page scrolls as a document rather than inside the column, and
-the rail stays pinned over it. Safari on iOS 26 draws the page behind its
-toolbar and under the status bar only from the document's own scroll, and it
-folds the toolbar away on that scroll. The gutter is measured from the safe
-area, so the panels stay clear of the notch and the home indicator while the
-room runs to the edges of the screen. What Safari shows in the strip under the
-status bar and the band behind its toolbar is the page's background colour,
-which carries the room's colour at the share its edges average, half the
-ambient strength.
+the dock stays pinned over its foot (see **On a phone** below). Safari on iOS
+26 draws the page behind its toolbar and under the status bar only from the
+document's own scroll, and it folds the toolbar away on that scroll. The
+gutter is measured from the safe area, so the panels stay clear of the notch
+and the home indicator while the room runs to the edges of the screen. What
+Safari shows in the strip under the status bar and the band behind its
+toolbar is the page's background colour, which carries the room's colour at
+the share its edges average, half the ambient strength.
 
 **Every page is centred in that column, and each page states its own maximum
 width.** The centring is one rule in the layout rather than a declaration in
@@ -164,6 +164,60 @@ tracked by a per-card token rather than by album id alone. And the return leg is
 armed from the departure: the album page records where it was opened from, so a
 `popstate` back to that exact URL re-claims the same token on the grid card it
 came from, while a back to anywhere else is an ordinary navigation.
+
+### On a phone
+
+At 60rem and below, the rail and the docked player give way to one floating
+slab at the foot of the screen, `PhoneDock`: a row with what is playing, and
+four tabs under it. It replaced a bar of nine icons pinned across the top,
+which put every destination at the end of the screen furthest from the thumb
+and left nothing of the player on screen once its sheet was closed. Pausing
+meant finding a waveform among eight other glyphs and opening a sheet over the
+page to press one button. On a 393px screen the bar also ran out of room: once
+the waveform was showing, Search was pushed past the right-hand edge.
+
+**Four tabs, with their words.** Home, Library, Favourites and Search. Albums,
+artists, playlists and genres are one tab, Library, which opens a page of four
+doors and two shelves (the newest albums, the most recently changed
+playlists); Settings is reached from there and from a button in the corner of
+the home page. Four with labels fit a 320px screen at 80px each. The tab for
+the page you are on sits on a pill of the room's colour, which slides to the
+next tab on the spring rather than going out here and coming on there. Any
+page under the Library, and Settings, lights the Library tab.
+
+**What is playing is always one tap away.** The cover, the title and artist,
+play or pause and skip, with a 2px line along the foot of the row for how far
+in the track is. The skip glyph is two triangles: the transport's `next` draws
+as one triangle at this size and read as a second play button. A tap opens the
+sheet, a swipe sideways goes to the next or the previous track (56px, the
+title following the finger until it goes), and a swipe up opens the sheet.
+
+**The tabs fold away while you read.** Scrolling down a page, past the first
+half-screen, folds the tab row to nothing and leaves the playing row;
+scrolling back up by 24px brings it back, as Safari's own toolbar does on the
+same scroll. It never folds with nothing playing, or at the foot of a page.
+
+**The sheet is the whole screen and comes down under a thumb.** It covers the
+dock, with the same gap around it as every other panel, and a handle across
+the top of the artwork. A pull on the handle or the artwork follows the
+finger, and closes the sheet past 140px or on a flick faster than 600pt a
+second; a shorter pull springs back. The artwork is a link to the album, and a
+pull that starts on it does not follow it. Any link followed from inside the
+sheet closes it, so the page it opened is what is on screen. The volume slider
+is folded on a phone, since the side buttons set the level and iOS does not
+let a page set it at all.
+
+The dock is as dense as the sheet, 88 percent opaque rather than the docked
+panel's 66: at 66 a row of titles scrolling under it read through the tab
+labels. It is hidden under the open sheet, whose tool row showed the tab
+labels through it. On a tablet held upright, which also falls under 60rem,
+both are held to 34rem and centred: at the full 820px, Home and Search were a
+hand apart and the sheet's artwork was a crop about 800px tall.
+
+The album and artist pages centre their hero on a phone, with the sleeve as
+wide as leaves the title and the play button under it on arrival (17rem). At
+13rem and left-aligned, it filled half the width of an iPhone and left the
+other half empty.
 
 ### Editorial structure
 
@@ -294,7 +348,7 @@ covering it is not a player, it is a door. The server cannot know which of those
 two it is rendering for, so it renders the column and the narrow layout keeps
 the sheet hidden until the client has said how wide the screen is. Defaulting to
 closed instead would reflow the whole grid on every desktop page load. Closed
-means removed on that layout, and the rail carries the way back.
+means removed on that layout, and the dock carries the way back.
 
 The colour is sampled in the browser. A 32x32 draw of the cover onto a canvas is
 bucketed by hue, weighted toward saturated pixels at mid lightness, and averaged
@@ -497,9 +551,8 @@ the player instead.
 The labels are still in the markup, clipped by `.hh-visually-hidden` rather than
 removed. A removed label takes the accessible name with it, which would leave
 the whole of the primary navigation as unnamed links; `title` gives a pointer
-the same word on hover. The narrow bar this folds into on a phone had exactly
-that bug, hiding its labels with `display: none`, and it is fixed by the same
-change.
+the same word on hover. The narrow bar it folded into on a phone before the
+dock replaced it had exactly that bug, hiding its labels with `display: none`.
 
 The crest lost its filled accent tile for the same glass the rest of the chrome
 is made of: a solid block of colour was the one thing in the interface not made

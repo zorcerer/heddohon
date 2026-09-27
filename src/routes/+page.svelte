@@ -45,6 +45,11 @@
 			<span class="hh-eyebrow">{greeting}</span>
 			<h1>Your library</h1>
 		</div>
+		<!-- On a phone, where Settings is not in the dock: the corner a phone's
+		     own apps keep the account in. -->
+		<a class="account hh-glass" href="/settings" aria-label="Settings" title="Settings">
+			<Icon name="settings" size={19} />
+		</a>
 		{#if data.discover.length > 0}
 			<button class="hh-button shuffle" onclick={() => player.playShuffled(data.discover)}>
 				<Icon name="shuffle" size={16} />
@@ -137,6 +142,7 @@
 	}
 
 	.masthead {
+		position: relative;
 		display: flex;
 		align-items: flex-end;
 		justify-content: space-between;
@@ -150,6 +156,28 @@
 
 	.masthead h1 {
 		margin-top: var(--space-1);
+	}
+
+	.account {
+		display: none;
+	}
+
+	@media (max-width: 60rem) {
+		.account {
+			position: absolute;
+			top: 0;
+			right: 0;
+			display: grid;
+			place-items: center;
+			width: 2.75rem;
+			height: 2.75rem;
+			border-radius: var(--r-pill);
+			color: var(--text-muted);
+		}
+
+		.account:active {
+			scale: 0.92;
+		}
 	}
 
 	.shuffle {

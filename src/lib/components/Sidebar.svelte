@@ -1,9 +1,7 @@
 <script lang="ts">
 	import { navigating, page } from '$app/state';
-	import { player } from '$lib/client/player.svelte';
-	import { DUR, EASE_OUT_CSS, easeOut, motion } from '$lib/client/motion';
+	import { DUR, EASE_OUT_CSS, motion } from '$lib/client/motion';
 	import { untrack } from 'svelte';
-	import { slide } from 'svelte/transition';
 	import Icon from './Icon.svelte';
 	import Logo from './Logo.svelte';
 
@@ -13,8 +11,7 @@
 		{ href: '/', label: 'Home', icon: 'home' as const, exact: true },
 		{ href: '/albums', label: 'Albums', icon: 'album' as const, exact: false },
 		{ href: '/artists', label: 'Artists', icon: 'artist' as const, exact: false },
-		// Not in the phone's row, which is full; the Albums page links to it there.
-		{ href: '/genres', label: 'Genres', icon: 'genre' as const, exact: false, wideOnly: true },
+		{ href: '/genres', label: 'Genres', icon: 'genre' as const, exact: false },
 		{ href: '/playlists', label: 'Playlists', icon: 'playlist' as const, exact: false },
 		{ href: '/favourites', label: 'Favourites', icon: 'heart' as const, exact: false },
 		{ href: '/search', label: 'Search', icon: 'search' as const, exact: false }
@@ -54,7 +51,7 @@
 
 	function place() {
 		const anchor = activeIndex >= 0 ? anchors[activeIndex] : null;
-		// A destination hidden at this width (Genres on a phone) has no box.
+		// The rail is not shown on a phone (`PhoneDock` is), and a hidden link has no box.
 		if (!anchor || anchor.offsetWidth === 0) {
 			marker = null;
 			return;
@@ -133,7 +130,7 @@
 		></li>
 		{#each LINKS as link, index (link.href)}
 			{@const active = isActive(link.href, link.exact)}
-			<li class:wide-only={'wideOnly' in link}>
+			<li>
 				<a
 					class="link"
 					class:active
@@ -150,29 +147,6 @@
 	</ul>
 
 	<div class="foot">
-		<!--
-			The way back to a player you closed, on the screens where the panel is
-			a sheet over the library and closing it leaves nothing behind. Wider
-			than that, the panel leaves a sliver on the right-hand edge that does
-			the same job in the place you closed it from, so this is hidden.
-		-->
-		<!-- Opens and closes across the rail rather than appearing, so the
-		     icons beside it move over instead of jumping. The button is inside
-		     the rail's glass and holds none of its own, so its opacity and size
-		     can change without touching the rail's blur. -->
-		{#if !player.panelOpen}
-			<button
-				class="link reopen"
-				type="button"
-				transition:slide={{ axis: 'x', duration: motion(DUR.state), easing: easeOut }}
-				title="Now playing"
-				onclick={() => player.togglePanel()}
-			>
-				<Icon name="waveform" size={19} />
-				<span class="hh-visually-hidden">Now playing</span>
-			</button>
-		{/if}
-
 		<a
 			class="link"
 			class:active={isActive('/settings', false)}
@@ -375,145 +349,18 @@
 		width: 100%;
 	}
 
-	.reopen {
-		display: none;
-	}
-
 	.signout:hover {
 		color: var(--danger);
 	}
 
+	/*
+	 * On a phone the dock at the foot of the screen (`PhoneDock.svelte`) is the
+	 * navigation. This rail folded into a bar of nine icons across the top
+	 * there, at the end of the screen furthest from the thumb, and is not shown.
+	 */
 	@media (max-width: 60rem) {
 		.rail {
-			width: 100%;
-			/* Pinned rather than intrinsic: --rail-height is what everything
-			   floating over the page subtracts to stay clear of the nav, and a
-			   token that only approximates its element is worse than none. */
-			height: var(--rail-height);
-			padding-bottom: var(--space-2);
-			flex-direction: row;
-			align-items: center;
-			gap: var(--space-2);
-			padding: var(--space-2) var(--space-3);
-			/*
-			 * The bar itself must not scroll. When it did, the destinations took
-			 * all the width they wanted and pushed Settings off the right-hand
-			 * edge — reachable only by discovering that a nav bar scrolls
-			 * sideways, which nobody does. The destinations scroll inside their
-			 * own row instead, and everything after them stays put.
-			 */
-			overflow: hidden;
-			/*
-			 * The document scrolls under the rail on a narrow screen (see the
-			 * layout), and this keeps it on screen. A sticky box stays inside its
-			 * containing block, and CSS Grid defines a grid item's containing
-			 * block as its grid area, which in the first row alone is the rail's
-			 * own height. Chromium 141 measures against the whole grid instead: with
-			 * the rail confined to the first row it still sat at 12px after
-			 * 1500px of scrolling. Spanning both rows makes it stick under either
-			 * reading, and the height above keeps it to the first row on screen.
-			 */
-			position: sticky;
-			top: var(--edge-top);
-			grid-row: 1 / -1;
-		}
-
-		/*
-		 * The brand goes: it is identity, not a destination, and the row has
-		 * exactly enough width for the things you can actually press. Home is one
-		 * tap away in the row itself, which is all the brand was doing here.
-		 *
-		 * The labels are already clipped by `.hh-visually-hidden` in the markup,
-		 * so there is nothing left to hide. This block used to carry a
-		 * `.link span { display: none }` that took the accessible name with it
-		 * and left the whole bar as a row of unnamed links.
-		 */
-		.brand {
 			display: none;
-			padding: 0;
-			border-bottom: none;
-		}
-
-		/*
-		 * Eight targets have to fit 342px of content box. At the stacked rail's
-		 * horizontal padding they need 376 and the row starts clipping Search,
-		 * so the padding comes in — the glyph keeps its size, only the air around
-		 * it shrinks. Vertical padding goes the other way: a 19px glyph with
-		 * 12.5px above and below is a 44px target, which is what --rail-height is
-		 * sized from.
-		 */
-		.link {
-			/*
-			 * Horizontal padding is set from what is left rather than picked: the
-			 * row has 342px for eight controls, so each can be 42px wide at most.
-			 * The gap between them goes to zero and that space moves *inside* the
-			 * targets, which leaves the glyphs spaced exactly as they were and
-			 * makes each one 41x44 instead of 35x44. 44 square does not fit eight
-			 * items on a 390px screen — 8x44 plus any separation is already over
-			 * the row — so this is the largest target the set can have.
-			 *
-			 * The square aspect the stacked rail gives its targets is dropped
-			 * here: in a row it is the height that is fixed and the width that
-			 * has to give.
-			 */
-			aspect-ratio: auto;
-			padding: 0.78rem 0.7rem;
-		}
-
-		.links {
-			display: flex;
-			flex: 1;
-			min-width: 0;
-			gap: 0;
-			overflow-x: auto;
-		}
-
-		/*
-		 * The stacked rail separates the foot from the destinations with a rule
-		 * and a gap above it. Folded into a row, that inherited padding pushed
-		 * Settings and Sign out 13px below the line the other icons sit on, and
-		 * drew a stray hairline across the bar. Neither belongs here: the
-		 * separation in a row is the space between the two groups.
-		 */
-		.foot {
-			display: flex;
-			align-items: center;
-			flex: none;
-			gap: 0;
-			padding-top: 0;
-			border-top: none;
-		}
-
-		/* One icon among the others here, so it must not stretch to fill the row. */
-		.signout {
-			width: auto;
-		}
-
-		.reopen {
-			display: grid;
-		}
-
-		.wide-only {
-			display: none;
-		}
-
-		.link.active::before {
-			left: 50%;
-			top: auto;
-			bottom: 2px;
-			width: 1.1rem;
-			height: 3px;
-			margin: 0 0 0 -0.55rem;
-		}
-
-		/* Under the icon in the row, travelling sideways. */
-		.marker {
-			left: 0;
-			top: auto;
-			bottom: 2px;
-			width: 1.1rem;
-			height: 3px;
-			translate: calc(var(--marker-x) - 0.55rem) 0;
 		}
 	}
 </style>

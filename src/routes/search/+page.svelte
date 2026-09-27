@@ -64,6 +64,24 @@
 
 	{#if !data.searched}
 		<p class="hint hh-muted">Type at least two characters to search your library.</p>
+		<!-- Somewhere to go before anything is typed. Streamed; see the loader. -->
+		{#await data.genres then genres}
+			{#if genres.length > 0}
+				<section>
+					<SectionHeader title="Browse by genre" href="/genres" index={1} />
+					<div class="genres hh-stagger">
+						{#each genres as genre (genre.id)}
+							<a class="genre hh-glass" href="/genres/{encodeURIComponent(genre.id)}">
+								<span class="genre-name">{genre.name}</span>
+								<span class="genre-count hh-numeric hh-muted">
+									{genre.albumCount} {genre.albumCount === 1 ? 'album' : 'albums'}
+								</span>
+							</a>
+						{/each}
+					</div>
+				</section>
+			{/if}
+		{/await}
 	{:else if nothing}
 		<p class="hint hh-muted">Nothing matched “{data.query}”.</p>
 	{:else}
@@ -157,6 +175,51 @@
 	/* Chrome draws its own clear button; it clashes with the field's chrome. */
 	.searchbox input::-webkit-search-cancel-button {
 		appearance: none;
+	}
+
+	/*
+	 * The genres before a search, two across on a phone and as many as fit wider. Glass
+	 * like the Library page's doors, with the name set large, as the genres
+	 * page sets its largest.
+	 */
+	.genres {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(min(100%, 10rem), 1fr));
+		gap: var(--space-2);
+	}
+
+	.genre {
+		display: grid;
+		align-content: space-between;
+		gap: var(--space-3);
+		min-height: 5.5rem;
+		padding: var(--space-3) var(--space-4);
+		border-radius: var(--r-lg);
+		transition: scale var(--dur-press) var(--ease-out);
+	}
+
+	.genre:active {
+		scale: 0.97;
+	}
+
+	.genre-name {
+		font-family: var(--font-display);
+		font-size: 1.125rem;
+		font-weight: 750;
+		letter-spacing: -0.015em;
+		line-height: 1.15;
+		color: var(--text-strong);
+		text-shadow: var(--text-shade);
+		overflow-wrap: anywhere;
+	}
+
+	.genre:hover .genre-name {
+		color: var(--glow-color);
+		text-shadow: var(--glow-text);
+	}
+
+	.genre-count {
+		font-size: 0.75rem;
 	}
 
 	.hint {

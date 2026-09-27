@@ -12,10 +12,12 @@
 		supportsViewTransitions
 	} from '$lib/client/sleeve-transition.svelte';
 	import { handOff } from '$lib/client/handoff';
+	import { sheetDrag } from '$lib/client/sheet.svelte';
 	import { installPress } from '$lib/client/press';
 	import Cover from '$lib/components/Cover.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import NowPlayingPanel from '$lib/components/NowPlayingPanel.svelte';
+	import PhoneDock from '$lib/components/PhoneDock.svelte';
 	import PlaylistPicker from '$lib/components/PlaylistPicker.svelte';
 	import ShareDialog from '$lib/components/ShareDialog.svelte';
 	import Sidebar from '$lib/components/Sidebar.svelte';
@@ -356,6 +358,17 @@
 		content?.scrollTo({ top: 0, behavior: 'instant' });
 	});
 
+	/*
+	 * On a phone the sheet covers the page, so a link followed from inside it
+	 * (the artist, the album, the artwork) opened a page nobody could see until
+	 * the sheet was pulled down by hand. It goes down on its own instead, and
+	 * the page it opened is what is left on screen.
+	 */
+	afterNavigate(({ type }) => {
+		if (type === 'enter' || !player.sheetLayout || !player.panelOpen) return;
+		player.togglePanel();
+	});
+
 	export const snapshot: Snapshot<number> = {
 		capture: () => content?.scrollTop ?? 0,
 		restore: (top) => content?.scrollTo({ top, behavior: 'instant' })
@@ -414,7 +427,12 @@
 <audio bind:this={secondaryAudio} preload="none"></audio>
 
 {#if signedIn && data.account}
-	<div class="app" class:player-open={player.panelOpen} class:viewport-known={player.viewportKnown}>
+	<div
+		class="app"
+		class:player-open={player.panelOpen}
+		class:viewport-known={player.viewportKnown}
+		class:has-song={Boolean(player.current)}
+	>
 		<!-- The room, and the aurora drifting in it when turned on; see `.aurora` in app.css. -->
 		<div class="hh-ambience" aria-hidden="true">
 			{#if data.settings?.aurora === 'moving' || data.settings?.aurora === 'still'}
@@ -423,6 +441,7 @@
 		</div>
 
 		<Sidebar appName={data.appName} />
+		<PhoneDock />
 
 		<!--
 			Focusable on purpose, like the lyrics body. With no scrollbar there is
@@ -443,7 +462,11 @@
 			edge with a 44px strip of it still on screen. That strip is a button, and
 			pressing it brings the panel back. See `.dock` below.
 		-->
-		<div class="player">
+		<div
+			class="player"
+			class:dragging={sheetDrag.offset !== null}
+			style:translate={sheetDrag.offset !== null ? `0 ${sheetDrag.offset}px` : undefined}
+		>
 			<div class="dock">
 				<div class="body" inert={!player.panelOpen}>
 					<NowPlayingPanel showQualityBadge={data.settings.showQualityBadge} />
@@ -815,9 +838,10 @@
 	}
 
 	/*
-	 * Too narrow for two columns and a rail. The player becomes a sheet over the
-	 * content instead — which is also what the design it is modelled on is, on a
-	 * phone: the full-screen now-playing view rather than a side panel.
+	 * Too narrow for two columns and a rail. The rail gives way to the dock at
+	 * the foot of the screen (`PhoneDock.svelte`), and the player becomes a
+	 * sheet over the content, which is also what the design it is modelled on
+	 * is on a phone: the full-screen now-playing view rather than a side panel.
 	 */
 	@media (max-width: 60rem) {
 		/*
@@ -835,37 +859,48 @@
 		 * between the two heights would grow with it and have nothing left to
 		 * scroll.
 		 *
-		 * The first row is the rail's height. The rail spans both rows so that
-		 * it can stay pinned over the page; see `Sidebar.svelte`.
+		 * The content is the one cell. Its foot is padded by the dock's height
+		 * and the air under it, so the last row of a page scrolls clear of the
+		 * dock rather than stopping behind it.
 		 */
+		.app {
+			--dock-height: var(--dock-tabs);
+			--dock-space: calc(var(--dock-height) + var(--edge-bottom) + var(--float-gap));
+		}
+
+		.app.has-song {
+			--dock-height: calc(var(--dock-now) + var(--dock-tabs) + 1px);
+		}
+
 		.app,
 		.app:not(.player-open) {
-			grid-template-areas:
-				'rail'
-				'content';
+			grid-template-areas: 'content';
 			grid-template-columns: minmax(0, 1fr);
-			grid-template-rows: var(--rail-height) minmax(0, 1fr);
+			grid-template-rows: minmax(0, 1fr);
 			height: auto;
 			min-height: 100svh;
+			padding-bottom: var(--dock-space);
 		}
 
 		.content {
 			overflow-y: visible;
-			padding: var(--space-4);
+			padding: var(--space-4) var(--space-2) var(--space-4);
 		}
 
 		/*
-		 * A jump to an anchor lands below the pinned rail rather than under it.
+		 * A jump to an anchor lands clear of the status bar at the top and of
+		 * the dock at the foot.
 		 *
 		 * `none` turns pull-to-refresh off. The content column never offered it,
 		 * and the document scroll would: a pull past the top would reload the
 		 * page and stop playback.
 		 *
 		 * Only with the app on the page: the sign-in and shared-link pages have
-		 * no rail.
+		 * no dock.
 		 */
 		:global(html:has(.app)) {
-			scroll-padding-top: calc(var(--edge-top) + var(--rail-height));
+			scroll-padding-top: var(--edge-top);
+			scroll-padding-bottom: calc(var(--dock-tabs) + var(--dock-now) + var(--edge-bottom) + var(--float-gap));
 			overscroll-behavior-y: none;
 		}
 
@@ -880,34 +915,60 @@
 		}
 
 		/*
-		 * The content cell runs the length of the page here and passes behind the
-		 * rail once scrolled, and a layer fading behind glass darkens it in Safari
-		 * and Firefox (see the veil above). So the veil is fixed to the screen
-		 * below the rail, with the same gap the grid keeps between the two.
-		 *
-		 * iOS Safari draws the wash against the veil's own box. Fixed, that box is
-		 * the screen less the rail rather than the whole length of the page.
+		 * Under the status bar, where the page scrolls behind the clock once it
+		 * is added to the home screen and runs full screen: the same frosted
+		 * glass as the dock, the height of the status bar and no more, so the
+		 * time and the battery are not set over a line of type. Zero tall in a
+		 * browser tab, which draws its own bar there.
 		 */
-		.app .page-veil {
+		.app::after {
+			content: '';
 			position: fixed;
-			inset: calc(var(--edge-top) + var(--rail-height) + var(--float-gap)) var(--edge-right) 0 var(--edge-left);
+			inset: 0 0 auto;
+			height: env(safe-area-inset-top, 0px);
+			z-index: 39;
+			background: color-mix(in srgb, var(--bg-surface) 72%, transparent);
+			-webkit-backdrop-filter: blur(18px);
+			backdrop-filter: blur(18px);
+			pointer-events: none;
 		}
 
 		/*
-		 * The sheet slides up from below the screen and back down, rather than
-		 * appearing and vanishing. It moves with `translate`, which the compositor
-		 * runs without laying the page out again, and it rests at `none`, so an
-		 * open sheet carries no transform at all. The transform is on this
-		 * wrapper and not on the glass inside it, and a transform is not a
-		 * backdrop root, so the panel keeps its blur all the way up.
+		 * The content cell runs the length of the page here and passes behind
+		 * the dock, and a layer fading behind glass darkens it in Safari and
+		 * Firefox (see the veil above). So the veil is fixed to the screen,
+		 * ending the float gap above the dock.
+		 *
+		 * iOS Safari draws the wash against the veil's own box. Fixed, that box
+		 * is the screen less the dock rather than the whole length of the page.
+		 */
+		.app .page-veil {
+			position: fixed;
+			inset: var(--edge-top) var(--edge-right) var(--dock-space) var(--edge-left);
+		}
+
+		/*
+		 * The sheet covers the whole screen, the dock included, with the same
+		 * gap around it as every other floating panel. It slides up from below
+		 * the screen and back down, rather than appearing and vanishing. It
+		 * moves with `translate`, which the compositor runs without laying the
+		 * page out again, and it rests at `none`, so an open sheet carries no
+		 * transform at all. The transform is on this wrapper and not on the
+		 * glass inside it, and a transform is not a backdrop root, so the panel
+		 * keeps its blur all the way up.
 		 *
 		 * Closed, it is hidden once it has gone, which also takes it out of
 		 * hit-testing. `inert` on the body already keeps it out of the tab order.
 		 */
 		.player {
 			position: fixed;
-			inset: calc(var(--edge-top) + var(--rail-height) + var(--float-gap)) var(--edge-right) var(--edge-bottom)
-				var(--edge-left);
+			inset: var(--edge-top) var(--edge-right) var(--edge-bottom) var(--edge-left);
+			/*
+			 * A phone's width at most, centred, as the dock is. On a tablet held
+			 * upright (820px) the full width made the artwork a crop about 800px tall.
+			 */
+			max-width: 34rem;
+			margin-inline: auto;
 			z-index: 45;
 			translate: none;
 			visibility: visible;
@@ -924,6 +985,15 @@
 				visibility 0s linear var(--sheet-out-duration);
 		}
 
+		/*
+		 * Following a finger that is pulling it down (`client/sheet.svelte.ts`).
+		 * The offset is an inline `translate`, and the transition comes back on
+		 * with the class, so a release carries on from where the finger let go.
+		 */
+		.player.dragging {
+			transition: none;
+		}
+
 		.dock {
 			position: static;
 			width: auto;
@@ -933,7 +1003,7 @@
 		/*
 		 * A sheet over the library rather than a column beside it, so there is no
 		 * right-hand edge for a sliver to sit on and nothing for it to overhang.
-		 * Closed means gone here, and the rail carries the way back.
+		 * Closed means gone here, and the dock carries the way back.
 		 */
 		.grip {
 			display: none;
@@ -943,7 +1013,7 @@
 		 * The server renders the panel because that is right for a screen wide
 		 * enough to hold it as a column. Here it would be a sheet over the
 		 * library, so it stays hidden until the client has said how wide the
-		 * screen actually is — see `viewportKnown` on the player.
+		 * screen actually is: see `viewportKnown` on the player.
 		 */
 		.app:not(.viewport-known) .player {
 			display: none;
