@@ -61,3 +61,42 @@ export const DELETE: RequestHandler = async ({ locals, params, request }) => {
 		throw err;
 	}
 };
+
+/**
+ * Moves one entry, by position, as removal does. The body carries what the
+ * page showed (the song at `from` and how many entries there were), and a
+ * playlist that has changed since answers 409 with nothing written.
+ */
+export const PATCH: RequestHandler = async ({ locals, params, request }) => {
+	const session = locals.session;
+	if (!session) error(401, 'Not signed in');
+
+	const body = (await request.json().catch(() => null)) as {
+		from?: unknown;
+		to?: unknown;
+		songId?: unknown;
+		count?: unknown;
+	} | null;
+	const position = (value: unknown): value is number =>
+		typeof value === 'number' && Number.isInteger(value) && value >= 0 && value < 100_000;
+	const { from, to, songId, count } = body ?? {};
+	if (!position(from) || !position(to) || !position(count) || from === to) {
+		error(400, 'from and to must be two different positions, and count the number of entries');
+	}
+	if (typeof songId !== 'string' || songId.length === 0 || songId.length >= 256) error(400, 'songId is required');
+
+	try {
+		await backendFor(session.account.backend).movePlaylistEntry(session.credential, params.id, {
+			from,
+			to,
+			songId,
+			count
+		});
+		return json({ id: params.id, from, to });
+	} catch (err) {
+		if (err instanceof UpstreamError) {
+			error(err.kind === 'conflict' ? 409 : err.status === 404 ? 404 : 502, err.message);
+		}
+		throw err;
+	}
+};

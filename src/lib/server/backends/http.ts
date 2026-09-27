@@ -5,7 +5,7 @@ export class UpstreamError extends Error {
 	constructor(
 		message: string,
 		readonly status: number,
-		readonly kind: 'auth' | 'not_found' | 'unavailable' | 'protocol' = 'unavailable'
+		readonly kind: 'auth' | 'not_found' | 'unavailable' | 'protocol' | 'conflict' = 'unavailable'
 	) {
 		super(message);
 		this.name = 'UpstreamError';

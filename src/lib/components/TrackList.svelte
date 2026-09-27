@@ -24,7 +24,8 @@
 		 */
 		columns = false,
 		/** Supplied by the playlist page so rows can be removed from it. */
-		onremove = null
+		onremove = null,
+		onmove = null
 	}: {
 		songs: Song[];
 		variant?: 'numbered' | 'artwork';
@@ -33,6 +34,13 @@
 		groupByDisc?: boolean;
 		columns?: boolean;
 		onremove?: ((index: number) => void) | null;
+		/**
+		 * Makes the list reorderable: each row gets a handle, dragged with a
+		 * pointer or a finger or moved one place at a time with the arrow keys,
+		 * and a drop reports the move. The list itself does not reorder; the
+		 * caller does, and passes the new order back in `songs`.
+		 */
+		onmove?: ((from: number, to: number) => void) | null;
 	} = $props();
 
 	const currentId = $derived(player.current?.id ?? null);
@@ -61,6 +69,107 @@
 		void player.playNow(songs, index);
 	}
 
+	/*
+	 * Reordering, the way the queue in the player does it: the dragged row
+	 * follows the pointer, the rows it passes step out of the way by one row,
+	 * and nothing is reported until the drop, so the caller never sees a
+	 * half-made order. The page scrolls under the pointer near either edge of
+	 * the window, so a row can be carried past what is on screen; the offset
+	 * counts that scroll, so the row stays under the pointer.
+	 */
+	let listEl = $state<HTMLOListElement | null>(null);
+	let drag = $state<{
+		from: number;
+		to: number;
+		offset: number;
+		startY: number;
+		startScroll: number;
+		rowHeight: number;
+		lastY: number;
+	} | null>(null);
+	let autoscroll: ReturnType<typeof setInterval> | undefined;
+
+	/** The page's scroll: the window on a phone, the content column wider. */
+	function scroller(): HTMLElement {
+		const column = listEl?.closest<HTMLElement>('main.content');
+		return column && getComputedStyle(column).overflowY !== 'visible' ? column : document.documentElement;
+	}
+
+	function rowShift(index: number): string | undefined {
+		if (!drag) return undefined;
+		if (index === drag.from) return `0 ${drag.offset}px`;
+		if (drag.from < index && index <= drag.to) return `0 ${-drag.rowHeight}px`;
+		if (drag.to <= index && index < drag.from) return `0 ${drag.rowHeight}px`;
+		return undefined;
+	}
+
+	function follow() {
+		if (!drag) return;
+		const offset = drag.lastY - drag.startY + (scroller().scrollTop - drag.startScroll);
+		const steps = Math.round(offset / drag.rowHeight);
+		drag = { ...drag, offset, to: Math.min(songs.length - 1, Math.max(0, drag.from + steps)) };
+	}
+
+	function startDrag(event: PointerEvent, index: number) {
+		if (event.button !== 0 || !onmove) return;
+		const row = (event.currentTarget as HTMLElement).closest('li');
+		if (!row) return;
+		event.preventDefault();
+		(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+		drag = {
+			from: index,
+			to: index,
+			offset: 0,
+			startY: event.clientY,
+			startScroll: scroller().scrollTop,
+			rowHeight: row.offsetHeight,
+			lastY: event.clientY
+		};
+		clearInterval(autoscroll);
+		autoscroll = setInterval(() => {
+			if (!drag) return;
+			const edge = 64;
+			const step = drag.lastY < edge ? -12 : drag.lastY > innerHeight - edge ? 12 : 0;
+			if (step === 0) return;
+			scroller().scrollTop += step;
+			follow();
+		}, 16);
+	}
+
+	function moveDrag(event: PointerEvent) {
+		if (!drag) return;
+		drag = { ...drag, lastY: event.clientY };
+		follow();
+	}
+
+	function endDrag() {
+		clearInterval(autoscroll);
+		if (!drag) return;
+		const { from, to } = drag;
+		drag = null;
+		if (from !== to) onmove?.(from, to);
+	}
+
+	function cancelDrag() {
+		clearInterval(autoscroll);
+		drag = null;
+	}
+
+	/** One place up or down from the keyboard, keeping focus on the handle of the moved row. */
+	function nudge(event: KeyboardEvent, index: number) {
+		// Every key stays with the handle: Enter or Space reaching the row would
+		// start its song.
+		event.stopPropagation();
+		const to = event.key === 'ArrowUp' ? index - 1 : event.key === 'ArrowDown' ? index + 1 : null;
+		if (to === null) return;
+		event.preventDefault();
+		if (to < 0 || to >= songs.length) return;
+		onmove?.(index, to);
+		requestAnimationFrame(() => listEl?.querySelectorAll<HTMLButtonElement>('.grip')[to]?.focus());
+	}
+
+	$effect(() => () => clearInterval(autoscroll));
+
 	function onKey(event: KeyboardEvent, index: number) {
 		if (event.key === 'Enter' || event.key === ' ') {
 			event.preventDefault();
@@ -71,9 +180,12 @@
 
 {#snippet list()}
 <ol
+	bind:this={listEl}
 	class="tracks hh-stagger"
 	class:artwork={variant === 'artwork'}
 	class:columns
+	class:reorderable={onmove !== null}
+	class:dragging={drag !== null}
 	style:--rows={columns ? Math.ceil(songs.length / 2) : null}
 >
 	{#each songs as song, index (song.id + ':' + index)}
@@ -81,7 +193,11 @@
 		{#if discs && (index === 0 || (songs[index - 1].disc ?? 1) !== (song.disc ?? 1))}
 			<li class="disc-header hh-eyebrow" aria-hidden="true">Disc {song.disc ?? 1}</li>
 		{/if}
-		<li class:column-start={columns && index === Math.ceil(songs.length / 2)}>
+		<li
+			class:column-start={columns && index === Math.ceil(songs.length / 2)}
+			class:dragged={drag?.from === index}
+			style:translate={rowShift(index)}
+		>
 			<div
 				class="track"
 				class:current={isCurrent}
@@ -97,6 +213,26 @@
 				onkeydown={(event) => onKey(event, index)}
 				aria-current={isCurrent ? 'true' : undefined}
 			>
+				{#if onmove}
+					<!--
+						Dragged by pointer or finger, or moved one place at a time with the
+						arrow keys while it has focus.
+					-->
+					<button
+						class="grip"
+						type="button"
+						aria-label="Move {song.title}, number {index + 1} of {songs.length}. Use the up and down arrow keys."
+						title="Drag to reorder"
+						onpointerdown={(event) => startDrag(event, index)}
+						onpointermove={moveDrag}
+						onpointerup={endDrag}
+						onpointercancel={cancelDrag}
+						onkeydown={(event) => nudge(event, index)}
+						onclick={(event) => event.stopPropagation()}
+					>
+						<Icon name="grip" size={14} />
+					</button>
+				{/if}
 				<div class="lead">
 					{#if variant === 'artwork'}
 						<div class="thumb">
@@ -291,6 +427,60 @@
 	.track:focus-visible::before {
 		opacity: 1;
 		scale: 1;
+	}
+
+	/*
+	 * A reorderable list puts the handle in a column of its own before the rest,
+	 * as the queue does. The templates below are the ones above with it added.
+	 */
+	.tracks.reorderable .track {
+		grid-template-columns: 1.75rem 2.25rem minmax(0, 1fr) auto auto 3.5rem;
+	}
+
+	.tracks.reorderable.artwork .track {
+		grid-template-columns: 1.75rem 2.75rem minmax(0, 1fr) auto auto 3.5rem;
+	}
+
+	.grip {
+		display: grid;
+		place-items: center;
+		width: 1.75rem;
+		height: 2.75rem;
+		padding: 0;
+		border-radius: var(--r-sm);
+		color: var(--text-faint);
+		cursor: grab;
+		/* A finger on it drags the row rather than scrolling the page. */
+		touch-action: none;
+	}
+
+	.grip:hover,
+	.grip:focus-visible {
+		color: var(--glow-color);
+	}
+
+	.dragging .grip {
+		cursor: grabbing;
+	}
+
+	/* The rows being stepped past move on the spring; the one being carried
+	   follows the pointer exactly, and sits over the others. Only during a
+	   drag: on the drop the offsets and the new order land together, and a
+	   transition then would carry every row back from where it had stepped. */
+	.tracks.reorderable.dragging > li {
+		transition: translate var(--dur-state) var(--ease-out);
+	}
+
+	.tracks.reorderable > li.dragged {
+		position: relative;
+		z-index: 2;
+		transition: none;
+	}
+
+	.tracks.reorderable > li.dragged .track {
+		background: var(--bg-hover);
+		box-shadow: 0 8px 24px rgb(0 0 0 / 0.28);
+		border-radius: var(--r-sm);
 	}
 
 	.tracks.artwork .track {
@@ -590,6 +780,11 @@
 		.track,
 		.tracks.artwork .track {
 			grid-template-columns: 2.5rem minmax(0, 1fr) auto 3rem;
+		}
+
+		.tracks.reorderable .track,
+		.tracks.reorderable.artwork .track {
+			grid-template-columns: 1.75rem 2.5rem minmax(0, 1fr) auto 3rem;
 		}
 
 		.quality {

@@ -941,6 +941,20 @@ export const jellyfinBackend: MediaBackend = {
 		});
 	},
 
+	async movePlaylistEntry(cred, id, { from, to, songId, count }) {
+		// Jellyfin moves an entry in place, by its per-entry id, which exists only
+		// on the listing. Read again, and refused if the playlist is not what the
+		// page showed, as on Subsonic.
+		const { userId } = creds(cred);
+		const items = await call<ItemsResponse>(cred, `/Playlists/${seg(id)}/Items`, { userId });
+		const entries = items.Items ?? [];
+		const entry = entries[from];
+		if (entries.length !== count || entry?.Id !== songId || !entry.PlaylistItemId || to < 0 || to >= entries.length) {
+			throw new UpstreamError('The playlist changed since it was loaded', 409, 'conflict');
+		}
+		await post(cred, `/Playlists/${seg(id)}/Items/${seg(entry.PlaylistItemId)}/Move/${to}`);
+	},
+
 	async removeFromPlaylist(cred, id, indices) {
 		if (indices.length === 0) return;
 		const { userId } = creds(cred);

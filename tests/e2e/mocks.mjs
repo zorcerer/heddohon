@@ -128,6 +128,10 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 		 * server without an agent does.
 		 */
 		similarAlbums: 0,
+		/** The songs in playlist `pl1`, in order; `createPlaylist` with its id replaces them. */
+		playlistEntries: ['s1a', 's2a'],
+		/** The last Subsonic call, and whether it came as a form POST. */
+		lastRequest: null,
 		/**
 		 * Songs `getSimilarSongs` answers with, one from each album after the
 		 * seed's (for a song, album or artist id alike). Zero answers with none,
@@ -248,10 +252,13 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 		return reply(405);
 	};
 
-	const respond = (req, res) => {
+	const respond = (req, res, form = '') => {
 		const url = new URL(req.url, 'http://mock');
 		const method = url.pathname.replace(/^\/rest\//, '').replace(/\.view$/, '');
-		const p = url.searchParams;
+		// A form POST's fields count as parameters, as they do on Navidrome.
+		const p = new URLSearchParams(url.search);
+		for (const [key, value] of new URLSearchParams(form)) p.append(key, value);
+		state.lastRequest = { method, post: req.method === 'POST' };
 		const send = (body) => {
 			res.setHeader('content-type', 'application/json');
 			res.end(JSON.stringify(body));
@@ -332,13 +339,22 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 				return send(ok({ genres: { genre: GENRES } }));
 			case 'getPlaylists':
 				return send(ok({ playlists: { playlist: [{ id: 'pl1', name: 'Mock Playlist', songCount: 2, duration: 360, owner: state.username }] } }));
-			case 'getPlaylist':
+			case 'getPlaylist': {
 				if (p.get('id') !== 'pl1') return send(failed(70, 'Playlist not found'));
+				const entry = state.playlistEntries.map((id) => song(index(id), id.slice(-1)));
 				return send(
 					ok({
-						playlist: { id: 'pl1', name: 'Mock Playlist', songCount: 2, duration: 360, owner: state.username, entry: [song(1, 'a'), song(2, 'a')] }
+						playlist: { id: 'pl1', name: 'Mock Playlist', songCount: entry.length, duration: 180 * entry.length, owner: state.username, entry }
 					})
 				);
+			}
+			// With a `playlistId`, the playlist's entries replaced by the `songId`s
+			// given, in their order, as Navidrome does.
+			case 'createPlaylist': {
+				if (p.get('playlistId') !== 'pl1') return send(failed(70, 'Playlist not found'));
+				state.playlistEntries = p.getAll('songId');
+				return send(ok({}));
+			}
 			case 'getRandomSongs':
 				return send(ok({ randomSongs: { song: [song(1, 'a'), song(2, 'a')] } }));
 			case 'getUser':
@@ -388,9 +404,13 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 			req.on('end', () => native(req, res, url, body));
 			return;
 		}
-		const delay = state.delays.get(method) ?? 0;
-		if (delay > 0) setTimeout(() => respond(req, res), delay);
-		else respond(req, res);
+		let form = '';
+		req.on('data', (chunk) => (form += chunk));
+		req.on('end', () => {
+			const delay = state.delays.get(method) ?? 0;
+			if (delay > 0) setTimeout(() => respond(req, res, form), delay);
+			else respond(req, res, form);
+		});
 	});
 
 	return { ...server, calls, state, LISTENBRAINZ_TOKEN };
@@ -426,6 +446,17 @@ export async function startJellyfin() {
 		RunTimeTicks: 1_800_000_000,
 		IndexNumber: n
 	}));
+	const trackItem = (n) => ({
+		Id: `jt${n}`,
+		Name: `Jellyfin Track ${n}`,
+		Type: 'Audio',
+		Album: 'First',
+		AlbumId: 'b1',
+		ArtistItems: [{ Id: 'a1', Name: 'Artist A' }],
+		RunTimeTicks: 1_800_000_000
+	});
+	/** Playlist `jpl`, in order: the entry id, and which track it is. */
+	const playlist = [1, 2, 3].map((n) => ({ id: `e${n}`, track: n }));
 
 	const server = await listen((req, res) => {
 		const url = new URL(req.url, 'http://mock');
@@ -458,6 +489,21 @@ export async function startJellyfin() {
 		if (url.pathname === '/Items' && url.searchParams.get('Ids')) {
 			const ids = url.searchParams.get('Ids').split(',');
 			return send({ Items: tracks.filter((track) => ids.includes(track.Id)) });
+		}
+		// A playlist of three tracks, each entry with an id of its own, which is
+		// what Jellyfin moves and removes entries by.
+		if (url.pathname === '/Items/jpl') return send({ Id: 'jpl', Name: 'Jellyfin Playlist', Type: 'Playlist' });
+		if (req.method === 'GET' && url.pathname === '/Playlists/jpl/Items') {
+			return send({ Items: playlist.map((entry) => ({ ...trackItem(entry.track), PlaylistItemId: entry.id })) });
+		}
+		const moveTo = /^\/Playlists\/jpl\/Items\/([^/]+)\/Move\/(\d+)$/.exec(url.pathname);
+		if (req.method === 'POST' && moveTo) {
+			const from = playlist.findIndex((entry) => entry.id === moveTo[1]);
+			if (from < 0) return send({}, 404);
+			const [moved] = playlist.splice(from, 1);
+			playlist.splice(Number(moveTo[2]), 0, moved);
+			res.statusCode = 204;
+			return res.end();
 		}
 		if (url.pathname === '/Items') return send({ Items: [] });
 		return send({}, 404);

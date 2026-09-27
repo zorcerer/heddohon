@@ -749,6 +749,63 @@ describe('an album link', () => {
 		} finally {
 			subsonic.state.audio = null;
 			await visitor.close();
+describe('reordering a playlist', () => {
+	const titles = (page) =>
+		page.evaluate(() => [...document.querySelectorAll('main .track .title')].map((el) => el.textContent));
+
+	test('a row is dragged to its new place by its handle', async () => {
+		subsonic.state.playlistEntries = ['s1a', 's2a', 's3a'];
+		const { page, problems } = await watchedPage();
+		try {
+			await page.goto(app.url + '/playlists/pl1', { waitUntil: 'networkidle' });
+			assert.deepEqual(await titles(page), ['Song 1a', 'Song 2a', 'Song 3a']);
+
+			const grip = page.locator('main .grip').first();
+			const box = await grip.boundingBox();
+			const rowHeight = await page.locator('main .tracks > li').first().evaluate((li) => li.offsetHeight);
+			await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+			await page.mouse.down();
+			for (let step = 1; step <= 10; step++) {
+				await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2 + (rowHeight * 2 * step) / 10);
+				await page.waitForTimeout(16);
+			}
+			await page.mouse.up();
+
+			await page.waitForFunction(
+				() => [...document.querySelectorAll('main .track .title')].map((el) => el.textContent).join() === 'Song 2a,Song 3a,Song 1a'
+			);
+			await page.waitForLoadState('networkidle');
+			assert.deepEqual(subsonic.state.playlistEntries, ['s2a', 's3a', 's1a']);
+		} finally {
+			subsonic.state.playlistEntries = ['s1a', 's2a'];
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+
+	test('a focused handle moves its row with the arrow keys, and keeps focus', async () => {
+		subsonic.state.playlistEntries = ['s1a', 's2a', 's3a'];
+		const { page, problems } = await watchedPage();
+		try {
+			await page.goto(app.url + '/playlists/pl1', { waitUntil: 'networkidle' });
+			await page.locator('main .grip').first().focus();
+			await page.keyboard.press('ArrowDown');
+			await page.waitForFunction(
+				() => [...document.querySelectorAll('main .track .title')].map((el) => el.textContent).join() === 'Song 2a,Song 1a,Song 3a'
+			);
+			await page.waitForLoadState('networkidle');
+			assert.deepEqual(subsonic.state.playlistEntries, ['s2a', 's1a', 's3a']);
+			const focused = await page.evaluate(() => document.activeElement?.getAttribute('aria-label') ?? '');
+			assert.match(focused, /^Move Song 1a, number 2 of 3/);
+			// Enter on a handle is the handle's: it does not start the row's song.
+			await page.keyboard.press('Enter');
+			await page.waitForTimeout(300);
+			assert.notEqual(
+				await page.evaluate(() => document.querySelector('aside.panel h2.title')?.textContent),
+				'Song 1a'
+			);
+		} finally {
+			subsonic.state.playlistEntries = ['s1a', 's2a'];
 			await page.close();
 		}
 		assert.deepEqual(problems, []);
