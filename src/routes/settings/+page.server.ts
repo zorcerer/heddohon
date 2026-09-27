@@ -1,7 +1,7 @@
 import { fail } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 import { config } from '$lib/server/config';
-import { activeSessionCount, destroyAllSessions } from '$lib/server/auth';
+import { destroyAllSessions, endSessions, listSessions } from '$lib/server/auth';
 import { getSettings, saveSettings } from '$lib/server/settings';
 import { cacheStats, clearCache } from '$lib/server/covercache';
 import { backendFor, UpstreamError, type ScrobblerService } from '$lib/server/backends';
@@ -54,7 +54,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 	// Five independent reads, started together. They were awaited one after
 	// another, so the page waited for the sum of a directory scan, two upstream
 	// calls and two database reads rather than for the slowest of them.
-	const [coverCache, isAdmin, settings, activeSessions, shares] = await Promise.all([
+	const [coverCache, isAdmin, settings, sessions, shares] = await Promise.all([
 		cacheStats(),
 		/*
 		 * Read here rather than stored at sign-in: this is the only page that
@@ -68,7 +68,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 		// this load runs in the same request, and `locals` still holds the
 		// settings from before the save.
 		getSettings(session.account.id),
-		activeSessionCount(session.account.id),
+		listSessions(session),
 		describeShares(session)
 	]);
 
@@ -81,7 +81,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 			cfg.upstreams.find((upstream) => upstream.kind === session.account.backend)?.label ?? '',
 		sessionExpiresAt: session.expiresAt,
 		sessionMaxHours: cfg.sessionMaxHours,
-		activeSessions,
+		sessions,
 		shares,
 		scrobblerLinks
 	};
@@ -125,6 +125,31 @@ export const actions: Actions = {
 	 * with an account can clear it, and the cost of that is that the next
 	 * request for each cover goes upstream again.
 	 */
+	/**
+	 * Signs out one of the account's other sessions, by the handle the list
+	 * shows. This browser signs out through `/logout`, which also clears its
+	 * cookie.
+	 */
+	endSession: async ({ locals, request }) => {
+		const session = locals.session;
+		if (!session) return fail(401, { error: 'Not signed in' });
+		const handle = (await request.formData()).get('handle');
+		if (typeof handle !== 'string' || !/^[0-9a-f]{16}$/.test(handle) || handle === session.handle) {
+			return fail(400, { sessionError: 'That session cannot be signed out from here.' });
+		}
+		if ((await endSessions(session, [handle])) === 0) {
+			return fail(404, { sessionError: 'That session had already ended.' });
+		}
+		return { endedSessions: 1 };
+	},
+
+	/** Signs out every session of the account but this one. */
+	endOtherSessions: async ({ locals }) => {
+		const session = locals.session;
+		if (!session) return fail(401, { error: 'Not signed in' });
+		return { endedSessions: await endSessions(session, 'others') };
+	},
+
 	/** Withdraws one of this account's own links. See `revokeShare`. */
 	revokeShare: async ({ locals, request }) => {
 		const session = locals.session;

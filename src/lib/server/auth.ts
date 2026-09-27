@@ -8,7 +8,7 @@
  *  2. A session is an opaque random token. The database stores only its HMAC
  *     digest and an absolute expiry that is never extended past 72 hours.
  */
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { Cookies } from '@sveltejs/kit';
 import type { BackendKind } from '$lib/types';
 import { config } from './config';
@@ -23,6 +23,7 @@ import {
 	tokenDigest
 } from './crypto';
 import { now, store, type AccountRow } from './db';
+import { deviceLabel } from './device';
 import { backendFor, type StoredCredential } from './backends';
 import { log } from './log';
 import { forgetListings } from './listings';
@@ -67,6 +68,8 @@ export interface AuthenticatedSession {
 	/** Epoch millis. Absolute, never extended. */
 	expiresAt: number;
 	credential: StoredCredential;
+	/** This session's name in the list in Settings; see `sessionHandle`. */
+	handle: string;
 }
 
 function toAccount(row: AccountRow): Account {
@@ -240,14 +243,15 @@ export async function createSession(
 	const expiresAt = created + maxAgeMs;
 
 	await (await store()).run(
-		`INSERT INTO sessions (token_digest, account_id, created_at, expires_at, last_seen_at, client_pseudonym)
-		 VALUES (?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO sessions (token_digest, account_id, created_at, expires_at, last_seen_at, client_pseudonym, device)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		tokenDigest(token),
 		account.id,
 		created,
 		expiresAt,
 		created,
-		clientHint ? pseudonym(clientHint) : null
+		clientHint ? pseudonym(clientHint) : null,
+		deviceLabel(clientHint)
 	);
 
 	const secure = cookieSecure(event.url);
@@ -379,7 +383,7 @@ export async function resolveSession(event: CookieContext): Promise<Authenticate
 		await database.run('UPDATE sessions SET last_seen_at = ? WHERE token_digest = ?', seen, digest);
 	}
 
-	return { account: toAccount(account), expiresAt: row.expires_at, credential };
+	return { account: toAccount(account), expiresAt: row.expires_at, credential, handle: sessionHandle(digest) };
 }
 
 const LAST_SEEN_RESOLUTION_MS = 60_000;
@@ -519,4 +523,89 @@ export async function activeSessionCount(accountId: string): Promise<number> {
 		now()
 	);
 	return Number(row?.count ?? 0);
+}
+
+/**
+ * The name a session goes by in Settings, where each one can be signed out.
+ *
+ * Derived from the stored digest rather than kept as a column of its own, and
+ * one-way: the page holds 16 hex characters of a hash of the digest, which is
+ * itself an HMAC of the token, so a handle leads back to neither. A request to
+ * end one is matched against the account's own sessions only.
+ */
+export function sessionHandle(digest: string): string {
+	return createHash('sha256').update(`session-handle:${digest}`).digest('hex').slice(0, 16);
+}
+
+export interface SessionSummary {
+	handle: string;
+	/** "Firefox on Android", or null for a header `deviceLabel` did not know, or a session from before it. */
+	device: string | null;
+	createdAt: number;
+	/** To the minute; see `LAST_SEEN_RESOLUTION_MS`. */
+	lastSeenAt: number;
+	expiresAt: number;
+	current: boolean;
+}
+
+/** The account's sessions that have not expired, most recently used first. */
+export async function listSessions(session: AuthenticatedSession): Promise<SessionSummary[]> {
+	const rows = await (await store()).all<{
+		token_digest: string;
+		created_at: number;
+		last_seen_at: number;
+		expires_at: number;
+		device: string | null;
+	}>(
+		`SELECT token_digest, created_at, last_seen_at, expires_at, device FROM sessions
+		 WHERE account_id = ? AND expires_at > ? ORDER BY last_seen_at DESC`,
+		session.account.id,
+		now()
+	);
+	return rows.map((row) => {
+		const handle = sessionHandle(row.token_digest);
+		return {
+			handle,
+			device: row.device,
+			createdAt: Number(row.created_at),
+			lastSeenAt: Number(row.last_seen_at),
+			expiresAt: Number(row.expires_at),
+			current: handle === session.handle
+		};
+	});
+}
+
+/**
+ * Ends the account's sessions named by `handles`, or all of them but the
+ * current one with `'others'`. Returns how many ended. A handle that is not one
+ * of the account's own ends nothing.
+ */
+export async function endSessions(session: AuthenticatedSession, handles: string[] | 'others'): Promise<number> {
+	const database = await store();
+	const rows = await database.all<{ token_digest: string }>(
+		'SELECT token_digest FROM sessions WHERE account_id = ?',
+		session.account.id
+	);
+	const targets = rows
+		.map((row) => row.token_digest)
+		.filter((digest) => {
+			const handle = sessionHandle(digest);
+			return handles === 'others' ? handle !== session.handle : handles.includes(handle);
+		});
+
+	let ended = 0;
+	for (const digest of targets) {
+		const result = await database.run(
+			'DELETE FROM sessions WHERE token_digest = ? AND account_id = ?',
+			digest,
+			session.account.id
+		);
+		ended += result.changes;
+		// After the delete, so a read that began before it cannot cache the row
+		// it saw; the same order `destroySession` keeps.
+		sessionEpoch++;
+		sessionCache.delete(digest);
+	}
+	if (ended > 0) log.info('sessions-ended', { account: session.account.id, sessions: ended, by: 'settings' });
+	return ended;
 }
