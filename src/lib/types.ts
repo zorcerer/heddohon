@@ -169,3 +169,6 @@ export interface AlbumQuery {
 
 /** What every entity type can be favourited as. */
 export type StarKind = 'song' | 'album' | 'artist';
+
+/** What an instant mix is made from. */
+export type MixSeed = 'song' | 'album' | 'artist';

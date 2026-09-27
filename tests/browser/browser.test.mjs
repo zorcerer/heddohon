@@ -695,6 +695,35 @@ describe('the artist and playlist headings', () => {
 	}
 });
 
+describe('instant mix', () => {
+	test('says when there is nothing similar, and otherwise plays the mix', async () => {
+		const { page, problems } = await watchedPage();
+		try {
+			await page.goto(app.url + '/albums/al18', { waitUntil: 'networkidle' });
+			// By its class: its name is its label, which says what happened for four seconds.
+			const button = page.locator('main button.mix');
+
+			const title = () => page.evaluate(() => document.querySelector('aside.panel h2.title')?.textContent);
+			// Whatever an earlier test left in the queue, restored on arrival.
+			await page.waitForTimeout(500);
+			const before = await title();
+
+			subsonic.state.mixSize = 0;
+			await button.click();
+			await page.getByText('Nothing similar on your music server').waitFor({ timeout: 5000 });
+			assert.equal(await title(), before, 'an empty mix changed the queue');
+
+			subsonic.state.mixSize = 4;
+			await button.click();
+			await page.waitForFunction(() => document.querySelector('aside.panel h2.title')?.textContent === 'Song 19a');
+		} finally {
+			subsonic.state.mixSize = 0;
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+});
+
 describe('track rows', () => {
 	test('a double press on a row\'s heart does not play that row', async () => {
 		const { page, problems } = await watchedPage();

@@ -129,6 +129,12 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 		 */
 		similarAlbums: 0,
 		/**
+		 * Songs `getSimilarSongs` answers with, one from each album after the
+		 * seed's (for a song, album or artist id alike). Zero answers with none,
+		 * as Navidrome does without an external agent.
+		 */
+		mixSize: 0,
+		/**
 		 * Navidrome's own API (`/auth/login`, `/api/lastfm/link`,
 		 * `/api/listenbrainz/link`). Null makes this a Subsonic server that is not
 		 * Navidrome, which answers those paths with 404. Session tokens numbered
@@ -280,6 +286,11 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 						}
 					})
 				);
+			case 'getSimilarSongs': {
+				const from = index(p.get('id'));
+				const songs = Array.from({ length: state.mixSize }, (_, k) => song((from + k + 1) % artistCount, 'a'));
+				return send(ok({ similarSongs: songs.length > 0 ? { song: songs } : {} }));
+			}
 			case 'getSimilarSongs2': {
 				const from = index(p.get('id'));
 				const songs = Array.from({ length: state.similarAlbums }, (_, k) => song((from + k + 1) % artistCount, 'a'));
@@ -400,6 +411,17 @@ export async function startJellyfin() {
 		{ Id: 'b3', Name: 'Third', Type: 'MusicAlbum', AlbumArtists: [{ Id: 'a2', Name: 'Artist B' }] },
 		{ Id: 'b4', Name: 'Compilation', Type: 'MusicAlbum', AlbumArtists: [{ Id: 'a3', Name: 'Various Artists' }] }
 	];
+	const tracks = [1, 2, 3].map((n) => ({
+		Id: `t${n}`,
+		Name: `Track ${n}`,
+		Type: 'Audio',
+		Album: 'Second',
+		AlbumId: 'b2',
+		AlbumArtist: 'Artist B',
+		ArtistItems: [{ Id: 'a2', Name: 'Artist B' }],
+		RunTimeTicks: 1_800_000_000,
+		IndexNumber: n
+	}));
 
 	const server = await listen((req, res) => {
 		const url = new URL(req.url, 'http://mock');
@@ -425,6 +447,14 @@ export async function startJellyfin() {
 		if (url.pathname === '/Users/u1') return send({ Id: 'u1', Name: 'jfuser', Policy: { IsAdministrator: false } });
 		if (url.pathname === '/Items' && types === 'MusicArtist') return send({ Items: artists });
 		if (url.pathname === '/Items' && types === 'MusicAlbum') return send({ Items: albums });
+		// An instant mix of the first album or of one of its tracks, and those
+		// tracks by id; any other item has no mix.
+		if (/^\/Items\/(b1|t[123])\/InstantMix$/.test(url.pathname)) return send({ Items: tracks });
+		if (/^\/Items\/[^/]+\/InstantMix$/.test(url.pathname)) return send({ Items: [] });
+		if (url.pathname === '/Items' && url.searchParams.get('Ids')) {
+			const ids = url.searchParams.get('Ids').split(',');
+			return send({ Items: tracks.filter((track) => ids.includes(track.Id)) });
+		}
 		if (url.pathname === '/Items') return send({ Items: [] });
 		return send({}, 404);
 	});

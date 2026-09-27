@@ -598,6 +598,29 @@ export const jellyfinBackend: MediaBackend = {
 		return (body.Items ?? []).map(toSong);
 	},
 
+	async getInstantMix(cred, kind, id, limit) {
+		// One endpoint for any item: a song, an album or an artist. Whether a
+		// song's mix begins with the song is not documented, so it is put first
+		// here either way, as on Subsonic.
+		const { userId } = creds(cred);
+		const [mix, seed] = await Promise.all([
+			call<ItemsResponse>(cred, `/Items/${seg(id)}/InstantMix`, {
+				UserId: userId,
+				Limit: Math.min(limit, 500),
+				Fields: SONG_FIELDS
+			}),
+			kind === 'song'
+				? call<ItemsResponse>(cred, '/Items', { userId, Ids: id, Fields: SONG_FIELDS }).then(
+						(body) => body.Items?.[0] ?? null
+					)
+				: Promise.resolve(null)
+		]);
+		// Tracks only: the endpoint answers with items, and only a track can be queued.
+		const songs = (mix.Items ?? []).filter((item) => !item.Type || item.Type === 'Audio').map(toSong);
+		if (songs.length === 0) return [];
+		return seed ? [toSong(seed), ...songs.filter((song) => song.id !== seed.Id)] : songs;
+	},
+
 	async getAlbum(cred, id): Promise<AlbumDetail> {
 		const { userId } = creds(cred);
 		const [album, tracks] = await Promise.all([

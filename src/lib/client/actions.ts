@@ -1,5 +1,5 @@
 import { player } from './player.svelte';
-import type { Song } from '$lib/types';
+import type { MixSeed, Song } from '$lib/types';
 
 type Source = 'album' | 'playlist' | 'artist' | 'genre' | 'starred' | 'random';
 
@@ -56,4 +56,17 @@ async function fetchTracksPart(id: string): Promise<Song[]> {
 export async function queueContainer(source: Source, id?: string) {
 	const songs = await fetchTracks(source, id);
 	if (songs.length > 0) player.addToQueue(songs);
+}
+
+/**
+ * Replaces the queue with an instant mix made from a song, an album or an
+ * artist, and says whether there was one. The music server may have nothing
+ * like it (on Navidrome, anything, without an external agent configured), and
+ * then the queue is left as it was.
+ */
+export async function playInstantMix(of: MixSeed, id: string): Promise<boolean> {
+	const { songs } = await requestTracks({ source: 'mix', of, id });
+	if (songs.length === 0) return false;
+	await player.playNow(songs);
+	return true;
 }

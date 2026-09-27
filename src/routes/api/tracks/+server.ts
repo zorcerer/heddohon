@@ -3,11 +3,12 @@ import type { RequestHandler } from './$types';
 import { backendFor, UpstreamError } from '$lib/server/backends';
 import { mapLimited } from '$lib/server/backends/http';
 import { remembered } from '$lib/server/listings';
-import type { Song } from '$lib/types';
+import type { MixSeed, Song } from '$lib/types';
 
-type Source = 'album' | 'playlist' | 'artist' | 'genre' | 'starred' | 'random';
+type Source = 'album' | 'playlist' | 'artist' | 'genre' | 'starred' | 'random' | 'mix';
 
-const SOURCES: Source[] = ['album', 'playlist', 'artist', 'genre', 'starred', 'random'];
+const SOURCES: Source[] = ['album', 'playlist', 'artist', 'genre', 'starred', 'random', 'mix'];
+const MIX_SEEDS: MixSeed[] = ['song', 'album', 'artist'];
 
 /**
  * Resolves a container to its tracks in play order, so "play this album" is one
@@ -23,6 +24,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 		id?: unknown;
 		limit?: unknown;
 		part?: unknown;
+		of?: unknown;
 	} | null;
 
 	const source = body?.source;
@@ -30,7 +32,8 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 		error(400, `source must be one of ${SOURCES.join(', ')}`);
 	}
 	const id = typeof body?.id === 'string' && body.id.length < 256 ? body.id : null;
-	if ((source === 'album' || source === 'playlist' || source === 'artist' || source === 'genre') && !id) {
+	const needsId = ['album', 'playlist', 'artist', 'genre', 'mix'].includes(source as Source);
+	if (needsId && !id) {
 		error(400, 'id is required for this source');
 	}
 
@@ -83,6 +86,15 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 				// thousands of tracks: 200 in random order is a long evening.
 				songs = await backend.getGenreSongs(cred, id!, 200);
 				break;
+			case 'mix': {
+				// What the mix is made from: a song, an album or an artist.
+				const of = body?.of;
+				if (!MIX_SEEDS.includes(of as MixSeed)) error(400, `of must be one of ${MIX_SEEDS.join(', ')}`);
+				// 100 tracks, about five hours; a genre sample is 200. A mix is
+				// ranked by likeness to its seed, so its tail is the least like it.
+				songs = await backend.getInstantMix(cred, of as MixSeed, id!, 100);
+				break;
+			}
 			case 'starred':
 				songs = (await remembered(session.account.id, 'starred', () => backend.getStarred(cred))).songs;
 				break;
