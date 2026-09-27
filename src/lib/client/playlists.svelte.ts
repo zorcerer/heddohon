@@ -53,6 +53,17 @@ export async function removeTracks(id: string, indices: number[]): Promise<void>
 	await send(`/api/playlists/${encodeURIComponent(id)}/tracks`, 'DELETE', { indices });
 }
 
+/**
+ * Moves one entry. `songId` and `count` are what the page shows, so a playlist
+ * changed in another player since is refused rather than overwritten.
+ */
+export async function moveTrack(
+	id: string,
+	move: { from: number; to: number; songId: string; count: number }
+): Promise<void> {
+	await send(`/api/playlists/${encodeURIComponent(id)}/tracks`, 'PATCH', move);
+}
+
 class PlaylistPicker {
 	request = $state<AddRequest | null>(null);
 	playlists = $state<Playlist[]>([]);
