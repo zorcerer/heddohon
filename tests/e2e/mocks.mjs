@@ -170,7 +170,11 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 		coverArt: `al-${i}`,
 		songCount: 2,
 		duration: 360,
-		year: 2000 + (i % 20)
+		year: 2000 + (i % 20),
+		// A 2009 edition of a record from 1979, and a date with no year (Navidrome
+		// sends 0), which leaves the edition's year.
+		...(i === 29 ? { originalReleaseDate: { year: 1979, month: 5, day: 1 } } : {}),
+		...(i === 28 ? { originalReleaseDate: { year: 0 } } : {})
 	});
 	const artist = (i) => ({ id: `ar${i}`, name: name(i), albumCount: i === 0 ? 2 : 1, coverArt: `ar-${i}` });
 	const index = (id) => Number.parseInt(String(id).replace(/^\D+/, ''), 10);
