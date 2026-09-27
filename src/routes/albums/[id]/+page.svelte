@@ -3,6 +3,7 @@
 	import HeroTitle from '$lib/components/HeroTitle.svelte';
 	import Sleeve from '$lib/components/Sleeve.svelte';
 	import FavouriteButton from '$lib/components/FavouriteButton.svelte';
+	import MixButton from '$lib/components/MixButton.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import MediaCard from '$lib/components/MediaCard.svelte';
 	import MediaGrid from '$lib/components/MediaGrid.svelte';
@@ -174,6 +175,7 @@
 					<Icon name="plus" size={16} />
 					<span class="label">Add to playlist</span>
 				</button>
+				<MixButton of="album" id={album.id} />
 				<FavouriteButton id={album.id} kind="album" starred={album.starred} size={20} />
 			</div>
 		</div>

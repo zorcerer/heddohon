@@ -3,6 +3,7 @@
 	import Cover from '$lib/components/Cover.svelte';
 	import FeaturedRelease from '$lib/components/FeaturedRelease.svelte';
 	import FavouriteButton from '$lib/components/FavouriteButton.svelte';
+	import MixButton from '$lib/components/MixButton.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import MediaCard from '$lib/components/MediaCard.svelte';
 	import MediaGrid from '$lib/components/MediaGrid.svelte';
@@ -74,6 +75,7 @@
 					<Icon name="play" size={16} />
 					Play all
 				</button>
+				<MixButton of="artist" id={artist.id} />
 				<FavouriteButton id={artist.id} kind="artist" starred={artist.starred} size={20} />
 			</div>
 		</div>

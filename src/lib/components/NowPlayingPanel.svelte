@@ -37,6 +37,7 @@
 	import FavouriteButton from './FavouriteButton.svelte';
 	import Icon from './Icon.svelte';
 	import LyricsView from './LyricsView.svelte';
+	import MixButton from './MixButton.svelte';
 	import QualityBadge from './QualityBadge.svelte';
 	import Seekbar from './Seekbar.svelte';
 
@@ -457,6 +458,10 @@
 								: ''}
 						</a>
 					{/if}
+					<!-- A mix made from this track, among the things about this track. -->
+					<div class="more-like">
+						<MixButton of="song" id={song.id} label="Instant mix from this track" variant="inline" />
+					</div>
 				</div>
 			</div>
 		{/if}
@@ -1161,6 +1166,10 @@
 
 	.facts dd {
 		color: var(--text-default);
+	}
+
+	.more-like {
+		margin-top: var(--space-2);
 	}
 
 	.download {
