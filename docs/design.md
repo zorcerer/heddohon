@@ -203,7 +203,13 @@ the top of the artwork. A pull on the handle or the artwork follows the
 finger, and closes the sheet past 140px or on a flick faster than 600pt a
 second; a shorter pull springs back. The artwork is a link to the album, and a
 pull that starts on it does not follow it. Any link followed from inside the
-sheet closes it, so the page it opened is what is on screen. The volume slider
+sheet closes it, so the page it opened is what is on screen. It closes into the
+dock rather than off the screen: the sheet shrinks into the dock's outline over
+440ms, its contents fading out in the first 30 percent of that, and a copy of the cover
+flies from the top of the sheet to the thumbnail in the dock, so what is left
+is visibly what the sheet was. Opening runs the same way out of the dock. The
+sheet's wrapper is transformed, which is not a backdrop root, so the glass
+keeps its blur throughout (`client/sheet-morph.svelte.ts`). The volume slider
 is folded on a phone, since the side buttons set the level and iOS does not
 let a page set it at all.
 
@@ -256,6 +262,14 @@ Pages are laid out like a printed catalogue rather than a dashboard.
 - **Tracklists are printed indexes**: numbers hang in the margin, hairline rules
   separate entries, and hovering tints a row rather than filling it, so the eye
   reads down one column of titles instead of scanning a stack of buttons.
+- **A capped section shows whole rows.** "More from" and "You might like" on
+  the album page ask for eight albums each, which in rows of three on a phone
+  left two cards and an empty third of a row, and at seven across on a wide
+  screen one card on a row of its own. They show as many as fill whole rows
+  (`MediaGrid wholeRows`): six on a phone, from the server's HTML, and on a
+  wider screen as many as the column count allows once the width is known.
+  Lists where every entry counts (search results, a genre, an artist's
+  releases) show everything.
 - **Long lists are paged at 100.** The artists page and each tab of favourites
   slice on the server and send only the visible page, so a library with thousands
   of artists renders as fast as one with twenty. Search on the artists page

@@ -123,6 +123,12 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 		/** Songs on each album from `getAlbum`, up to 26: `s1a`, `s1b`, `s1c` and on. */
 		albumSongs: 2,
 		/**
+		 * Albums `getSimilarSongs2` answers with, one song from each, taken from
+		 * the artists after the one asked about. Zero answers with none, as a
+		 * server without an agent does.
+		 */
+		similarAlbums: 0,
+		/**
 		 * Navidrome's own API (`/auth/login`, `/api/lastfm/link`,
 		 * `/api/listenbrainz/link`). Null makes this a Subsonic server that is not
 		 * Navidrome, which answers those paths with 404. Session tokens numbered
@@ -274,6 +280,11 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 						}
 					})
 				);
+			case 'getSimilarSongs2': {
+				const from = index(p.get('id'));
+				const songs = Array.from({ length: state.similarAlbums }, (_, k) => song((from + k + 1) % artistCount, 'a'));
+				return send(ok({ similarSongs2: songs.length > 0 ? { song: songs } : {} }));
+			}
 			case 'getTopSongs':
 				if (p.get('artist') !== name(0)) return send(ok({ topSongs: {} }));
 				return send(ok({ topSongs: { song: [song(0, 'a'), song(0, 'b'), song(1, 'a'), song(2, 'a')] } }));
