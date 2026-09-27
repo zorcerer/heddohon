@@ -432,6 +432,25 @@ export const subsonicBackend: MediaBackend = {
 		return shuffledCopy(asArray(body.songsByGenre?.song as Record<string, any>[]).map(toSong));
 	},
 
+	async getInstantMix(cred, kind, id, limit) {
+		// `getSimilarSongs` takes a song, an album or an artist id alike. It does
+		// not return the song it was asked about, so a song's mix fetches that
+		// song too and puts it first: the mix is "this, and more like it".
+		const [similar, seed] = await Promise.all([
+			call<{ similarSongs?: { song?: unknown } }>(cred, 'getSimilarSongs.view', {
+				id,
+				count: Math.min(limit, 500)
+			}),
+			kind === 'song'
+				? call<{ song?: Record<string, any> }>(cred, 'getSong.view', { id }).then((body) => body.song ?? null)
+				: Promise.resolve(null)
+		]);
+		const songs = asArray(similar.similarSongs?.song as Record<string, any>[]).map(toSong);
+		// Nothing similar is an empty mix, not the seed alone.
+		if (songs.length === 0) return [];
+		return seed ? [toSong(seed), ...songs.filter((song) => song.id !== seed.id)] : songs;
+	},
+
 	async getAlbum(cred, id): Promise<AlbumDetail> {
 		const body = await call<{ album?: Record<string, any> }>(cred, 'getAlbum.view', { id });
 		const raw = body.album;

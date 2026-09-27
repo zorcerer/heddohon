@@ -719,6 +719,54 @@ describe('linking Last.fm and ListenBrainz', () => {
 });
 
 
+describe('instant mix', () => {
+	const mix = async (client, of, id) => {
+		const response = await client.json('/api/tracks', 'POST', { source: 'mix', of, id });
+		return { status: response.status, songs: response.ok ? (await response.json()).songs : null };
+	};
+
+	test('a server with nothing similar answers with an empty mix, not an error', async () => {
+		subsonic.state.mixSize = 0;
+		const { status, songs } = await mix(user, 'album', 'al3');
+		assert.equal(status, 200, explain('mix failed'));
+		assert.deepEqual(songs, []);
+	});
+
+	test('a song\'s mix starts with the song, and albums and artists mix too', async () => {
+		subsonic.state.mixSize = 5;
+		try {
+			const bySong = await mix(user, 'song', 's3a');
+			assert.equal(bySong.status, 200, explain('song mix failed'));
+			assert.equal(bySong.songs[0].id, 's3a', 'the mix does not start with its song');
+			assert.equal(bySong.songs.length, 6);
+			assert.equal(new Set(bySong.songs.map((song) => song.id)).size, 6, 'a song is in the mix twice');
+
+			for (const [of, id] of [['album', 'al3'], ['artist', 'ar3']]) {
+				const result = await mix(user, of, id);
+				assert.equal(result.songs.length, 5, `${of} mix`);
+			}
+		} finally {
+			subsonic.state.mixSize = 0;
+		}
+	});
+
+	test('the kind of seed and its id are required', async () => {
+		assert.equal((await mix(user, 'playlist', 'al3')).status, 400);
+		assert.equal((await mix(user, 'album', undefined)).status, 400);
+	});
+
+	test('Jellyfin mixes from its own endpoint, with a song first and once', async () => {
+		const client = new Client(app.url);
+		await client.signIn({ username: 'jfuser', password: 'jfpass', backend: 'jellyfin' });
+		const byAlbum = await mix(client, 'album', 'b1');
+		assert.equal(byAlbum.status, 200, explain('Jellyfin mix failed'));
+		assert.deepEqual(byAlbum.songs.map((song) => song.id), ['t1', 't2', 't3']);
+		const bySong = await mix(client, 'song', 't2');
+		assert.deepEqual(bySong.songs.map((song) => song.id), ['t2', 't1', 't3']);
+		assert.deepEqual((await mix(client, 'artist', 'a1')).songs, []);
+	});
+});
+
 describe('sessions ending', () => {
 	test('a credential the music server stops accepting signs the account out', async () => {
 		const client = new Client(app.url);
