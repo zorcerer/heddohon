@@ -56,6 +56,16 @@ export interface UpstreamResponse {
 	body: ReadableStream<Uint8Array> | null;
 }
 
+/** One entry of a playlist moved, and what the caller saw before moving it. */
+export interface PlaylistMove {
+	from: number;
+	to: number;
+	/** The song the caller saw at `from`. */
+	songId: string;
+	/** How many entries the caller saw. */
+	count: number;
+}
+
 export interface PlaybackReport {
 	songId: string;
 	/** Seconds into the track. */
@@ -229,6 +239,15 @@ export interface MediaBackend {
 	 * ambiguous anyway — the same track can legitimately appear twice.
 	 */
 	removeFromPlaylist(cred: StoredCredential, id: string, indices: number[]): Promise<void>;
+	/**
+	 * Moves the entry at position `from` to position `to`, the rest keeping
+	 * their order. `songId` and `count` are what the caller saw: the song at
+	 * `from` and the number of entries. If the playlist no longer matches
+	 * (changed in another player since the page loaded), nothing is written
+	 * and an `UpstreamError` of kind `conflict` is thrown, so an edit made
+	 * elsewhere is not overwritten.
+	 */
+	movePlaylistEntry(cred: StoredCredential, id: string, move: PlaylistMove): Promise<void>;
 	deletePlaylist(cred: StoredCredential, id: string): Promise<void>;
 	reportPlayback(cred: StoredCredential, report: PlaybackReport): Promise<void>;
 
