@@ -1,0 +1,26 @@
+# The development build: `:dev` is published from every change on the `dev`
+# branch that passes the test suites, ahead of the next release. It can break,
+# and a database it has migrated may not open in the release before it, which
+# is why it keeps its data in a volume of its own.
+#
+#   docker compose -f docker-compose.dev.yml up -d
+#   docker compose -f docker-compose.dev.yml pull && docker compose -f docker-compose.dev.yml up -d
+#
+# It reads the same `.env` as `docker-compose.yml` and uses the same port, so
+# run one or the other. To run both at once, give this one another port and its
+# own env file with `ORIGIN` set to match.
+name: heddohon-dev
+
+services:
+  heddohon-dev:
+    image: ghcr.io/zorcerer/heddohon:dev
+    container_name: heddohon-dev
+    restart: unless-stopped
+    ports:
+      - '3000:3000'
+    volumes:
+      - heddohon-dev-data:/data
+    env_file: .env
+
+volumes:
+  heddohon-dev-data:
