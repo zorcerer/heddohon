@@ -11,6 +11,7 @@ import type {
 	Lyrics,
 	SearchResults,
 	Song,
+	MixSeed,
 	StarKind
 } from '$lib/types';
 import type { LastfmStart, ScrobblerLinks, ScrobblerService } from './navidrome';
@@ -188,6 +189,14 @@ export interface MediaBackend {
 		artistId: string | null,
 		limit: number
 	): Promise<Album[]>;
+
+	/**
+	 * Up to `limit` songs the music server considers like a song, an album or
+	 * an artist: an instant mix. Empty when it has none, which on Navidrome is
+	 * every item unless an external agent (Last.fm and others) is configured.
+	 * A song's mix starts with the song itself.
+	 */
+	getInstantMix(cred: StoredCredential, kind: MixSeed, id: string, limit: number): Promise<Song[]>;
 
 	/** Every genre with at least one album, sorted by name. */
 	getGenres(cred: StoredCredential): Promise<Genre[]>;
