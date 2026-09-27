@@ -960,6 +960,12 @@
 	}
 
 	@media (max-width: 40rem) {
+		/* Less padding on a phone: at 1.5rem each side, inside the page's own,
+		   a row had 303px of a 393px screen for its words and its control. */
+		.group {
+			padding: var(--space-4);
+		}
+
 		.row,
 		.row.switch,
 		.facts > div {

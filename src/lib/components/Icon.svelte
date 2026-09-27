@@ -9,6 +9,7 @@
 		| 'play'
 		| 'pause'
 		| 'next'
+		| 'skip'
 		| 'previous'
 		| 'shuffle'
 		| 'repeat'
@@ -23,6 +24,7 @@
 		| 'album'
 		| 'artist'
 		| 'playlist'
+		| 'library'
 		| 'search'
 		| 'settings'
 		| 'close'
@@ -31,6 +33,7 @@
 		| 'logout'
 		| 'chevron-left'
 		| 'chevron-right'
+		| 'chevron-down'
 		| 'waveform'
 		| 'trash'
 		| 'expand'
@@ -58,6 +61,9 @@
 		play: 'M8 5.2v13.6a.7.7 0 0 0 1.07.6l11-6.8a.7.7 0 0 0 0-1.2l-11-6.8A.7.7 0 0 0 8 5.2Z',
 		pause: 'M9 5v14M15 5v14',
 		next: 'M6 5.5v13l9-6.5-9-6.5ZM18 5v14',
+		// Two triangles, the skip mark. The mini player on a phone uses it beside
+		// play: `next` there draws only its triangle, and read as a second play.
+		skip: 'M3.2 6.2v11.6l8.4-5.8L3.2 6.2ZM12.4 6.2v11.6l8.4-5.8-8.4-5.8Z',
 		previous: 'M18 5.5v13L9 12l9-6.5ZM6 5v14',
 		shuffle: 'M17 4l3 3-3 3M17 14l3 3-3 3M4 7h3.5l9 10H20M20 7h-3.5l-2 2.2M4 17h3.5l2-2.2',
 		repeat: 'M17 3l3 3-3 3M7 21l-3-3 3-3M20 6H8a4 4 0 0 0-4 4v1M4 18h12a4 4 0 0 0 4-4v-1',
@@ -72,6 +78,8 @@
 		album: 'M12 3.8a8.2 8.2 0 1 0 0 16.4 8.2 8.2 0 0 0 0-16.4ZM12 10.4a1.6 1.6 0 1 0 0 3.2 1.6 1.6 0 0 0 0-3.2Z',
 		artist: 'M12 3.5a3.8 3.8 0 1 1 0 7.6 3.8 3.8 0 0 1 0-7.6ZM4.5 20.5a7.5 7.5 0 0 1 15 0',
 		playlist: 'M4 6h13M4 11h13M4 16h6M18 9.5v8.2M18 17.7a1.9 1.9 0 1 1-2-1.9',
+		// Two spines upright and a third leaning on them, on a shelf: the usual mark for a library.
+		library: 'M4.5 4.5v15M8.5 4.5v15M12.4 5.2l3.9 14.1M19.5 19.5h-15',
 		search: 'M11 4.5a6.5 6.5 0 1 1 0 13 6.5 6.5 0 0 1 0-13ZM15.8 15.8 20 20',
 		settings:
 			'M12 9.2a2.8 2.8 0 1 1 0 5.6 2.8 2.8 0 0 1 0-5.6ZM12 3.5l1.4 2.2 2.6-.4.6 2.5 2.3 1.3-1 2.4 1 2.4-2.3 1.3-.6 2.5-2.6-.4L12 20.5l-1.4-2.2-2.6.4-.6-2.5-2.3-1.3 1-2.4-1-2.4 2.3-1.3.6-2.5 2.6.4L12 3.5Z',
@@ -81,6 +89,7 @@
 		logout: 'M15 5.5h3.1A1.4 1.4 0 0 1 19.5 7v10a1.4 1.4 0 0 1-1.4 1.4H15M11 8l-4 4 4 4M7 12h9',
 		'chevron-left': 'M14.5 5.5 8 12l6.5 6.5',
 		'chevron-right': 'M9.5 5.5 16 12l-6.5 6.5',
+		'chevron-down': 'M5.5 9.5 12 16l6.5-6.5',
 		waveform: 'M4 11v2M8 7.5v9M12 4.5v15M16 8.5v7M20 10.5v3',
 		lyrics:
 			'M4.5 6.5h9M4.5 11h11M4.5 15.5h6M17.5 14.2V7.4l3-.9v6.8M17.5 15.8a1.6 1.6 0 1 1-1.7-1.6M20.5 13.3a1.6 1.6 0 1 1-1.7-1.6',
@@ -115,7 +124,7 @@
 			'M12 .5a11.5 11.5 0 0 0-3.64 22.41c.58.1.79-.25.79-.55v-2.13c-3.2.66-3.88-1.4-3.88-1.4-.53-1.28-1.29-1.63-1.29-1.63-1.04-.69.08-.68.08-.68 1.16.08 1.77 1.16 1.77 1.16 1.03 1.7 2.7 1.21 3.36.93.1-.73.4-1.22.73-1.5-2.55-.28-5.24-1.24-5.24-5.53 0-1.23.45-2.23 1.18-3.01-.12-.28-.51-1.42.11-2.96 0 0 .96-.3 3.15 1.15a11.1 11.1 0 0 1 5.74 0c2.19-1.45 3.15-1.15 3.15-1.15.62 1.54.23 2.68.11 2.96.74.78 1.18 1.78 1.18 3.01 0 4.3-2.69 5.25-5.25 5.52.41.35.78 1.04.78 2.1v3.12c0 .3.21.66.8.55A11.5 11.5 0 0 0 12 .5Z'
 	};
 
-	const FILLED = new Set<IconName>(['play', 'heart-filled', 'next', 'previous', 'github']);
+	const FILLED = new Set<IconName>(['play', 'heart-filled', 'next', 'previous', 'skip', 'github']);
 </script>
 
 <!--

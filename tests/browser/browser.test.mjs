@@ -70,6 +70,7 @@ describe('the policy', () => {
 			'/artists/ar1',
 			'/favourites',
 			'/genres',
+			'/library',
 			'/playlists',
 			'/search?q=song',
 			'/settings'
@@ -903,8 +904,9 @@ describe('the heart in the player', () => {
 			await page.waitForFunction(() => document.querySelector('aside.panel h2.title')?.textContent === 'Song 2a');
 			assert.equal(await pressed(heart), 'false');
 
+			const starred = page.waitForResponse((r) => r.url().endsWith('/api/star'));
 			await heart.click();
-			await page.waitForResponse((r) => r.url().endsWith('/api/star'));
+			await starred;
 			assert.equal(await pressed(heart), 'true');
 
 			await page.locator('aside.panel button.step').nth(1).click();
@@ -917,8 +919,9 @@ describe('the heart in the player', () => {
 			assert.equal(await pressed(page.locator('.track').nth(0).locator('.fav')), 'true', 'the row disagreed');
 
 			// Put the mock back as it was for the tests after this one.
+			const unstarred = page.waitForResponse((r) => r.url().endsWith('/api/star'));
 			await heart.click();
-			await page.waitForResponse((r) => r.url().endsWith('/api/star'));
+			await unstarred;
 		} finally {
 			await page.close();
 		}
@@ -1180,6 +1183,20 @@ describe('moving between pages', () => {
 	});
 });
 
+describe('the phone dock on a wide screen', () => {
+	test('is not shown, and the rail is', async () => {
+		const { page, problems } = await watchedPage();
+		try {
+			await page.goto(app.url + '/albums', { waitUntil: 'networkidle' });
+			assert.equal(await page.locator('.phone-dock').isVisible(), false, 'the dock is shown at 1440px');
+			assert.equal(await page.locator('nav.rail').isVisible(), true, 'the rail is not shown at 1440px');
+		} finally {
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+});
+
 describe('on a phone', () => {
 	/*
 	 * Safari on iOS 26 draws the page behind its toolbar only from the
@@ -1217,32 +1234,102 @@ describe('on a phone', () => {
 
 	/*
 	 * A tap rather than `click()`. Playwright scrolls a target into view
-	 * before clicking it, and with the rail pinned that moved a page scrolled
-	 * to 600 back to 286, which a finger on the rail does not do.
+	 * before clicking it, and with the dock pinned that moved a scrolled page,
+	 * which a finger on the dock does not do.
 	 */
 	async function tap(page, locator) {
 		const box = await locator.boundingBox();
 		await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
 	}
 
-	test('the document scrolls to the bottom edge under a pinned rail', async () => {
-		// The artists page: 40 of them run to 7800px on a phone, where the home
-		// page, with its shelves in single lines, is 1900px.
+	/*
+	 * A drag from the middle of `locator`, by the mouse. Playwright's
+	 * touchscreen only taps; the mouse sends the same pointer events a finger
+	 * does, which is all the dock and the sheet listen to.
+	 *
+	 * One step a frame, 16ms apart, as a finger's events arrive. Sent as fast
+	 * as Playwright can, a 60px pull measured as a flick in WebKit and closed
+	 * the sheet.
+	 */
+	async function drag(page, locator, dx, dy) {
+		const box = await locator.boundingBox();
+		const x = box.x + box.width / 2;
+		const y = box.y + box.height / 2;
+		await page.mouse.move(x, y);
+		await page.mouse.down();
+		for (let step = 1; step <= 10; step++) {
+			await page.mouse.move(x + (dx * step) / 10, y + (dy * step) / 10);
+			await page.waitForTimeout(16);
+		}
+		await page.mouse.up();
+	}
+
+	const dockTitle = (page) => page.locator('.phone-dock .now .title').textContent();
+	const sheetOpen = (page) => page.evaluate(() => document.querySelector('.app').classList.contains('player-open'));
+
+	/** Plays album `al{n}` from its first track, and waits for the dock to show it. */
+	async function playAlbum(page, n) {
+		await page.goto(`${app.url}/albums/al${n}`, { waitUntil: 'networkidle' });
+		const row = page.getByRole('button', { name: `Play Song ${n}a`, exact: true });
+		// Under the sleeve, below the fold of a 641px screen: brought to the
+		// middle, clear of the dock, as a thumb would scroll it.
+		await row.evaluate((el) => el.scrollIntoView({ block: 'center', behavior: 'instant' }));
+		await tap(page, row);
+		await page.waitForFunction(
+			(title) => document.querySelector('.phone-dock .now .title')?.textContent === title,
+			`Song ${n}a`
+		);
+	}
+
+	test('the dock is the navigation, with the tab for the page lit', async () => {
+		const { page, problems } = await phonePage('/albums');
+		try {
+			assert.equal(await page.locator('nav.rail').isVisible(), false, 'the rail is still shown');
+			const nav = page.getByRole('navigation', { name: 'Primary' });
+			const labels = (await nav.getByRole('link').allTextContents()).map((text) => text.trim());
+			assert.deepEqual(labels, ['Home', 'Library', 'Favourites', 'Search']);
+			const lit = () => nav.locator('[aria-current="page"]').textContent().then((text) => text?.trim());
+			assert.equal(await lit(), 'Library', 'the albums page is in the library');
+
+			await tap(page, nav.getByRole('link', { name: 'Search' }));
+			await page.waitForURL(/\/search$/);
+			assert.equal(await lit(), 'Search');
+
+			await tap(page, nav.getByRole('link', { name: 'Library' }));
+			await page.waitForURL(/\/library$/);
+			const ways = page.getByRole('navigation', { name: 'Library' });
+			for (const name of ['Albums', 'Artists', 'Playlists', 'Genres']) {
+				await ways.getByRole('link', { name }).waitFor({ state: 'visible', timeout: 5000 });
+			}
+		} finally {
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+
+	test('the document scrolls to the bottom edge, and the last row clears the dock', async () => {
+		// The artists page: 40 of them run to 7800px on a phone.
 		const { page, problems } = await phonePage('/artists');
 		try {
 			await page.evaluate(() => scrollTo(0, 1500));
 			await page.waitForTimeout(100);
-			const seen = await page.evaluate(() => ({
+			const middle = await page.evaluate(() => ({
 				scrollY,
 				contentOverflow: getComputedStyle(document.querySelector('main.content')).overflowY,
-				railTop: document.querySelector('nav.rail').getBoundingClientRect().top,
-				contentBottom: document.querySelector('main.content').getBoundingClientRect().bottom,
+				dockBottom: document.querySelector('.phone-dock').getBoundingClientRect().bottom,
 				height: innerHeight
 			}));
-			assert.equal(seen.scrollY, 1500, 'the document did not scroll');
-			assert.equal(seen.contentOverflow, 'visible', 'the content column is still a scroller');
-			assert.equal(seen.railTop, 12, 'the rail scrolled away');
-			assert.ok(seen.contentBottom >= seen.height, `the page stops at ${seen.contentBottom}, short of ${seen.height}`);
+			assert.equal(middle.scrollY, 1500, 'the document did not scroll');
+			assert.equal(middle.contentOverflow, 'visible', 'the content column is still a scroller');
+			assert.equal(middle.dockBottom, middle.height - 12, 'the dock is not pinned 12px above the foot');
+
+			await page.evaluate(() => scrollTo(0, document.documentElement.scrollHeight));
+			await page.waitForTimeout(500);
+			const foot = await page.evaluate(() => ({
+				lastRow: document.querySelector('main.content').lastElementChild.getBoundingClientRect().bottom,
+				dockTop: document.querySelector('.phone-dock').getBoundingClientRect().top
+			}));
+			assert.ok(foot.lastRow <= foot.dockTop, `the page ends at ${foot.lastRow}, under the dock at ${foot.dockTop}`);
 		} finally {
 			await page.close();
 		}
@@ -1250,10 +1337,10 @@ describe('on a phone', () => {
 	});
 
 	/*
-	 * Scrolled, the content cell runs behind the rail, and the veil in it
+	 * Scrolled, the content cell runs behind the dock, and the veil in it
 	 * faded behind the glass. See 'moving between pages' above.
 	 */
-	test('the veil stays out from behind the rail on a scrolled page', async () => {
+	test('the veil stays out from behind the dock on a scrolled page', async () => {
 		const { page, problems } = await phonePage('/');
 		try {
 			await page.evaluate(() => {
@@ -1265,18 +1352,18 @@ describe('on a phone', () => {
 				};
 				const watch = () => {
 					const veil = document.querySelector('.page-veil');
-					if (veil) seen.push({ veil: box(veil), rail: box(document.querySelector('nav.rail')) });
+					if (veil) seen.push({ veil: box(veil), dock: box(document.querySelector('.phone-dock')) });
 					if (seen.length < 5) requestAnimationFrame(watch);
 				};
 				requestAnimationFrame(watch);
 			});
-			await tap(page, page.locator('nav.rail').getByRole('link', { name: 'Playlists' }));
+			await tap(page, page.getByRole('navigation', { name: 'Primary' }).getByRole('link', { name: 'Library' }));
 			await page.waitForFunction(() => window.__veil.length >= 5, null, { timeout: 5000 });
 			const samples = await page.evaluate(() => window.__veil);
 
 			const overlaps = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
-			for (const { veil, rail } of samples) {
-				assert.ok(!overlaps(veil, rail), `the veil ${JSON.stringify(veil)} is behind the rail ${JSON.stringify(rail)}`);
+			for (const { veil, dock } of samples) {
+				assert.ok(!overlaps(veil, dock), `the veil ${JSON.stringify(veil)} is behind the dock ${JSON.stringify(dock)}`);
 			}
 		} finally {
 			await page.close();
@@ -1284,26 +1371,138 @@ describe('on a phone', () => {
 		assert.deepEqual(problems, []);
 	});
 
-	test('the open sheet holds the page still', async () => {
-		const { page, problems } = await phonePage('/');
-		try {
-			await page.evaluate(() => scrollTo(0, 600));
-			await tap(page, page.locator('nav.rail .reopen'));
-			await page.waitForTimeout(600);
-			await page.mouse.move(200, 400);
-			await page.mouse.wheel(0, 800);
-			await page.waitForTimeout(300);
-			assert.equal(await page.evaluate(() => scrollY), 600, 'the page scrolled under the open sheet');
+	describe('with a track playing', () => {
+		before(() => {
+			subsonic.state.audio = { type: 'audio/wav', body: silentWav(60) };
+		});
 
-			await tap(page, page.locator('#player-hide'));
-			await page.waitForTimeout(600);
-			await page.mouse.wheel(0, 800);
-			await page.waitForTimeout(300);
-			assert.ok((await page.evaluate(() => scrollY)) > 600, 'the page does not scroll once the sheet is closed');
-		} finally {
-			await page.close();
-		}
-		assert.deepEqual(problems, []);
+		after(() => {
+			subsonic.state.audio = null;
+		});
+
+		test('the dock shows it, and opens the sheet, which holds the page still', async () => {
+			const { page, problems } = await phonePage('/');
+			try {
+				await playAlbum(page, 12);
+				// A page that scrolls, with the queue restored into the dock.
+				await page.goto(app.url + '/artists', { waitUntil: 'networkidle' });
+				await page.waitForFunction(() => document.querySelector('.phone-dock .now .title')?.textContent === 'Song 12a');
+				assert.equal(await sheetOpen(page), false, 'the sheet is open on arrival');
+
+				await page.evaluate(() => scrollTo(0, 600));
+				await tap(page, page.locator('#dock-open'));
+				await page.waitForTimeout(600);
+				assert.equal(await sheetOpen(page), true, 'the sheet did not open');
+				await page.mouse.move(200, 400);
+				await page.mouse.wheel(0, 800);
+				await page.waitForTimeout(300);
+				assert.equal(await page.evaluate(() => scrollY), 600, 'the page scrolled under the open sheet');
+
+				await tap(page, page.locator('#player-hide'));
+				await page.waitForTimeout(600);
+				assert.equal(await sheetOpen(page), false, 'the chevron did not close the sheet');
+				assert.equal(await page.evaluate(() => document.activeElement?.id), 'dock-open', 'focus is not back on the dock');
+				await page.mouse.wheel(0, 800);
+				await page.waitForTimeout(300);
+				assert.ok((await page.evaluate(() => scrollY)) > 600, 'the page does not scroll once the sheet is closed');
+			} finally {
+				await page.close();
+			}
+			assert.deepEqual(problems, []);
+		});
+
+		test('a swipe on the dock skips, and a short one does not', async () => {
+			const { page, problems } = await phonePage('/');
+			try {
+				await playAlbum(page, 13);
+				const now = page.locator('.phone-dock .now');
+
+				await drag(page, now, -30, 0);
+				await page.waitForTimeout(300);
+				assert.equal(await dockTitle(page), 'Song 13a', 'a 30px swipe changed the track');
+
+				await drag(page, now, -120, 0);
+				await page.waitForFunction(() => document.querySelector('.phone-dock .now .title')?.textContent === 'Song 13b');
+
+				await drag(page, now, 120, 0);
+				await page.waitForFunction(() => document.querySelector('.phone-dock .now .title')?.textContent === 'Song 13a');
+				assert.equal(await sheetOpen(page), false, 'a swipe also opened the sheet');
+
+				await drag(page, now, 0, -90);
+				await page.waitForTimeout(600);
+				assert.equal(await sheetOpen(page), true, 'a swipe up did not open the sheet');
+			} finally {
+				await page.close();
+			}
+			assert.deepEqual(problems, []);
+		});
+
+		test('the sheet closes when pulled down, and springs back from a short pull', async () => {
+			const { page, problems } = await phonePage('/');
+			try {
+				await playAlbum(page, 14);
+				const url = page.url();
+				await tap(page, page.locator('#dock-open'));
+				await page.waitForTimeout(600);
+
+				await drag(page, page.locator('aside.panel .grabber'), 0, 60);
+				await page.waitForTimeout(600);
+				assert.equal(await sheetOpen(page), true, 'a 60px pull closed the sheet');
+				const top = await page.locator('aside.panel').evaluate((el) => el.getBoundingClientRect().top);
+				assert.equal(top, 12, 'the sheet did not go back up');
+
+				// By the artwork, which is a link: the pull must not follow it.
+				await drag(page, page.locator('aside.panel a.art'), 0, 260);
+				await page.waitForTimeout(600);
+				assert.equal(await sheetOpen(page), false, 'a 260px pull did not close the sheet');
+				assert.equal(page.url(), url, 'the pull followed the artwork link');
+			} finally {
+				await page.close();
+			}
+			assert.deepEqual(problems, []);
+		});
+
+		test('a link in the sheet opens its page with the sheet gone', async () => {
+			const { page, problems } = await phonePage('/');
+			try {
+				await playAlbum(page, 15);
+				await page.goto(app.url + '/', { waitUntil: 'networkidle' });
+				await page.waitForSelector('#dock-open');
+				await tap(page, page.locator('#dock-open'));
+				await page.waitForTimeout(600);
+				await tap(page, page.locator('aside.panel .artist a'));
+				await page.waitForURL(/\/artists\/ar15$/);
+				await page.waitForTimeout(600);
+				assert.equal(await sheetOpen(page), false, 'the sheet is still over the page it opened');
+			} finally {
+				await page.close();
+			}
+			assert.deepEqual(problems, []);
+		});
+
+		test('the tabs fold away scrolling down, and come back scrolling up', async () => {
+			const { page, problems } = await phonePage('/');
+			try {
+				await playAlbum(page, 16);
+				await page.goto(app.url + '/artists', { waitUntil: 'networkidle' });
+				await page.waitForSelector('#dock-open');
+				const tabsHeight = () =>
+					page.evaluate(() => document.querySelector('.phone-dock nav').getBoundingClientRect().height);
+				const full = await tabsHeight();
+				assert.ok(full > 40, `the tabs are ${full}px tall`);
+
+				await page.evaluate(() => scrollTo(0, 1200));
+				await page.waitForTimeout(600);
+				assert.ok((await tabsHeight()) <= 1, 'the tabs did not fold scrolling down');
+
+				await page.evaluate(() => scrollTo(0, 1100));
+				await page.waitForTimeout(600);
+				assert.equal(await tabsHeight(), full, 'the tabs did not come back scrolling up');
+			} finally {
+				await page.close();
+			}
+			assert.deepEqual(problems, []);
+		});
 	});
 
 	/*

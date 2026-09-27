@@ -247,4 +247,21 @@
 			width: 8rem;
 		}
 	}
+
+	/* Centred on a phone, as the album page is, with the portrait larger. */
+	@media (max-width: 36rem) {
+		.hero,
+		.details {
+			justify-items: center;
+			text-align: center;
+		}
+
+		.portrait {
+			width: 11rem;
+		}
+
+		.actions {
+			justify-content: center;
+		}
+	}
 </style>

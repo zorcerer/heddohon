@@ -282,6 +282,29 @@ describe('favourites', () => {
 	});
 });
 
+describe('the phone\'s library and search tabs', () => {
+	test('the library page links to each part of the library and to settings', async () => {
+		const { response, html } = await user.page('/library');
+		assert.equal(response.status, 200, explain('library page failed'));
+		for (const href of ['/albums', '/artists', '/playlists', '/genres', '/settings']) {
+			assert.match(html, new RegExp(`href="${href}"`), href);
+		}
+		assert.match(html, /Recently added/);
+	});
+
+	test('search before a query offers the largest genres, from the held listing', async () => {
+		subsonic.calls.reset();
+		const first = await user.page('/search');
+		assert.equal(first.response.status, 200, explain('search page failed'));
+		// Streamed into the page after the field, as the favourites on home are.
+		assert.match(first.html, /Rock/);
+		assert.match(first.html, /Electronic/);
+		await user.page('/search');
+		// At most once: an earlier test may already have filled the listing.
+		assert.ok(subsonic.calls.get('getGenres') <= 1, 'the genres were fetched twice inside 30s');
+	});
+});
+
 describe('playing things', () => {
 	test('playing an artist asks only for its albums', async () => {
 		subsonic.calls.reset();

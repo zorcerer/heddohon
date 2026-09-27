@@ -151,6 +151,13 @@ export class Player {
 	 * first client render, so a phone never paints a sheet it was not asked for.
 	 */
 	viewportKnown = $state(false);
+	/**
+	 * Whether the panel is a sheet over the page (a phone, or a window under
+	 * 60rem) rather than a column beside it. False until `attach()` has read
+	 * the width, the same as `viewportKnown`. The phone dock and the sheet's
+	 * drag read it; CSS decides everything that can be decided without it.
+	 */
+	sheetLayout = $state(false);
 	sleep = $state<SleepTimer | null>(null);
 	/**
 	 * Which way the queue last moved: 1 forward (next, the end of a track, a
@@ -598,6 +605,7 @@ export class Player {
 		const sheet = window.matchMedia('(max-width: 60rem)');
 		const apply = () => {
 			this.panelOpen = !sheet.matches;
+			this.sheetLayout = sheet.matches;
 			this.viewportKnown = true;
 		};
 		apply();

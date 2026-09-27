@@ -403,7 +403,35 @@
 	 * goes is only the painted one. 44px squares, the size a finger needs; play
 	 * stays the accent, round, to keep it the first thing to press.
 	 */
+	/*
+	 * On a phone the sleeve is the page: centred and as wide as it can be
+	 * while the title and the play button still show under it on arrival,
+	 * with the text centred beneath it. Left-aligned at 13rem it filled half
+	 * the width of an iPhone and left the other half empty beside it.
+	 */
 	@media (max-width: 36rem) {
+		.hero {
+			justify-items: center;
+			text-align: center;
+		}
+
+		.art {
+			width: min(100%, 17rem);
+			max-width: none;
+		}
+
+		/* The full width, stretched: a size container has no width of its own
+		   to shrink to, so centred it collapsed to its widest word and the
+		   year, the count and the buttons wrapped one to a line. */
+		.details {
+			justify-self: stretch;
+			justify-items: center;
+		}
+
+		.actions {
+			justify-content: center;
+		}
+
 		.actions .label {
 			display: none;
 		}
