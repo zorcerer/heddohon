@@ -610,5 +610,12 @@
 			display: flex;
 			animation: actions-in var(--dur-hover) var(--ease-out);
 		}
+
+		/* The last column whether the actions are laid out or not. Placed by
+		   order, it moved into the actions' column on every row without them,
+		   and the times stepped 60px left of the one row that had them. */
+		.duration {
+			grid-column: -2;
+		}
 	}
 </style>
