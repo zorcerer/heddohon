@@ -86,14 +86,39 @@ function throwForSubsonicError(code: number, message: string): never {
 	throw new UpstreamError(message || `Subsonic error ${code}`, 502, 'protocol');
 }
 
+/** The same encoding as the address takes, repeated keys for a list, as a form body. */
+function formBody(params: UpstreamParams): string {
+	const body = new URLSearchParams();
+	for (const [key, value] of Object.entries(params)) {
+		if (value === undefined) continue;
+		for (const item of Array.isArray(value) ? value : [value]) body.append(key, String(item));
+	}
+	return body.toString();
+}
+
+/**
+ * `form` goes in a POST body instead of the address. For a list long enough to
+ * be refused as a URL: a reverse proxy in front of the music server commonly
+ * allows 8KB of request line and headers (nginx's default), which a playlist of
+ * about 250 tracks passed as `songId` parameters is over. OpenSubsonic calls
+ * this `formPost`; Navidrome reads it.
+ */
 async function call<T extends Record<string, unknown>>(
 	cred: StoredCredential,
 	method: string,
-	params: UpstreamParams = {}
+	params: UpstreamParams = {},
+	form?: UpstreamParams
 ): Promise<T> {
-	const response = await upstreamFetch(endpoint(cred, method, params), {
-		headers: { accept: 'application/json' }
-	});
+	const response = await upstreamFetch(
+		endpoint(cred, method, params),
+		form
+			? {
+					method: 'POST',
+					headers: { accept: 'application/json', 'content-type': 'application/x-www-form-urlencoded' },
+					body: formBody(form)
+				}
+			: { headers: { accept: 'application/json' } }
+	);
 	if (response.status === 401 || response.status === 403) {
 		throw new UpstreamError('The music server rejected these credentials', 401, 'auth');
 	}
@@ -705,6 +730,25 @@ export const subsonicBackend: MediaBackend = {
 			playlistId: id,
 			songIndexToRemove: [...indices].sort((a, b) => b - a)
 		});
+	},
+
+	async movePlaylistEntry(cred, id, { from, to, songId, count }) {
+		// Subsonic cannot move an entry. `createPlaylist` with a `playlistId`
+		// replaces a playlist's entries with the list it is given, so the whole
+		// playlist is written back in the new order. Read again first, and
+		// refused if it is not what the page showed: a rewrite from a stale
+		// list would silently undo whatever was changed in the meantime.
+		const body = await call<{ playlist?: Record<string, any> }>(cred, 'getPlaylist.view', { id });
+		const entries = asArray(body.playlist?.entry as Record<string, any>[]).map((entry) => String(entry.id));
+		if (!body.playlist) throw new UpstreamError('Playlist not found', 404, 'not_found');
+		if (entries.length !== count || entries[from] !== songId || to < 0 || to >= entries.length) {
+			throw new UpstreamError('The playlist changed since it was loaded', 409, 'conflict');
+		}
+		const [moved] = entries.splice(from, 1);
+		entries.splice(to, 0, moved);
+		// 150 ids is about 5KB of address; past that it goes as a form. See `call`.
+		if (entries.length <= 150) await call(cred, 'createPlaylist.view', { playlistId: id, songId: entries });
+		else await call(cred, 'createPlaylist.view', {}, { playlistId: id, songId: entries });
 	},
 
 	async deletePlaylist(cred, id) {
