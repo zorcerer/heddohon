@@ -110,5 +110,19 @@
 		.index {
 			display: none;
 		}
+
+		/*
+		 * The actions go to a line of their own under the title where the two
+		 * do not fit beside each other. Neither can shrink, so on the
+		 * favourites page, with its long eyebrow, "Play these" ran 60px past
+		 * the right-hand edge of a 393px screen.
+		 */
+		.section-header {
+			flex-wrap: wrap;
+		}
+
+		.titles {
+			flex: 0 1 auto;
+		}
 	}
 </style>
