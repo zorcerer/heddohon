@@ -1432,6 +1432,50 @@ describe('the heart in the player', () => {
 	});
 });
 
+describe('star ratings', () => {
+	test('the album and the playing song are rated with a press, and the player\'s stars follow the song', async () => {
+		const { page, problems } = await watchedPage();
+		const rated = () => page.waitForResponse((r) => r.url().endsWith('/api/rating'));
+		const hero = page.locator('header.hero .stars');
+		const panel = page.locator('aside.panel .facts .stars');
+		try {
+			await page.goto(app.url + '/albums/al5', { waitUntil: 'networkidle' });
+			assert.equal(await hero.getAttribute('aria-label'), 'Not rated');
+			let saved = rated();
+			await hero.getByRole('button', { name: 'Rate 3 of 5' }).click();
+			await saved;
+			assert.equal(await hero.getAttribute('aria-label'), 'Rated 3 of 5');
+			assert.equal(subsonic.state.ratings.get('al5'), 3);
+
+			await page.getByRole('button', { name: 'Play Song 5a', exact: true }).click();
+			await page.waitForFunction(() => document.querySelector('aside.panel h2.title')?.textContent === 'Song 5a');
+			await page.getByRole('button', { name: 'Track details' }).click();
+			saved = rated();
+			await panel.getByRole('button', { name: 'Rate 5 of 5' }).click();
+			await saved;
+			assert.equal(subsonic.state.ratings.get('s5a'), 5);
+
+			await page.locator('aside.panel button.step').nth(1).click();
+			await page.waitForFunction(() => document.querySelector('aside.panel h2.title')?.textContent === 'Song 5b');
+			assert.equal(await panel.getAttribute('aria-label'), 'Not rated', 'the next song showed the last song\'s stars');
+			await page.locator('aside.panel button.step').nth(0).click();
+			await page.waitForFunction(() => document.querySelector('aside.panel h2.title')?.textContent === 'Song 5a');
+			assert.equal(await panel.getAttribute('aria-label'), 'Rated 5 of 5');
+
+			// A press on the lit star clears the rating.
+			saved = rated();
+			await hero.getByRole('button', { name: 'Clear the rating' }).click();
+			await saved;
+			assert.equal(await hero.getAttribute('aria-label'), 'Not rated');
+			assert.equal(subsonic.state.ratings.has('al5'), false);
+		} finally {
+			subsonic.state.ratings.clear();
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+});
+
 describe('a press on the transport', () => {
 	/** The keyframes running on a control's glyph, by the property they move. */
 	const moving = (page, selector) =>

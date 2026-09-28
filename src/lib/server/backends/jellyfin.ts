@@ -276,6 +276,7 @@ function toSong(item: JellyfinItem): Song {
 		// one, so the favourites page offers no "recently starred" order here.
 		starredAt: null,
 		playCount: item.UserData?.PlayCount ?? null,
+		rating: null,
 		quality: quality(item),
 		// Jellyfin 10.9 and later measure each track against its own loudness
 		// target and report the correction as one number; there is no peak.
@@ -301,6 +302,7 @@ function toAlbum(item: JellyfinItem): Album {
 		coverArt: coverHandle(item),
 		starred: Boolean(item.UserData?.IsFavorite),
 		starredAt: null,
+		rating: null,
 		createdAt: Number.isFinite(created) ? created : null
 	};
 }

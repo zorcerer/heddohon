@@ -224,6 +224,15 @@ export interface MediaBackend {
 
 	setStarred(cred: StoredCredential, id: string, kind: StarKind, starred: boolean): Promise<void>;
 
+	/**
+	 * Sets the listener's rating of a song or an album, 1 to 5, or clears it
+	 * with 0. Present only where the server keeps ratings: Subsonic's
+	 * `setRating`, which Navidrome implements. Jellyfin keeps a like or a
+	 * dislike per item and no scale, so the member is absent there and
+	 * `rating` is null on everything it returns.
+	 */
+	setRating?(cred: StoredCredential, id: string, rating: number): Promise<void>;
+
 	/** Lyrics for one track, or null when the server has none. */
 	getLyrics(cred: StoredCredential, song: Song): Promise<Lyrics | null>;
 
