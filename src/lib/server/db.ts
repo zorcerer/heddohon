@@ -122,7 +122,16 @@ CREATE INDEX IF NOT EXISTS shares_expiry_idx ON shares(expires_at);
 CREATE TABLE IF NOT EXISTS plays (
   account_id  TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
   song_id     TEXT NOT NULL,
-  played_at   INTEGER NOT NULL
+  played_at   INTEGER NOT NULL,
+  -- The track as it was when played, for the stats page; see history.ts.
+  -- Null in a row from before these were kept.
+  title       TEXT,
+  artist      TEXT,
+  artist_id   TEXT,
+  album       TEXT,
+  album_id    TEXT,
+  cover_art   TEXT,
+  duration    INTEGER
 );
 CREATE INDEX IF NOT EXISTS plays_account_idx ON plays(account_id, played_at);
 `;
@@ -150,7 +159,14 @@ CREATE TABLE IF NOT EXISTS meta (
 const ADDED_COLUMNS: { table: string; column: string; type: string }[] = [
 	{ table: 'sessions', column: 'device', type: 'TEXT' },
 	{ table: 'shares', column: 'kind', type: 'TEXT' },
-	{ table: 'accounts', column: 'device_epoch', type: 'INTEGER' }
+	{ table: 'accounts', column: 'device_epoch', type: 'INTEGER' },
+	{ table: 'plays', column: 'title', type: 'TEXT' },
+	{ table: 'plays', column: 'artist', type: 'TEXT' },
+	{ table: 'plays', column: 'artist_id', type: 'TEXT' },
+	{ table: 'plays', column: 'album', type: 'TEXT' },
+	{ table: 'plays', column: 'album_id', type: 'TEXT' },
+	{ table: 'plays', column: 'cover_art', type: 'TEXT' },
+	{ table: 'plays', column: 'duration', type: 'INTEGER' }
 ];
 
 function addColumnsSqlite(instance: Database.Database) {
@@ -406,7 +422,7 @@ async function importFromSqlite(pool: pg.Pool): Promise<void> {
 		settings: ['account_id', 'data', 'updated_at'],
 		play_state: ['account_id', 'data', 'updated_at'],
 		shares: ['id', 'token_digest', 'account_id', 'backend', 'song_id', 'created_at', 'expires_at', 'kind'],
-		plays: ['account_id', 'song_id', 'played_at']
+		plays: ['account_id', 'song_id', 'played_at', 'title', 'artist', 'artist_id', 'album', 'album_id', 'cover_art', 'duration']
 	} as const;
 	const counts: Record<string, number> = {};
 

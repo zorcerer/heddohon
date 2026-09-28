@@ -41,6 +41,13 @@
 		{/each}
 	</nav>
 
+	<a class="settings hh-glass" href="/stats">
+		<Icon name="history" size={19} />
+		<span>Your listening</span>
+		<span class="hh-muted note">What you played, and when</span>
+		<Icon name="chevron-right" size={16} />
+	</a>
+
 	<a class="settings hh-glass" href="/screen">
 		<Icon name="screen" size={19} />
 		<span>Living-room screen</span>

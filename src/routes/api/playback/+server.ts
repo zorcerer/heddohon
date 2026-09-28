@@ -35,16 +35,25 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 		? Math.max(0, body.position)
 		: 0;
 
+	const settings = await getSettings(session.account.id);
+
 	// A play past the scrobble threshold goes into the account's history
-	// (`history.ts`) whether or not it is reported upstream. A failure here is
-	// logged and does not touch the report.
+	// (`history.ts`) whether or not it is reported upstream, with the track as
+	// the music server describes it for the stats page: one lookup a play. A
+	// failed lookup records the play without it, and a failed write is logged
+	// and does not touch the report.
 	if (event === 'stop' && body.completed === true) {
-		await recordPlay(session.account.id, body.songId).catch((err) =>
+		const songId = body.songId;
+		const song = await backendFor(session.account.backend)
+			.getSongs(session.credential, [songId])
+			.then((songs) => songs[0] ?? null)
+			.catch(() => null);
+		await recordPlay(session.account.id, songId, { song, keepDays: settings.historyDays }).catch((err) =>
 			log.warn('history-write-failed', { detail: reason(err) })
 		);
 	}
 
-	if (!(await getSettings(session.account.id)).reportPlayback) {
+	if (!settings.reportPlayback) {
 		return json({ reported: false, reason: 'disabled_by_user' });
 	}
 

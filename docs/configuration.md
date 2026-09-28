@@ -178,7 +178,7 @@ without touching their tables. When the connection is not encrypted, a
 
 **Moving from SQLite.** On the first start against an empty database, if
 `heddohon.db` is in `HEDDOHON_DATA_DIR`, it is copied across: accounts,
-settings, saved queues, share links and listening history. Sessions and sign-in counters are not,
+settings, saved queues, share links and listening history (with each play's track details). Sessions and sign-in counters are not,
 so everyone signs in once. Stored music-server credentials are copied sealed,
 so `HEDDOHON_SECRET` must stay the same. The copy is one transaction and the
 SQLite file is only read; a `sqlite_import` row in the `meta` table records
