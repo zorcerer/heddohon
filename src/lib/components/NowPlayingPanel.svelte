@@ -678,6 +678,20 @@
 								{output.label}
 							</button>
 						{/each}
+						<!-- A speaker or a TV on the network is somewhere the sound can go
+						     too; the same picker as the cast button beside the volume. -->
+						{#if player.castAvailable || player.casting}
+							<button
+								class="chip cast"
+								class:active={player.casting}
+								onclick={() => void player.cast()}
+								disabled={!song}
+								aria-pressed={player.casting}
+							>
+								<Icon name="cast" size={13} />
+								{player.casting ? 'Casting' : 'Cast…'}
+							</button>
+						{/if}
 					</div>
 					{#if !audioOutputs.named}
 						<p class="output-note hh-muted">
@@ -1487,6 +1501,12 @@
 	.volume-slider {
 		flex: 1;
 		min-width: 0;
+	}
+
+	.chip.cast {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.35rem;
 	}
 
 	.outputs {
