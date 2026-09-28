@@ -1106,6 +1106,44 @@ describe('playing across page changes', () => {
 	});
 });
 
+describe('shuffle', () => {
+	test('a queue played in order turns it off, and the saved state says so', async () => {
+		const { page, problems } = await watchedPage();
+		try {
+			await page.goto(app.url + '/albums/al12', { waitUntil: 'networkidle' });
+			const main = page.locator('main');
+			const lit = () => page.locator('aside.panel button[aria-label="Shuffle"]').getAttribute('aria-pressed');
+			const litAgain = () =>
+				page.waitForFunction(
+					() => document.querySelector('aside.panel button[aria-label="Shuffle"]')?.getAttribute('aria-pressed') === 'true'
+				);
+			await main.getByRole('button', { name: 'Shuffle', exact: true }).click();
+			await litAgain();
+
+			// It stayed on over every queue started in order after one shuffle.
+			const saved = page.waitForRequest(
+				(r) =>
+					new URL(r.url()).pathname === '/api/play-state' &&
+					r.method() !== 'GET' &&
+					(r.postData() ?? '').includes('"shuffle":false')
+			);
+			await main.getByRole('button', { name: 'Play', exact: true }).click();
+			await page.waitForFunction(() => document.querySelector('aside.panel h2.title')?.textContent === 'Song 12a');
+			assert.equal(await lit(), 'false', 'shuffle is still on for an album played in order');
+			await saved;
+
+			await main.getByRole('button', { name: 'Shuffle', exact: true }).click();
+			await litAgain();
+			await page.getByRole('button', { name: 'Play Song 12b', exact: true }).click();
+			await page.waitForFunction(() => document.querySelector('aside.panel h2.title')?.textContent === 'Song 12b');
+			assert.equal(await lit(), 'false', 'shuffle is still on after playing a track from a row');
+		} finally {
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+});
+
 describe('track rows', () => {
 	test('a double press on a row\'s heart does not play that row', async () => {
 		const { page, problems } = await watchedPage();
