@@ -2373,6 +2373,7 @@ describe('linking scrobblers from Settings', () => {
 		});
 		try {
 			await page.goto(app.url + '/settings', { waitUntil: 'networkidle' });
+			await page.getByRole('navigation', { name: 'Settings' }).getByRole('link', { name: 'Account' }).click();
 			const section = page.locator('#scrobbling');
 			await section.waitFor();
 
@@ -2679,6 +2680,61 @@ describe('shuffle', () => {
 			assert.equal(await page.locator('aside.panel h2.title').textContent(), 'Song 36c');
 		} finally {
 			subsonic.state.albumSongs = 2;
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+});
+
+describe('the settings tabs', () => {
+	test('show one group at a time, switch without reloading, and save the fields on other tabs', async () => {
+		await context.request.patch(`${app.url}/api/settings`, {
+			headers: { origin: app.url },
+			data: { theme: 'dark', transcode: true, transcodeBitrateKbps: 256 }
+		});
+		const { page, problems } = await watchedPage();
+		try {
+			await page.goto(app.url + '/settings', { waitUntil: 'networkidle' });
+			const tabs = page.getByRole('navigation', { name: 'Settings' });
+			const heading = (name) => page.getByRole('heading', { name, exact: true });
+			assert.equal(await tabs.getByRole('link', { name: 'Appearance' }).getAttribute('aria-current'), 'page');
+			assert.ok(await heading('Appearance').isVisible());
+			for (const name of ['Playback', 'Transcoding', 'Session & security', 'Cover cache']) {
+				assert.equal(await heading(name).isVisible(), false, `${name} shows on the Appearance tab`);
+			}
+
+			// A switch reads nothing from the server.
+			let fetched = 0;
+			page.on('request', (request) => {
+				if (request.url().includes('/settings') && request.resourceType() !== 'image') {
+					fetched++;
+				}
+			});
+			await tabs.getByRole('link', { name: 'Cover cache' }).click();
+			await heading('Cover cache').waitFor();
+			assert.equal(await heading('Appearance').isVisible(), false);
+			assert.match(page.url(), /\/settings\?tab=storage$/);
+			assert.equal(fetched, 0, 'the tab switch asked the server for the page');
+
+			// Saving from Appearance keeps what the Playback tab holds.
+			await tabs.getByRole('link', { name: 'Appearance' }).click();
+			await page.locator('select[name="theme"]').selectOption('light');
+			await page.getByRole('button', { name: 'Save settings' }).click();
+			await page.getByText('Settings saved.').waitFor();
+			const saved = await (await context.request.get(`${app.url}/api/settings`)).json();
+			assert.equal(saved.theme, 'light');
+			assert.equal(saved.transcode, true);
+			assert.equal(saved.transcodeBitrateKbps, 256);
+
+			// A link to a tab opens on it.
+			await page.goto(app.url + '/settings?tab=account', { waitUntil: 'networkidle' });
+			assert.ok(await heading('Session & security').isVisible());
+			assert.equal(await page.getByRole('button', { name: 'Save settings' }).isVisible(), false);
+		} finally {
+			await context.request.patch(`${app.url}/api/settings`, {
+				headers: { origin: app.url },
+				data: { theme: 'dark', transcode: false, transcodeBitrateKbps: 192 }
+			});
 			await page.close();
 		}
 		assert.deepEqual(problems, []);
