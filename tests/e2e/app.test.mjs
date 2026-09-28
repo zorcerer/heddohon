@@ -346,10 +346,16 @@ describe('favourites', () => {
 	test('Jellyfin, which does not date a favourite, is not offered "recently starred"', async () => {
 		const client = new Client(app.url);
 		await client.signIn({ username: 'jfuser', password: 'jfpass', backend: 'jellyfin' });
-		const { response, html } = await client.page('/favourites?tab=artists&sort=recentlyStarred');
-		assert.equal(response.status, 200, explain('Jellyfin favourites page failed'));
-		assert.ok(!html.includes('Recently starred'));
-		assert.match(html, /Most albums/);
+		jellyfin.state.favourites.add('a1');
+		jellyfin.state.favourites.add('a2');
+		try {
+			const { response, html } = await client.page('/favourites?tab=artists&sort=recentlyStarred');
+			assert.equal(response.status, 200, explain('Jellyfin favourites page failed'));
+			assert.ok(!html.includes('Recently starred'));
+			assert.match(html, /Most albums/);
+		} finally {
+			jellyfin.state.favourites.clear();
+		}
 	});
 });
 
@@ -905,6 +911,32 @@ describe('listening history', () => {
 		await client.signIn({ username: 'jfuser', password: 'jfpass', backend: 'jellyfin' });
 		await play(client, 't2');
 		assert.deepEqual(titles((await client.page('/history')).html), ['Track 2']);
+	});
+});
+
+describe('Jellyfin favourites', () => {
+	test('a heart reaches Jellyfin and shows on the album and favourites pages, and comes off again', async () => {
+		const client = new Client(app.url);
+		await client.signIn({ username: 'jfuser', password: 'jfpass', backend: 'jellyfin' });
+		const pressed = (html, title) =>
+			new RegExp(`${title}[\\s\\S]*?aria-pressed="(true|false)"[^>]*aria-label="(?:Add to|Remove from) favourites`).exec(html)?.[1];
+		try {
+			assert.equal(pressed((await client.page('/albums/b2')).html, 'Track 1'), 'false');
+			const starred = await client.json('/api/star', 'POST', { id: 't1', kind: 'song', starred: true });
+			assert.equal(starred.status, 200, explain('the star was refused'));
+			assert.ok(jellyfin.state.favourites.has('t1'), 'Jellyfin was not told');
+			assert.equal(pressed((await client.page('/albums/b2')).html, 'Track 1'), 'true');
+			assert.match((await client.page('/favourites')).html, /Track 1/);
+
+			await client.json('/api/star', 'POST', { id: 'b2', kind: 'album', starred: true });
+			assert.ok(jellyfin.state.favourites.has('b2'));
+
+			await client.json('/api/star', 'POST', { id: 't1', kind: 'song', starred: false });
+			assert.ok(!jellyfin.state.favourites.has('t1'));
+			assert.doesNotMatch((await client.page('/favourites?tab=songs')).html, /Track 1/);
+		} finally {
+			jellyfin.state.favourites.clear();
+		}
 	});
 });
 
