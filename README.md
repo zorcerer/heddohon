@@ -59,9 +59,15 @@ docker compose up -d
 Open `http://localhost:3000` and sign in with your music server account. To
 expose it publicly, set `ORIGIN` and read [SECURITY.md](SECURITY.md).
 
-Images are `ghcr.io/zorcerer/heddohon` and `zorcererd/heddohon`, and an Unraid
-template is in [`templates/heddohon.xml`](templates/heddohon.xml). Without
-Docker, on Node 22 or later: `npm ci && npm run build && node build/index.js`.
+Images are `ghcr.io/zorcerer/heddohon` and `zorcererd/heddohon`, for
+`linux/amd64` and `linux/arm64` (a Raspberry Pi 4 or 5 on a 64-bit OS, an ARM
+NAS, an Ampere server); 32-bit ARM is not built. An Unraid template is in
+[`templates/heddohon.xml`](templates/heddohon.xml). Without Docker, on Node 22
+or later: `npm ci && npm run build && node build/index.js`.
+
+`latest` is the newest release. `dev` is built from every change that passes
+the test suites ahead of the next release, for trying what is coming; it can
+break, and a database it has migrated may not open in the release before it.
 
 ## Documentation
 

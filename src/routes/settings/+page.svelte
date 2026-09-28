@@ -16,6 +16,7 @@
 	let saving = $state(false);
 	let clearing = $state(false);
 	let withdrawing = $state<string | null>(null);
+	let ending = $state<string | null>(null);
 
 	const shortDate = (at: number) =>
 		new Date(at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
@@ -407,24 +408,98 @@
 					<span class="hh-numeric hh-muted">({hoursLeft}h left)</span>
 				</dd>
 			</div>
-			<div>
-				<dt>Active sessions</dt>
-				<dd class="hh-numeric">{data.activeSessions}</dd>
-			</div>
 		</dl>
+
+		<!--
+			Every browser signed in to this account, the most recently used first,
+			with this one marked. Another can be signed out from here; this one signs
+			out with the button below, which also clears its cookie.
+		-->
+		<div class="sessions-head">
+			<h3>Signed in on</h3>
+			<span class="hh-numeric hh-muted">{data.sessions.length}</span>
+		</div>
+
+		{#if form && 'sessionError' in form && form.sessionError}
+			<p class="hh-muted note-inline" role="alert">{form.sessionError}</p>
+		{/if}
+
+		<ul class="shares sessions">
+			{#each data.sessions as entry (entry.handle)}
+				<li class="session">
+					<span class="share-text">
+						<span class="share-title hh-truncate">
+							{entry.device ?? 'Unknown browser'}
+							{#if entry.current}<span class="this hh-eyebrow">This browser</span>{/if}
+						</span>
+						<span class="share-sub hh-truncate hh-muted">
+							Signed in <span class="hh-numeric">{shortDate(entry.createdAt)}</span> · last used
+							<span class="hh-numeric">{shortDate(entry.lastSeenAt)}</span>
+						</span>
+					</span>
+					{#if !entry.current}
+						<form
+							method="POST"
+							action="?/endSession"
+							use:enhance={() => {
+								ending = entry.handle;
+								return async ({ update }) => {
+									await update({ reset: false });
+									await invalidateAll();
+									ending = null;
+								};
+							}}
+						>
+							<input type="hidden" name="handle" value={entry.handle} />
+							<button
+								class="hh-button danger withdraw"
+								type="submit"
+								disabled={ending === entry.handle}
+								aria-label="Sign out {entry.device ?? 'the unknown browser'}, last used {shortDate(entry.lastSeenAt)}"
+							>
+								{ending === entry.handle ? 'Signing out…' : 'Sign out'}
+							</button>
+						</form>
+					{/if}
+				</li>
+			{/each}
+		</ul>
 
 		<p class="hh-muted note">
 			Sessions have a hard ceiling of {data.sessionMaxHours} hours and are never extended by
-			activity — when the clock runs out you sign in again. Your music server password is held
-			encrypted on the server and is never sent to this browser.
+			activity: when the clock runs out, you sign in again. Your music server password is held
+			encrypted on the server and is never sent to this browser. Signing out does not withdraw
+			shared links; see below.
 		</p>
 
-		<form method="POST" action="/logout">
-			<button class="hh-button danger" type="submit">
-				<Icon name="logout" size={16} />
-				Sign out
-			</button>
-		</form>
+		<div class="session-actions">
+			<form method="POST" action="/logout">
+				<button class="hh-button danger" type="submit">
+					<Icon name="logout" size={16} />
+					Sign out
+				</button>
+			</form>
+			{#if data.sessions.length > 1}
+				<form
+					method="POST"
+					action="?/endOtherSessions"
+					use:enhance={() => {
+						ending = 'others';
+						return async ({ update }) => {
+							await update({ reset: false });
+							await invalidateAll();
+							ending = null;
+						};
+					}}
+				>
+					<button class="hh-button danger" type="submit" disabled={ending === 'others'}>
+						{ending === 'others'
+							? 'Signing out…'
+							: `Sign out everywhere else (${data.sessions.length - 1})`}
+					</button>
+				</form>
+			{/if}
+		</div>
 	</section>
 
 	<!-- Only where the music server can link at least one service: Navidrome,
@@ -534,8 +609,8 @@
 		<div class="group-head">
 			<h2>Shared links</h2>
 			<p class="hh-muted">
-				Links you have made to songs. Anyone who has one can listen to that song without an account,
-				and it plays through your account on the music server.
+				Links you have made to songs, albums and playlists. Anyone who has one can listen without an
+				account, and it plays through your account on the music server.
 			</p>
 		</div>
 
@@ -552,21 +627,23 @@
 
 		{#if data.shares.length === 0}
 			<p class="hh-muted empty">
-				No live links. Use the share button in the player or on a track to make one.
+				No live links. Use the share button in the player, on a track, or on an album or playlist
+				page to make one.
 			</p>
 		{:else}
 			<ul class="shares">
 				{#each data.shares as share (share.id)}
 					<li class="share">
 						<span class="share-art">
-							<Cover coverArt={share.song?.coverArt} size={96} alt="" radius="var(--r-sm)" />
+							<Cover coverArt={share.item?.coverArt} size={96} alt="" radius="var(--r-sm)" />
 						</span>
 						<span class="share-text">
 							<span class="share-title hh-truncate">
-								{share.song?.title ?? 'A song your server no longer returns'}
+								{share.item?.title ?? `${share.kind === 'album' ? 'An album' : `A ${share.kind}`} your server no longer returns`}
 							</span>
 							<span class="share-sub hh-truncate hh-muted">
-								{#if share.song?.artist}{share.song.artist} · {/if}until
+								{share.kind === 'song' ? 'Song' : share.kind === 'album' ? 'Album' : 'Playlist'} ·
+								{#if share.item?.subtitle}{share.item.subtitle} · {/if}until
 								<span class="hh-numeric">{shortDate(share.expiresAt)}</span>
 							</span>
 						</span>
@@ -587,7 +664,7 @@
 								class="hh-button danger withdraw"
 								type="submit"
 								disabled={withdrawing === share.id}
-								aria-label="Withdraw the link to {share.song?.title ?? 'this song'}"
+								aria-label="Withdraw the link to {share.item?.title ?? `this ${share.kind}`}"
 							>
 								{withdrawing === share.id ? 'Withdrawing…' : 'Withdraw'}
 							</button>
@@ -719,8 +796,20 @@
 		max-width: 54ch;
 	}
 
+	/*
+	 * Fades in rather than appearing in one frame. Opacity only, on the notice
+	 * itself: it is a pane of glass, and a transform on glass is kept off
+	 * throughout (see docs/design.md).
+	 */
+	@keyframes saved-in {
+		from {
+			opacity: 0;
+		}
+	}
+
 	.saved {
 		margin: 0;
+		animation: saved-in var(--dur-state) var(--ease-out);
 		padding: var(--space-3) var(--space-4);
 		background: color-mix(in srgb, var(--positive) 16%, var(--field-face));
 		-webkit-backdrop-filter: var(--control-blur);
@@ -957,6 +1046,41 @@
 	.withdraw:disabled {
 		opacity: 0.6;
 		cursor: progress;
+	}
+
+	.sessions-head {
+		display: flex;
+		align-items: baseline;
+		gap: var(--space-2);
+	}
+
+	.sessions-head h3 {
+		margin: 0;
+		font-size: 0.9375rem;
+		font-weight: 600;
+	}
+
+	.session {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) auto;
+		align-items: center;
+		gap: var(--space-3);
+		min-height: 2.75rem;
+	}
+
+	.session form {
+		display: contents;
+	}
+
+	.this {
+		margin-left: var(--space-2);
+		color: var(--accent);
+	}
+
+	.session-actions {
+		display: flex;
+		flex-wrap: wrap;
+		gap: var(--space-2);
 	}
 
 	@media (max-width: 40rem) {

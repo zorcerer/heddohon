@@ -166,7 +166,7 @@ interface JellyfinItem {
 	Genres?: string[];
 	ImageTags?: Record<string, string>;
 	AlbumPrimaryImageTag?: string;
-	UserData?: { IsFavorite?: boolean; PlayCount?: number; PlaybackPositionTicks?: number };
+	UserData?: { IsFavorite?: boolean; PlayCount?: number; PlaybackPositionTicks?: number; LastPlayedDate?: string };
 	ChildCount?: number;
 	DateCreated?: string;
 	Overview?: string;
@@ -322,16 +322,60 @@ interface ItemsResponse {
 	TotalRecordCount?: number;
 }
 
-const SORT_BY: Record<AlbumQuery['sort'], { sortBy: string; sortOrder: string }> = {
+const SORT_BY: Record<Exclude<AlbumQuery['sort'], PlayedSort>, { sortBy: string; sortOrder: string }> = {
 	recentlyAdded: { sortBy: 'DateCreated,SortName', sortOrder: 'Descending' },
-	recentlyPlayed: { sortBy: 'DatePlayed,SortName', sortOrder: 'Descending' },
-	mostPlayed: { sortBy: 'PlayCount,SortName', sortOrder: 'Descending' },
 	alphabetical: { sortBy: 'SortName', sortOrder: 'Ascending' },
 	byArtist: { sortBy: 'AlbumArtist,SortName', sortOrder: 'Ascending' },
 	byYear: { sortBy: 'ProductionYear,SortName', sortOrder: 'Descending' },
 	random: { sortBy: 'Random', sortOrder: 'Ascending' },
 	starred: { sortBy: 'SortName', sortOrder: 'Ascending' }
 };
+
+type PlayedSort = 'recentlyPlayed' | 'mostPlayed';
+
+/**
+ * Played songs read to rank albums by play. Enough for the home page and the
+ * first pages of either sort; an album whose songs all fall outside them is
+ * left off the end.
+ */
+const PLAYED_SONGS_READ = 2000;
+
+/**
+ * Album ids in order of the latest play of any of their songs, or of the plays
+ * of all their songs added up, most first.
+ *
+ * Jellyfin keeps plays on songs only. Playing an album's songs leaves the
+ * album's own play count and date unset: on a server with 529 songs played,
+ * 0 of 1924 albums had either. Sorted by `DatePlayed` or `PlayCount`, every
+ * album tied and the list came back in name order, the same every time. So the
+ * order is worked out here from the songs.
+ */
+async function playedAlbumIds(cred: StoredCredential, sort: PlayedSort): Promise<string[]> {
+	const body = await call<ItemsResponse>(cred, '/Items', {
+		userId: creds(cred).userId,
+		IncludeItemTypes: 'Audio',
+		Recursive: 'true',
+		Filters: 'IsPlayed',
+		SortBy: sort === 'recentlyPlayed' ? 'DatePlayed' : 'PlayCount',
+		SortOrder: 'Descending',
+		EnableImages: 'false',
+		Limit: PLAYED_SONGS_READ
+	});
+	const albums = new Map<string, { plays: number; last: number }>();
+	for (const song of body.Items ?? []) {
+		if (!song.AlbumId) continue;
+		const last = Date.parse(song.UserData?.LastPlayedDate ?? '');
+		const album = albums.get(song.AlbumId) ?? { plays: 0, last: 0 };
+		album.plays += song.UserData?.PlayCount ?? 0;
+		album.last = Math.max(album.last, Number.isFinite(last) ? last : 0);
+		albums.set(song.AlbumId, album);
+	}
+	const ranked = [...albums];
+	ranked.sort(([, a], [, b]) =>
+		sort === 'recentlyPlayed' ? b.last - a.last : b.plays - a.plays || b.last - a.last
+	);
+	return ranked.map(([id]) => id);
+}
 
 /**
  * Reads an `AuthenticationResult` into what gets stored. `AuthenticateByName`
@@ -534,6 +578,16 @@ export const jellyfinBackend: MediaBackend = {
 
 	async getAlbums(cred, query) {
 		const { userId } = creds(cred);
+		if (query.sort === 'recentlyPlayed' || query.sort === 'mostPlayed') {
+			const ids = (await playedAlbumIds(cred, query.sort)).slice(query.offset, query.offset + query.limit);
+			if (ids.length === 0) return [];
+			const body = await call<ItemsResponse>(cred, '/Items', { userId, Ids: ids.join(','), Fields: ITEM_FIELDS });
+			const byId = new Map((body.Items ?? []).map((item) => [item.Id, item]));
+			return ids.flatMap((id) => {
+				const item = byId.get(id);
+				return item ? [toAlbum(item)] : [];
+			});
+		}
 		const sort = SORT_BY[query.sort];
 		const body = await call<ItemsResponse>(cred, '/Items', {
 			userId,
@@ -596,6 +650,29 @@ export const jellyfinBackend: MediaBackend = {
 			Limit: Math.min(limit, 500)
 		});
 		return (body.Items ?? []).map(toSong);
+	},
+
+	async getInstantMix(cred, kind, id, limit) {
+		// One endpoint for any item: a song, an album or an artist. Whether a
+		// song's mix begins with the song is not documented, so it is put first
+		// here either way, as on Subsonic.
+		const { userId } = creds(cred);
+		const [mix, seed] = await Promise.all([
+			call<ItemsResponse>(cred, `/Items/${seg(id)}/InstantMix`, {
+				UserId: userId,
+				Limit: Math.min(limit, 500),
+				Fields: SONG_FIELDS
+			}),
+			kind === 'song'
+				? call<ItemsResponse>(cred, '/Items', { userId, Ids: id, Fields: SONG_FIELDS }).then(
+						(body) => body.Items?.[0] ?? null
+					)
+				: Promise.resolve(null)
+		]);
+		// Tracks only: the endpoint answers with items, and only a track can be queued.
+		const songs = (mix.Items ?? []).filter((item) => !item.Type || item.Type === 'Audio').map(toSong);
+		if (songs.length === 0) return [];
+		return seed ? [toSong(seed), ...songs.filter((song) => song.id !== seed.Id)] : songs;
 	},
 
 	async getAlbum(cred, id): Promise<AlbumDetail> {
@@ -916,6 +993,20 @@ export const jellyfinBackend: MediaBackend = {
 			ids: songIds.join(','),
 			userId
 		});
+	},
+
+	async movePlaylistEntry(cred, id, { from, to, songId, count }) {
+		// Jellyfin moves an entry in place, by its per-entry id, which exists only
+		// on the listing. Read again, and refused if the playlist is not what the
+		// page showed, as on Subsonic.
+		const { userId } = creds(cred);
+		const items = await call<ItemsResponse>(cred, `/Playlists/${seg(id)}/Items`, { userId });
+		const entries = items.Items ?? [];
+		const entry = entries[from];
+		if (entries.length !== count || entry?.Id !== songId || !entry.PlaylistItemId || to < 0 || to >= entries.length) {
+			throw new UpstreamError('The playlist changed since it was loaded', 409, 'conflict');
+		}
+		await post(cred, `/Playlists/${seg(id)}/Items/${seg(entry.PlaylistItemId)}/Move/${to}`);
 	},
 
 	async removeFromPlaylist(cred, id, indices) {

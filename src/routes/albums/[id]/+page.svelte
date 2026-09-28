@@ -3,7 +3,10 @@
 	import HeroTitle from '$lib/components/HeroTitle.svelte';
 	import Sleeve from '$lib/components/Sleeve.svelte';
 	import FavouriteButton from '$lib/components/FavouriteButton.svelte';
+	import MixButton from '$lib/components/MixButton.svelte';
 	import Icon from '$lib/components/Icon.svelte';
+	import { page } from '$app/state';
+	import { shareComposer } from '$lib/client/share.svelte';
 	import MediaCard from '$lib/components/MediaCard.svelte';
 	import MediaGrid from '$lib/components/MediaGrid.svelte';
 	import QualityBadge from '$lib/components/QualityBadge.svelte';
@@ -174,6 +177,25 @@
 					<Icon name="plus" size={16} />
 					<span class="label">Add to playlist</span>
 				</button>
+				<MixButton of="album" id={album.id} />
+				{#if page.data.sharing}
+					<button
+						class="hh-button"
+						onclick={() =>
+							shareComposer.open({
+								kind: 'album',
+								id: album.id,
+								title: album.name,
+								subtitle: album.artist,
+								coverArt: album.coverArt
+							})}
+						aria-label="Share a link to this album"
+						title="Share"
+					>
+						<Icon name="share" size={16} />
+						<span class="label">Share</span>
+					</button>
+				{/if}
 				<FavouriteButton id={album.id} kind="album" starred={album.starred} size={20} />
 			</div>
 		</div>
@@ -196,7 +218,7 @@
 					eyebrow="More from"
 					href="/artists/{album.artistId}"
 				/>
-				<MediaGrid density="compact">
+				<MediaGrid density="compact" wholeRows>
 					{#each artistAlbums as other (other.id)}
 						<MediaCard
 							href="/albums/{other.id}"
@@ -224,7 +246,7 @@
 				<SectionHeader title="You might like" eyebrow="Related" />
 				<!-- Compact: a suggestion is secondary to the page it sits under, and at
 				     this size the whole shelf fits without dominating the scroll. -->
-				<MediaGrid density="compact">
+				<MediaGrid density="compact" wholeRows>
 					{#each similar as suggestion (suggestion.id)}
 						<MediaCard
 							href="/albums/{suggestion.id}"

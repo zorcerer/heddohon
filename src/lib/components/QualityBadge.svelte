@@ -52,7 +52,12 @@
 			{#if quality.highResolution && !compact && !transcode}
 				<span class="dot" aria-hidden="true"></span>
 			{/if}
-			{label}
+			<!-- Keyed: pressing it swaps "FLAC 16/44.1" for "OPUS 160" and back,
+			     and the new words rise into place rather than replacing the old
+			     in one frame. -->
+			{#key label}
+				<span class="swap">{label}</span>
+			{/key}
 			<span class="hh-visually-hidden">. {action}</span>
 		</button>
 	{:else}
@@ -91,6 +96,20 @@
 	.badge.compact {
 		padding: 0 0.3rem;
 		font-size: 0.625rem;
+	}
+
+	/* A new label rises into place: the switch to a conversion and back, and a
+	   track change that brings a different format. */
+	.swap {
+		display: inline-block;
+		animation: badge-swap var(--dur-state) var(--ease-out);
+	}
+
+	@keyframes badge-swap {
+		from {
+			opacity: 0;
+			translate: 0 0.4em;
+		}
 	}
 
 	/* Both from the artwork: lossless as an outline in the accent, hi-res as a
