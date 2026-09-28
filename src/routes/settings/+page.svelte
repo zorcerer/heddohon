@@ -503,8 +503,14 @@
 						</span>
 					</span>
 					{#if !entry.current && !entry.endable}
-						<!-- Signed in after this browser; see `endSessions` in auth.ts. -->
-						<span class="hh-muted later">Sign out from that browser</span>
+						<!-- Signed in after this browser; see `endSessions` in auth.ts. In
+						     grey where the button would be, "Sign out from that browser"
+						     was read as a button that did not work, so it says why there
+						     is none and what to do instead. -->
+						<span class="hh-muted later">
+							Signed in after this browser.
+							<span class="later-how">Sign it out there, or sign in again here.</span>
+						</span>
 					{:else if !entry.current}
 						<form
 							method="POST"
@@ -929,8 +935,11 @@
 	}
 
 	.later {
-		font-size: 0.8125rem;
-		white-space: nowrap;
+		display: grid;
+		justify-items: end;
+		font-size: 0.75rem;
+		text-align: right;
+		max-width: 16rem;
 	}
 
 	.lede {
