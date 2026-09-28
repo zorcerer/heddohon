@@ -30,12 +30,15 @@ export const sheetMorph = $state<{ phase: 'morphing' | 'parking' | null }>({ pha
 
 let running: Animation[] = [];
 let ghost: HTMLImageElement | null = null;
+let hiddenArt: HTMLElement | null = null;
 
 function cleanUp() {
 	for (const animation of running) animation.cancel();
 	running = [];
 	ghost?.remove();
 	ghost = null;
+	if (hiddenArt) hiddenArt.style.visibility = '';
+	hiddenArt = null;
 }
 
 /** The cover's image in `root`, if it has one decoded to show. */
@@ -76,6 +79,15 @@ function run(opening: boolean, pulled: number) {
 	const duration = opening ? DUR.travel : 440;
 	const sheet = wrapper.getBoundingClientRect();
 	const target = dock.getBoundingClientRect();
+	// Both covers are measured before anything is animated. With `fill: 'both'`
+	// the wrapper's first keyframe applies the moment it is created, and the
+	// sheet's cover measured after it came out squashed to the dock: 367 by 74
+	// instead of 367 by 517 at 393 by 852. The flying cover opened into a strip
+	// across the dock and stayed there until the sheet's own cover took over at
+	// full size. Closing after a pull, the pull was counted twice.
+	const sheetArt = panel.querySelector<HTMLElement>('.stage .art');
+	const big = sheetArt?.getBoundingClientRect();
+	const small = dockArt.getBoundingClientRect();
 	const sx = target.width / sheet.width;
 	const sy = target.height / sheet.height;
 	const docked = `translate(${target.left - sheet.left}px, ${target.top - sheet.top}px) scale(${sx}, ${sy})`;
@@ -105,11 +117,16 @@ function run(opening: boolean, pulled: number) {
 	}
 
 	// The cover, between the top of the sheet and the thumbnail in the dock.
-	const sheetArt = panel.querySelector<HTMLElement>('.stage .art');
 	const image = coverIn(sheetArt) ?? coverIn(dockArt);
-	if (sheetArt && image) {
-		const big = sheetArt.getBoundingClientRect();
-		const small = dockArt.getBoundingClientRect();
+	// The sheet's own cover is hidden for the whole morph, so the flying one is
+	// the only cover on screen. The fade alone left it showing, squashed, for
+	// the first 30 percent of a close (down to 0.32 of its height at 120ms)
+	// and from halfway through an open.
+	if (sheetArt) {
+		hiddenArt = sheetArt;
+		sheetArt.style.visibility = 'hidden';
+	}
+	if (sheetArt && big && image) {
 		const start = opening ? small : new DOMRect(big.left, big.top + pulled, big.width, big.height);
 		const end = opening ? big : small;
 		ghost = document.createElement('img');

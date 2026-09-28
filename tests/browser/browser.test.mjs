@@ -1974,6 +1974,51 @@ describe('on a phone', () => {
 			assert.deepEqual(problems, []);
 		});
 
+		test('the cover flies into the sheet at full size, with the sheet\'s own cover hidden until it lands', async () => {
+			const { page, problems } = await phonePage('/');
+			try {
+				await playAlbum(page, 17);
+				await tap(page, page.locator('#dock-open'));
+				await page.waitForFunction(() => document.querySelector('.hh-cover-ghost'));
+				// Held at 400 of 480ms, where the sheet is within a few pixels of
+				// open. The flying cover used to be at 367 by 74 here, a strip
+				// across the dock, measured from the sheet while it was squashed.
+				const frame = await page.evaluate(() => {
+					for (const animation of document.getAnimations()) {
+						animation.pause();
+						animation.currentTime = 400;
+					}
+					const art = document.querySelector('aside.panel .stage .art');
+					const a = art.getBoundingClientRect();
+					const g = document.querySelector('.hh-cover-ghost').getBoundingClientRect();
+					return {
+						apart: Math.max(Math.abs(a.left - g.left), Math.abs(a.top - g.top), Math.abs(a.width - g.width), Math.abs(a.height - g.height)),
+						art: getComputedStyle(art).visibility
+					};
+				});
+				assert.ok(frame.apart <= 3, `the flying cover is ${frame.apart}px off the sheet's cover`);
+				assert.equal(frame.art, 'hidden', 'the sheet\'s own cover shows during the morph');
+				await page.evaluate(() => document.getAnimations().forEach((animation) => animation.play()));
+				await page.waitForFunction(() => !document.querySelector('.hh-cover-ghost'));
+				assert.equal(
+					await page.locator('aside.panel .stage .art').evaluate((el) => getComputedStyle(el).visibility),
+					'visible',
+					'the sheet\'s cover stayed hidden'
+				);
+
+				await tap(page, page.locator('#player-hide'));
+				await page.waitForFunction(() => document.querySelector('.hh-cover-ghost'));
+				assert.equal(
+					await page.locator('aside.panel .stage .art').evaluate((el) => getComputedStyle(el).visibility),
+					'hidden',
+					'the sheet\'s own cover shows while it closes'
+				);
+			} finally {
+				await page.close();
+			}
+			assert.deepEqual(problems, []);
+		});
+
 		test('the sheet closes into the dock, and leaves nothing behind', async () => {
 			const { page, problems } = await phonePage('/');
 			try {
