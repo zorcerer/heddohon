@@ -366,6 +366,39 @@ account streams.
 A link works for whoever it is forwarded to, for as long as it is live. The
 share dialog asks the owner to share only music they have the right to share.
 
+## Cast addresses
+
+A Chromecast or an AirPlay receiver fetches the audio itself and carries no
+session cookie. While a browser casts, each track is played from a cast
+address, `/cast/<token>`, a public route. What it is limited to:
+
+- **A token names one track, one account and one session.** It is the
+  account id, the session's handle, the track id and an expiry, signed with
+  HMAC-SHA256 under a key derived for this purpose alone. Changing any part
+  fails the signature. Nothing is stored.
+- **It lasts 6 hours**, and never past the session's own expiry. The browser
+  asks for new ones after 5.
+- **It ends with the session.** Each request looks the session up by its
+  handle; signing out, being signed out from Settings and the 72-hour expiry
+  make every address the session was given answer 404, and a stream in
+  progress is cut as the browser's own are.
+- **Every refusal is the same 404**: malformed, forged, expired, a session
+  that has ended, or a track the account cannot play.
+- **It is kept out of the log**, as share tokens are (`redact` in `log.ts`).
+- **It may be read cross-origin.** The receiver plays it from a page of its
+  own on another origin, so a successful answer on this route alone carries
+  `Cross-Origin-Resource-Policy: cross-origin` and
+  `Access-Control-Allow-Origin: *`. It is sent without credentials, and the
+  token in the path is the whole of the authority. Every other response keeps
+  `same-origin`.
+- **Anyone who holds the address can play that track until it expires or the
+  session ends**, the receiver and anything on the network path included. Over
+  plain http the address is visible on the network, as the session cookie is.
+
+`POST /api/cast` issues addresses for up to 1000 track ids to a signed-in
+browser. It makes no upstream call; an id the account cannot play gets an
+address that answers 404.
+
 ## Cross-origin writes
 
 SvelteKit's CSRF check covers form content types only, and every state-changing
@@ -537,6 +570,8 @@ Covers are cached under `$HEDDOHON_DATA_DIR/covers` (see
 | Remote control streams per account | 20 |
 | Remote command | one of nine types; a seek from 0 to 86400 s, a volume from 0 to 1, a queue of 1 to 1000 ids |
 | Remote state text (title, artist) | 300 characters, cut |
+| Cast addresses per request | 1 to 1000 track ids |
+| Cast address lifetime | 6 hours, never past the session |
 | Genre id in a path | 200 characters; on Jellyfin a GUID, since `GenreIds` takes a list |
 | Cover size | one of ten, 64 to 1536 |
 | Transcode codec | `mp3`, `opus`, `aac` |

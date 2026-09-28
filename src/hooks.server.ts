@@ -22,7 +22,7 @@ import {
  * Every route under it resolves the token itself and serves the one song the
  * link names, and nothing under it accepts a write. See `lib/server/shares.ts`.
  */
-const PUBLIC_ROUTES = ['/login', '/healthz', '/share', '/manifest.webmanifest'];
+const PUBLIC_ROUTES = ['/login', '/healthz', '/share', '/cast', '/manifest.webmanifest'];
 
 const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
@@ -315,6 +315,15 @@ const handleRequest: Handle = async ({ event, resolve }) => {
 	});
 
 	harden(response.headers);
+	// A cast address is fetched by the receiver's own page, on another origin
+	// (a Chromecast's receiver app), and without a cookie; see `cast.ts`. The
+	// token in the path is the authority, so this one resource may be loaded
+	// and read cross-origin. Matched by route, not by a path prefix.
+	if (event.route.id === '/cast/[token]' && response.ok) {
+		response.headers.set('cross-origin-resource-policy', 'cross-origin');
+		response.headers.set('access-control-allow-origin', '*');
+		response.headers.set('access-control-expose-headers', 'content-length, content-range, accept-ranges');
+	}
 	return response;
 };
 

@@ -1529,6 +1529,98 @@ describe('playback on another browser', () => {
 	});
 });
 
+describe('casting', () => {
+	/*
+	 * No receiver answers in a headless browser, so the Remote Playback API is
+	 * stood in for: a device is always available, a prompt connects, and
+	 * `__disconnect()` ends it. What is checked is Heddohon's side: the
+	 * addresses the element plays from, and the one element.
+	 */
+	test('plays each track from a cast address on one element, and goes back when disconnected', async () => {
+		const casting = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+		await casting.addInitScript(() => {
+			class FakeRemote extends EventTarget {
+				state = 'disconnected';
+				watchAvailability(callback) {
+					callback(true);
+					return Promise.resolve(1);
+				}
+				cancelWatchAvailability() {
+					return Promise.resolve();
+				}
+				prompt() {
+					this.state = 'connected';
+					setTimeout(() => this.dispatchEvent(new Event('connect')));
+					return Promise.resolve();
+				}
+			}
+			const remotes = new WeakMap();
+			Object.defineProperty(HTMLMediaElement.prototype, 'remote', {
+				configurable: true,
+				get() {
+					if (!remotes.has(this)) remotes.set(this, new FakeRemote());
+					return remotes.get(this);
+				}
+			});
+			window.__disconnect = () => {
+				for (const element of document.querySelectorAll('audio')) {
+					if (element.remote.state !== 'connected') continue;
+					element.remote.state = 'disconnected';
+					element.remote.dispatchEvent(new Event('disconnect'));
+				}
+			};
+		});
+		const signIn = await casting.request.post(`${app.url}/login`, {
+			form: { username: 'testuser', password: 'testpass', backend: 'subsonic', next: '/' },
+			headers: { origin: app.url, accept: 'text/html' },
+			maxRedirects: 0
+		});
+		assert.equal(signIn.status(), 303);
+		const page = await casting.newPage();
+		const problems = [];
+		page.on('pageerror', (err) => problems.push(err.message));
+		const sources = () => page.evaluate(() => [...document.querySelectorAll('audio')].map((a) => a.getAttribute('src') ?? ''));
+		const playingFrom = async (pattern) =>
+			page.waitForFunction((source) => [...document.querySelectorAll('audio')].some((a) => new RegExp(source).test(a.getAttribute('src') ?? '')), pattern.source, {
+				timeout: 5000
+			});
+
+		subsonic.state.audio = { type: 'audio/wav', body: silentWav(15) };
+		subsonic.state.albumSongs = 4;
+		try {
+			await page.goto(app.url + '/albums/al9', { waitUntil: 'networkidle' });
+			await page.getByRole('button', { name: 'Play Song 9a', exact: true }).click();
+			await page.waitForFunction(() => document.querySelector('aside.panel h2.title')?.textContent === 'Song 9a');
+
+			await page.getByRole('button', { name: 'Cast to a speaker or a TV' }).click();
+			await page.getByRole('button', { name: /^Casting/ }).waitFor({ timeout: 5000 });
+			await playingFrom(/^\/cast\//);
+
+			await page.locator('aside.panel button.step').nth(1).click();
+			await page.waitForFunction(() => document.querySelector('aside.panel h2.title')?.textContent === 'Song 9b');
+			await playingFrom(/^\/cast\//);
+			// Nothing buffered into the other element: the receiver follows one.
+			// The track is 15 seconds, inside the 20 before its end where the next
+			// one would be preloaded, which happens on a `timeupdate`.
+			await page.waitForFunction(() => [...document.querySelectorAll('audio')].some((a) => !a.paused && a.currentTime > 1), null, {
+				timeout: 5000
+			});
+			assert.equal((await sources()).filter(Boolean).length, 1, `two sources: ${await sources()}`);
+
+			await page.evaluate(() => window.__disconnect());
+			await page.getByRole('button', { name: 'Cast to a speaker or a TV' }).waitFor({ timeout: 5000 });
+			await page.locator('aside.panel button.step').nth(1).click();
+			await page.waitForFunction(() => document.querySelector('aside.panel h2.title')?.textContent === 'Song 9c');
+			await playingFrom(/^\/api\/stream\//);
+		} finally {
+			subsonic.state.audio = null;
+			subsonic.state.albumSongs = 2;
+			await casting.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+});
+
 describe('folders', () => {
 	test('are opened from the rail down to an album\'s folder, played, and left by the trail', async () => {
 		const { page, problems } = await watchedPage();

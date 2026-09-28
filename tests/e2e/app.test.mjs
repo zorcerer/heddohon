@@ -740,6 +740,91 @@ describe('playback on another browser', () => {
 	});
 });
 
+describe('cast addresses', () => {
+	const signedIn = async () => {
+		const client = new Client(app.url);
+		await client.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' });
+		return client;
+	};
+	const addresses = async (client, ids) => {
+		const response = await client.json('/api/cast', 'POST', { ids });
+		assert.equal(response.status, 200, explain('cast addresses were refused'));
+		return (await response.json()).urls;
+	};
+
+	test('an address plays its track with no cookie, in ranges, to a page on another origin', async () => {
+		const urls = await addresses(await signedIn(), ['s2a', 's2b']);
+		assert.deepEqual(Object.keys(urls), ['s2a', 's2b']);
+		assert.match(urls.s2a, /^\/cast\/[\w.-]+$/);
+		assert.notEqual(urls.s2a, urls.s2b);
+
+		const response = await fetch(app.url + urls.s2a, { headers: { range: 'bytes=0-9' } });
+		assert.equal(response.status, 206, explain('a cast address did not play'));
+		assert.equal(response.headers.get('content-type'), 'audio/flac');
+		assert.equal((await response.arrayBuffer()).byteLength, 10);
+		// A receiver's page is on another origin: Chromecast's, or Apple's.
+		assert.equal(response.headers.get('cross-origin-resource-policy'), 'cross-origin');
+		assert.equal(response.headers.get('access-control-allow-origin'), '*');
+		assert.equal(response.headers.get('cache-control'), 'private, no-store');
+		assert.equal((await fetch(app.url + urls.s2a, { method: 'HEAD' })).status, 200);
+
+		// Every other response keeps its policy.
+		const page = await fetch(`${app.url}/login`);
+		assert.equal(page.headers.get('cross-origin-resource-policy'), 'same-origin');
+	});
+
+	test('a token changed to name another track, cut short or made up is refused', async () => {
+		const url = (await addresses(await signedIn(), ['s2a'])).s2a;
+		const [account, handle, , expiry, signature] = url.slice('/cast/'.length).split('.');
+		const other = Buffer.from('s3a').toString('base64url');
+		const later = (Number.parseInt(expiry, 36) + 86_400_000).toString(36);
+		for (const path of [
+			`/cast/${[account, handle, other, expiry, signature].join('.')}`,
+			`/cast/${[account, handle, Buffer.from('s2a').toString('base64url'), later, signature].join('.')}`,
+			url.slice(0, -4),
+			'/cast/not-a-token',
+			`/cast/${'a.'.repeat(4)}a`
+		]) {
+			const response = await fetch(app.url + path);
+			assert.equal(response.status, 404, `${path.slice(0, 40)} was not refused`);
+		}
+	});
+
+	test('signing out ends the addresses the session was given', async () => {
+		const client = await signedIn();
+		const url = (await addresses(client, ['s2a'])).s2a;
+		assert.equal((await fetch(app.url + url)).status, 200);
+		await client.request('/logout', { method: 'POST' });
+		assert.equal((await fetch(app.url + url)).status, 404);
+	});
+
+	test('addresses are asked for by a signed-in browser, for 1 to 1000 ids', async () => {
+		const client = await signedIn();
+		for (const ids of [[], Array.from({ length: 1001 }, (_, i) => `s${i}a`), ['x'.repeat(256)], [3], 's2a']) {
+			const response = await client.json('/api/cast', 'POST', { ids });
+			assert.equal(response.status, 400, `${JSON.stringify(ids).slice(0, 40)} was not refused`);
+		}
+		assert.equal((await new Client(app.url).json('/api/cast', 'POST', { ids: ['s2a'] })).status, 401);
+	});
+
+	test('a token stays out of the log', async () => {
+		// Every request line is written at `debug`.
+		const logged = await startApp({ subsonicUrl: subsonic.url, jellyfinUrl: jellyfin.url, env: { HEDDOHON_LOG_LEVEL: 'debug' } });
+		try {
+			const client = new Client(logged.url);
+			await client.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' });
+			const url = (await (await client.json('/api/cast', 'POST', { ids: ['s2a'] })).json()).urls.s2a;
+			const token = url.slice('/cast/'.length);
+			assert.equal((await fetch(logged.url + url)).status, 200);
+			await fetch(`${logged.url}/cast/${token.slice(0, -2)}xx`);
+			assert.match(logged.output(), /\/cast\//, 'no request line was written');
+			assert.ok(!logged.output().includes(token.slice(0, 40)), 'the token reached the log');
+		} finally {
+			await logged.stop();
+		}
+	});
+});
+
 describe('the offline page', () => {
 	test('the worker, the page and its script are served without a session', async () => {
 		const anonymous = new Client(app.url);

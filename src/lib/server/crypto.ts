@@ -136,3 +136,11 @@ export function randomSalt(bytes = 12): string {
 export function linkStateDigest(value: string): string {
 	return createHmac('sha256', keyFor('link-state')).update(value).digest('base64url');
 }
+
+/**
+ * The signature on a cast address; see `cast.ts`. Keyed on its own, like
+ * every other digest here, so no other token verifies as one.
+ */
+export function castDigest(value: string): string {
+	return createHmac('sha256', keyFor('cast')).update(value).digest('base64url');
+}
