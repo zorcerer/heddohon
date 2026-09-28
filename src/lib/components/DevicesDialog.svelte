@@ -134,6 +134,13 @@
 			{/each}
 		</ul>
 	{/if}
+
+	<p class="screen-link">
+		<a href="/screen" onclick={() => (remote.open = false)}>
+			<Icon name="screen" size={14} />
+			Use this browser as a living-room screen
+		</a>
+	</p>
 </dialog>
 
 <style>
@@ -317,6 +324,25 @@
 		padding: 0.4rem 0.8rem;
 		border-radius: var(--r-md);
 		font-size: 0.8125rem;
+	}
+
+	.screen-link {
+		margin: 0;
+		padding: var(--space-3) var(--space-4) var(--space-4);
+		border-top: 1px solid var(--border-hairline);
+		font-size: 0.8125rem;
+	}
+
+	.screen-link a {
+		display: inline-flex;
+		align-items: center;
+		gap: var(--space-2);
+		color: var(--text-muted);
+		text-decoration: none;
+	}
+
+	.screen-link a:hover {
+		color: var(--glow-color);
 	}
 
 	.moves .hh-button:disabled {

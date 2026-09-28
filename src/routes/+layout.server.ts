@@ -28,6 +28,9 @@ export const load: LayoutServerLoad = async ({ locals, url }) => {
 		isLoginPage: url.pathname === '/login',
 		// A shared link opens on a page of its own, drawn without the rail and
 		// the player column, whether or not the visitor is signed in.
-		isSharePage: url.pathname.startsWith('/share/')
+		isSharePage: url.pathname.startsWith('/share/'),
+		// The living-room screen is drawn without the rail and the player panel,
+		// signed in and with the player running.
+		isScreenPage: url.pathname === '/screen'
 	};
 };
