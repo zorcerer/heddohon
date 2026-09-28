@@ -98,9 +98,10 @@ which can replace the `microphone=(self)` Heddohon sends).
 
 ## Casting
 
-The cast button beside the speaker button, and "Cast…" at the end of the list
-of outputs the speaker button opens, send what is playing to a speaker
-or a TV on the network. Both show only where the browser offers one:
+"Cast…" at the end of the list of outputs the speaker button opens, or in
+Safari and on iOS, which list no outputs, a cast button beside it, sends what
+is playing to a speaker
+or a TV on the network. It shows only where the browser offers one:
 
 | Browser | What it casts to |
 | --- | --- |
