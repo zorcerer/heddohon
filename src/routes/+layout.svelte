@@ -6,6 +6,7 @@
 	import { player } from '$lib/client/player.svelte';
 	import { audioOutputs } from '$lib/client/output.svelte';
 	import { remote } from '$lib/client/remote.svelte';
+	import { settleStarred } from '$lib/client/favourites.svelte';
 	import { tintFrom } from '$lib/client/artwork';
 	import { ambience } from '$lib/client/ambience.svelte';
 	import {
@@ -556,6 +557,12 @@
 	 * the sheet was pulled down by hand. It goes down on its own instead, and
 	 * the page it opened is what is left on screen.
 	 */
+	// Hearts pressed before this page loaded are in its data now; see
+	// `settleStarred`.
+	afterNavigate(({ type }) => {
+		if (type !== 'enter') settleStarred();
+	});
+
 	afterNavigate(({ type }) => {
 		if (type === 'enter' || !player.sheetLayout || !player.panelOpen) return;
 		player.togglePanel();

@@ -1618,8 +1618,12 @@ describe('casting', () => {
 			await page.getByRole('button', { name: 'Play Song 9a', exact: true }).click();
 			await page.waitForFunction(() => document.querySelector('aside.panel h2.title')?.textContent === 'Song 9a');
 
-			await page.getByRole('button', { name: 'Cast to a speaker or a TV' }).click();
-			await page.getByRole('button', { name: 'Casting; choose where to play' }).waitFor({ timeout: 5000 });
+			// Chromium lists outputs, so casting is the last of them and has no
+			// button of its own.
+			assert.equal(await page.getByRole('button', { name: 'Cast to a speaker or a TV' }).count(), 0);
+			await page.getByRole('button', { name: /^Audio output/ }).click();
+			await page.locator('.outputs').getByRole('button', { name: 'Cast…' }).click();
+			await page.locator('.outputs').getByRole('button', { name: 'Casting' }).waitFor({ timeout: 5000 });
 			await playingFrom(/^\/cast\//);
 
 			await page.locator('aside.panel button.step').nth(1).click();
@@ -1634,7 +1638,7 @@ describe('casting', () => {
 			assert.equal((await sources()).filter(Boolean).length, 1, `two sources: ${await sources()}`);
 
 			await page.evaluate(() => window.__disconnect());
-			await page.getByRole('button', { name: 'Cast to a speaker or a TV' }).waitFor({ timeout: 5000 });
+			await page.locator('.outputs').getByRole('button', { name: 'Cast…' }).waitFor({ timeout: 5000 });
 			await page.locator('aside.panel button.step').nth(1).click();
 			await page.waitForFunction(() => document.querySelector('aside.panel h2.title')?.textContent === 'Song 9c');
 			await playingFrom(/^\/api\/stream\//);
@@ -1715,6 +1719,65 @@ describe('star ratings', () => {
 			await page.close();
 		}
 		assert.deepEqual(problems, []);
+	});
+});
+
+describe('Jellyfin favourites changed elsewhere', () => {
+	/*
+	 * A heart pressed in a tab was shown as pressed until the tab was
+	 * reloaded, and a tab is kept open for days: taken off in Jellyfin's own
+	 * app, it stayed on here, which read as favourites not syncing.
+	 */
+	test('a page loaded after a press shows what Jellyfin has, and the player keeps the press', async () => {
+		const jf = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+		const signIn = await jf.request.post(`${app.url}/login`, {
+			form: { username: 'jfuser', password: 'jfpass', backend: 'jellyfin', next: '/' },
+			headers: { origin: app.url, accept: 'text/html' },
+			maxRedirects: 0
+		});
+		assert.equal(signIn.status(), 303);
+		const page = await jf.newPage();
+		const rowHeart = (n) => page.locator('main .track').nth(n).locator('.fav');
+		const playerHeart = page.locator('aside.panel .rounds .fav');
+		// In place, as the rail and the cards do: a full load would forget
+		// every press anyway.
+		const openAlbumInPlace = async () => {
+			await page.locator('nav.rail a[href="/albums"]').click();
+			await page.waitForURL(/\/albums$/);
+			await page.locator('main a[href="/albums/b2"]').first().click();
+			await page.waitForURL(/\/albums\/b2$/);
+			await page.waitForFunction(() => document.querySelector('main h1')?.textContent?.includes('Second'));
+		};
+		try {
+			await page.goto(app.url + '/albums/b2', { waitUntil: 'networkidle' });
+			await page.getByRole('button', { name: 'Play Track 1', exact: true }).click();
+			await page.waitForFunction(() => document.querySelector('aside.panel h2.title')?.textContent === 'Track 1');
+
+			const starred = page.waitForResponse((r) => r.url().endsWith('/api/star'));
+			await rowHeart(0).click();
+			await starred;
+			assert.ok(jellyfin.state.favourites.has('t1'), 'Jellyfin was not told');
+
+			await openAlbumInPlace();
+			assert.equal(await rowHeart(0).getAttribute('aria-pressed'), 'true', 'the press did not survive a page change');
+			assert.equal(await playerHeart.getAttribute('aria-pressed'), 'true', 'the player lost the press');
+
+			// Taken off in Jellyfin's app, and put on another track there. A star
+			// made here drops the server's held copies, as waiting out the minute
+			// they are held for would.
+			jellyfin.state.favourites.delete('t1');
+			jellyfin.state.favourites.add('t3');
+			await page.evaluate(() =>
+				fetch('/api/star', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: 'b3', kind: 'album', starred: true }) })
+			);
+
+			await openAlbumInPlace();
+			assert.equal(await rowHeart(0).getAttribute('aria-pressed'), 'false', 'the old press hid the change made in Jellyfin');
+			assert.equal(await rowHeart(2).getAttribute('aria-pressed'), 'true', 'the star made in Jellyfin is not shown');
+		} finally {
+			jellyfin.state.favourites.clear();
+			await jf.close();
+		}
 	});
 });
 
