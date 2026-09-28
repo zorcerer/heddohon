@@ -595,8 +595,8 @@ describe('playback on another browser', () => {
 	 * A browser's event stream, read as it arrives. `next(type)` resolves with
 	 * the next event of that type, and `closed` when the server ends it.
 	 */
-	async function listen(client) {
-		const response = await client.request('/api/remote/events', { headers: { accept: 'text/event-stream' } });
+	async function listen(client, path = '/api/remote/events') {
+		const response = await client.request(path, { headers: { accept: 'text/event-stream' } });
 		assert.equal(response.status, 200, explain('the event stream was refused'));
 		assert.match(response.headers.get('content-type') ?? '', /^text\/event-stream/);
 		const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
@@ -743,6 +743,78 @@ describe('playback on another browser', () => {
 			a.cancel();
 			b.cancel();
 		}
+	});
+
+	describe('listening together', () => {
+		const host = async () => {
+			const client = await signedIn();
+			const started = await client.json('/api/together', 'POST', {});
+			assert.equal(started.status, 200, explain('listening together would not start'));
+			return { client, party: (await started.json()).party };
+		};
+		const report = (client, state) => client.json('/api/together/state', 'POST', { state });
+		const song = (id, extra = {}) => ({ songId: id, title: `Song ${id.slice(1)}`, artist: 'Artist', album: 'Album', coverArt: 'al-3', duration: 180, position: 10, playing: true, ...extra });
+
+		test('a visitor with no account follows what the host plays, and may play only that', async () => {
+			const { client, party } = await host();
+			assert.equal((await (await client.request('/api/together')).json()).party.url, party.url);
+			const visitor = new Client(app.url);
+			const page = await visitor.page(party.url);
+			assert.equal(page.response.status, 200, explain('the listen-together page was refused'));
+			assert.match(page.html, /Waiting for the host/);
+
+			const guest = await listen(visitor, `${party.url}/events`);
+			assert.equal((await guest.next('state')).state, null, 'something played before the host reported');
+			await report(client, song('s3a'));
+			for (;;) {
+				const { state } = await guest.next('state');
+				if (state?.songId === 's3a') break;
+			}
+			try {
+				assert.equal((await visitor.request(`${party.url}/stream?song=s3a`, { headers: { range: 'bytes=0-9' } })).status, 206);
+				assert.equal((await visitor.request(`${party.url}/stream?song=s3b`)).status, 404, 'another track of the host plays');
+				assert.equal((await visitor.request(`${party.url}/stream`)).status, 404);
+				assert.equal((await visitor.request(`${party.url}/cover?song=s3a`)).status, 200);
+				assert.match((await visitor.page(party.url)).html, /Song 3a/);
+			} finally {
+				guest.cancel();
+				await client.json('/api/together', 'DELETE', {});
+			}
+		});
+
+		test('reactions come from a listener, from the set, and one a second', async () => {
+			const { client, party } = await host();
+			const one = await listen(new Client(app.url), `${party.url}/events`);
+			const two = await listen(new Client(app.url), `${party.url}/events`);
+			const visitor = new Client(app.url);
+			try {
+				const react = (listener, emoji) => visitor.json(`${party.url}/react`, 'POST', { listener, emoji });
+				assert.equal((await react(one.id, '💩')).status, 400);
+				assert.equal((await react('nobody', '🔥')).status, 404);
+				assert.equal((await react(one.id, '🔥')).status, 200);
+				assert.equal((await two.next('reaction')).emoji, '🔥');
+				assert.equal((await react(one.id, '🎉')).status, 429);
+			} finally {
+				one.cancel();
+				two.cancel();
+				await client.json('/api/together', 'DELETE', {});
+			}
+		});
+
+		test('ending it tells the listeners and closes the link, and so does the host signing out', async () => {
+			const first = await host();
+			const guest = await listen(new Client(app.url), `${first.party.url}/events`);
+			await first.client.json('/api/together', 'DELETE', {});
+			await guest.next('ended');
+			assert.equal((await new Client(app.url).page(first.party.url)).response.status, 404);
+
+			const second = await host();
+			await report(second.client, song('s4a'));
+			await second.client.request('/logout', { method: 'POST' });
+			assert.equal((await new Client(app.url).page(second.party.url)).response.status, 404);
+			assert.equal((await new Client(app.url).request(`${second.party.url}/stream?song=s4a`)).status, 404);
+			assert.equal((await new Client(app.url).json('/api/together', 'POST', {})).status, 401);
+		});
 	});
 });
 

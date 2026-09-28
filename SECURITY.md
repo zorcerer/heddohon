@@ -399,6 +399,33 @@ address, `/cast/<token>`, a public route. What it is limited to:
 browser. It makes no upstream call; an id the account cannot play gets an
 address that answers 404.
 
+## Listening together
+
+A signed-in browser can start a live session and hand out its link,
+`/together/<token>`, a public route. Anyone with the link hears what the host
+plays, as it plays, without an account. What it is limited to:
+
+- **It needs `HEDDOHON_SHARING` and `HEDDOHON_REMOTE_CONTROL` on.** With either
+  off, every `/together` route answers 404.
+- **The token is 24 random bytes.** Sessions are looked up by an HMAC digest
+  of it. The token is held in the process's memory with the session, so the
+  host can show the link again, and nothing is written to disk.
+- **A listener plays only the track the session is on.** The audio and cover
+  routes take `?song=`, and answer 404 for any id but the one the host last
+  reported, through the host's account. The file is sent as it is stored.
+- **It ends** when the host ends it, after 12 hours, or when the host's session
+  ends (signing out, being signed out from Settings, the 72-hour expiry). A
+  stream in progress is cut with the host's session.
+- **Listeners send reactions only.** One of five emoji, from a listener whose
+  event stream is open, at most one a second. There are no names or messages.
+- **Bounds:** 50 listeners a session, 200 sessions in the process, one per
+  host session. The host's reports carry text for the listeners' page
+  (title, artist, album, 300 characters each), shown as text.
+- **The token is kept out of the log,** as share tokens are.
+
+What a listener learns is what plays and when: title, artist, album, cover
+and position, for as long as they hold the link.
+
 ## Cross-origin writes
 
 SvelteKit's CSRF check covers form content types only, and every state-changing
@@ -572,6 +599,8 @@ Covers are cached under `$HEDDOHON_DATA_DIR/covers` (see
 | Remote state text (title, artist) | 300 characters, cut |
 | Cast addresses per request | 1 to 1000 track ids |
 | Cast address lifetime | 6 hours, never past the session |
+| Listen-together session | 12 hours, never past the host's session; 50 listeners; 200 sessions a process |
+| Listen-together reaction | one of five emoji, one a second per listener |
 | Genre id in a path | 200 characters; on Jellyfin a GUID, since `GenreIds` takes a list |
 | Cover size | one of ten, 64 to 1536 |
 | Transcode codec | `mp3`, `opus`, `aac` |

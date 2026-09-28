@@ -22,7 +22,7 @@ import {
  * Every route under it resolves the token itself and serves the one song the
  * link names, and nothing under it accepts a write. See `lib/server/shares.ts`.
  */
-const PUBLIC_ROUTES = ['/login', '/healthz', '/share', '/cast', '/manifest.webmanifest'];
+const PUBLIC_ROUTES = ['/login', '/healthz', '/share', '/cast', '/together', '/manifest.webmanifest'];
 
 const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 

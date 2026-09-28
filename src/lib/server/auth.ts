@@ -32,6 +32,7 @@ import { forgetTranscodes } from './transcodes';
 import { clearAccountState } from './settings';
 import { forgetSharedItems, revokeAllShares } from './shares';
 import { foldName } from './names';
+import { endPartiesOf } from './together';
 
 export const SESSION_COOKIE = 'heddohon_session';
 
@@ -767,6 +768,8 @@ export async function endSessions(session: AuthenticatedSession, handles: string
 const sessionStreams = new Map<string, Set<AbortController>>();
 
 function cutSessionStreams(digests: string[]): void {
+	// A party a session hosts ends with it, as its own audio does.
+	endPartiesOf(digests.map(sessionHandle));
 	for (const digest of digests) {
 		const handle = sessionHandle(digest);
 		const streams = sessionStreams.get(handle);
