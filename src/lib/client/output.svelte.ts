@@ -65,6 +65,8 @@ class AudioOutputs {
 	current = $state<Output>(DEFAULT_OUTPUT);
 	/** Set when the last choice was refused or could not be listed, for the panel to say so. */
 	problem = $state<string | null>(null);
+	/** True while the microphone request behind "List outputs" is open. */
+	listing = $state(false);
 
 	#started = false;
 
@@ -143,16 +145,43 @@ class AudioOutputs {
 	 */
 	async nameOutputs() {
 		this.problem = null;
+		this.listing = true;
 		try {
 			const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 			for (const track of stream.getTracks()) track.stop();
-		} catch {
-			this.problem = 'Without the microphone permission this browser does not list outputs by name.';
+		} catch (err) {
+			this.problem = refusal(err);
 			return;
+		} finally {
+			this.listing = false;
 		}
 		await this.refresh();
 		if (!this.named) this.problem = 'This browser found no other outputs.';
 	}
+}
+
+/**
+ * Why the microphone request failed, in terms of what to do about it.
+ *
+ * One sentence covered every refusal, and on a computer without a microphone
+ * Chrome refuses at once, with no prompt, so pressing "List outputs" appeared
+ * to do nothing. The cases are told apart by the error Chrome reports and by
+ * whether the page's Permissions-Policy allows the microphone: a reverse proxy
+ * that adds its own `microphone=()` refuses it the same way a user does.
+ */
+function refusal(err: unknown): string {
+	const name = (err as DOMException)?.name;
+	const policy = (document as Document & { featurePolicy?: { allowsFeature(feature: string): boolean } }).featurePolicy;
+	if (policy && !policy.allowsFeature('microphone')) {
+		return 'The Permissions-Policy on this page does not allow the microphone, so outputs cannot be listed. A reverse proxy in front of Heddohon may be setting its own.';
+	}
+	if (name === 'NotFoundError') {
+		return 'This browser names outputs only once a page may use a microphone, and no microphone is connected.';
+	}
+	if (name === 'NotAllowedError') {
+		return 'Microphone access is blocked for this site. Allow it in the site settings beside the address, then list again.';
+	}
+	return 'The browser would not open the microphone, so it does not list outputs by name.';
 }
 
 export const audioOutputs = new AudioOutputs();
