@@ -26,7 +26,7 @@ only ever talks to Heddohon and your upstream credentials stay on the server.
 - **Library:** albums, artists, genres, playlists, favourites and the folders on disk, with synced lyrics and recommendations from your music server. Playlists reorder by dragging or with the arrow keys. Songs and albums take a rating of one to five stars on Navidrome.
 - **Instant mix** from a track, an album or an artist: up to 100 similar tracks from your music server, with AudioMuse-AI's sonic similarity where it is installed.
 - **Links to songs, albums and playlists** anyone can play without an account, for 1, 7 or 30 days.
-- **On a phone,** the navigation and the player share one panel at the foot of the screen, and the full player pulls down to close.
+- **On a phone,** the navigation and the player share one panel at the foot of the screen, and the full player pulls down to close. A living-room screen shows what plays full screen, with the synced lyrics, for a TV across the room.
 - **Follows you around:** the queue and settings sync across devices, and it installs as an app on phones and desktops. One browser can pause, skip or seek another signed in to the same account, and move the queue between them. Settings lists each browser signed in to your account and signs out any of them.
 - **Scrobbling** to Last.fm and ListenBrainz through Navidrome, ReplayGain volume normalisation, and a sleep timer. Recently played lists every track played in the last 90 days, kept on your own server.
 - **SQLite or PostgreSQL**, with a one-time import from SQLite.

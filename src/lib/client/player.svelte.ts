@@ -587,9 +587,19 @@ export class Player {
 
 	// ── Transport ──────────────────────────────────────────────────────────
 
+	/**
+	 * Pauses what is meant to be playing, and plays otherwise.
+	 *
+	 * Decided by `engaged`, the listener's intent, while the track plays or is
+	 * still loading. It was decided by `playing`, which follows the element
+	 * and lags a press: a pause pressed just after a skip, with the next track
+	 * still loading, left `playing` true for up to a second, so the play
+	 * pressed next paused again and nothing played. A play that was refused
+	 * (engaged, neither playing nor loading) is tried again.
+	 */
 	async toggle() {
 		if (!this.#primary || !this.current) return;
-		if (this.playing) this.pause();
+		if (this.engaged && (this.playing || this.loading)) this.pause();
 		else await this.play();
 	}
 
@@ -623,6 +633,9 @@ export class Player {
 				this.playing = false;
 				return;
 			}
+			// A pause pressed while the play was starting. That is the listener
+			// changing their mind, not a failure to report.
+			if (err instanceof DOMException && err.name === 'AbortError' && !this.engaged) return;
 			this.error = err instanceof Error ? err.message : 'Playback failed';
 			this.playing = false;
 		}
