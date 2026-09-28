@@ -178,7 +178,7 @@ without touching their tables. When the connection is not encrypted, a
 
 **Moving from SQLite.** On the first start against an empty database, if
 `heddohon.db` is in `HEDDOHON_DATA_DIR`, it is copied across: accounts,
-settings, saved queues and share links. Sessions and sign-in counters are not,
+settings, saved queues, share links and listening history. Sessions and sign-in counters are not,
 so everyone signs in once. Stored music-server credentials are copied sealed,
 so `HEDDOHON_SECRET` must stay the same. The copy is one transaction and the
 SQLite file is only read; a `sqlite_import` row in the `meta` table records
@@ -264,7 +264,7 @@ The events at each level, by name:
 | Level | Events |
 | --- | --- |
 | `error` | `request` at 5xx or thrown, `unhandled` with a stack, `config-invalid`, `sign-in-failed`, `quick-connect-failed` on a fault in this server |
-| `warn` | `request-slow`, `cross-origin-blocked`, `sign-in-rejected`, `sign-in-throttled`, `quick-connect-throttled`, `quick-connect-failed`, `sessions-destroyed`, `upstream-timeout`, `upstream-unreachable`, `section-failed`, `cover-write-failed`, `transcode-read-failed`, `scrobbler-failed` (with the `step`: status, a link, an unlink, or a refused Last.fm return) |
+| `warn` | `request-slow`, `cross-origin-blocked`, `sign-in-rejected`, `sign-in-throttled`, `quick-connect-throttled`, `quick-connect-failed`, `sessions-destroyed`, `upstream-timeout`, `upstream-unreachable`, `section-failed`, `cover-write-failed`, `history-write-failed`, `transcode-read-failed`, `scrobbler-failed` (with the `step`: status, a link, an unlink, or a refused Last.fm return) |
 | `info` | `started`, `signed-in` (with `method=quick-connect` for a Quick Connect sign-in), `quick-connect-started`, `scrobbler-linked`, `scrobbler-unlinked`, `cover-cache-cleared`, `cover-cache-swept` |
 | `debug` | `request` (one per request, with its path, status and duration), `upstream` (one per music-server call, with its time), `cover-hit`, `cover-miss`, `cover-stored`, `unauthenticated` |
 

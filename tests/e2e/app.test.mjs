@@ -825,6 +825,89 @@ describe('cast addresses', () => {
 	});
 });
 
+describe('listening history', () => {
+	const play = (client, songId, event = 'stop', completed = true) =>
+		client.json('/api/playback', 'POST', { songId, event, position: 100, completed });
+	/** The track titles on a history page, in order. */
+	const titles = (html) => [...html.matchAll(/class="title hh-truncate[^"]*">([^<]+)</g)].map((m) => m[1]);
+
+	test('a play past the threshold is listed newest first, and nothing short of one is', async () => {
+		await asFreshAccount('listener', async (client) => {
+			await play(client, 's3a');
+			await play(client, 's4a', 'start', false);
+			await play(client, 's4a', 'progress', false);
+			await play(client, 's4b', 'stop', false);
+			await new Promise((done) => setTimeout(done, 5));
+			await play(client, 's5b');
+			const { response, html } = await client.page('/history');
+			assert.equal(response.status, 200, explain('the history page failed'));
+			assert.deepEqual(titles(html), ['Song 5b', 'Song 3a']);
+			assert.match(html, /2 plays/);
+			assert.match(html, /Today/);
+		});
+	});
+
+	test('plays are noted with reporting to the music server turned off', async () => {
+		await asFreshAccount('quiet', async (client) => {
+			const saved = await client.json('/api/settings', 'PATCH', { reportPlayback: false });
+			assert.equal(saved.status, 200);
+			await play(client, 's6a');
+			assert.equal(subsonic.calls.get('scrobble'), 0, 'reported upstream while turned off');
+			assert.deepEqual(titles((await client.page('/history')).html), ['Song 6a']);
+		});
+	});
+
+	test('one account reads only its own, a deleted track is left out, and clearing empties it', async () => {
+		await asFreshAccount('owner', async (client) => {
+			await play(client, 's7a');
+			await play(client, 's7b');
+			await asFreshAccount('neighbour', async (other) => {
+				assert.deepEqual(titles((await other.page('/history')).html), []);
+			});
+			subsonic.state.username = 'owner';
+			subsonic.state.password = 'ownerpass';
+
+			subsonic.state.missing.add('s7b');
+			try {
+				assert.deepEqual(titles((await client.page('/history')).html), ['Song 7a']);
+			} finally {
+				subsonic.state.missing.delete('s7b');
+			}
+
+			const cleared = await client.request('/settings?/clearHistory', {
+				method: 'POST',
+				headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json', 'x-sveltekit-action': 'true' },
+				body: ''
+			});
+			assert.equal(cleared.status, 200);
+			const after = (await client.page('/history')).html;
+			assert.deepEqual(titles(after), []);
+			assert.match(after, /Nothing yet/);
+		});
+	});
+
+	test('an account keeps at most 5000 plays, the oldest dropped', async () => {
+		await asFreshAccount('heavy', async (client) => {
+			await client.json('/api/settings', 'PATCH', { reportPlayback: false });
+			// s0a first, then 5000 more: s0a is the one past the limit.
+			await play(client, 's0a');
+			for (let batch = 0; batch < 100; batch++) {
+				await Promise.all(Array.from({ length: 50 }, (_, i) => play(client, `s${1 + ((batch * 50 + i) % 30)}b`)));
+			}
+			const last = await client.page('/history?page=50');
+			assert.match(last.html, /5,000 plays/, explain('the history was not held to 5000'));
+			assert.ok(!titles(last.html).includes('Song 0a'), 'the oldest play was kept');
+		});
+	});
+
+	test('Jellyfin plays are noted too', async () => {
+		const client = new Client(app.url);
+		await client.signIn({ username: 'jfuser', password: 'jfpass', backend: 'jellyfin' });
+		await play(client, 't2');
+		assert.deepEqual(titles((await client.page('/history')).html), ['Track 2']);
+	});
+});
+
 describe('the offline page', () => {
 	test('the worker, the page and its script are served without a session', async () => {
 		const anonymous = new Client(app.url);

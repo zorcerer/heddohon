@@ -45,6 +45,7 @@
 		| 'share'
 		| 'genre'
 		| 'folder'
+		| 'history'
 		| 'download'
 		| 'grip'
 		| 'link'
@@ -125,6 +126,8 @@
 		genre:
 			'M4.5 12.4V5.9A1.4 1.4 0 0 1 5.9 4.5h6.5l7.1 7.1a1.4 1.4 0 0 1 0 2l-5.9 5.9a1.4 1.4 0 0 1-2 0l-7.1-7.1ZM8.6 7.4a1.2 1.2 0 1 0 0 2.4 1.2 1.2 0 0 0 0-2.4Z',
 		download: 'M12 4.5v10.5M7.5 10.5 12 15l4.5-4.5M5 19.5h14',
+		// A clock with its hand turned back, for what has played.
+		history: 'M4.5 12a7.5 7.5 0 1 0 2.2-5.3M4.5 4.5v2.8h2.8M12 8v4.2l2.8 1.8',
 		// A folder with its tab, for the library as it is on disk.
 		folder: 'M3.5 7A1.5 1.5 0 0 1 5 5.5h4.3l2 2.2H19a1.5 1.5 0 0 1 1.5 1.5v8.3A1.5 1.5 0 0 1 19 19H5a1.5 1.5 0 0 1-1.5-1.5V7Z',
 		// Six dots, the handle a row is dragged by.
