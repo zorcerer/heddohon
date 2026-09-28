@@ -78,6 +78,7 @@ describe('the policy', () => {
 			'/playlists',
 			'/folders',
 			'/folders/d-al1',
+			'/history',
 			'/search?q=song',
 			'/settings'
 		];

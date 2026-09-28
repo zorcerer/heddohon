@@ -116,6 +116,15 @@ CREATE TABLE IF NOT EXISTS shares (
 );
 CREATE INDEX IF NOT EXISTS shares_account_idx ON shares(account_id);
 CREATE INDEX IF NOT EXISTS shares_expiry_idx ON shares(expires_at);
+
+-- Tracks an account has played past the scrobble threshold, newest last, for
+-- the history page; see history.ts for how many are kept.
+CREATE TABLE IF NOT EXISTS plays (
+  account_id  TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  song_id     TEXT NOT NULL,
+  played_at   INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS plays_account_idx ON plays(account_id, played_at);
 `;
 
 /*
@@ -396,14 +405,15 @@ async function importFromSqlite(pool: pg.Pool): Promise<void> {
 		accounts: ['id', 'backend', 'username', 'remote_user_id', 'credential', 'created_at', 'last_login_at'],
 		settings: ['account_id', 'data', 'updated_at'],
 		play_state: ['account_id', 'data', 'updated_at'],
-		shares: ['id', 'token_digest', 'account_id', 'backend', 'song_id', 'created_at', 'expires_at', 'kind']
+		shares: ['id', 'token_digest', 'account_id', 'backend', 'song_id', 'created_at', 'expires_at', 'kind'],
+		plays: ['account_id', 'song_id', 'played_at']
 	} as const;
 	const counts: Record<string, number> = {};
 
 	const client = await pool.connect();
 	try {
 		await client.query('BEGIN');
-		// Accounts first: the other three refer to them.
+		// Accounts first: the others refer to them.
 		for (const [table, wanted] of Object.entries(tables)) {
 			// Only the columns the file has: one from before a column was added
 			// (`ADDED_COLUMNS`) is copied without it, and the column reads as null.
