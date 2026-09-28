@@ -1537,7 +1537,7 @@ describe('casting', () => {
 	 * `__disconnect()` ends it. What is checked is Heddohon's side: the
 	 * addresses the element plays from, and the one element.
 	 */
-	test('plays each track from a cast address on one element, and goes back when disconnected', async () => {
+	async function castingContext() {
 		const casting = await browser.newContext({ viewport: { width: 1440, height: 900 } });
 		await casting.addInitScript(() => {
 			class FakeRemote extends EventTarget {
@@ -1577,6 +1577,31 @@ describe('casting', () => {
 			maxRedirects: 0
 		});
 		assert.equal(signIn.status(), 303);
+		return casting;
+	}
+
+	test('is offered in the list of outputs as well, and starts from there', async () => {
+		const casting = await castingContext();
+		const page = await casting.newPage();
+		subsonic.state.audio = { type: 'audio/wav', body: silentWav(30) };
+		try {
+			await page.goto(app.url + '/albums/al11', { waitUntil: 'networkidle' });
+			await page.getByRole('button', { name: 'Play Song 11a', exact: true }).click();
+			await page.getByRole('button', { name: /^Audio output/ }).click();
+			const chip = page.locator('.outputs').getByRole('button', { name: 'Cast…' });
+			await chip.click();
+			await page.locator('.outputs').getByRole('button', { name: 'Casting' }).waitFor({ timeout: 5000 });
+			await page.waitForFunction(() => [...document.querySelectorAll('audio')].some((a) => (a.getAttribute('src') ?? '').startsWith('/cast/')), null, {
+				timeout: 5000
+			});
+		} finally {
+			subsonic.state.audio = null;
+			await casting.close();
+		}
+	});
+
+	test('plays each track from a cast address on one element, and goes back when disconnected', async () => {
+		const casting = await castingContext();
 		const page = await casting.newPage();
 		const problems = [];
 		page.on('pageerror', (err) => problems.push(err.message));
@@ -1594,7 +1619,7 @@ describe('casting', () => {
 			await page.waitForFunction(() => document.querySelector('aside.panel h2.title')?.textContent === 'Song 9a');
 
 			await page.getByRole('button', { name: 'Cast to a speaker or a TV' }).click();
-			await page.getByRole('button', { name: /^Casting/ }).waitFor({ timeout: 5000 });
+			await page.getByRole('button', { name: 'Casting; choose where to play' }).waitFor({ timeout: 5000 });
 			await playingFrom(/^\/cast\//);
 
 			await page.locator('aside.panel button.step').nth(1).click();
