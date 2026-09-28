@@ -87,3 +87,11 @@ The control appears only over https or on localhost, which browsers require
 for it. The choice is kept in that browser, since an output's id is different
 on every computer, and a device that is missing at the next visit leaves the
 sound on the system default. Firefox asks again after a reload.
+
+In Chrome and Edge the list needs a microphone to ask about. A computer with
+none connected cannot grant the permission, and the panel says so; the output
+then stays on the system default, which the operating system's sound settings
+choose. The panel also names the other two reasons the request fails: the
+microphone blocked for the site in the browser's site settings, and a
+`Permissions-Policy` header that disallows it (a reverse proxy may add its own,
+which can replace the `microphone=(self)` Heddohon sends).
