@@ -45,6 +45,8 @@ import type {
 	Artist,
 	ArtistDetail,
 	AudioQuality,
+	Folder,
+	FolderRef,
 	Genre,
 	Playlist,
 	PlaylistDetail,
@@ -194,6 +196,9 @@ interface JellyfinItem {
 	NormalizationGain?: number;
 	MediaSources?: JellyfinMediaSource[];
 	Type?: string;
+	IsFolder?: boolean;
+	/** On a library from `/UserViews`: `music`, `movies` and so on. */
+	CollectionType?: string;
 	/** Present only on /Playlists/{id}/Items — identifies the entry, not the song. */
 	PlaylistItemId?: string;
 }
@@ -339,6 +344,44 @@ function toPlaylist(item: JellyfinItem): Playlist {
 interface ItemsResponse {
 	Items?: JellyfinItem[];
 	TotalRecordCount?: number;
+}
+
+/**
+ * The server's own folders above every library, which `/Items/{id}/Ancestors`
+ * ends with. They are not the listener's, and the trail stops below them.
+ */
+const SERVER_ROOTS = new Set(['UserRootFolder', 'AggregateFolder']);
+
+/** A folder as a link. Only a folder with a picture of its own has a cover. */
+function toFolderRef(item: JellyfinItem): FolderRef {
+	return {
+		id: item.Id,
+		name: item.Name ?? 'Untitled folder',
+		coverArt: item.ImageTags?.Primary ? coverHandle(item) : null
+	};
+}
+
+/**
+ * What a folder holds, as it is on disk: folders (a folder of tracks is its
+ * album) and tracks. Anything else a mixed library keeps there, a video or a
+ * book, is left out.
+ */
+async function folderContents(cred: StoredCredential, parentId: string): Promise<Pick<Folder, 'folders' | 'songs'>> {
+	const body = await call<ItemsResponse>(cred, '/Items', {
+		userId: creds(cred).userId,
+		ParentId: parentId,
+		Fields: SONG_FIELDS,
+		SortBy: 'ParentIndexNumber,IndexNumber,SortName',
+		SortOrder: 'Ascending'
+	});
+	const items = body.Items ?? [];
+	return {
+		folders: items
+			.filter((item) => item.IsFolder === true)
+			.map(toFolderRef)
+			.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })),
+		songs: items.filter((item) => item.IsFolder !== true && item.Type === 'Audio').map(toSong)
+	};
 }
 
 const SORT_BY: Record<Exclude<AlbumQuery['sort'], PlayedSort>, { sortBy: string; sortOrder: string }> = {
@@ -840,6 +883,34 @@ export const jellyfinBackend: MediaBackend = {
 			.filter((item) => item.Id !== albumId)
 			.map(toAlbum)
 			.filter((album) => artistId === null || album.artistId !== artistId);
+	},
+
+	async getFolder(cred, id): Promise<Folder> {
+		const { userId } = creds(cred);
+		if (id === null) {
+			const views = await call<ItemsResponse>(cred, '/UserViews', { userId });
+			const libraries = (views.Items ?? []).filter((view) => view.CollectionType === 'music');
+			// With one library, a level holding only it is a press that goes nowhere.
+			if (libraries.length === 1) {
+				return { id: null, name: 'Folders', parents: [], ...(await folderContents(cred, libraries[0].Id)) };
+			}
+			return { id: null, name: 'Folders', parents: [], folders: libraries.map(toFolderRef), songs: [] };
+		}
+
+		// Read first and alone, as `itemOf` does: `ParentId` with an id Jellyfin
+		// cannot resolve leaves the listing unfiltered.
+		const folder = await call<JellyfinItem>(cred, `/Items/${seg(id)}`, { userId });
+		if (folder.IsFolder !== true) throw new UpstreamError('Not found', 404, 'not_found');
+		const [contents, ancestors] = await Promise.all([
+			folderContents(cred, id),
+			// Nearest first. The trail is a convenience, and its failure is not the folder's.
+			call<JellyfinItem[]>(cred, `/Items/${seg(id)}/Ancestors`, { userId }).catch(() => [])
+		]);
+		const parents = (Array.isArray(ancestors) ? ancestors : [])
+			.filter((item) => !SERVER_ROOTS.has(item.Type ?? ''))
+			.map(toFolderRef)
+			.reverse();
+		return { id, name: folder.Name ?? 'Untitled folder', parents, ...contents };
 	},
 
 	async getPlaylists(cred) {

@@ -15,7 +15,8 @@
 		{ href: '/albums', label: 'Albums', icon: 'album' as const },
 		{ href: '/artists', label: 'Artists', icon: 'artist' as const },
 		{ href: '/playlists', label: 'Playlists', icon: 'playlist' as const },
-		{ href: '/genres', label: 'Genres', icon: 'genre' as const }
+		{ href: '/genres', label: 'Genres', icon: 'genre' as const },
+		{ href: '/folders', label: 'Folders', icon: 'folder' as const }
 	];
 </script>
 
@@ -94,9 +95,9 @@
 	}
 
 	/*
-	 * Four doors, two by two on a phone and four across wider. Each is a pane
-	 * of the same glass as the dock, so the page reads as the dock's tab opened
-	 * out rather than as a list of links.
+	 * Five doors, two by two on a phone with the last across the width, and
+	 * five across wider. Each is a pane of the same glass as the dock, so the
+	 * page reads as the dock's tab opened out rather than as a list of links.
 	 */
 	.ways {
 		display: grid;
@@ -104,9 +105,17 @@
 		gap: var(--space-2);
 	}
 
+	.way:last-child:nth-child(odd) {
+		grid-column: 1 / -1;
+	}
+
 	@media (min-width: 48rem) {
 		.ways {
-			grid-template-columns: repeat(4, minmax(0, 1fr));
+			grid-template-columns: repeat(5, minmax(0, 1fr));
+		}
+
+		.way:last-child:nth-child(odd) {
+			grid-column: auto;
 		}
 	}
 

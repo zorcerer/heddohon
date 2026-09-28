@@ -74,6 +74,8 @@ describe('the policy', () => {
 			'/genres',
 			'/library',
 			'/playlists',
+			'/folders',
+			'/folders/d-al1',
 			'/search?q=song',
 			'/settings'
 		];
@@ -1425,6 +1427,33 @@ describe('the heart in the player', () => {
 			const unstarred = page.waitForResponse((r) => r.url().endsWith('/api/star'));
 			await heart.click();
 			await unstarred;
+		} finally {
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+});
+
+describe('folders', () => {
+	test('are opened from the rail down to an album\'s folder, played, and left by the trail', async () => {
+		const { page, problems } = await watchedPage();
+		try {
+			await page.goto(app.url + '/', { waitUntil: 'networkidle' });
+			await page.locator('nav.rail a[href="/folders"]').click();
+			await page.waitForURL(/\/folders$/);
+			await page.locator('ul.folders').getByRole('link', { name: 'Artist 0006' }).click();
+			await page.waitForURL(/\/folders\/d-ar6$/);
+			await page.locator('ul.folders').getByRole('link', { name: 'Album 6' }).click();
+			await page.waitForURL(/\/folders\/d-al6$/);
+			await page.waitForFunction(() => document.querySelector('main h1')?.textContent === 'Album 6');
+
+			await page.getByRole('button', { name: 'Play the tracks in this folder' }).click();
+			await page.waitForFunction(() => document.querySelector('aside.panel h2.title')?.textContent === 'Song 6a');
+
+			await page.locator('nav.trail').getByRole('link', { name: 'Artist 0006' }).click();
+			await page.waitForURL(/\/folders\/d-ar6$/);
+			// The page changed in place: the music is still on the same track.
+			assert.equal(await page.locator('aside.panel h2.title').textContent(), 'Song 6a');
 		} finally {
 			await page.close();
 		}

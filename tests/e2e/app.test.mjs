@@ -507,6 +507,83 @@ describe('star ratings', () => {
 	});
 });
 
+describe('folders', () => {
+	test('the top of the only library lists its folders, with no level for the library', async () => {
+		await asFreshAccount('browser1', async (client) => {
+			const { response, html } = await client.page('/folders');
+			assert.equal(response.status, 200, explain('the folders page failed'));
+			assert.match(html, /href="\/folders\/d-ar0"/);
+			assert.match(html, /href="\/folders\/d-empty"/);
+			assert.doesNotMatch(html, /library%3A1/);
+			assert.equal(subsonic.calls.get('getIndexes'), 1);
+		});
+	});
+
+	test('a folder lists its tracks without the video, under the folders above it', async () => {
+		await asFreshAccount('browser2', async (client) => {
+			const { response, html } = await client.page('/folders/d-al3');
+			assert.equal(response.status, 200, explain('the folder page failed'));
+			const trail = /<nav class="trail[^>]*>([\s\S]*?)<\/nav>/.exec(html)?.[1] ?? '';
+			const links = [...trail.matchAll(/href="([^"]+)"/g)].map((match) => match[1]);
+			assert.deepEqual(links, ['/folders', '/folders/d-lib', '/folders/d-ar3']);
+			assert.match(html, /Song 3a/);
+			assert.match(html, /Song 3b/);
+			assert.doesNotMatch(html, /A video/);
+			// Its own directory, then one for each level above it.
+			assert.equal(subsonic.calls.get('getMusicDirectory'), 3);
+
+			// "Play" on the page just loaded is answered from the held folder.
+			const tracks = await client.json('/api/tracks', 'POST', { source: 'folder', id: 'd-al3' });
+			assert.deepEqual((await tracks.json()).songs.map((song) => song.id), ['s3a', 's3b']);
+			assert.equal(subsonic.calls.get('getMusicDirectory'), 3);
+		});
+	});
+
+	test('an empty folder says so, and a folder the server does not have is a 404', async () => {
+		const empty = await user.page('/folders/d-empty');
+		assert.equal(empty.response.status, 200);
+		assert.match(empty.html, /This folder is empty/);
+		assert.equal((await user.page('/folders/d-nothing')).response.status, 404);
+		assert.equal((await user.page(`/folders/${'x'.repeat(256)}`)).response.status, 404);
+	});
+
+	test('with two libraries, the top lists them and each lists its own folders', async () => {
+		subsonic.state.musicFolders = [
+			{ id: 1, name: 'Music' },
+			{ id: 2, name: 'Audiobooks' }
+		];
+		try {
+			await asFreshAccount('browser3', async (client) => {
+				const top = await client.page('/folders');
+				assert.match(top.html, /href="\/folders\/library%3A1"/);
+				assert.match(top.html, /Audiobooks/);
+				const second = await client.page('/folders/library%3A2');
+				assert.equal(second.response.status, 200, explain('the second library failed'));
+				assert.match(second.html, /href="\/folders\/d-ar2"/);
+				assert.doesNotMatch(second.html, /href="\/folders\/d-ar1"/);
+				assert.equal((await client.page('/folders/library%3A9')).response.status, 404);
+			});
+		} finally {
+			subsonic.state.musicFolders = [{ id: 1, name: 'Music' }];
+		}
+	});
+
+	test('Jellyfin lists its music library as it is on disk, and a track is not a folder', async () => {
+		const client = new Client(app.url);
+		await client.signIn({ username: 'jfuser', password: 'jfpass', backend: 'jellyfin' });
+		const top = await client.page('/folders');
+		assert.equal(top.response.status, 200, explain('the Jellyfin folders page failed'));
+		assert.match(top.html, /href="\/folders\/fb"/);
+		assert.doesNotMatch(top.html, /Films/);
+
+		const album = await client.page('/folders/b2');
+		const trail = /<nav class="trail[^>]*>([\s\S]*?)<\/nav>/.exec(album.html)?.[1] ?? '';
+		assert.deepEqual([...trail.matchAll(/href="([^"]+)"/g)].map((match) => match[1]), ['/folders', '/folders/lib1', '/folders/fb']);
+		assert.match(album.html, /Track 1/);
+		assert.equal((await client.page('/folders/t1')).response.status, 404);
+	});
+});
+
 describe('the offline page', () => {
 	test('the worker, the page and its script are served without a session', async () => {
 		const anonymous = new Client(app.url);
@@ -547,7 +624,7 @@ describe('the phone\'s library and search tabs', () => {
 	test('the library page links to each part of the library and to settings', async () => {
 		const { response, html } = await user.page('/library');
 		assert.equal(response.status, 200, explain('library page failed'));
-		for (const href of ['/albums', '/artists', '/playlists', '/genres', '/settings']) {
+		for (const href of ['/albums', '/artists', '/playlists', '/genres', '/folders', '/settings']) {
 			assert.match(html, new RegExp(`href="${href}"`), href);
 		}
 		assert.match(html, /Recently added/);
