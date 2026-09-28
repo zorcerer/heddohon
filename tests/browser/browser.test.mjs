@@ -1144,6 +1144,36 @@ describe('shuffle', () => {
 	});
 });
 
+describe('the featured release', () => {
+	test('zooms and lifts its shade gradually under the pointer', async () => {
+		const { page, problems } = await watchedPage();
+		try {
+			await page.goto(app.url + '/', { waitUntil: 'networkidle' });
+			// Past the 1800ms arrival.
+			await page.waitForTimeout(2000);
+			const read = () =>
+				page.evaluate(() => ({
+					scale: Number(getComputedStyle(document.querySelector('.featured .art')).scale),
+					shade: Number(getComputedStyle(document.querySelector('.featured .scrim')).opacity)
+				}));
+			assert.deepEqual(await read(), { scale: 1.14, shade: 1 });
+			const panel = await page.locator('.featured').boundingBox();
+			await page.mouse.move(panel.x + panel.width * 0.75, panel.y + panel.height * 0.25);
+			await page.waitForTimeout(250);
+			// It jumped straight to 1.2: the arrival animation, filled forwards,
+			// held `scale` and the transition never ran.
+			const midway = await read();
+			assert.ok(midway.scale > 1.14 && midway.scale < 1.195, `the zoom snapped to ${midway.scale}`);
+			assert.ok(midway.shade > 0.8 && midway.shade < 1, `the shade did not fade (${midway.shade})`);
+			await page.waitForTimeout(1500);
+			assert.deepEqual(await read(), { scale: 1.2, shade: 0.8 });
+		} finally {
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+});
+
 describe('track rows', () => {
 	test('a double press on a row\'s heart does not play that row', async () => {
 		const { page, problems } = await watchedPage();

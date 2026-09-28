@@ -106,15 +106,20 @@
 	/*
 	 * Zoomed in past the panel's edges and settling a little on arrival, then
 	 * drifting in a touch further under the pointer. A transform on a layer of
-	 * its own, so neither step repaints the picture. It holds no glass and has
-	 * none over it.
+	 * its own, so neither step repaints the picture. It holds no glass, and the
+	 * only glass over it is the play button, whose solid fill hides it.
+	 *
+	 * The arrival fills backwards only. Filled forwards as well, the finished
+	 * animation kept hold of `scale` with an end keyframe that follows the
+	 * hover value, so a hover jumped straight to 1.2 and the transition never
+	 * ran.
 	 */
 	.art {
 		position: absolute;
 		inset: 0;
 		z-index: -2;
 		scale: 1.14;
-		animation: featured-settle calc(var(--dur-colour) * 2) var(--ease-out) both;
+		animation: featured-settle calc(var(--dur-colour) * 2) var(--ease-out) backwards;
 		transition: scale calc(var(--dur-colour) * 1.5) var(--ease-colour);
 		will-change: scale;
 	}
@@ -133,6 +138,12 @@
 	@media (hover: hover) {
 		.featured:hover .art {
 			scale: 1.2;
+		}
+
+		/* The shade lifts as the picture comes closer, so it grows and brightens
+		   together. At 0.8 the details keep the darkest corner behind them. */
+		.featured:hover .scrim {
+			opacity: 0.8;
 		}
 	}
 
@@ -153,6 +164,7 @@
 				rgb(6 8 10 / 0.08) 78%
 			),
 			linear-gradient(to right, rgb(6 8 10 / 0.45), transparent 65%);
+		transition: opacity calc(var(--dur-colour) * 1.5) var(--ease-colour);
 	}
 
 	.open {
@@ -261,7 +273,8 @@
 	}
 
 	@media (prefers-reduced-motion: reduce) {
-		.art {
+		.art,
+		.scrim {
 			animation: none;
 			transition: none;
 		}
