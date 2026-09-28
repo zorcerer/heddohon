@@ -20,9 +20,13 @@ import { log } from '$lib/server/log';
  * Library text is written by whoever can edit the library, and this page is
  * served to anyone with a link. A 4 MB title made a 12 MB page, since the
  * title is written three times; 300 characters is longer than any real one.
+ *
+ * Coerced first: the adapters pass some fields through as the server sent
+ * them, and a title that arrived as an object made this page a 500, and one
+ * that arrived as an array of long strings was clipped to 300 of them.
  */
-function clip(text: string | null): string | null {
-	return text === null ? null : text.slice(0, 300);
+function clip(text: unknown, length = 300): string | null {
+	return text === null || text === undefined ? null : String(text).slice(0, length);
 }
 
 export const load: PageServerLoad = async ({ locals, params, setHeaders }) => {
@@ -69,7 +73,8 @@ export const load: PageServerLoad = async ({ locals, params, setHeaders }) => {
 			duration: song.duration,
 			hasCover: Boolean(song.coverArt),
 			track: song.track,
-			quality: song.quality
+			// The container name, clipped as the text is: a 2 MB suffix made an 8 MB page.
+			quality: { ...song.quality, format: clip(song.quality.format, 16) }
 		}))
 	};
 };

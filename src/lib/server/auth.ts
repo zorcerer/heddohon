@@ -17,7 +17,6 @@ import {
 	constantTimeEquals,
 	deviceDigest,
 	openJson,
-	pseudonym,
 	randomToken,
 	sealJson,
 	tokenDigest
@@ -31,7 +30,8 @@ import { forgetDetails } from './details';
 import { forgetSuggestions } from './suggestions';
 import { forgetTranscodes } from './transcodes';
 import { clearAccountState } from './settings';
-import { revokeAllShares } from './shares';
+import { forgetSharedItems, revokeAllShares } from './shares';
+import { foldName } from './names';
 
 export const SESSION_COOKIE = 'heddohon_session';
 
@@ -63,10 +63,14 @@ export interface Account {
 	backend: BackendKind;
 	username: string;
 	remoteUserId: string | null;
+	/** See `rememberDevice`. */
+	deviceEpoch: number;
 }
 
 export interface AuthenticatedSession {
 	account: Account;
+	/** Epoch millis. */
+	createdAt: number;
 	/** Epoch millis. Absolute, never extended. */
 	expiresAt: number;
 	credential: StoredCredential;
@@ -79,8 +83,24 @@ function toAccount(row: AccountRow): Account {
 		id: row.id,
 		backend: row.backend as BackendKind,
 		username: row.username,
-		remoteUserId: row.remote_user_id
+		remoteUserId: row.remote_user_id,
+		deviceEpoch: Number(row.device_epoch ?? 0)
 	};
+}
+
+/**
+ * The username comparison as SQL, for the engine in use.
+ *
+ * `lower()` folds ASCII only on SQLite, as NOCASE did. PostgreSQL's follows
+ * the database's locale: on a stock `postgres:16-alpine` (en_US.utf8)
+ * `lower(U&'\212Aate') = 'kate'`, so a user named with a Kelvin sign signed
+ * in to another user's account row, and took over its settings and links.
+ * The "C" collation folds ASCII only, which is what Navidrome compares by.
+ */
+function usernameMatch(kind: 'sqlite' | 'postgres'): string {
+	return kind === 'postgres'
+		? 'lower(username COLLATE "C") = lower(? COLLATE "C")'
+		: 'lower(username) = lower(?)';
 }
 
 /**
@@ -131,12 +151,13 @@ async function storeAccount(
 	 */
 	//
 	// `lower()` on both sides rather than SQLite's `COLLATE NOCASE`, which
-	// PostgreSQL does not have. Both fold ASCII only, as NOCASE did.
+	// PostgreSQL does not have; see `usernameMatch`.
 	const existing = await database.get<AccountRow>(
-		'SELECT * FROM accounts WHERE backend = ? AND lower(username) = lower(?) ORDER BY created_at LIMIT 1',
+		`SELECT * FROM accounts WHERE backend = ? AND ${usernameMatch(database.kind)} ORDER BY created_at LIMIT 1`,
 		kind,
 		credential.username
 	);
+	let deviceEpoch = Number(existing?.device_epoch ?? 0);
 
 	if (existing && isAnotherUser(kind, existing.remote_user_id, remoteUserId)) {
 		/*
@@ -151,6 +172,7 @@ async function storeAccount(
 		await destroyAllSessions(existing.id);
 		const links = await revokeAllShares(existing.id);
 		await clearAccountState(existing.id);
+		deviceEpoch++;
 		log.warn('account-user-replaced', { account: existing.id, backend: kind, links });
 	} else if (existing && passwordChanged(existing.credential, credential)) {
 		/*
@@ -166,6 +188,7 @@ async function storeAccount(
 		 * changing their password would lose them.
 		 */
 		await destroyAllSessions(existing.id);
+		deviceEpoch++;
 		log.warn('account-password-changed', { account: existing.id, backend: kind });
 	}
 
@@ -174,11 +197,12 @@ async function storeAccount(
 		// upstream accepted, and for Subsonic it is sent back in the query string
 		// of every request, so it has to match what was authenticated.
 		await database.run(
-			'UPDATE accounts SET username = ?, credential = ?, remote_user_id = ?, last_login_at = ? WHERE id = ?',
+			'UPDATE accounts SET username = ?, credential = ?, remote_user_id = ?, last_login_at = ?, device_epoch = ? WHERE id = ?',
 			credential.username,
 			sealed,
 			remoteUserId,
 			timestamp,
+			deviceEpoch,
 			existing.id
 		);
 		forgetAccount(existing.id);
@@ -186,7 +210,8 @@ async function storeAccount(
 			...existing,
 			username: credential.username,
 			remote_user_id: remoteUserId,
-			last_login_at: timestamp
+			last_login_at: timestamp,
+			device_epoch: deviceEpoch
 		});
 	}
 
@@ -203,7 +228,7 @@ async function storeAccount(
 		timestamp
 	);
 
-	return { id, backend: kind, username: credential.username, remoteUserId };
+	return { id, backend: kind, username: credential.username, remoteUserId, deviceEpoch: 0 };
 }
 
 /**
@@ -252,9 +277,13 @@ export async function createSession(
 		created,
 		expiresAt,
 		created,
-		clientHint ? pseudonym(clientHint) : null,
+		// `client_pseudonym` held an HMAC of the whole User-Agent, which nothing
+		// read and SECURITY.md says is not kept: every session from one browser
+		// build carried the same value, across accounts. Only the label is kept.
+		null,
 		deviceLabel(clientHint)
 	);
+	await capSessions(account.id);
 
 	const secure = cookieSecure(event.url);
 	event.cookies.set(secure ? SESSION_COOKIE_HOST : SESSION_COOKIE, token, {
@@ -274,6 +303,30 @@ export async function createSession(
 
 	await pruneExpiredSessions();
 	return token;
+}
+
+/**
+ * Sessions one account may hold at once. A sign-in past it ends the oldest.
+ *
+ * A correct password cleared the throttle, so any account holder could open
+ * sessions without limit: 300 sign-ins in 1.5s made 300 rows, each kept for
+ * 72 hours, and a Settings page of 290KB. 50 is more browsers than one
+ * person signs in from in 72 hours.
+ */
+const MAX_SESSIONS_PER_ACCOUNT = 50;
+
+async function capSessions(accountId: string): Promise<void> {
+	const result = await (await store()).run(
+		`DELETE FROM sessions WHERE account_id = ? AND token_digest NOT IN (
+		   SELECT token_digest FROM sessions WHERE account_id = ? ORDER BY created_at DESC LIMIT ${MAX_SESSIONS_PER_ACCOUNT}
+		 )`,
+		accountId,
+		accountId
+	);
+	if (result.changes > 0) {
+		forgetAccount(accountId);
+		log.info('sessions-capped', { account: accountId, sessions: result.changes });
+	}
 }
 
 /**
@@ -333,7 +386,7 @@ export async function resolveSession(event: CookieContext): Promise<Authenticate
 	const database = await store();
 
 	const cached = sessionCache.get(digest);
-	let row: { account_id: string; expires_at: number; last_seen_at: number } | undefined;
+	let row: { account_id: string; created_at: number; expires_at: number; last_seen_at: number } | undefined;
 	let account: AccountRow | undefined;
 	if (cached && cached.until > now()) {
 		({ row, account } = cached);
@@ -342,7 +395,10 @@ export async function resolveSession(event: CookieContext): Promise<Authenticate
 		// seen afterwards: the rows read may already be stale, and caching them
 		// would honour the ended session for another five seconds.
 		const epoch = sessionEpoch;
-		row = await database.get('SELECT account_id, expires_at, last_seen_at FROM sessions WHERE token_digest = ?', digest);
+		row = await database.get(
+			'SELECT account_id, created_at, expires_at, last_seen_at FROM sessions WHERE token_digest = ?',
+			digest
+		);
 		if (row) account = await database.get<AccountRow>('SELECT * FROM accounts WHERE id = ?', row.account_id);
 		if (row && account && database.kind === 'postgres' && epoch === sessionEpoch) {
 			sessionCache.set(digest, { row, account, until: now() + SESSION_CACHE_MS });
@@ -385,7 +441,13 @@ export async function resolveSession(event: CookieContext): Promise<Authenticate
 		await database.run('UPDATE sessions SET last_seen_at = ? WHERE token_digest = ?', seen, digest);
 	}
 
-	return { account: toAccount(account), expiresAt: row.expires_at, credential, handle: sessionHandle(digest) };
+	return {
+		account: toAccount(account),
+		createdAt: Number(row.created_at),
+		expiresAt: Number(row.expires_at),
+		credential,
+		handle: sessionHandle(digest)
+	};
 }
 
 const LAST_SEEN_RESOLUTION_MS = 60_000;
@@ -406,7 +468,7 @@ const SESSION_CACHE_MS = 5000;
 const SESSION_CACHE_MAX = 5000;
 const sessionCache = new Map<
 	string,
-	{ row: { account_id: string; expires_at: number; last_seen_at: number }; account: AccountRow; until: number }
+	{ row: { account_id: string; created_at: number; expires_at: number; last_seen_at: number }; account: AccountRow; until: number }
 >();
 
 /**
@@ -453,24 +515,47 @@ function deviceCookieName(url: URL): string {
 	return cookieSecure(url) ? `__Host-${DEVICE_COOKIE}` : DEVICE_COOKIE;
 }
 
-function deviceSignature(id: string, kind: BackendKind, username: string): string {
-	return deviceDigest(`${id}:${kind}:${username.toLowerCase()}`);
+/*
+ * The account's device generation is signed too, and it moves when a
+ * password change or a new upstream user under the name is seen. A cookie
+ * earned before then stops counting as known: whoever held the old password,
+ * or the previous owner of a reused Jellyfin name, kept a guessing budget of
+ * its own for 180 days, apart from the one the owner sees. The username is
+ * folded as `foldName` does, for the reason given there.
+ */
+function deviceSignature(id: string, kind: BackendKind, username: string, epoch: number): string {
+	return deviceDigest(`${id}:${kind}:${foldName(username)}:${epoch}`);
 }
 
-/** The id of this browser if it has signed in as `username` on `kind` before, else null. */
-export function knownDevice(event: CookieContext, kind: BackendKind, username: string): string | null {
+async function deviceEpochFor(kind: BackendKind, username: string): Promise<number> {
+	const database = await store();
+	const row = await database.get<{ device_epoch: number | null }>(
+		`SELECT device_epoch FROM accounts WHERE backend = ? AND ${usernameMatch(database.kind)} ORDER BY created_at LIMIT 1`,
+		kind,
+		username
+	);
+	return Number(row?.device_epoch ?? 0);
+}
+
+function deviceIdIn(event: CookieContext, kind: BackendKind, username: string, epoch: number): string | null {
 	const raw = event.cookies.get(deviceCookieName(event.url));
 	if (!raw) return null;
 	const [id, signature, extra] = raw.split('.');
 	if (extra !== undefined || !id || !signature || !DEVICE_ID.test(id)) return null;
-	return constantTimeEquals(signature, deviceSignature(id, kind, username)) ? id : null;
+	return constantTimeEquals(signature, deviceSignature(id, kind, username, epoch)) ? id : null;
 }
 
-/** Marks this browser as known for `username` on `kind`, after a successful sign-in. */
-export function rememberDevice(event: CookieContext, kind: BackendKind, username: string): void {
-	const id = knownDevice(event, kind, username) ?? randomBytes(16).toString('base64url');
+/** The id of this browser if it has signed in as `username` on `kind` before, else null. */
+export async function knownDevice(event: CookieContext, kind: BackendKind, username: string): Promise<string | null> {
+	return deviceIdIn(event, kind, username, await deviceEpochFor(kind, username));
+}
+
+/** Marks this browser as known for the account, after a successful sign-in. */
+export function rememberDevice(event: CookieContext, account: Account): void {
+	const { backend: kind, username, deviceEpoch } = account;
+	const id = deviceIdIn(event, kind, username, deviceEpoch) ?? randomBytes(16).toString('base64url');
 	const secure = cookieSecure(event.url);
-	event.cookies.set(deviceCookieName(event.url), `${id}.${deviceSignature(id, kind, username)}`, {
+	event.cookies.set(deviceCookieName(event.url), `${id}.${deviceSignature(id, kind, username, deviceEpoch)}`, {
 		path: '/',
 		httpOnly: true,
 		sameSite: 'lax',
@@ -491,19 +576,31 @@ export async function destroySession(event: CookieContext): Promise<void> {
 			// row it saw.
 			sessionEpoch++;
 			sessionCache.delete(digest);
+			cutSessionStreams([digest]);
 		}
-		event.cookies.delete(name, { path: '/' });
+		// `secure` as the cookie was set. Left out, SvelteKit marks the deletion
+		// Secure on any host but localhost, and a browser ignores a Secure
+		// Set-Cookie that arrives over plain http, so on such a deployment the
+		// dead token stayed in the browser.
+		event.cookies.delete(name, { path: '/', secure: name === SESSION_COOKIE_HOST || cookieSecure(event.url) });
 	}
 }
 
 /** Signs the account out everywhere — used when the upstream rejects the stored credential. */
 export async function destroyAllSessions(accountId: string): Promise<void> {
-	const result = await (await store()).run('DELETE FROM sessions WHERE account_id = ?', accountId);
+	const database = await store();
+	const ending = await database.all<{ token_digest: string }>(
+		'SELECT token_digest FROM sessions WHERE account_id = ?',
+		accountId
+	);
+	const result = await database.run('DELETE FROM sessions WHERE account_id = ?', accountId);
+	cutSessionStreams(ending.map((row) => row.token_digest));
 	forgetAccount(accountId);
 	forgetListings(accountId);
 	forgetDetails(accountId);
 	forgetSuggestions(accountId);
 	forgetTranscodes(accountId);
+	forgetSharedItems(accountId);
 	// The account was signed in and now is not, without anybody asking for that.
 	// It means the password changed upstream, or the token was revoked there, and
 	// it is the explanation for "it logged me out on its own".
@@ -550,6 +647,8 @@ export interface SessionSummary {
 	lastSeenAt: number;
 	expiresAt: number;
 	current: boolean;
+	/** Whether this browser may sign it out; see `endSessions`. */
+	endable: boolean;
 }
 
 /** The account's sessions that have not expired, most recently used first. */
@@ -574,7 +673,8 @@ export async function listSessions(session: AuthenticatedSession): Promise<Sessi
 			createdAt: Number(row.created_at),
 			lastSeenAt: Number(row.last_seen_at),
 			expiresAt: Number(row.expires_at),
-			current: handle === session.handle
+			current: handle === session.handle,
+			endable: handle !== session.handle && Number(row.created_at) <= session.createdAt
 		};
 	});
 }
@@ -583,18 +683,26 @@ export async function listSessions(session: AuthenticatedSession): Promise<Sessi
  * Ends the account's sessions named by `handles`, or all of them but the
  * current one with `'others'`. Returns how many ended. A handle that is not one
  * of the account's own ends nothing.
+ *
+ * Only sessions that began no later than this one. Any session could end any
+ * other, so a stolen one could sign its owner out again each time they signed
+ * back in, for as long as it lasted. Now the owner's fresh sign-in is out of
+ * its reach, and ends it. A browser that signed in later is signed out from
+ * that browser.
  */
 export async function endSessions(session: AuthenticatedSession, handles: string[] | 'others'): Promise<number> {
 	const database = await store();
-	const rows = await database.all<{ token_digest: string }>(
-		'SELECT token_digest FROM sessions WHERE account_id = ?',
+	const rows = await database.all<{ token_digest: string; created_at: number }>(
+		'SELECT token_digest, created_at FROM sessions WHERE account_id = ?',
 		session.account.id
 	);
 	const targets = rows
+		.filter((row) => Number(row.created_at) <= session.createdAt)
 		.map((row) => row.token_digest)
 		.filter((digest) => {
 			const handle = sessionHandle(digest);
-			return handles === 'others' ? handle !== session.handle : handles.includes(handle);
+			if (handle === session.handle) return false;
+			return handles === 'others' || handles.includes(handle);
 		});
 
 	let ended = 0;
@@ -610,6 +718,63 @@ export async function endSessions(session: AuthenticatedSession, handles: string
 		sessionEpoch++;
 		sessionCache.delete(digest);
 	}
+	cutSessionStreams(targets);
 	if (ended > 0) log.info('sessions-ended', { account: session.account.id, sessions: ended, by: 'settings' });
 	return ended;
+}
+
+/*
+ * Audio in progress, by session, so that ending a session stops it.
+ *
+ * A browser plays a track as one open-ended range, so the request that
+ * matters was checked once, at its start, and a browser signed out from
+ * Settings went on receiving the rest of the file. The registry is in
+ * memory: a restart ends every stream anyway. The same shape as the one for
+ * shared links in shares.ts.
+ */
+const sessionStreams = new Map<string, Set<AbortController>>();
+
+function cutSessionStreams(digests: string[]): void {
+	for (const digest of digests) {
+		const handle = sessionHandle(digest);
+		const streams = sessionStreams.get(handle);
+		if (!streams) continue;
+		sessionStreams.delete(handle);
+		for (const controller of streams) controller.abort(new Error('session ended'));
+	}
+}
+
+/**
+ * The response with its body tied to the session: cut when the session is
+ * ended or signed out, and at its expiry, checked as each chunk passes.
+ */
+export function tiedToSession(session: AuthenticatedSession, signal: AbortSignal, response: Response): Response {
+	if (!response.body) return response;
+	const controller = new AbortController();
+	let streams = sessionStreams.get(session.handle);
+	if (!streams) sessionStreams.set(session.handle, (streams = new Set()));
+	streams.add(controller);
+	const set = streams;
+	const release = () => {
+		set.delete(controller);
+		if (set.size === 0 && sessionStreams.get(session.handle) === set) sessionStreams.delete(session.handle);
+	};
+	signal.addEventListener('abort', release, { once: true });
+
+	const body = response.body.pipeThrough(
+		new TransformStream<Uint8Array, Uint8Array>({
+			transform(chunk, stream) {
+				if (Date.now() >= session.expiresAt) {
+					controller.abort(new Error('session expired'));
+					release();
+					stream.error(new Error('session expired'));
+					return;
+				}
+				stream.enqueue(chunk);
+			},
+			flush: release
+		}),
+		{ signal: controller.signal }
+	);
+	return new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers });
 }

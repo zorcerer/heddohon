@@ -28,7 +28,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 	 * the favourites page reads, so opening one after the other asks the music
 	 * server once.
 	 */
-	const favouriteSongs = remembered(accountId, 'starred', () => backend.getStarred(credential))
+	const favouriteSongs = remembered({ accountId, credential }, 'starred', () => backend.getStarred(credential))
 		.then((starred) => starred.songs.slice(0, FAVOURITES_SHOWN))
 		.catch((err) => {
 			log.warn('section-failed', { section: 'starred', detail: reason(err) });

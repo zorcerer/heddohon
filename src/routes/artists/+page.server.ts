@@ -8,7 +8,7 @@ export const load: PageServerLoad = async (event) => {
 	// loaded again on every page turn and every filter keystroke. `remembered`
 	// serves those from one fetch; see `listings.ts` for the window and the key.
 	const all = await library(event, ({ backend, credential, accountId }) =>
-		remembered(accountId, 'artists', () => backend.getArtists(credential))
+		remembered({ accountId, credential }, 'artists', () => backend.getArtists(credential))
 	);
 
 	// The filter is applied before slicing, so searching looks across the whole

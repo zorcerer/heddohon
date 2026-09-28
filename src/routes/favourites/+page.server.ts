@@ -113,12 +113,36 @@ function sorted<T extends { title: string } | { name: string }>(
 		: [...items];
 }
 
+/*
+ * Sorted copies, remembered against the listing they came from, so a page
+ * turn inside the listing's 30 seconds does not sort it again. With 20,000
+ * favourites a sort took 40 to 115ms of the event loop, every page turn.
+ * Held weakly: a copy goes when its listing does. Eight orders per listing,
+ * the most recent, since a shuffle's seed can take any value.
+ */
+const sortedCopies = new WeakMap<readonly unknown[], Map<string, unknown[]>>();
+
+function sortedOnce<T extends { title: string } | { name: string }>(
+	items: readonly T[],
+	key: string,
+	order: Compare<T> | undefined
+): T[] {
+	let copies = sortedCopies.get(items);
+	if (!copies) sortedCopies.set(items, (copies = new Map()));
+	const held = copies.get(key);
+	if (held) return held as T[];
+	const copy = sorted(items, order);
+	copies.set(key, copy);
+	if (copies.size > 8) copies.delete(copies.keys().next().value!);
+	return copy;
+}
+
 export const load: PageServerLoad = async (event) => {
 	// Whole on both servers, and this page is loaded again on every tab switch
 	// and page turn. `/api/star` drops the entry, so a change made here shows at
 	// once; see `listings.ts`.
 	const starred = await library(event, ({ backend, credential, accountId }) =>
-		remembered(accountId, 'starred', () => backend.getStarred(credential))
+		remembered({ accountId, credential }, 'starred', () => backend.getStarred(credential))
 	);
 
 	const requested = event.url.searchParams.get('tab');
@@ -165,8 +189,8 @@ export const load: PageServerLoad = async (event) => {
 		},
 		// Only the visible tab is sorted, paginated and sent; the other two would
 		// be dead weight in the payload and in the DOM.
-		songs: tab === 'songs' ? paginate(sorted(starred.songs, songOrder), page) : null,
-		albums: tab === 'albums' ? paginate(sorted(starred.albums, albumOrder), page) : null,
-		artists: tab === 'artists' ? paginate(sorted(starred.artists, ARTIST_ORDER[sort]), page) : null
+		songs: tab === 'songs' ? paginate(sortedOnce(starred.songs, `${sort}:${seed}`, songOrder), page) : null,
+		albums: tab === 'albums' ? paginate(sortedOnce(starred.albums, `${sort}:${seed}`, albumOrder), page) : null,
+		artists: tab === 'artists' ? paginate(sortedOnce(starred.artists, sort, ARTIST_ORDER[sort]), page) : null
 	};
 };

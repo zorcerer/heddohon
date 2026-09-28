@@ -46,7 +46,7 @@ export function similarAlbums(
 	limit: number
 ): Promise<Album[]> {
 	return suggestions.get(
-		accountId,
+		{ accountId, credential },
 		`album\u0000${albumId}\u0000${limit}`,
 		() => backend.getSimilarAlbums(credential, albumId, artistId, limit),
 		ttlFor
@@ -60,7 +60,7 @@ export function similarArtists(
 	limit: number
 ): Promise<Artist[]> {
 	return suggestions.get(
-		accountId,
+		{ accountId, credential },
 		`artist\u0000${artistId}\u0000${limit}`,
 		() => backend.getSimilarArtists(credential, artistId, limit),
 		ttlFor
