@@ -24,7 +24,7 @@
 	import { navigating, page } from '$app/state';
 	import { player } from '$lib/client/player.svelte';
 	import { handOff } from '$lib/client/handoff';
-	import { DUR, EASE_OUT_CSS } from '$lib/client/motion';
+	import { DUR, EASE_OUT_CSS, popGlyph, skipGlyph } from '$lib/client/motion';
 	import { prefersReducedMotion } from '$lib/client/sleeve-transition.svelte';
 	import Cover from './Cover.svelte';
 	import Icon from './Icon.svelte';
@@ -217,7 +217,10 @@
 			<button
 				class="control play"
 				type="button"
-				onclick={() => player.toggle()}
+				onclick={(event) => {
+					popGlyph(event.currentTarget);
+					void player.toggle();
+				}}
 				aria-label={player.playing ? 'Pause' : 'Play'}
 			>
 				{#if player.loading && player.playing}
@@ -229,7 +232,10 @@
 			<button
 				class="control"
 				type="button"
-				onclick={() => player.next()}
+				onclick={(event) => {
+					skipGlyph(event.currentTarget, 1);
+					void player.next();
+				}}
 				disabled={!player.hasQueue}
 				aria-label="Next track"
 			>
