@@ -50,6 +50,11 @@ export interface UserSettings {
 	/** Send now-playing / scrobble events upstream. */
 	reportPlayback: boolean;
 	/**
+	 * How long the listening history is kept, in days: 90, or 365 for a year's
+	 * summary on the stats page. See `history.ts`.
+	 */
+	historyDays: 90 | 365;
+	/**
 	 * The aurora behind the glass: drifting, held still, or not drawn. Moving,
 	 * it is a layer under every glass surface that changes three times a
 	 * second, and each of them draws its blur again when it does. Off by
@@ -100,6 +105,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
 	crossfadeSeconds: 4,
 	normalizeVolume: false,
 	reportPlayback: true,
+	historyDays: 90,
 	aurora: 'off',
 	showQualityBadge: true,
 	gridSize: 'comfortable',
@@ -154,6 +160,7 @@ export function sanitizeSettings(input: unknown, base: UserSettings = DEFAULT_SE
 		normalizeVolume: typeof raw.normalizeVolume === 'boolean' ? raw.normalizeVolume : base.normalizeVolume,
 		aurora: pick('aurora', ['moving', 'still', 'off'] as const, base.aurora),
 		reportPlayback: typeof raw.reportPlayback === 'boolean' ? raw.reportPlayback : base.reportPlayback,
+		historyDays: raw.historyDays === 90 || raw.historyDays === 365 ? raw.historyDays : base.historyDays,
 		showQualityBadge:
 			typeof raw.showQualityBadge === 'boolean' ? raw.showQualityBadge : base.showQualityBadge,
 		gridSize: pick('gridSize', ['compact', 'comfortable', 'roomy'] as const, base.gridSize),

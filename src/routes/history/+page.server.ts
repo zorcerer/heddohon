@@ -1,6 +1,7 @@
 import type { PageServerLoad } from './$types';
 import { library } from '$lib/server/library';
 import { recentPlays } from '$lib/server/history';
+import { getSettings } from '$lib/server/settings';
 import { PAGE_SIZE, readPageNumber } from '$lib/server/paging';
 import type { Song } from '$lib/types';
 
@@ -29,6 +30,7 @@ export const load: PageServerLoad = async (event) => {
 			const song = byId.get(play.songId);
 			return song ? [{ song, playedAt: play.playedAt }] : [];
 		}),
-		page: { page, pageCount, total, hasPrevious: page > 1, hasNext: page < pageCount }
+		page: { page, pageCount, total, hasPrevious: page > 1, hasNext: page < pageCount },
+		historyDays: (await getSettings(accountId)).historyDays
 	};
 };

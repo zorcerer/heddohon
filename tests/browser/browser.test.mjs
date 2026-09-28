@@ -80,6 +80,7 @@ describe('the policy', () => {
 			'/folders/d-al1',
 			'/history',
 			'/screen',
+			'/stats',
 			'/search?q=song',
 			'/settings'
 		];
@@ -1647,6 +1648,35 @@ describe('casting', () => {
 			subsonic.state.audio = null;
 			subsonic.state.albumSongs = 2;
 			await casting.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+});
+
+describe('your listening', () => {
+	test('draws the hour and the day in this browser\'s time, with the run of days', async () => {
+		const { page, problems } = await watchedPage();
+		try {
+			for (const songId of ['s15a', 's15a', 's16a']) {
+				const response = await context.request.post(`${app.url}/api/playback`, {
+					data: { songId, event: 'stop', position: 100, completed: true },
+					headers: { origin: app.url }
+				});
+				assert.equal(response.status(), 200);
+			}
+			await page.goto(app.url + '/stats', { waitUntil: 'networkidle' });
+			assert.equal(await page.locator('.plot').nth(0).locator('.column').count(), 24);
+			assert.equal(await page.locator('.plot').nth(1).locator('.column').count(), 7);
+			// The plays were all just now: this hour, today, a run of one day.
+			const hour = await page.evaluate(() => new Date().getHours());
+			const peak = page.locator('.plot').nth(0).locator('.column.peak');
+			assert.equal(await peak.count(), 1);
+			assert.match(await peak.getAttribute('aria-label'), /: \d+ plays$/);
+			assert.equal(await page.locator('.plot').nth(0).locator('.column').nth(hour).getAttribute('class').then((c) => c.includes('peak')), true);
+			const run = page.locator('.figure', { hasText: 'Longest run' }).locator('.number');
+			assert.equal(await run.textContent(), '1');
+		} finally {
+			await page.close();
 		}
 		assert.deepEqual(problems, []);
 	});
