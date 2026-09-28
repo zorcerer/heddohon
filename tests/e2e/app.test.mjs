@@ -85,6 +85,10 @@ describe('the gate', () => {
 		}
 		const page = await new Client(app.url).request('/login');
 		assert.match(page.headers.get('content-security-policy') ?? '', /default-src 'none'/);
+		// The microphone for this origin alone (the output control's names), the camera for nobody.
+		const policy = page.headers.get('permissions-policy') ?? '';
+		assert.match(policy, /microphone=\(self\)/);
+		assert.match(policy, /camera=\(\)/);
 	});
 });
 
@@ -369,6 +373,22 @@ describe('Jellyfin albums by play', () => {
 		const { response, html } = await client.page('/albums?sort=mostPlayed');
 		assert.equal(response.status, 200, explain('most played failed'));
 		assert.deepEqual(albumOrder(html), []);
+	});
+});
+
+describe('the saved queue', () => {
+	test('keeps the order from before shuffling while shuffle is on, and only then', async () => {
+		const save = (body) => user.json('/api/play-state', 'PUT', body);
+		try {
+			await save({ songIds: ['s3a', 's1a', 's2a'], index: 0, shuffle: true, orderIds: ['s1a', 's2a', 's3a', 7] });
+			const shuffled = await (await user.request('/api/play-state')).json();
+			assert.deepEqual(shuffled.orderIds, ['s1a', 's2a', 's3a'], 'a non-string id was kept');
+
+			await save({ songIds: ['s1a', 's2a', 's3a'], index: 0, shuffle: false, orderIds: ['s3a'] });
+			assert.deepEqual((await (await user.request('/api/play-state')).json()).orderIds, []);
+		} finally {
+			await save({ songIds: [], index: 0, shuffle: false });
+		}
 	});
 });
 

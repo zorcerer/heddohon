@@ -92,12 +92,41 @@ function shuffled<T>(items: T[]): T[] {
 	return out;
 }
 
+/**
+ * `queue` put back in `order`, the ids it had before it was shuffled, with
+ * `current` where it lands. Matched by id one for one, so a track queued twice
+ * comes back twice. An entry removed since is left out. Entries added since
+ * ("Play next", "Add to queue") go straight after the current track, in the
+ * order they were in, since they were queued to come up; where the current
+ * track is itself one of them, the added entries lead the queue.
+ */
+function unshuffled<T extends { id: string }>(queue: T[], order: string[], current: T | undefined): T[] {
+	const waiting = new Map<string, T[]>();
+	for (const entry of queue) {
+		const list = waiting.get(entry.id);
+		if (list) list.push(entry);
+		else waiting.set(entry.id, [entry]);
+	}
+	const originals: T[] = [];
+	for (const id of order) {
+		const entry = waiting.get(id)?.shift();
+		if (entry) originals.push(entry);
+	}
+	const kept = new Set(originals);
+	const added = queue.filter((entry) => !kept.has(entry));
+	if (current === undefined || !kept.has(current)) return [...added, ...originals];
+	const at = originals.indexOf(current) + 1;
+	return [...originals.slice(0, at), ...added, ...originals.slice(at)];
+}
+
 interface PersistPayload {
 	songIds: string[];
 	index: number;
 	position: number;
 	repeat: RepeatMode;
 	shuffle: boolean;
+	/** The ids in the order they had before shuffling, while shuffle is on. */
+	orderIds?: string[];
 }
 
 export class Player {
@@ -199,6 +228,12 @@ export class Player {
 	 */
 	#partial: { queue: Song[]; ids: string[]; index: number } | null = null;
 	/**
+	 * While shuffle is on, the ids in the order the queue had before it was
+	 * shuffled, so turning shuffle off can put it back (`unshuffled`). Saved with
+	 * the queue, so it survives a reload.
+	 */
+	#unshuffledIds: string[] | null = null;
+	/**
 	 * Set while a resume waits for the position to become seekable; see
 	 * `#holdForSeek`. The retries on `canplay` and on the tab coming back leave
 	 * the element alone while it is set, or they would play it from the start.
@@ -241,6 +276,17 @@ export class Player {
 		this.#adoptViewport();
 	}
 
+	/**
+	 * Sends both elements to the audio output `deviceId`, or to the system's
+	 * default for `''`. Both, since they swap roles at every track change and
+	 * the one pre-buffering now is the one playing next. Rejects where the
+	 * browser refuses the device; `client/output.svelte.ts` handles that.
+	 */
+	async setOutput(deviceId: string): Promise<void> {
+		const elements = [this.#primary, this.#secondary].filter((el): el is HTMLAudioElement => el !== null);
+		await Promise.all(elements.map((el) => el.setSinkId(deviceId)));
+	}
+
 	detach() {
 		for (const off of this.#detachers) off();
 		this.#detachers = [];
@@ -266,6 +312,9 @@ export class Player {
 	/** Replaces the queue with a shuffled copy and starts it. */
 	async playShuffled(songs: Song[]) {
 		await this.#start(shuffled(songs), 0, true);
+		// After `#start`, which clears it for every new queue.
+		this.#unshuffledIds = songs.map((song) => song.id);
+		this.#persist();
 	}
 
 	/**
@@ -277,6 +326,7 @@ export class Player {
 	async #start(songs: Song[], startAt: number, shuffle: boolean) {
 		if (songs.length === 0) return;
 		this.shuffle = shuffle;
+		this.#unshuffledIds = null;
 		this.direction = 1;
 		this.queue = [...songs];
 		this.index = Math.min(Math.max(0, startAt), songs.length - 1);
@@ -361,6 +411,7 @@ export class Player {
 		this.queue = [];
 		this.index = 0;
 		this.shuffle = false;
+		this.#unshuffledIds = null;
 		this.#persist();
 	}
 
@@ -562,21 +613,44 @@ export class Player {
 	}
 
 	/**
-	 * Shuffling rewrites the queue rather than keeping a shadow order, so what
-	 * the queue panel shows is always what will actually play next. Turning it
-	 * off does not restore the original order — that would be a lie about a
-	 * queue the user may have edited since.
+	 * Shuffling rewrites the queue, so what the queue panel shows is always what
+	 * will actually play next. The order it had is kept beside it, and turning
+	 * shuffle off puts the queue back in that order around the playing track,
+	 * with edits made in the meantime kept (`unshuffled`). It used to leave the
+	 * queue shuffled, which read as the button doing nothing.
 	 */
 	toggleShuffle() {
 		this.shuffle = !this.shuffle;
-		if (this.shuffle && this.queue.length > 1) {
-			// The track that is playing stays put; everything else is reordered
-			// around it, so turning shuffle on never interrupts the audio.
-			const current = this.queue[this.index];
-			const rest = shuffled(this.queue.filter((_, i) => i !== this.index));
-			this.queue = [current, ...rest];
-			this.index = 0;
+		if (this.shuffle) {
+			// A queue still being restored holds only its current track; the saved
+			// ids are its real order.
+			this.#unshuffledIds = this.#partial ? [...this.#partial.ids] : this.queue.map((song) => song.id);
+			if (this.queue.length > 1) {
+				// The track that is playing stays put; everything else is reordered
+				// around it, so turning shuffle on never interrupts the audio.
+				const current = this.queue[this.index];
+				const rest = shuffled(this.queue.filter((_, i) => i !== this.index));
+				this.queue = [current, ...rest];
+				this.index = 0;
+			}
+		} else if (this.#unshuffledIds) {
+			const order = this.#unshuffledIds;
+			const partial = this.#partial;
+			if (partial) {
+				// Reordered in the saved ids, which `completeRestore` fills in. The
+				// queue itself is left as it is: it is the one track, and replacing
+				// the array would make `completeRestore` think the queue was changed.
+				const entries = partial.ids.map((id) => ({ id }));
+				const reordered = unshuffled(entries, order, entries[partial.index]);
+				this.#partial = { ...partial, ids: reordered.map((entry) => entry.id), index: reordered.indexOf(entries[partial.index]) };
+			} else {
+				const current = this.queue[this.index];
+				const queue = unshuffled(this.queue, order, current);
+				this.queue = queue;
+				this.index = Math.max(0, queue.indexOf(current));
+			}
 		}
+		if (!this.shuffle) this.#unshuffledIds = null;
 		this.#invalidatePreload();
 		this.#persist();
 	}
@@ -1261,7 +1335,8 @@ export class Player {
 			index: partial ? partial.index : this.index,
 			position: this.currentTime,
 			repeat: this.repeat,
-			shuffle: this.shuffle
+			shuffle: this.shuffle,
+			...(this.shuffle && this.#unshuffledIds ? { orderIds: this.#unshuffledIds } : {})
 		};
 		const body = JSON.stringify(payload);
 		void fetch('/api/play-state', {
@@ -1374,7 +1449,7 @@ export class Player {
 	 */
 	async restore(
 		songs: Song[],
-		state: { index: number; position: number; repeat: RepeatMode; shuffle: boolean },
+		state: { index: number; position: number; repeat: RepeatMode; shuffle: boolean; orderIds?: string[] },
 		partial?: { ids: string[]; index: number }
 	) {
 		if (songs.length === 0) return;
@@ -1383,6 +1458,7 @@ export class Player {
 		this.index = Math.min(Math.max(0, state.index), songs.length - 1);
 		this.repeat = state.repeat;
 		this.shuffle = state.shuffle;
+		this.#unshuffledIds = state.shuffle && state.orderIds?.length ? state.orderIds : null;
 		this.duration = this.current?.duration ?? 0;
 		this.currentTime = state.position;
 		this.#pendingSeek = state.position;

@@ -24,7 +24,9 @@ before(async () => {
 	subsonic = await startSubsonic({ artistCount: 40 });
 	jellyfin = await startJellyfin();
 	app = await startApp({ subsonicUrl: subsonic.url, jellyfinUrl: jellyfin.url });
-	browser = await chromium.launch();
+	// Fake capture devices, so the output control's microphone request (Chrome
+	// names outputs only once it is granted) resolves without a real one.
+	browser = await chromium.launch({ args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'] });
 	context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
 	const signIn = await context.request.post(`${app.url}/login`, {
 		form: { username: 'testuser', password: 'testpass', backend: 'subsonic', next: '/' },
@@ -2529,6 +2531,97 @@ describe('playing from favourites', () => {
 				'the row\'s song was started'
 			);
 		} finally {
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+});
+
+describe('the audio output', () => {
+	test('sits right of the volume slider, lists the default, and asks for names only on request', async () => {
+		const { page, problems } = await watchedPage();
+		try {
+			await page.goto(`${app.url}/albums`, { waitUntil: 'networkidle' });
+			const button = page.locator('aside.panel .volume button[aria-label^="Audio output"]');
+			await button.waitFor();
+			const [slider, control] = await Promise.all([
+				page.locator('aside.panel .volume-slider').boundingBox(),
+				button.boundingBox()
+			]);
+			assert.ok(control.x >= slider.x + slider.width, 'the output control is not right of the slider');
+			assert.equal(await button.getAttribute('aria-label'), 'Audio output: System default');
+
+			await button.click();
+			const outputs = page.getByRole('group', { name: 'Audio output' });
+			await outputs.getByRole('button', { name: 'System default' }).waitFor();
+			assert.match(await outputs.getByRole('button', { name: 'System default' }).getAttribute('class'), /active/);
+
+			// Nothing asks for the microphone until the button says it will. With
+			// fake devices Chromium may name the outputs already, and then there is
+			// no button to press.
+			const list = outputs.getByRole('button', { name: 'List outputs' });
+			if (await list.count()) {
+				await list.click();
+				await page.waitForFunction(
+					() => document.querySelector('.outputs [role="status"]') || !document.querySelector('.outputs .output-note'),
+					null,
+					{ timeout: 5000 }
+				);
+			}
+
+			await outputs.getByRole('button', { name: 'System default' }).click();
+			const sinks = await page.evaluate(() => [...document.querySelectorAll('audio')].map((a) => a.sinkId));
+			assert.deepEqual(sinks, ['', '']);
+		} finally {
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+
+	test('an output saved in this browser that is gone leaves the sound on the default', async () => {
+		const { page, problems } = await watchedPage();
+		try {
+			await page.goto(`${app.url}/albums`, { waitUntil: 'networkidle' });
+			await page.evaluate(() =>
+				localStorage.setItem('heddohon:audio-output', JSON.stringify({ id: 'unplugged', label: 'Old headphones' }))
+			);
+			await page.reload({ waitUntil: 'networkidle' });
+			const button = page.locator('aside.panel .volume button[aria-label^="Audio output"]');
+			await button.waitFor();
+			assert.equal(await button.getAttribute('aria-label'), 'Audio output: System default');
+		} finally {
+			await page.evaluate(() => localStorage.removeItem('heddohon:audio-output')).catch(() => undefined);
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+});
+
+describe('shuffle', () => {
+	test('turning shuffle off puts the queue back in its order, around the track playing', async () => {
+		// Album 36, which no other test opens, with ten tracks.
+		subsonic.state.albumSongs = 10;
+		const { page, problems } = await watchedPage();
+		const titles = () => page.locator('aside.panel .queue-list .row-title').allTextContents();
+		try {
+			await page.goto(`${app.url}/albums/al36`, { waitUntil: 'networkidle' });
+			await page.getByRole('button', { name: 'Play Song 36c', exact: true }).click();
+			await page.locator('aside.panel button[aria-label="Queue"]').click();
+			const inOrder = [...'abcdefghij'].map((side) => `Song 36${side}`);
+			await page.waitForFunction((n) => document.querySelectorAll('aside.panel .queue-list .row-title').length === n, 10);
+			assert.deepEqual(await titles(), inOrder);
+
+			const shuffle = page.locator('aside.panel button[aria-label="Shuffle"]');
+			await shuffle.click();
+			const mixed = await titles();
+			assert.equal(mixed[0], 'Song 36c', 'the playing track moved');
+			assert.deepEqual([...mixed].sort(), inOrder);
+
+			await shuffle.click();
+			assert.deepEqual(await titles(), inOrder, 'shuffle off left the queue shuffled');
+			assert.equal(await page.locator('aside.panel h2.title').textContent(), 'Song 36c');
+		} finally {
+			subsonic.state.albumSongs = 2;
 			await page.close();
 		}
 		assert.deepEqual(problems, []);

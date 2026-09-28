@@ -23,6 +23,7 @@
 	 */
 	import { untrack } from 'svelte';
 	import { SLEEP_MINUTES, player } from '$lib/client/player.svelte';
+	import { audioOutputs } from '$lib/client/output.svelte';
 	import { handOff } from '$lib/client/handoff';
 	import { formatBytes, formatDuration } from '$lib/client/format';
 	import { lyricsWindow } from '$lib/client/lyrics.svelte';
@@ -128,6 +129,8 @@
 		if (player.sheetLayout) untrack(() => (volumeOpen = false));
 	});
 	let sleepOpen = $state(false);
+	/** The list of outputs under the volume row, where the browser has no picker of its own. */
+	let outputOpen = $state(false);
 
 	/*
 	 * The clock the sleep timer's countdown is read against. It ticks only
@@ -612,6 +615,59 @@
 							formatValue={(value) => `${Math.round(value * 100)} percent`}
 						/>
 					</span>
+					{#if audioOutputs.supported}
+						<!-- Firefox opens its own picker; elsewhere the choices fold out below. -->
+						<button
+							class="tool"
+							class:on={outputOpen || audioOutputs.current.id !== ''}
+							onclick={() => (audioOutputs.picker ? void audioOutputs.pick() : (outputOpen = !outputOpen))}
+							aria-expanded={audioOutputs.picker ? undefined : outputOpen}
+							aria-label="Audio output: {audioOutputs.current.label}"
+							title="Output: {audioOutputs.current.label}"
+						>
+							<Icon name="output" size={17} />
+						</button>
+					{/if}
+				</div>
+				{#if audioOutputs.problem && (audioOutputs.picker || !outputOpen)}
+					<p class="output-note hh-muted" role="status">{audioOutputs.problem}</p>
+				{/if}
+			</div>
+		</div>
+
+		<div class="fold" class:open={volumeOpen && outputOpen} inert={!(volumeOpen && outputOpen)}>
+			<div>
+				<div class="outputs" role="group" aria-label="Audio output">
+					<div class="sleep">
+						<button
+							class="chip"
+							class:active={audioOutputs.current.id === ''}
+							onclick={() => void audioOutputs.choose({ id: '', label: 'System default' })}
+						>
+							System default
+						</button>
+						{#each audioOutputs.outputs as output (output.id)}
+							<button
+								class="chip"
+								class:active={audioOutputs.current.id === output.id}
+								onclick={() => void audioOutputs.choose(output)}
+							>
+								{output.label}
+							</button>
+						{/each}
+					</div>
+					{#if !audioOutputs.named}
+						<p class="output-note hh-muted">
+							This browser names your outputs once Heddohon may use the microphone. Nothing is
+							recorded: the microphone is closed as soon as the list is read.
+						</p>
+						<div>
+							<button class="chip" onclick={() => void audioOutputs.nameOutputs()}>List outputs</button>
+						</div>
+					{/if}
+					{#if audioOutputs.problem}
+						<p class="output-note hh-muted" role="status">{audioOutputs.problem}</p>
+					{/if}
 				</div>
 			</div>
 		</div>
@@ -1378,6 +1434,18 @@
 	.volume-slider {
 		flex: 1;
 		min-width: 0;
+	}
+
+	.outputs {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+	}
+
+	.output-note {
+		margin: 0;
+		font-size: 0.75rem;
+		line-height: 1.4;
 	}
 
 	/* The chip look of `SortChips`, as buttons: a timer is not a URL. */
