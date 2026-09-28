@@ -1,6 +1,8 @@
 import type { PageServerLoad } from './$types';
 import { library, libraryContext } from '$lib/server/library';
 import { log, reason } from '$lib/server/log';
+import { artistDetail } from '$lib/server/details';
+import { similarArtists } from '$lib/server/suggestions';
 
 /**
  * How many cards the "You might like" shelf asks the music server for. The
@@ -12,17 +14,15 @@ const SUGGESTION_COUNT = 8;
 
 export const load: PageServerLoad = async (event) => {
 	const ctx = libraryContext(event.locals);
-	const artist = await library(event, () => ctx.backend.getArtist(ctx.credential, event.params.id));
+	const artist = await library(event, () => artistDetail(ctx, event.params.id));
 
 	return {
 		artist,
 		// Streamed, and the rejection swallowed, for the reasons set out in the
 		// album page's loader.
-		similar: ctx.backend
-			.getSimilarArtists(ctx.credential, artist.id, SUGGESTION_COUNT)
-			.catch((err) => {
-				log.warn('similar-artists-failed', { artist: artist.id, detail: reason(err) });
-				return [];
-			})
+		similar: similarArtists(ctx, artist.id, SUGGESTION_COUNT).catch((err) => {
+			log.warn('similar-artists-failed', { artist: artist.id, detail: reason(err) });
+			return [];
+		})
 	};
 };

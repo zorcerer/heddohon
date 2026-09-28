@@ -3,6 +3,8 @@ import type { RequestHandler } from './$types';
 import { backendFor, UpstreamError } from '$lib/server/backends';
 import { mapLimited } from '$lib/server/backends/http';
 import { remembered } from '$lib/server/listings';
+import { albumDetail, albumsByArtist } from '$lib/server/details';
+import type { LibraryContext } from '$lib/server/library';
 import type { MixSeed, Song } from '$lib/types';
 
 type Source = 'album' | 'playlist' | 'artist' | 'genre' | 'starred' | 'random' | 'mix';
@@ -39,6 +41,9 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 
 	const backend = backendFor(session.account.backend);
 	const cred = session.credential;
+	// The album and artist reads go through the page caches (`details.ts`), so
+	// "Play" on a page that has just loaded does not read the album again.
+	const ctx: LibraryContext = { backend, credential: cred, accountId: session.account.id };
 
 	try {
 		let songs: Song[];
@@ -46,7 +51,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 		let more: boolean | undefined;
 		switch (source) {
 			case 'album':
-				songs = (await backend.getAlbum(cred, id!)).songs;
+				songs = (await albumDetail(ctx, id!)).songs;
 				break;
 			case 'playlist':
 				songs = (await backend.getPlaylist(cred, id!)).songs;
@@ -58,7 +63,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 				// alongside it. On Subsonic those are `getArtistInfo2`, which
 				// Navidrome answers from Last.fm, and `getTopSongs`, two calls
 				// this route never read.
-				const artistAlbums = await backend.getArtistAlbums(cred, id!);
+				const artistAlbums = await albumsByArtist(ctx, id!);
 				// `part` splits the answer in two, the first album and the rest, so
 				// that playing starts after one album lookup rather than after all
 				// of them. On Subsonic each is its own call, eight at a time: an
@@ -76,7 +81,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 				// Bounded: an artist can have hundreds of albums, and this is one
 				// upstream call each.
 				const albums = await mapLimited(chosen, (album) =>
-					backend.getAlbum(cred, album.id).catch(() => null)
+					albumDetail(ctx, album.id).catch(() => null)
 				);
 				songs = albums.flatMap((album) => album?.songs ?? []);
 				break;
