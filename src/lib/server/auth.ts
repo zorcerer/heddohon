@@ -27,6 +27,8 @@ import { deviceLabel } from './device';
 import { backendFor, type StoredCredential } from './backends';
 import { log } from './log';
 import { forgetListings } from './listings';
+import { forgetDetails } from './details';
+import { forgetSuggestions } from './suggestions';
 import { forgetTranscodes } from './transcodes';
 import { clearAccountState } from './settings';
 import { revokeAllShares } from './shares';
@@ -499,6 +501,8 @@ export async function destroyAllSessions(accountId: string): Promise<void> {
 	const result = await (await store()).run('DELETE FROM sessions WHERE account_id = ?', accountId);
 	forgetAccount(accountId);
 	forgetListings(accountId);
+	forgetDetails(accountId);
+	forgetSuggestions(accountId);
 	forgetTranscodes(accountId);
 	// The account was signed in and now is not, without anybody asking for that.
 	// It means the password changed upstream, or the token was revoked there, and

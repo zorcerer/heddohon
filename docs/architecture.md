@@ -106,7 +106,10 @@ src/
       log.ts              levelled key=value logging, request ids
       library.ts          uniform upstream error handling for page loaders
       paging.ts           the 100-per-page slice shared by artists and favourites
+      memo.ts             the in-memory, per-account store the three caches below share
       listings.ts         whole-library listings remembered per account for 30s
+      details.ts          album and artist details remembered per account for 1 minute
+      suggestions.ts      "You might like" shelves remembered per account for 30 days
       ratelimit.ts        sign-in throttling, per username and per address
       shares.ts           song links: tokens, digests, expiry, withdrawal
       backends/

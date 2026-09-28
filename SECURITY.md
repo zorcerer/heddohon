@@ -506,7 +506,7 @@ that SvelteKit can nonce or hash its own inline bootstrap script:
 ```
 default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline';
 style-src-attr 'unsafe-inline'; img-src 'self'; font-src 'self';
-media-src 'self'; connect-src 'self'; manifest-src 'self'; worker-src 'none';
+media-src 'self'; connect-src 'self'; manifest-src 'self'; worker-src 'self';
 object-src 'none'; frame-src 'none'; base-uri 'self'; form-action 'self';
 frame-ancestors 'self'
 ```
@@ -514,7 +514,13 @@ frame-ancestors 'self'
 Everything the app loads is served from its own origin: the bundles, the two
 bundled font families, covers from `/api/cover`, audio from `/api/stream`, and
 fetches to `/api/*`. The source carries no external origin, no `data:` or
-`blob:` URL and no worker.
+`blob:` URL.
+
+The one worker is the service worker in `src/service-worker.ts`. It answers a
+page load that fails, or that a reverse proxy answers with 502 to 504 while
+`/healthz` does not answer, with a static offline page. It passes every other
+request to the network without reading it, and caches only the offline page
+and its script, so no account's data is stored by it.
 
 `style-src-attr` is listed separately because a directive carrying a nonce or a
 hash ignores `unsafe-inline`, and SvelteKit adds one to `style-src`. Attributes

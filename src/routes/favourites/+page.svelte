@@ -26,7 +26,8 @@
 		byYear: 'By year',
 		mostPlayed: 'Most played',
 		recentlyAdded: 'Recently added',
-		mostAlbums: 'Most albums'
+		mostAlbums: 'Most albums',
+		random: 'Random'
 	};
 
 	function tabHref(tab: (typeof data.tabs)[number]): string {
@@ -42,6 +43,8 @@
 		const params = new URLSearchParams(pageState.url.searchParams);
 		params.set('tab', data.tab);
 		params.set('sort', sort);
+		if (sort === 'random') params.set('seed', String(data.reshuffleSeed));
+		else params.delete('seed');
 		// A new ordering starts at the top, as on the albums page.
 		params.delete('page');
 		return `/favourites?${params}`;
@@ -52,6 +55,8 @@
 		params.set('tab', data.tab);
 		params.set('page', String(target));
 		params.set('sort', data.sort);
+		// The shuffle's seed, so the next page continues the same order.
+		if (data.seed !== null) params.set('seed', String(data.seed));
 		return `/favourites?${params}`;
 	}
 

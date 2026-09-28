@@ -171,6 +171,10 @@
 	$effect(() => () => clearInterval(autoscroll));
 
 	function onKey(event: KeyboardEvent, index: number) {
+		// The row's own keys only. Enter on a link or a button inside it is that
+		// control's: caught here, it started the row's song and the link or the
+		// heart did nothing.
+		if (event.target !== event.currentTarget) return;
 		if (event.key === 'Enter' || event.key === ' ') {
 			event.preventDefault();
 			activate(index);
@@ -276,13 +280,13 @@
 					<span class="title hh-truncate">{song.title}</span>
 					<span class="sub hh-truncate hh-muted">
 						{#if song.artist}
-							<a href={song.artistId ? `/artists/${song.artistId}` : '#'} onclick={(e) => e.stopPropagation()}>
+							<a href={song.artistId ? `/artists/${song.artistId}` : '#'}>
 								{song.artist}
 							</a>
 						{/if}
 						{#if showAlbum && song.album}
 							<span class="sep" aria-hidden="true">·</span>
-							<a href={song.albumId ? `/albums/${song.albumId}` : '#'} onclick={(e) => e.stopPropagation()}>
+							<a href={song.albumId ? `/albums/${song.albumId}` : '#'}>
 								{song.album}
 							</a>
 						{/if}
