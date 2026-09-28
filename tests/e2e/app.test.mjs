@@ -282,6 +282,42 @@ describe('favourites', () => {
 	});
 });
 
+describe('Jellyfin albums by play', () => {
+	/** The albums a page links to, in order, each once. */
+	const albumOrder = (html) => [...new Set([...html.matchAll(/href="\/albums\/(b\d)"/g)].map((m) => m[1]))];
+
+	test('are ranked from their songs\' plays, which is where Jellyfin keeps them', async () => {
+		// Jellyfin leaves an album's own play count and date unset however often
+		// its songs are played. Sorted by those, every album tied and came back
+		// in name order: First, Second, Third, Compilation.
+		jellyfin.state.played = [
+			{ Id: 't1', AlbumId: 'b2', PlayCount: 4, LastPlayedDate: '2026-09-20T10:00:00.0000000Z' },
+			{ Id: 't2', AlbumId: 'b2', PlayCount: 3, LastPlayedDate: '2026-09-21T10:00:00.0000000Z' },
+			{ Id: 'x1', AlbumId: 'b3', PlayCount: 1, LastPlayedDate: '2026-09-27T10:00:00.0000000Z' },
+			{ Id: 'x2', AlbumId: 'b1', PlayCount: 5, LastPlayedDate: '2026-09-10T10:00:00.0000000Z' }
+		];
+		try {
+			const client = new Client(app.url);
+			await client.signIn({ username: 'jfuser', password: 'jfpass', backend: 'jellyfin' });
+			const recent = await client.page('/albums?sort=recentlyPlayed');
+			assert.equal(recent.response.status, 200, explain('recently played failed'));
+			assert.deepEqual(albumOrder(recent.html), ['b3', 'b2', 'b1'], 'latest play first, unplayed left out');
+			const most = await client.page('/albums?sort=mostPlayed');
+			assert.deepEqual(albumOrder(most.html), ['b2', 'b1', 'b3'], 'plays of all its songs added up');
+		} finally {
+			jellyfin.state.played = [];
+		}
+	});
+
+	test('nothing played leaves both lists empty', async () => {
+		const client = new Client(app.url);
+		await client.signIn({ username: 'jfuser', password: 'jfpass', backend: 'jellyfin' });
+		const { response, html } = await client.page('/albums?sort=mostPlayed');
+		assert.equal(response.status, 200, explain('most played failed'));
+		assert.deepEqual(albumOrder(html), []);
+	});
+});
+
 describe('release years', () => {
 	test('an album shows the year it first came out, not its edition\'s', async () => {
 		const { response, html } = await user.page('/albums/al29');
