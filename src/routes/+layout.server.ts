@@ -1,4 +1,5 @@
 import type { LayoutServerLoad } from './$types';
+import { backendFor } from '$lib/server/backends';
 import { config } from '$lib/server/config';
 import { DEFAULT_SETTINGS } from '$lib/server/settings';
 import { APP_VERSION } from '$lib/server/version';
@@ -14,6 +15,9 @@ export const load: LayoutServerLoad = async ({ locals, url }) => {
 		// keeps the buttons from offering what the server will refuse.
 		sharing: cfg.sharing,
 		downloads: cfg.downloads,
+		// Whether the music server keeps star ratings. Navidrome does, Jellyfin
+		// does not, and the stars are drawn only where a press can be saved.
+		ratings: Boolean(session && backendFor(session.account.backend).setRating),
 		account: session?.account ?? null,
 		// The upstream URL is never included — the browser only learns the label.
 		serverLabel:

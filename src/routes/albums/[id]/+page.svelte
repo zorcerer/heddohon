@@ -10,6 +10,7 @@
 	import MediaCard from '$lib/components/MediaCard.svelte';
 	import MediaGrid from '$lib/components/MediaGrid.svelte';
 	import QualityBadge from '$lib/components/QualityBadge.svelte';
+	import RatingStars from '$lib/components/RatingStars.svelte';
 	import SectionHeader from '$lib/components/SectionHeader.svelte';
 	import TrackList from '$lib/components/TrackList.svelte';
 	import { playContainer } from '$lib/client/actions';
@@ -130,9 +131,14 @@
 				{/each}
 			</p>
 
-			{#if releaseQuality}
+			{#if releaseQuality || page.data.ratings}
 				<div class="badge-row">
-					<QualityBadge quality={releaseQuality} />
+					{#if releaseQuality}
+						<QualityBadge quality={releaseQuality} />
+					{/if}
+					{#if page.data.ratings}
+						<RatingStars id={album.id} kind="album" rating={album.rating} />
+					{/if}
 				</div>
 			{/if}
 
@@ -380,6 +386,10 @@
 	}
 
 	.badge-row {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: var(--space-3);
 		margin-top: var(--space-1);
 	}
 

@@ -454,6 +454,59 @@ describe('held album details and suggestions', () => {
 	});
 });
 
+describe('star ratings', () => {
+	test('a rating reaches the music server and shows on the next load of the album', async () => {
+		await asFreshAccount('rater', async (client) => {
+			const before = await client.page('/albums/al4');
+			assert.match(before.html, /aria-label="Not rated"/, explain('the album page offers no stars'));
+
+			const response = await client.json('/api/rating', 'POST', { id: 'al4', rating: 4 });
+			assert.equal(response.status, 200, explain('the rating was refused'));
+			assert.equal(subsonic.state.ratings.get('al4'), 4);
+
+			// Held details carry the rating, so the write has to drop them.
+			const after = await client.page('/albums/al4');
+			assert.match(after.html, /aria-label="Rated 4 of 5"/);
+			assert.equal(subsonic.calls.get('getAlbum'), 2);
+
+			await client.json('/api/rating', 'POST', { id: 's4a', rating: 2 });
+			assert.equal(subsonic.state.ratings.get('s4a'), 2);
+			const songs = await client.json('/api/songs', 'POST', { ids: ['s4a', 's4b'] });
+			assert.deepEqual((await songs.json()).songs.map((song) => song.rating), [2, 0]);
+
+			// 0 clears it, as a press on the lit star does.
+			await client.json('/api/rating', 'POST', { id: 'al4', rating: 0 });
+			assert.equal(subsonic.state.ratings.has('al4'), false);
+		});
+		subsonic.state.ratings.clear();
+	});
+
+	test('a rating is a whole number from 0 to 5, and the id is bounded', async () => {
+		for (const body of [
+			{ id: 'al4', rating: 6 },
+			{ id: 'al4', rating: -1 },
+			{ id: 'al4', rating: 2.5 },
+			{ id: 'al4', rating: '3' },
+			{ id: 'al4' },
+			{ id: '', rating: 3 },
+			{ id: 'x'.repeat(256), rating: 3 }
+		]) {
+			const response = await user.json('/api/rating', 'POST', body);
+			assert.equal(response.status, 400, `${JSON.stringify(body).slice(0, 40)} was not refused`);
+		}
+		assert.equal(subsonic.state.ratings.size, 0);
+	});
+
+	test('Jellyfin, which keeps no ratings, draws no stars and refuses a rating', async () => {
+		const client = new Client(app.url);
+		await client.signIn({ username: 'jfuser', password: 'jfpass', backend: 'jellyfin' });
+		const { html } = await client.page('/albums/b2');
+		assert.doesNotMatch(html, /Not rated|Rated \d of 5/);
+		const response = await client.json('/api/rating', 'POST', { id: 'b2', rating: 3 });
+		assert.equal(response.status, 404);
+	});
+});
+
 describe('the offline page', () => {
 	test('the worker, the page and its script are served without a session', async () => {
 		const anonymous = new Client(app.url);

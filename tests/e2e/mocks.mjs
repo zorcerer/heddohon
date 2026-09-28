@@ -101,6 +101,8 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 			['s0a', '2026-01-01T00:00:00Z'],
 			['s1a', '2026-01-02T00:00:00Z']
 		]),
+		/** Ratings by song or album id, 1 to 5, as `setRating` leaves them. */
+		ratings: new Map(),
 		/** Song and album ids that answer `getSong` or `getAlbum` with error 70, as a deleted one does. */
 		missing: new Set(),
 		/** Milliseconds to hold an endpoint's answer, by method name. */
@@ -176,7 +178,8 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 		bitDepth: 16,
 		samplingRate: 44100,
 		size: 20_000_000,
-		starred: state.starred.get(`s${i}${side}`)
+		starred: state.starred.get(`s${i}${side}`),
+		userRating: state.ratings.get(`s${i}${side}`)
 	});
 	const album = (i, id = `al${i}`) => ({
 		id,
@@ -187,6 +190,7 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 		songCount: 2,
 		duration: 360,
 		year: 2000 + (i % 20),
+		userRating: state.ratings.get(id),
 		// A 2009 edition of a record from 1979, and a date with no year (Navidrome
 		// sends 0), which leaves the edition's year.
 		...(i === 29 ? { originalReleaseDate: { year: 1979, month: 5, day: 1 } } : {}),
@@ -342,6 +346,14 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 			case 'unstar':
 				for (const id of p.getAll('id')) state.starred.delete(id);
 				return send(ok({}));
+			// 0 removes the rating, as Navidrome does; anything outside 0 to 5 is refused.
+			case 'setRating': {
+				const rating = Number(p.get('rating'));
+				if (!Number.isInteger(rating) || rating < 0 || rating > 5) return send(failed(10, 'Invalid rating'));
+				if (rating === 0) state.ratings.delete(p.get('id'));
+				else state.ratings.set(p.get('id'), rating);
+				return send(ok({}));
+			}
 			case 'getAlbumList2':
 				return send(ok({ albumList2: { album: Array.from({ length: Math.min(12, artistCount) }, (_, i) => album(i)) } }));
 			case 'getGenres':
