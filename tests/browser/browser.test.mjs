@@ -927,6 +927,185 @@ describe('a shared album\'s transport', () => {
 	});
 });
 
+describe('playing across page changes', () => {
+	/*
+	 * Playback stopped on a page change, now and then, for three causes so far.
+	 * An effect in the layout that read what `player.attach` reads detached and
+	 * re-attached the player on navigation; every attach restores the queue
+	 * from `/api/play-state`, so a second request there is a re-attach. And
+	 * SvelteKit turns a page change into a full page load, which tears down the
+	 * audio, when the page's code is gone after an image update or its data
+	 * request fails; a second `load` event is a full page load.
+	 */
+	async function playAndWatch(page) {
+		const restores = [];
+		page.on('request', (r) => {
+			if (r.method() === 'GET' && new URL(r.url()).pathname === '/api/play-state') restores.push(r.url());
+		});
+		await page.goto(app.url + '/albums/al20', { waitUntil: 'networkidle' });
+		const row = page.getByRole('button', { name: 'Play Song 20a', exact: true });
+		await row.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+		await row.click();
+		await page.waitForFunction(() => [...document.querySelectorAll('audio')].some((a) => !a.paused && a.currentTime > 0.3));
+		return restores;
+	}
+
+	/** Still playing, and further in than a moment ago. */
+	async function assertPlaying(page, where) {
+		const first = await page.evaluate(() => Math.max(...[...document.querySelectorAll('audio')].map((a) => (a.paused ? -1 : a.currentTime))));
+		await page.waitForTimeout(400);
+		const second = await page.evaluate(() => Math.max(...[...document.querySelectorAll('audio')].map((a) => (a.paused ? -1 : a.currentTime))));
+		assert.ok(first >= 0 && second > first, `playback stopped at ${where} (${first} then ${second})`);
+	}
+
+	before(() => {
+		subsonic.state.audio = { type: 'audio/wav', body: silentWav(300) };
+	});
+
+	after(() => {
+		subsonic.state.audio = null;
+	});
+
+	test('on a wide screen, through the rail and by cards', async () => {
+		const { page, problems } = await watchedPage();
+		try {
+			const restores = await playAndWatch(page);
+			const count = restores.length;
+			const rail = (name) => page.locator('nav.rail').getByRole('link', { name, exact: true });
+			const steps = [
+				['rail Albums', () => rail('Albums').click(), /\/albums$/],
+				['an album card', () => page.locator('main a[href="/albums/al3"]').first().click(), /\/albums\/al3$/],
+				['rail Artists', () => rail('Artists').click(), /\/artists$/],
+				['an artist card', () => page.locator('main a[href="/artists/ar4"]').first().click(), /\/artists\/ar4$/],
+				['rail Genres', () => rail('Genres').click(), /\/genres$/],
+				['rail Playlists', () => rail('Playlists').click(), /\/playlists$/],
+				['a playlist card', () => page.locator('main a[href="/playlists/pl1"]').first().click(), /\/playlists\/pl1$/],
+				['rail Favourites', () => rail('Favourites').click(), /\/favourites/],
+				['rail Search', () => rail('Search').click(), /\/search$/],
+				['rail Home', () => rail('Home').click(), /\/$/],
+				['a home card', () => page.locator('main a[href^="/albums/al"]').first().click(), /\/albums\/al\d+$/],
+				['back', () => page.goBack(), /\/$/],
+				['rail Settings', () => page.locator('nav.rail a[href="/settings"]').click(), /\/settings$/],
+				['rail Albums again', () => rail('Albums').click(), /\/albums$/],
+				['a sort chip', () => page.locator('main a[href*="sort="]').nth(1).click(), /sort=/],
+				['rail Home again', () => rail('Home').click(), /\/$/]
+			];
+			for (const [where, go, url] of steps) {
+				await go();
+				await page.waitForURL(url);
+				await page.waitForLoadState('networkidle');
+				await assertPlaying(page, where);
+			}
+			assert.equal(restores.length, count, `the player was attached again ${restores.length - count} times`);
+		} finally {
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+
+	test('on a phone, through the dock, the Library page and cards', async () => {
+		const phone = await browser.newContext({ viewport: { width: 393, height: 852 }, isMobile: true, hasTouch: true });
+		const signIn = await phone.request.post(`${app.url}/login`, {
+			form: { username: 'testuser', password: 'testpass', backend: 'subsonic', next: '/' },
+			headers: { origin: app.url, accept: 'text/html' },
+			maxRedirects: 0
+		});
+		assert.equal(signIn.status(), 303);
+		const page = await phone.newPage();
+		const problems = [];
+		page.on('pageerror', (err) => problems.push(err.message));
+		try {
+			const restores = await playAndWatch(page);
+			const count = restores.length;
+			const tab = (name) => page.locator('.phone-dock').getByRole('link', { name, exact: true });
+			const steps = [
+				['dock Library', () => tab('Library').tap(), /\/library$/],
+				['Library Albums', () => page.locator('main a[href="/albums"]').first().tap(), /\/albums$/],
+				['an album card', () => page.locator('main a[href="/albums/al5"]').first().tap(), /\/albums\/al5$/],
+				['dock Home', () => tab('Home').tap(), /\/$/],
+				['dock Favourites', () => tab('Favourites').tap(), /\/favourites/],
+				['dock Search', () => tab('Search').tap(), /\/search$/],
+				['a genre tile', () => page.locator('main a[href^="/genres/"]').first().tap(), /\/genres\//],
+				['dock Library again', () => tab('Library').tap(), /\/library$/],
+				['Library Artists', () => page.locator('main a[href="/artists"]').first().tap(), /\/artists$/],
+				['an artist card', () => page.locator('main a[href="/artists/ar6"]').first().tap(), /\/artists\/ar6$/],
+				['back', () => page.goBack(), /\/artists$/],
+				['dock Library, Playlists', () => tab('Library').tap(), /\/library$/],
+				['Library Playlists', () => page.locator('main a[href="/playlists"]').first().tap(), /\/playlists$/],
+				['a playlist card', () => page.locator('main a[href="/playlists/pl1"]').first().tap(), /\/playlists\/pl1$/],
+				['dock Home again', () => tab('Home').tap(), /\/$/],
+				['settings', () => page.locator('main a[href="/settings"]').first().tap(), /\/settings$/]
+			];
+			for (const [where, go, url] of steps) {
+				// The dock folds away while the page scrolls down.
+				await page.evaluate(() => scrollTo(0, 0));
+				await go();
+				await page.waitForURL(url);
+				await page.waitForLoadState('networkidle');
+				await assertPlaying(page, where);
+			}
+			assert.equal(restores.length, count, `the player was attached again ${restores.length - count} times`);
+		} finally {
+			await phone.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+
+	test('after an image update removed the pages the tab had not opened', async () => {
+		const { page, problems } = await watchedPage();
+		let loads = 0;
+		page.on('load', () => loads++);
+		try {
+			await playAndWatch(page);
+			// The layout fetches every page's code 3 seconds after signing in.
+			await page.waitForTimeout(4000);
+			await page.waitForLoadState('networkidle');
+			// The new build: the old build's page files answer 404 and the
+			// version names a different build.
+			await page.route('**/_app/immutable/nodes/**', (route) => route.fulfill({ status: 404, body: 'Not Found' }));
+			await page.route('**/_app/version.json*', (route) =>
+				route.fulfill({ contentType: 'application/json', body: '{"version":"next"}' })
+			);
+			const before = loads;
+			const rail = (name) => page.locator('nav.rail').getByRole('link', { name, exact: true });
+			for (const [where, go, url] of [
+				['rail Playlists', () => rail('Playlists').click(), /\/playlists$/],
+				['a playlist card', () => page.locator('main a[href="/playlists/pl1"]').first().click(), /\/playlists\/pl1$/],
+				['rail Genres', () => rail('Genres').click(), /\/genres$/]
+			]) {
+				await go();
+				await page.waitForURL(url);
+				await assertPlaying(page, where);
+			}
+			assert.equal(loads, before, 'a page change loaded the whole page');
+		} finally {
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+
+	test('when a page\'s data request fails three times in a row', async () => {
+		const { page, problems } = await watchedPage();
+		let loads = 0;
+		page.on('load', () => loads++);
+		try {
+			await playAndWatch(page);
+			const before = loads;
+			let failures = 3;
+			await page.route('**/__data.json*', (route) => (failures-- > 0 ? route.abort('failed') : route.continue()));
+			await page.locator('nav.rail').getByRole('link', { name: 'Playlists', exact: true }).click();
+			await page.waitForURL(/\/playlists$/);
+			await assertPlaying(page, 'the playlists page');
+			assert.ok(failures < 0, 'every failure was used');
+			assert.equal(loads, before, 'the page change loaded the whole page');
+		} finally {
+			await page.close();
+		}
+		// Chromium reports each aborted request on the console.
+		assert.deepEqual(problems.filter((problem) => !problem.endsWith('Failed to load resource: net::ERR_FAILED')), []);
+	});
+});
+
 describe('track rows', () => {
 	test('a double press on a row\'s heart does not play that row', async () => {
 		const { page, problems } = await watchedPage();
