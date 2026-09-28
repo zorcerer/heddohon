@@ -14,6 +14,7 @@
 		{ href: '/genres', label: 'Genres', icon: 'genre' as const, exact: false },
 		{ href: '/playlists', label: 'Playlists', icon: 'playlist' as const, exact: false },
 		{ href: '/folders', label: 'Folders', icon: 'folder' as const, exact: false },
+		{ href: '/history', label: 'Recently played', icon: 'history' as const, exact: false },
 		{ href: '/favourites', label: 'Favourites', icon: 'heart' as const, exact: false },
 		{ href: '/search', label: 'Search', icon: 'search' as const, exact: false }
 	];
