@@ -3,13 +3,13 @@ import type { RequestHandler } from './$types';
 import { backendFor, UpstreamError } from '$lib/server/backends';
 import { mapLimited } from '$lib/server/backends/http';
 import { remembered } from '$lib/server/listings';
-import { albumDetail, albumsByArtist } from '$lib/server/details';
+import { albumDetail, albumsByArtist, folderDetail } from '$lib/server/details';
 import type { LibraryContext } from '$lib/server/library';
 import type { MixSeed, Song } from '$lib/types';
 
-type Source = 'album' | 'playlist' | 'artist' | 'genre' | 'starred' | 'random' | 'mix';
+type Source = 'album' | 'playlist' | 'artist' | 'genre' | 'folder' | 'starred' | 'random' | 'mix';
 
-const SOURCES: Source[] = ['album', 'playlist', 'artist', 'genre', 'starred', 'random', 'mix'];
+const SOURCES: Source[] = ['album', 'playlist', 'artist', 'genre', 'folder', 'starred', 'random', 'mix'];
 
 /**
  * Albums one play of an artist reads, one upstream call each. Navidrome's
@@ -99,6 +99,11 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 				songs = albums.flatMap((album) => album?.songs ?? []);
 				break;
 			}
+			case 'folder':
+				// The tracks in the folder itself. Folders below it are not read:
+				// the top of a library holds every one, one call each.
+				songs = (await folderDetail(ctx, id!)).songs;
+				break;
 			case 'genre':
 				// A sample rather than the whole genre, which on a large library is
 				// thousands of tracks: 200 in random order is a long evening.

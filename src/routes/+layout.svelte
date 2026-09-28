@@ -124,6 +124,8 @@
 		'/genres/_',
 		'/playlists',
 		'/playlists/_',
+		'/folders',
+		'/folders/_',
 		'/favourites',
 		'/search',
 		'/settings'
