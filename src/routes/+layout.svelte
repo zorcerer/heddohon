@@ -149,6 +149,7 @@
 		'/playlists/_',
 		'/folders',
 		'/folders/_',
+		'/history',
 		'/favourites',
 		'/search',
 		'/settings'

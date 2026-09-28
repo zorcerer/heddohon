@@ -28,7 +28,7 @@ only ever talks to Heddohon and your upstream credentials stay on the server.
 - **Links to songs, albums and playlists** anyone can play without an account, for 1, 7 or 30 days.
 - **On a phone,** the navigation and the player share one panel at the foot of the screen, and the full player pulls down to close.
 - **Follows you around:** the queue and settings sync across devices, and it installs as an app on phones and desktops. One browser can pause, skip or seek another signed in to the same account, and move the queue between them. Settings lists each browser signed in to your account and signs out any of them.
-- **Scrobbling** to Last.fm and ListenBrainz through Navidrome, ReplayGain volume normalisation, and a sleep timer.
+- **Scrobbling** to Last.fm and ListenBrainz through Navidrome, ReplayGain volume normalisation, and a sleep timer. Recently played lists every track played in the last 90 days, kept on your own server.
 - **SQLite or PostgreSQL**, with a one-time import from SQLite.
 
 <table>

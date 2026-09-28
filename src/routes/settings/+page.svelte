@@ -15,6 +15,7 @@
 	let settings = $state(untrack(() => ({ ...data.settings })));
 	let saving = $state(false);
 	let clearing = $state(false);
+	let clearingHistory = $state(false);
 	let withdrawing = $state<string | null>(null);
 	let ending = $state<string | null>(null);
 
@@ -838,6 +839,41 @@
 				</button>
 			</form>
 		{/if}
+	</section>
+
+	<section class="hh-card hh-glass group" hidden={shown !== 'storage'}>
+		<div class="group-head">
+			<h2>Listening history</h2>
+		</div>
+
+		<p class="hh-muted note">
+			Each track that plays past half its length, or four minutes, is noted on this server for
+			<a href="/history">Recently played</a>, whether or not plays are reported to
+			{data.serverLabel || 'the music server'}. The last 90 days are kept, up to 5,000 plays. It
+			is yours alone: no other account can read it.
+		</p>
+
+		<form
+			method="POST"
+			action="?/clearHistory"
+			use:enhance={() => {
+				clearingHistory = true;
+				return async ({ update }) => {
+					await update({ reset: false });
+					await invalidateAll();
+					clearingHistory = false;
+				};
+			}}
+		>
+			<button class="hh-button" type="submit" disabled={clearingHistory || data.historyCount === 0}>
+				<Icon name="trash" size={16} />
+				{clearingHistory
+					? 'Clearing…'
+					: data.historyCount === 0
+						? 'No listening history'
+						: `Clear listening history (${data.historyCount.toLocaleString()})`}
+			</button>
+		</form>
 	</section>
 
 	<footer class="about">

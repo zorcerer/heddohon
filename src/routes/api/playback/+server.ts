@@ -2,6 +2,8 @@ import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { backendFor, UpstreamError } from '$lib/server/backends';
 import { getSettings } from '$lib/server/settings';
+import { recordPlay } from '$lib/server/history';
+import { log, reason } from '$lib/server/log';
 
 /**
  * Now-playing and scrobble reporting. Deliberately fire-and-forget from the
@@ -11,10 +13,6 @@ import { getSettings } from '$lib/server/settings';
 export const POST: RequestHandler = async ({ locals, request }) => {
 	const session = locals.session;
 	if (!session) error(401, 'Not signed in');
-
-	if (!(await getSettings(session.account.id)).reportPlayback) {
-		return json({ reported: false, reason: 'disabled_by_user' });
-	}
 
 	const body = (await request.json().catch(() => null)) as {
 		songId?: unknown;
@@ -36,6 +34,19 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 	const position = typeof body.position === 'number' && Number.isFinite(body.position)
 		? Math.max(0, body.position)
 		: 0;
+
+	// A play past the scrobble threshold goes into the account's history
+	// (`history.ts`) whether or not it is reported upstream. A failure here is
+	// logged and does not touch the report.
+	if (event === 'stop' && body.completed === true) {
+		await recordPlay(session.account.id, body.songId).catch((err) =>
+			log.warn('history-write-failed', { detail: reason(err) })
+		);
+	}
+
+	if (!(await getSettings(session.account.id)).reportPlayback) {
+		return json({ reported: false, reason: 'disabled_by_user' });
+	}
 
 	try {
 		await backendFor(session.account.backend).reportPlayback(session.credential, {
