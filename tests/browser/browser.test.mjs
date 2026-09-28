@@ -1112,11 +1112,17 @@ describe('shuffle', () => {
 		try {
 			await page.goto(app.url + '/albums/al12', { waitUntil: 'networkidle' });
 			const main = page.locator('main');
-			const lit = () => page.locator('aside.panel button[aria-label="Shuffle"]').getAttribute('aria-pressed');
-			const litAgain = () =>
+			const title = () => page.locator('aside.panel h2.title').textContent();
+			// Waited for rather than read after the title changes: a shuffled
+			// queue can already be on the track pressed next, and then the title
+			// matches before the press has landed.
+			const shuffleIs = (on) =>
 				page.waitForFunction(
-					() => document.querySelector('aside.panel button[aria-label="Shuffle"]')?.getAttribute('aria-pressed') === 'true'
+					(on) => document.querySelector('aside.panel button[aria-label="Shuffle"]')?.getAttribute('aria-pressed') === String(on),
+					on,
+					{ timeout: 5000 }
 				);
+			const litAgain = () => shuffleIs(true);
 			await main.getByRole('button', { name: 'Shuffle', exact: true }).click();
 			await litAgain();
 
@@ -1128,15 +1134,19 @@ describe('shuffle', () => {
 					(r.postData() ?? '').includes('"shuffle":false')
 			);
 			await main.getByRole('button', { name: 'Play', exact: true }).click();
+			await shuffleIs(false);
 			await page.waitForFunction(() => document.querySelector('aside.panel h2.title')?.textContent === 'Song 12a');
-			assert.equal(await lit(), 'false', 'shuffle is still on for an album played in order');
 			await saved;
 
 			await main.getByRole('button', { name: 'Shuffle', exact: true }).click();
 			await litAgain();
-			await page.getByRole('button', { name: 'Play Song 12b', exact: true }).click();
-			await page.waitForFunction(() => document.querySelector('aside.panel h2.title')?.textContent === 'Song 12b');
-			assert.equal(await lit(), 'false', 'shuffle is still on after playing a track from a row');
+			// A row other than the one playing: pressing that one pauses it and
+			// leaves the queue as it is.
+			const playing = await title();
+			const other = ['Song 12a', 'Song 12b'].find((name) => name !== playing);
+			await page.getByRole('button', { name: `Play ${other}`, exact: true }).click();
+			await shuffleIs(false);
+			assert.equal(await title(), other);
 		} finally {
 			await page.close();
 		}
