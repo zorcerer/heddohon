@@ -2,6 +2,7 @@ import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { backendFor, UpstreamError } from '$lib/server/backends';
 import { forgetListings } from '$lib/server/listings';
+import { forgetDetails } from '$lib/server/details';
 import type { StarKind } from '$lib/types';
 
 const KINDS: StarKind[] = ['song', 'album', 'artist'];
@@ -30,8 +31,10 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 			body.starred
 		);
 		// After the write, so the next read of favourites fetches a set that
-		// includes it.
+		// includes it. Album and artist details carry the same state for the item
+		// and its songs.
 		forgetListings(session.account.id, 'starred');
+		forgetDetails(session.account.id);
 		return json({ id: body.id, starred: body.starred });
 	} catch (err) {
 		if (err instanceof UpstreamError) error(err.status === 404 ? 404 : 502, err.message);

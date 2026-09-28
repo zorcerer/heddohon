@@ -1,6 +1,8 @@
 import type { PageServerLoad } from './$types';
 import { library, libraryContext } from '$lib/server/library';
 import { log, reason } from '$lib/server/log';
+import { albumDetail, albumsByArtist } from '$lib/server/details';
+import { similarAlbums } from '$lib/server/suggestions';
 
 /**
  * How many cards the "You might like" shelf asks the music server for. The
@@ -12,7 +14,7 @@ const SUGGESTION_COUNT = 8;
 
 export const load: PageServerLoad = async (event) => {
 	const ctx = libraryContext(event.locals);
-	const album = await library(event, () => ctx.backend.getAlbum(ctx.credential, event.params.id));
+	const album = await library(event, () => albumDetail(ctx, event.params.id));
 
 	/**
 	 * The rest of the artist's catalogue, newest first, with undated releases
@@ -21,8 +23,7 @@ export const load: PageServerLoad = async (event) => {
 	 * carries the full list.
 	 */
 	const artistAlbums = album.artistId
-		? ctx.backend
-				.getArtistAlbums(ctx.credential, album.artistId)
+		? albumsByArtist(ctx, album.artistId)
 				.then((albums) =>
 					albums
 						.filter((other) => other.id !== album.id)
@@ -52,11 +53,9 @@ export const load: PageServerLoad = async (event) => {
 		 * unhandled rejection on a streamed promise takes down the whole load,
 		 * and a missing shelf is not worth a 500.
 		 */
-		similar: ctx.backend
-			.getSimilarAlbums(ctx.credential, album.id, album.artistId, SUGGESTION_COUNT)
-			.catch((err) => {
-				log.warn('similar-albums-failed', { album: album.id, detail: reason(err) });
-				return [];
-			})
+		similar: similarAlbums(ctx, album.id, album.artistId, SUGGESTION_COUNT).catch((err) => {
+			log.warn('similar-albums-failed', { album: album.id, detail: reason(err) });
+			return [];
+		})
 	};
 };

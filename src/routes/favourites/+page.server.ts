@@ -15,12 +15,13 @@ type FavouriteSort =
 	| 'byYear'
 	| 'mostPlayed'
 	| 'recentlyAdded'
-	| 'mostAlbums';
+	| 'mostAlbums'
+	| 'random';
 
 /** The orders each tab offers, the first being the default where it applies. */
 const SORTS: Record<Tab, readonly FavouriteSort[]> = {
-	songs: ['recentlyStarred', 'alphabetical', 'byArtist', 'byAlbum', 'mostPlayed'],
-	albums: ['recentlyStarred', 'alphabetical', 'byArtist', 'byYear', 'recentlyAdded'],
+	songs: ['recentlyStarred', 'alphabetical', 'byArtist', 'byAlbum', 'mostPlayed', 'random'],
+	albums: ['recentlyStarred', 'alphabetical', 'byArtist', 'byYear', 'recentlyAdded', 'random'],
 	artists: ['recentlyStarred', 'alphabetical', 'mostAlbums']
 };
 
@@ -69,6 +70,35 @@ const ARTIST_ORDER: Partial<Record<FavouriteSort, Compare<Artist>>> = {
 };
 
 /**
+ * Where an item falls in the shuffle for `seed`: FNV-1a over the seed and the
+ * id. The seed travels in the URL, so page two of a shuffle continues page
+ * one's order rather than drawing a new one that repeats some items and skips
+ * others. A star added or removed moves no other item.
+ */
+function shufflePosition(seed: number, id: string): number {
+	let hash = 0x811c9dc5 ^ seed;
+	for (let i = 0; i < id.length; i++) {
+		hash ^= id.charCodeAt(i);
+		hash = Math.imul(hash, 0x01000193);
+	}
+	return hash >>> 0;
+}
+
+function shuffled<T extends { id: string }>(seed: number): Compare<T> {
+	return (a, b) => shufflePosition(seed, a.id) - shufflePosition(seed, b.id);
+}
+
+/** The shuffle seed from the URL, or null when it is missing or not one. */
+function readSeed(params: URLSearchParams): number | null {
+	const raw = params.get('seed');
+	if (raw === null || !/^\d{1,10}$/.test(raw)) return null;
+	const seed = Number(raw);
+	return seed <= 0xffffffff ? seed : null;
+}
+
+const newSeed = () => Math.floor(Math.random() * 0x100000000);
+
+/**
  * A sorted copy. The listing is shared by every request inside its 30 seconds
  * (`listings.ts`) and must not be sorted in place. Ties fall back to the name,
  * so two tracks with the same play count keep one order from load to load.
@@ -113,12 +143,21 @@ export const load: PageServerLoad = async (event) => {
 		: sorts[0];
 
 	const page = readPageNumber(event.url.searchParams);
+	// A shuffle opened without a seed draws one, and the page's links carry it.
+	const seed = sort === 'random' ? (readSeed(event.url.searchParams) ?? newSeed()) : null;
+	const songOrder = seed === null ? SONG_ORDER[sort] : shuffled<Song>(seed);
+	const albumOrder = seed === null ? ALBUM_ORDER[sort] : shuffled<Album>(seed);
 
 	return {
 		tab,
 		tabs: TABS,
 		sort,
 		sorts,
+		seed,
+		// What the "Random" chip links to: drawn here rather than in the page, so
+		// the server-rendered link and the hydrated one match, and pressing it
+		// again deals a new order.
+		reshuffleSeed: newSeed(),
 		counts: {
 			songs: starred.songs.length,
 			albums: starred.albums.length,
@@ -126,8 +165,8 @@ export const load: PageServerLoad = async (event) => {
 		},
 		// Only the visible tab is sorted, paginated and sent; the other two would
 		// be dead weight in the payload and in the DOM.
-		songs: tab === 'songs' ? paginate(sorted(starred.songs, SONG_ORDER[sort]), page) : null,
-		albums: tab === 'albums' ? paginate(sorted(starred.albums, ALBUM_ORDER[sort]), page) : null,
+		songs: tab === 'songs' ? paginate(sorted(starred.songs, songOrder), page) : null,
+		albums: tab === 'albums' ? paginate(sorted(starred.albums, albumOrder), page) : null,
 		artists: tab === 'artists' ? paginate(sorted(starred.artists, ARTIST_ORDER[sort]), page) : null
 	};
 };
