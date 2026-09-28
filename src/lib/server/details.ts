@@ -29,16 +29,16 @@ const MAX_DETAILS = 256;
 const details = new Memo(DETAIL_TTL_MS, MAX_DETAILS);
 
 export function albumDetail({ backend, credential, accountId }: LibraryContext, id: string): Promise<AlbumDetail> {
-	return details.get(accountId, `album\u0000${id}`, () => backend.getAlbum(credential, id));
+	return details.get({ accountId, credential }, `album\u0000${id}`, () => backend.getAlbum(credential, id));
 }
 
 export function artistDetail({ backend, credential, accountId }: LibraryContext, id: string): Promise<ArtistDetail> {
-	return details.get(accountId, `artist\u0000${id}`, () => backend.getArtist(credential, id));
+	return details.get({ accountId, credential }, `artist\u0000${id}`, () => backend.getArtist(credential, id));
 }
 
 /** An artist's albums, without the biography and top songs `artistDetail` reads. */
 export function albumsByArtist({ backend, credential, accountId }: LibraryContext, id: string): Promise<Album[]> {
-	return details.get(accountId, `albums\u0000${id}`, () => backend.getArtistAlbums(credential, id));
+	return details.get({ accountId, credential }, `albums\u0000${id}`, () => backend.getArtistAlbums(credential, id));
 }
 
 /** Drops every detail held for an account, after a star or a credential that stopped working. */

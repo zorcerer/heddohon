@@ -13,7 +13,11 @@
 # when no kept tag's index lists them too.
 #
 # On Docker Hub a tag is deleted by name; Hub removes the untagged manifests
-# itself. `DOCKERHUB_TOKEN` needs the Read, Write, Delete scope.
+# itself. That needs a token with the Read, Write, Delete scope, kept as
+# `DOCKERHUB_PRUNE_TOKEN` and passed to this workflow alone, so the build
+# workflows' `DOCKERHUB_TOKEN` can be Read, Write: the actions they run
+# cannot delete `latest` or a release. Until it is set, `DOCKERHUB_TOKEN`
+# is used.
 #
 # Runs every Monday, and by hand with a dry run that lists what would go. A
 # scheduled or dispatched workflow is read from the default branch, so this
@@ -58,7 +62,7 @@ jobs:
           [[ "$KEEP" =~ ^[0-9]+$ && "$KEEP" -ge 1 ]] || { echo "keep must be a whole number of at least 1, not '$KEEP'"; exit 1; }
           echo "Keeping the newest $KEEP dev-<sha> tags. Dry run: $DRY_RUN"
 
-      - uses: docker/login-action@v3
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -88,7 +92,9 @@ jobs:
           : > needed.txt
           while read -r digest; do
             echo "$digest" >> needed.txt
-            children "$digest" >> needed.txt || true
+            # A kept tag that cannot be read stops the run. Skipped, the
+            # children it shares with a pruned index would be deleted.
+            children "$digest" >> needed.txt
           done < <(jq -r '.[] | select((.metadata.container.tags | length) > 0) | .name' versions.json \
                      | grep -vxFf <(awk '{print $2}' prune.txt) || true)
           sort -u -o needed.txt needed.txt
@@ -110,7 +116,7 @@ jobs:
       - name: Docker Hub
         env:
           HUB_USER: ${{ secrets.DOCKERHUB_USERNAME }}
-          HUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          HUB_TOKEN: ${{ secrets.DOCKERHUB_PRUNE_TOKEN || secrets.DOCKERHUB_TOKEN }}
         run: |
           set -euo pipefail
           url="https://hub.docker.com/v2/repositories/$HUB_REPO/tags?page_size=100"

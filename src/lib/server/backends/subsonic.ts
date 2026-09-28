@@ -6,6 +6,7 @@
  * is a property of the protocol, not a choice — see StoredCredential. The
  * password is therefore held sealed at rest and opened only per request.
  */
+import { log } from '../log';
 import { upstreamFor } from '../config';
 import { subsonicToken, randomSalt } from '../crypto';
 import {
@@ -76,14 +77,21 @@ function endpoint(cred: StoredCredential, method: string, params: UpstreamParams
 	return upstreamUrl(base, `/rest/${method}`, { ...authParams(cred), ...params });
 }
 
-/** Subsonic error codes worth distinguishing: 40 = bad credentials, 70 = not found. */
+/**
+ * Subsonic error codes worth distinguishing: 40 = bad credentials, 70 = not found.
+ *
+ * The server's own text goes to the log, and the error carries a fixed one.
+ * Routes pass an error's message to the browser, and Navidrome's text for an
+ * internal failure can name its database file and path.
+ */
 function throwForSubsonicError(code: number, message: string): never {
+	if (message) log.warn('upstream-error', { code, detail: message });
 	if (code === 40 || code === 41 || code === 42 || code === 43 || code === 44) {
-		throw new UpstreamError(message || 'Invalid username or password', 401, 'auth');
+		throw new UpstreamError('Invalid username or password', 401, 'auth');
 	}
-	if (code === 50) throw new UpstreamError(message || 'Not authorised', 403, 'auth');
-	if (code === 70) throw new UpstreamError(message || 'Not found', 404, 'not_found');
-	throw new UpstreamError(message || `Subsonic error ${code}`, 502, 'protocol');
+	if (code === 50) throw new UpstreamError('Not authorised', 403, 'auth');
+	if (code === 70) throw new UpstreamError('Not found', 404, 'not_found');
+	throw new UpstreamError(`The music server reported error ${code}`, 502, 'protocol');
 }
 
 /** The same encoding as the address takes, repeated keys for a list, as a form body. */
@@ -744,11 +752,33 @@ export const subsonicBackend: MediaBackend = {
 		if (entries.length !== count || entries[from] !== songId || to < 0 || to >= entries.length) {
 			throw new UpstreamError('The playlist changed since it was loaded', 409, 'conflict');
 		}
+		// The rewrite keeps only what the read listed. Navidrome leaves out of
+		// `getPlaylist` an entry whose file is missing, and on 0.58 and later one
+		// from a library the account cannot see, so a move deleted those. Its
+		// `songCount` counts them, and a playlist where the two differ is not
+		// rewritten.
+		const listed = numberOrNull(body.playlist.songCount);
+		if (listed !== null && listed !== entries.length) {
+			throw new UpstreamError(
+				'This playlist holds tracks the music server does not list here; reorder it in the music server',
+				409,
+				'conflict'
+			);
+		}
 		const [moved] = entries.splice(from, 1);
 		entries.splice(to, 0, moved);
 		// 150 ids is about 5KB of address; past that it goes as a form. See `call`.
 		if (entries.length <= 150) await call(cred, 'createPlaylist.view', { playlistId: id, songId: entries });
 		else await call(cred, 'createPlaylist.view', {}, { playlistId: id, songId: entries });
+
+		// An entry added by another client between the read and the write is lost
+		// by the rewrite, and Subsonic has no way to make the two one step. It is
+		// reported rather than left for the listener to find.
+		const after = await call<{ playlist?: Record<string, any> }>(cred, 'getPlaylist.view', { id });
+		const written = asArray(after.playlist?.entry as Record<string, any>[]).map((entry) => String(entry.id));
+		if (written.length !== entries.length || written.some((entry, i) => entry !== entries[i])) {
+			throw new UpstreamError('The playlist changed while it was being saved; reload it', 409, 'conflict');
+		}
 	},
 
 	async deletePlaylist(cred, id) {

@@ -14,7 +14,7 @@
  *
  * `memo.ts` has how entries are held and shared.
  */
-import { Memo } from './memo';
+import { Memo, type MemoScope } from './memo';
 
 /**
  * How long a listing is served without asking again.
@@ -38,9 +38,9 @@ const listings = new Memo(LISTING_TTL_MS, MAX_LISTINGS);
 
 export type ListingName = 'artists' | 'starred' | 'genres';
 
-/** The listing `name` for `accountId`, from memory when it is fresh enough. */
-export function remembered<T>(accountId: string, name: ListingName, load: () => Promise<T>): Promise<T> {
-	return listings.get(accountId, name, load);
+/** The listing `name` for the account, from memory when it is fresh enough. */
+export function remembered<T>(scope: MemoScope, name: ListingName, load: () => Promise<T>): Promise<T> {
+	return listings.get(scope, name, load);
 }
 
 /**

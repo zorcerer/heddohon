@@ -84,10 +84,10 @@ export async function upstreamFetch(url: string, init: RequestInit = {}): Promis
 		} else {
 			log.warn('upstream-unreachable', { path, ms, detail: reason(err) });
 		}
-		throw new UpstreamError(
-			`Could not reach the music server: ${err instanceof Error ? err.message : String(err)}`,
-			502
-		);
+		// The cause stays in the log line above. Node's own text names the host and
+		// port it could not reach (`connect ECONNREFUSED 10.0.0.5:4533`), and this
+		// message reaches the browser, which is never told the music server's address.
+		throw new UpstreamError('Could not reach the music server', 502);
 	} finally {
 		// Only the timeout is stood down here. The timer guards the wait for
 		// headers; once they are in, a slow-but-healthy stream must not be shot.
@@ -174,17 +174,22 @@ export const UPSTREAM_FANOUT = 8;
  * `Promise.all` over `items` with at most `limit` calls running at once. Results
  * keep the input order, and the first rejection rejects the whole call, as with
  * `Promise.all`. After a rejection no further calls are started.
+ *
+ * Nor after `signal` aborts, which callers pass as the request's. A browser
+ * that went away left the loop running: 300 albums at 200ms each went on for
+ * seconds after the request was gone, eight upstream connections at a time.
  */
 export async function mapLimited<T, R>(
 	items: readonly T[],
 	fn: (item: T) => Promise<R>,
-	limit = UPSTREAM_FANOUT
+	limit = UPSTREAM_FANOUT,
+	signal?: AbortSignal
 ): Promise<R[]> {
 	const results = new Array<R>(items.length);
 	let next = 0;
 	let failed = false;
 	const worker = async () => {
-		while (!failed && next < items.length) {
+		while (!failed && !signal?.aborted && next < items.length) {
 			const index = next++;
 			try {
 				results[index] = await fn(items[index]);

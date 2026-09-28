@@ -58,6 +58,9 @@
 		replaceState(`?tab=${next}`, page.state);
 	}
 
+	// A browser signs out only sessions that began before it did.
+	const endableSessions = $derived(data.sessions.filter((entry) => entry.endable).length);
+
 	const shortDate = (at: number) =>
 		new Date(at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 
@@ -90,13 +93,17 @@
 	let linking = $state<'lastfm' | 'listenbrainz' | null>(null);
 
 	/** What the return from last.fm said, from the query `/settings/lastfm` redirects with. */
-	const lastfmNotice = $derived(
-		{
-			linked: 'Last.fm is linked.',
-			failed: 'The music server did not accept the approval from last.fm. Try linking again.',
-			refused: 'That approval was not started from this session, or it took longer than 5 minutes. Try linking again.'
-		}[page.url.searchParams.get('lastfm') ?? ''] ?? null
-	);
+	const LASTFM_NOTICES: Record<string, string> = {
+		linked: 'Last.fm is linked.',
+		failed: 'The music server did not accept the approval from last.fm. Try linking again.',
+		refused: 'That approval was not started from this session, or it took longer than 5 minutes. Try linking again.'
+	};
+	// Own keys only: an object literal also answers `constructor`, `toString`
+	// and `__proto__`, and `?lastfm=constructor` printed a function's source.
+	const lastfmNotice = $derived.by(() => {
+		const key = page.url.searchParams.get('lastfm') ?? '';
+		return Object.hasOwn(LASTFM_NOTICES, key) ? LASTFM_NOTICES[key] : null;
+	});
 
 	/** An enhanced form that re-reads the page, so the link state follows the change. */
 	function refreshAfter(service: 'lastfm' | 'listenbrainz'): SubmitFunction {
@@ -494,7 +501,10 @@
 							<span class="hh-numeric">{shortDate(entry.lastSeenAt)}</span>
 						</span>
 					</span>
-					{#if !entry.current}
+					{#if !entry.current && !entry.endable}
+						<!-- Signed in after this browser; see `endSessions` in auth.ts. -->
+						<span class="hh-muted later">Sign out from that browser</span>
+					{:else if !entry.current}
 						<form
 							method="POST"
 							action="?/endSession"
@@ -536,7 +546,7 @@
 					Sign out
 				</button>
 			</form>
-			{#if data.sessions.length > 1}
+			{#if endableSessions > 0}
 				<form
 					method="POST"
 					action="?/endOtherSessions"
@@ -552,7 +562,7 @@
 					<button class="hh-button danger" type="submit" disabled={ending === 'others'}>
 						{ending === 'others'
 							? 'Signing out…'
-							: `Sign out everywhere else (${data.sessions.length - 1})`}
+							: `Sign out everywhere else (${endableSessions})`}
 					</button>
 				</form>
 			{/if}
@@ -880,6 +890,11 @@
 	/* `.group` and `form` set `display`, which the `hidden` attribute alone does not win against. */
 	[hidden] {
 		display: none !important;
+	}
+
+	.later {
+		font-size: 0.8125rem;
+		white-space: nowrap;
 	}
 
 	.lede {

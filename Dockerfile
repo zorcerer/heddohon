@@ -65,7 +65,8 @@ RUN apt-get update \
 # dependency tree (`npm audit --omit=dev` reports zero). Rebuilding on a newer
 # Node 22 tag does not help, since npm 10.9.8 bundles the same versions.
 RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
-	/usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack
+	/usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack \
+	/opt/yarn-v* /usr/local/bin/yarn /usr/local/bin/yarnpkg
 
 WORKDIR /app
 
