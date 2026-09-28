@@ -95,3 +95,30 @@ choose. The panel also names the other two reasons the request fails: the
 microphone blocked for the site in the browser's site settings, and a
 `Permissions-Policy` header that disallows it (a reverse proxy may add its own,
 which can replace the `microphone=(self)` Heddohon sends).
+
+## Casting
+
+The cast button beside the speaker button sends what is playing to a speaker
+or a TV on the network. It shows only where the browser offers one:
+
+| Browser | What it casts to |
+| --- | --- |
+| Chrome on Android | Chromecast and Cast-enabled speakers, through the Remote Playback API |
+| Safari on macOS, iPhone and iPad | AirPlay speakers and Apple TV |
+| Chrome and Edge on the desktop, Firefox | nothing; the button is not shown |
+
+The receiver fetches each track from Heddohon itself, from a signed address
+that works without a cookie (`/cast/<token>`, described in `SECURITY.md`). It
+fetches it from the address the page was opened at, so a Heddohon opened as
+`http://localhost:3000` cannot be cast to a speaker: open it by an address the
+speaker can reach, such as the machine's LAN address or the public one.
+
+While casting, one audio element plays every track, since the receiver
+follows the element it was chosen from. The next track is not buffered ahead
+and there is no crossfade; each track starts when the receiver has fetched
+it. What the receiver can decode is its own: a Chromecast plays FLAC up to
+24-bit/96kHz, MP3, AAC and Opus; an AirPlay speaker plays what Safari hands
+it. With transcoding on in Settings, the receiver is sent the transcode.
+
+Casting was checked against a stand-in for the browser API in the test suite,
+not against a Chromecast or an AirPlay speaker.

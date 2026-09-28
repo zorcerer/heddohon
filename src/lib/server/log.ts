@@ -157,16 +157,17 @@ export const log = {
 };
 
 /**
- * A path or query string with any share token taken out.
+ * A path or query string with any share or cast token taken out.
  *
- * A share link's token is a bearer credential carried in the path, and
+ * A share link's token is a bearer credential carried in the path, as a cast
+ * address's is (`/cast/<token>`, see `cast.ts`), and
  * `/login?next=` carries it again, percent-encoded, for a visitor sent to sign
  * in first. Request lines log both, so they pass through here. Matching is done
  * on the decoded text: `/%73hare/...` routes to the same page, and the encoded
  * `next` value decodes to the same shape. Text with neither a share segment
  * nor a Last.fm callback parameter (`LINK_PARAMS`) is returned exactly as given.
  */
-const SHARE_SEGMENT = /(\/share\/+[\s"'%]*)[^/?#&\s"]+/gi;
+const SHARE_SEGMENT = /(\/(?:share|cast)\/+[\s"'%]*)[^/?#&\s"]+/gi;
 
 /**
  * The query parameters of the Last.fm callback (`/settings/lastfm`): last.fm's

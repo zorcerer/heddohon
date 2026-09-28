@@ -68,6 +68,15 @@ function seekableTo(element: HTMLMediaElement, time: number): boolean {
  * playback report leaving together both fit.
  */
 const KEEPALIVE_LIMIT = 32_000;
+
+/** Cast addresses are asked for again after this, an hour before they stop working. */
+const CAST_REFRESH_MS = 5 * 60 * 60 * 1000;
+
+/** Safari's AirPlay members of a media element, which the DOM types leave out. */
+type AirPlayElement = HTMLMediaElement & {
+	webkitShowPlaybackTargetPicker?: () => void;
+	webkitCurrentPlaybackTargetIsWireless?: boolean;
+};
 /**
  * The sleep timer's lengths in minutes, and how long the level takes to come
  * down before it pauses. The fade is stepped from `timeupdate`, which Chromium
@@ -260,6 +269,22 @@ export class Player {
 	 */
 	rampsVolume = $state(true);
 
+	/**
+	 * Whether the system offers a speaker or a TV to play on: a Chromecast
+	 * through Chrome's Remote Playback API (Chrome on Android), or AirPlay
+	 * through Safari. The cast button shows only while this holds.
+	 */
+	castAvailable = $state(false);
+	/** Whether the audio is playing on one of those rather than here. */
+	casting = $state(false);
+	/**
+	 * Cast addresses by track id while casting (`server/cast.ts`), and when
+	 * they were issued. The receiver fetches the stream itself, without this
+	 * browser's cookie, so each track goes to it as a signed address.
+	 */
+	#castUrls: Map<string, string> | null = null;
+	#castUrlsAt = 0;
+
 	/** Called once from the root layout after the audio elements are mounted. */
 	attach(primary: HTMLAudioElement, secondary: HTMLAudioElement, settings: UserSettings) {
 		this.#primary = primary;
@@ -274,6 +299,137 @@ export class Player {
 		this.#startProgressReporting();
 		this.#watchVisibility();
 		this.#adoptViewport();
+		this.#watchCast(primary, secondary);
+	}
+
+	// ── Casting ────────────────────────────────────────────────────────────
+
+	/**
+	 * Opens the system's picker for a speaker or a TV. Called from the press:
+	 * both pickers need it.
+	 *
+	 * Chrome sends the receiver the element's address when a device is picked,
+	 * so the track is moved to its cast address first. Safari opens its picker
+	 * only inside the press itself, so there the address changes after a
+	 * speaker is chosen, when the element reports a wireless target.
+	 */
+	async cast(): Promise<void> {
+		const element = this.#primary;
+		if (!element || !this.current) return;
+		const airplay = element as AirPlayElement;
+		if (typeof airplay.webkitShowPlaybackTargetPicker === 'function') {
+			airplay.webkitShowPlaybackTargetPicker();
+			return;
+		}
+		if (!element.remote) return;
+		if (!(await this.#beginCast())) return;
+		try {
+			await element.remote.prompt();
+		} catch {
+			// Closed without a choice, or refused: the rest of the queue goes
+			// back to this browser's own addresses.
+			if (element.remote.state === 'disconnected') this.#endCast();
+		}
+	}
+
+	#watchCast(...elements: HTMLAudioElement[]) {
+		for (const element of elements) {
+			const remote = element.remote;
+			if (remote) {
+				const connect = () => (this.casting = true);
+				const disconnect = () => this.#endCast();
+				remote.addEventListener('connect', connect);
+				remote.addEventListener('disconnect', disconnect);
+				this.#lifecycleOff.push(() => {
+					remote.removeEventListener('connect', connect);
+					remote.removeEventListener('disconnect', disconnect);
+				});
+			}
+			// Safari's own events, which it fires in place of the ones above.
+			const availability = (event: Event) =>
+				(this.castAvailable = (event as Event & { availability?: string }).availability === 'available');
+			const wireless = () => {
+				if ((element as AirPlayElement).webkitCurrentPlaybackTargetIsWireless) {
+					this.casting = true;
+					void this.#beginCast();
+				} else this.#endCast();
+			};
+			element.addEventListener('webkitplaybacktargetavailabilitychanged', availability);
+			element.addEventListener('webkitcurrentplaybacktargetiswirelesschanged', wireless);
+			this.#lifecycleOff.push(() => {
+				element.removeEventListener('webkitplaybacktargetavailabilitychanged', availability);
+				element.removeEventListener('webkitcurrentplaybacktargetiswirelesschanged', wireless);
+			});
+		}
+
+		// Whether there is anything to pick. Chrome on the desktop has the API
+		// and refuses to watch, which leaves the button hidden.
+		const remote = elements[0]?.remote;
+		if (!remote) return;
+		let watch: number | null = null;
+		remote
+			.watchAvailability((available) => (this.castAvailable = available))
+			.then((id) => (watch = id))
+			.catch(() => (this.castAvailable = false));
+		this.#lifecycleOff.push(() => {
+			if (watch !== null) void remote.cancelWatchAvailability(watch).catch(() => undefined);
+		});
+	}
+
+	/**
+	 * Moves playback to cast addresses: the current track re-opened from its
+	 * own where it had got to, and nothing buffered ahead. While casting, one
+	 * element plays every track, since the receiver follows the element it was
+	 * picked from; the preloaded handoff and the crossfade, which alternate
+	 * two, are left out.
+	 */
+	async #beginCast(): Promise<boolean> {
+		if (this.#castUrls) return true;
+		this.#castUrls = new Map();
+		this.#castUrlsAt = Date.now();
+		if (!(await this.#ensureCastUrls())) {
+			this.#castUrls = null;
+			return false;
+		}
+		this.#invalidatePreload();
+		await this.#reopenCurrent();
+		return true;
+	}
+
+	#endCast() {
+		this.casting = false;
+		this.#castUrls = null;
+	}
+
+	/**
+	 * Cast addresses for the queue from the current track on, those not held
+	 * already. Asked again after 5 hours, before the 6 they last.
+	 */
+	async #ensureCastUrls(): Promise<boolean> {
+		if (!this.#castUrls) return false;
+		if (Date.now() - this.#castUrlsAt > CAST_REFRESH_MS) {
+			this.#castUrls.clear();
+			this.#castUrlsAt = Date.now();
+		}
+		const held = this.#castUrls;
+		const ids = [...new Set(this.queue.slice(this.index, this.index + 1000).map((song) => song.id))].filter(
+			(id) => !held.has(id)
+		);
+		if (ids.length === 0) return true;
+		const response = await fetch('/api/cast', {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ ids })
+		}).catch(() => null);
+		const urls = (await response?.json().catch(() => null))?.urls as Record<string, string> | undefined;
+		if (!response?.ok || !urls) return false;
+		for (const [id, url] of Object.entries(urls)) held.set(id, url);
+		return true;
+	}
+
+	/** Where the element fetches a track from: its cast address while casting. */
+	#srcOf(song: Song): string {
+		return this.#castUrls?.get(song.id) ?? streamUrl(song.id, this.deliveryMode);
 	}
 
 	/**
@@ -742,7 +898,13 @@ export class Player {
 			this.#swapElements();
 		} else {
 			this.loading = true;
-			this.#primary.src = streamUrl(song.id, this.deliveryMode);
+			// A track that has come into the queue since casting began needs an
+			// address of its own first.
+			if (this.#castUrls && !this.#castUrls.has(song.id)) {
+				await this.#ensureCastUrls();
+				if (this.current !== song || !this.#primary) return;
+			}
+			this.#primary.src = this.#srcOf(song);
 			this.#primary.load();
 		}
 
@@ -781,6 +943,7 @@ export class Player {
 		if (this.#fadeTimer !== null) return;
 		const settings = this.settings;
 		if (!settings || settings.transition !== 'crossfade') return;
+		if (this.#castUrls) return;
 		// Without a ramp this would be two tracks at full level. The `ended`
 		// handler makes the tight handoff instead, from the buffered element.
 		if (!this.rampsVolume) return;
@@ -904,7 +1067,8 @@ export class Player {
 				return;
 			}
 			this.#seekHolds += 1;
-			element.src = `${streamUrl(song.id, this.deliveryMode)}&attempt=${this.#seekHolds}`;
+			const src = this.#srcOf(song);
+			element.src = `${src}${src.includes('?') ? '&' : '?'}attempt=${this.#seekHolds}`;
 			element.load();
 		}, SEEK_HOLD_MS);
 	}
@@ -935,7 +1099,7 @@ export class Player {
 			// The listener pressed pause while we were waiting. Their call wins.
 			if (!this.engaged || this.#primary !== element) return;
 			this.#pendingSeek = position;
-			element.src = streamUrl(song.id, this.deliveryMode);
+			element.src = this.#srcOf(song);
 			element.load();
 			void element.play().catch(() => undefined);
 		}, RECOVERY_BACKOFF_MS * this.#recoveries);
@@ -974,6 +1138,8 @@ export class Player {
 	/** Buffers the upcoming track so the handoff does not wait on the network. */
 	#maybePreloadNext() {
 		if (!this.settings?.preloadNext || this.settings.transition === 'off') return;
+		// Casting follows one element; see `#beginCast`.
+		if (this.#castUrls) return;
 		const next = this.upNext ?? (this.repeat === 'all' ? this.queue[0] : null);
 		if (!next || !this.#secondary) return;
 		if (this.#preloadedFor === next.id) return;
@@ -1382,6 +1548,15 @@ export class Player {
 		this.#persistSettings({ transcode: on });
 		this.#invalidatePreload();
 
+		await this.#reopenCurrent();
+	}
+
+	/**
+	 * Re-opens the current track from its address as it now is (another
+	 * delivery mode, or a cast address), at the position it had reached and
+	 * playing if it was.
+	 */
+	async #reopenCurrent(): Promise<void> {
 		const element = this.#primary;
 		const song = this.current;
 		if (!element || !song) return;
@@ -1390,7 +1565,7 @@ export class Player {
 		const wasPlaying = this.playing;
 		this.loading = true;
 		this.#pendingSeek = position;
-		element.src = streamUrl(song.id, this.deliveryMode);
+		element.src = this.#srcOf(song);
 		element.load();
 		if (wasPlaying) await element.play().catch(() => undefined);
 	}
