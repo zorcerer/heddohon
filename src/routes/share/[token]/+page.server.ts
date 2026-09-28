@@ -68,6 +68,7 @@ export const load: PageServerLoad = async ({ locals, params, setHeaders }) => {
 			year: song.year,
 			duration: song.duration,
 			hasCover: Boolean(song.coverArt),
+			track: song.track,
 			quality: song.quality
 		}))
 	};
