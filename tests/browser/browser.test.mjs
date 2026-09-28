@@ -821,6 +821,112 @@ describe('reordering a playlist', () => {
 	});
 });
 
+describe('waiting for a page', () => {
+	test('a slow page shows the press, a line and a softened page, and clears them when it lands', async () => {
+		subsonic.state.delays.set('getAlbumList2', 1500);
+		const { page, problems } = await watchedPage();
+		try {
+			await page.goto(app.url + '/settings', { waitUntil: 'networkidle' });
+			const link = page.locator('nav.rail').getByRole('link', { name: 'Albums' });
+			await link.click();
+			await page.waitForTimeout(500);
+			const during = await page.evaluate(() => {
+				const box = (el) => {
+					const r = el.getBoundingClientRect();
+					return { left: r.left, right: r.right, top: r.top, bottom: r.bottom };
+				};
+				return {
+					pending: document.querySelector('nav.rail a[href="/albums"]').classList.contains('hh-pending'),
+					veil: document.querySelector('.wait-veil').classList.contains('waiting'),
+					line: document.querySelector('.nav-progress').classList.contains('waiting'),
+					veilBox: box(document.querySelector('.wait-veil')),
+					rail: box(document.querySelector('nav.rail')),
+					panel: box(document.querySelector('aside.panel')),
+					path: location.pathname
+				};
+			});
+			assert.equal(during.path, '/settings', 'the page changed before its data arrived');
+			assert.ok(during.pending, 'the link pressed was not marked');
+			assert.ok(during.veil, 'the page being left was not softened');
+			assert.ok(during.line, 'there was no progress line');
+			const overlaps = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+			assert.ok(!overlaps(during.veilBox, during.rail), 'the wait layer is behind the rail');
+			assert.ok(!overlaps(during.veilBox, during.panel), 'the wait layer is behind the player');
+
+			await page.waitForURL(/\/albums$/);
+			await page.waitForTimeout(400);
+			const after = await page.evaluate(() => ({
+				pending: document.querySelectorAll('.hh-pending').length,
+				veil: document.querySelector('.wait-veil').classList.contains('waiting'),
+				line: document.querySelector('.nav-progress').classList.contains('waiting')
+			}));
+			assert.deepEqual(after, { pending: 0, veil: false, line: false });
+		} finally {
+			subsonic.state.delays.delete('getAlbumList2');
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+
+	test('a fast page shows none of it', async () => {
+		const { page, problems } = await watchedPage();
+		try {
+			await page.goto(app.url + '/settings', { waitUntil: 'networkidle' });
+			await page.evaluate(() => {
+				window.__waited = false;
+				new MutationObserver(() => {
+					if (document.querySelector('.wait-veil.waiting, .nav-progress.waiting')) window.__waited = true;
+				}).observe(document.body, { subtree: true, attributes: true, attributeFilter: ['class'] });
+			});
+			await page.locator('nav.rail').getByRole('link', { name: 'Playlists' }).click();
+			await page.waitForURL(/\/playlists$/);
+			await page.waitForTimeout(300);
+			assert.equal(await page.evaluate(() => window.__waited), false, 'a fast page showed the wait');
+		} finally {
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+});
+
+describe('a shared album\'s transport', () => {
+	test('puts play in the middle, with the track details behind the info button', async () => {
+		const made = await (
+			await context.request.post(`${app.url}/api/shares`, {
+				data: { kind: 'album', id: 'al19', days: 1 },
+				headers: { origin: app.url }
+			})
+		).json();
+		const visitor = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+		try {
+			const shared = await visitor.newPage();
+			await shared.goto(app.url + made.path, { waitUntil: 'networkidle' });
+			const layout = await shared.evaluate(() => {
+				const row = document.querySelector('.card .transport');
+				const buttons = [...row.querySelectorAll('button')];
+				const centre = (el) => {
+					const r = el.getBoundingClientRect();
+					return r.left + r.width / 2;
+				};
+				return {
+					labels: buttons.map((b) => b.getAttribute('aria-label')),
+					offset: Math.abs(centre(row.querySelector('.play')) - centre(row))
+				};
+			});
+			assert.deepEqual(layout.labels, ['Track details', 'Previous track', 'Play', 'Next track', 'Mute']);
+			assert.ok(layout.offset < 2, `play is ${layout.offset}px off the middle`);
+
+			await shared.getByRole('button', { name: 'Track details' }).click();
+			await shared.waitForTimeout(500);
+			const facts = await shared.locator('.card .fold.open dt').allTextContents();
+			assert.deepEqual(facts, ['Format', 'Depth and rate', 'Bitrate', 'Album', 'Year', 'Track']);
+		} finally {
+			await visitor.close();
+			await context.request.delete(`${app.url}/api/shares/${made.id}`, { headers: { origin: app.url } });
+		}
+	});
+});
+
 describe('track rows', () => {
 	test('a double press on a row\'s heart does not play that row', async () => {
 		const { page, problems } = await watchedPage();
