@@ -1,0 +1,139 @@
+# Deletes old `:dev-<short sha>` images from both registries.
+#
+# `dev-image.yml` pushes one per commit on `dev`, and nothing else removes
+# them. This keeps the newest `keep` of them (5 unless asked otherwise) and
+# never touches `dev`, `latest` or a version tag, even where one of those
+# points at the same image as a pruned tag.
+#
+# On ghcr.io a multi-platform tag is an index version plus an untagged
+# version per platform (and per attestation). Deleting only the index would
+# leave those behind, and deleting untagged versions wholesale would take the
+# platform images of `dev`, `latest` and the releases with them. So the
+# children of each pruned index are read from its manifest and deleted only
+# when no kept tag's index lists them too.
+#
+# On Docker Hub a tag is deleted by name; Hub removes the untagged manifests
+# itself. `DOCKERHUB_TOKEN` needs the Read, Write, Delete scope.
+#
+# Runs every Monday, and by hand with a dry run that lists what would go. A
+# scheduled or dispatched workflow is read from the default branch, so this
+# file has to be on `main` to run.
+name: prune-dev-images
+
+on:
+  schedule:
+    - cron: '17 4 * * 1'
+  workflow_dispatch:
+    inputs:
+      keep:
+        description: How many of the newest dev-<sha> tags to keep
+        default: '5'
+      dry_run:
+        description: List what would be deleted, and delete nothing
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: prune-dev-images
+
+env:
+  OWNER: zorcerer
+  PACKAGE: heddohon
+  HUB_REPO: zorcererd/heddohon
+  KEEP: ${{ inputs.keep || '5' }}
+  # A scheduled run has no inputs, and deletes.
+  DRY_RUN: ${{ inputs.dry_run == true }}
+
+jobs:
+  prune:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check the inputs
+        run: |
+          [[ "$KEEP" =~ ^[0-9]+$ && "$KEEP" -ge 1 ]] || { echo "keep must be a whole number of at least 1, not '$KEEP'"; exit 1; }
+          echo "Keeping the newest $KEEP dev-<sha> tags. Dry run: $DRY_RUN"
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: ghcr.io
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          api="/users/$OWNER/packages/container/$PACKAGE/versions"
+          gh api --paginate "$api?per_page=100" | jq -s 'add' > versions.json
+
+          # Tagged versions whose every tag is dev-<sha>, newest first.
+          jq -r '[.[] | select((.metadata.container.tags | length) > 0)
+                      | select(all(.metadata.container.tags[]; test("^dev-[0-9a-f]{7,}$")))]
+                 | sort_by(.created_at) | reverse | .[] | "\(.id) \(.name) \(.metadata.container.tags | join(","))"' \
+            versions.json > dev-tagged.txt
+          tail -n +"$((KEEP + 1))" dev-tagged.txt > prune.txt
+          echo "dev-<sha> versions: $(wc -l < dev-tagged.txt); to prune: $(wc -l < prune.txt)"
+
+          # The digests every kept tag still needs: its index and what it lists.
+          children() {
+            docker buildx imagetools inspect --raw "ghcr.io/$OWNER/$PACKAGE@$1" \
+              | jq -r '.manifests[]?.digest'
+          }
+          : > needed.txt
+          while read -r digest; do
+            echo "$digest" >> needed.txt
+            children "$digest" >> needed.txt || true
+          done < <(jq -r '.[] | select((.metadata.container.tags | length) > 0) | .name' versions.json \
+                     | grep -vxFf <(awk '{print $2}' prune.txt) || true)
+          sort -u -o needed.txt needed.txt
+
+          delete() {
+            local id=$1 label=$2
+            if [ "$DRY_RUN" = true ]; then echo "would delete $label"; return; fi
+            gh api -X DELETE "$api/$id" >/dev/null && echo "deleted $label"
+          }
+          while read -r id digest tags; do
+            for child in $(children "$digest" || true); do
+              if grep -qxF "$child" needed.txt; then continue; fi
+              child_id=$(jq -r --arg d "$child" '.[] | select(.name == $d) | .id' versions.json)
+              [ -n "$child_id" ] && delete "$child_id" "  $child (of $tags)"
+            done
+            delete "$id" "$tags ($digest)"
+          done < prune.txt
+
+      - name: Docker Hub
+        env:
+          HUB_USER: ${{ secrets.DOCKERHUB_USERNAME }}
+          HUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          url="https://hub.docker.com/v2/repositories/$HUB_REPO/tags?page_size=100"
+          : > tags.json
+          while [ -n "$url" ] && [ "$url" != null ]; do
+            page=$(curl -fsS "$url")
+            echo "$page" | jq -c '.results[]' >> tags.json
+            url=$(echo "$page" | jq -r '.next')
+          done
+          jq -rs '[.[] | select(.name | test("^dev-[0-9a-f]{7,}$"))] | sort_by(.last_updated) | reverse | .[].name' \
+            tags.json > dev-tags.txt
+          tail -n +"$((KEEP + 1))" dev-tags.txt > prune-tags.txt
+          echo "dev-<sha> tags: $(wc -l < dev-tags.txt); to prune: $(wc -l < prune-tags.txt)"
+          [ -s prune-tags.txt ] || exit 0
+
+          if [ "$DRY_RUN" = true ]; then
+            sed 's/^/would delete /' prune-tags.txt
+            exit 0
+          fi
+          jwt=$(curl -fsS -H 'content-type: application/json' \
+            -d "$(jq -n --arg u "$HUB_USER" --arg p "$HUB_TOKEN" '{username: $u, password: $p}')" \
+            https://hub.docker.com/v2/users/login | jq -r .token)
+          while read -r tag; do
+            curl -fsS -X DELETE -H "Authorization: Bearer $jwt" \
+              "https://hub.docker.com/v2/repositories/$HUB_REPO/tags/$tag/" && echo "deleted $tag"
+          done < prune-tags.txt
