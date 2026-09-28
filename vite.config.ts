@@ -31,8 +31,9 @@ const targets = {
  * `default-src 'none'` denies first and the rest of the list is what the app
  * actually loads, which is everything from its own origin: bundles, the two
  * bundled font families, covers from `/api/cover`, audio from `/api/stream`,
- * and fetches to `/api/*`. The tree carries no external origin, no `data:` or
- * `blob:` URL and no worker.
+ * fetches to `/api/*`, and the service worker that serves the offline page
+ * (`src/service-worker.ts`). The tree carries no external origin, no `data:`
+ * or `blob:` URL.
  *
  * `style-src-attr` is separate on purpose. The shell in `app.html` and every
  * component that sizes itself in markup, `Logo` among them, emit a `style`
@@ -85,7 +86,7 @@ export default defineConfig({
 					'media-src': ['self'],
 					'connect-src': ['self'],
 					'manifest-src': ['self'],
-					'worker-src': ['none'],
+					'worker-src': ['self'],
 					'object-src': ['none'],
 					'frame-src': ['none'],
 					'base-uri': ['self'],
