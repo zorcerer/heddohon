@@ -276,6 +276,17 @@ export class Player {
 		this.#adoptViewport();
 	}
 
+	/**
+	 * Sends both elements to the audio output `deviceId`, or to the system's
+	 * default for `''`. Both, since they swap roles at every track change and
+	 * the one pre-buffering now is the one playing next. Rejects where the
+	 * browser refuses the device; `client/output.svelte.ts` handles that.
+	 */
+	async setOutput(deviceId: string): Promise<void> {
+		const elements = [this.#primary, this.#secondary].filter((el): el is HTMLAudioElement => el !== null);
+		await Promise.all(elements.map((el) => el.setSinkId(deviceId)));
+	}
+
 	detach() {
 		for (const off of this.#detachers) off();
 		this.#detachers = [];

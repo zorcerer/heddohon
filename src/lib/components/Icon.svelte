@@ -49,6 +49,7 @@
 		| 'check'
 		| 'moon'
 		| 'radio'
+		| 'output'
 		| 'github';
 
 	let {
@@ -118,6 +119,10 @@
 		download: 'M12 4.5v10.5M7.5 10.5 12 15l4.5-4.5M5 19.5h14',
 		// Six dots, the handle a row is dragged by.
 		grip: 'M9 6.5h.01M15 6.5h.01M9 12h.01M15 12h.01M9 17.5h.01M15 17.5h.01',
+		// A loudspeaker cabinet, woofer and tweeter: where the sound goes, beside
+		// the volume glyph that says how loud.
+		output:
+			'M7 3.5h10a1.5 1.5 0 0 1 1.5 1.5v14a1.5 1.5 0 0 1-1.5 1.5H7A1.5 1.5 0 0 1 5.5 19V5A1.5 1.5 0 0 1 7 3.5ZM12 11a3.2 3.2 0 1 0 0 6.4 3.2 3.2 0 0 0 0-6.4ZM12 6.8h.01',
 		// The one glyph in this set not drawn to the rules above. It is GitHub's
 		// mark, and a mark redrawn as a 1.6 stroke is a different mark, so it is
 		// carried as the filled original. It is also the only icon here that
