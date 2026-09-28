@@ -1645,7 +1645,7 @@ describe('signed in on', () => {
 		// A browser signs out only sessions older than its own: the iPhone, signed
 		// in second, is offered the phone; the phone is told to use the iPhone.
 		assert.ok((await handles(iphone)).length >= 1);
-		assert.match(html, /Sign out from that browser/);
+		assert.match(html, /Signed in after this browser\.\s*<span class="later-how[^"]*">Sign it out there, or sign in again here\.</);
 		assert.ok(!html.includes('Mozilla/5.0'), 'the whole user agent reached the page');
 		await iphone.request('/logout', { method: 'POST' });
 		await phone.request('/logout', { method: 'POST' });
