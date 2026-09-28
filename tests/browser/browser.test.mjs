@@ -2471,6 +2471,11 @@ describe('the offline page', () => {
 			await offline.setOffline(true);
 			const response = await page.goto(`${app.url}/login`);
 			assert.equal(response?.status(), 200, 'the worker answered the failed load');
+			// Shown at a private address, with the headers any page carries.
+			const headers = response?.headers() ?? {};
+			assert.equal(headers['x-frame-options'], 'SAMEORIGIN');
+			assert.match(headers['content-security-policy'] ?? '', /default-src 'none'/);
+			assert.match(headers['permissions-policy'] ?? '', /camera=\(\)/);
 			await page.getByRole('heading', { name: 'Heddohon cannot reach its server' }).waitFor();
 
 			await offline.setOffline(false);
@@ -2636,6 +2641,23 @@ describe('the audio output', () => {
 		assert.deepEqual(problems, []);
 	});
 
+	test('the sign-in page forgets the output saved in this browser', async () => {
+		// Signed out, as a browser is after signing out: a signed-in one is sent
+		// on from the sign-in page before it loads.
+		const signedOut = await browser.newContext();
+		try {
+			const page = await signedOut.newPage();
+			await page.goto(`${app.url}/offline.html`);
+			await page.evaluate(() =>
+				localStorage.setItem('heddohon:audio-output', JSON.stringify({ id: 'headset', label: 'Work headset' }))
+			);
+			await page.goto(`${app.url}/login`, { waitUntil: 'networkidle' });
+			assert.equal(await page.evaluate(() => localStorage.getItem('heddohon:audio-output')), null);
+		} finally {
+			await signedOut.close();
+		}
+	});
+
 	test('an output saved in this browser that is gone leaves the sound on the default', async () => {
 		const { page, problems } = await watchedPage();
 		try {
@@ -2735,6 +2757,25 @@ describe('the settings tabs', () => {
 				headers: { origin: app.url },
 				data: { theme: 'dark', transcode: false, transcodeBitrateKbps: 192 }
 			});
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+});
+
+describe('the Last.fm notice', () => {
+	test('is looked up by its own keys only', async () => {
+		const { page, problems } = await watchedPage();
+		try {
+			for (const key of ['constructor', 'toString', '__proto__']) {
+				await page.goto(`${app.url}/settings?lastfm=${key}`, { waitUntil: 'networkidle' });
+				await page.locator('#scrobbling').waitFor();
+				const text = await page.locator('#scrobbling').innerText();
+				assert.ok(!text.includes('native code') && !text.includes('[object Object]'), key);
+			}
+			await page.goto(`${app.url}/settings?lastfm=linked`, { waitUntil: 'networkidle' });
+			await page.getByText('Last.fm is linked.').waitFor();
+		} finally {
 			await page.close();
 		}
 		assert.deepEqual(problems, []);

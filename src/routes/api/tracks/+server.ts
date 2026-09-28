@@ -10,6 +10,13 @@ import type { MixSeed, Song } from '$lib/types';
 type Source = 'album' | 'playlist' | 'artist' | 'genre' | 'starred' | 'random' | 'mix';
 
 const SOURCES: Source[] = ['album', 'playlist', 'artist', 'genre', 'starred', 'random', 'mix'];
+
+/**
+ * Albums one play of an artist reads, one upstream call each. Navidrome's
+ * "Various Artists" can hold thousands, and every account can find its id.
+ * 200 albums is several days of music.
+ */
+const MAX_ARTIST_ALBUMS = 200;
 const MIX_SEEDS: MixSeed[] = ['song', 'album', 'artist'];
 
 /**
@@ -71,17 +78,23 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 				// first note. `/api/tracks` is asked twice, and the album list is
 				// read once for each.
 				const part = body?.part === 'first' || body?.part === 'rest' ? body.part : null;
-				const chosen =
+				const chosen = (
 					part === 'first'
 						? artistAlbums.slice(0, 1)
 						: part === 'rest'
 							? artistAlbums.slice(1)
-							: artistAlbums;
+							: artistAlbums
+				).slice(0, MAX_ARTIST_ALBUMS);
 				if (part === 'first') more = artistAlbums.length > 1;
 				// Bounded: an artist can have hundreds of albums, and this is one
-				// upstream call each.
-				const albums = await mapLimited(chosen, (album) =>
-					albumDetail(ctx, album.id).catch(() => null)
+				// upstream call each. Read past the details cache: one play of an
+				// artist with 300 albums filled it and dropped every other page's
+				// entries, for this account and others.
+				const albums = await mapLimited(
+					chosen,
+					(album) => backend.getAlbum(cred, album.id).catch(() => null),
+					undefined,
+					request.signal
 				);
 				songs = albums.flatMap((album) => album?.songs ?? []);
 				break;
@@ -101,7 +114,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 				break;
 			}
 			case 'starred':
-				songs = (await remembered(session.account.id, 'starred', () => backend.getStarred(cred))).songs;
+				songs = (await remembered({ accountId: session.account.id, credential: cred }, 'starred', () => backend.getStarred(cred))).songs;
 				break;
 			default: {
 				const limit = typeof body?.limit === 'number' ? Math.min(200, Math.max(1, body.limit)) : 50;

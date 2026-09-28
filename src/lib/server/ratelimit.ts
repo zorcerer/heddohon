@@ -106,7 +106,13 @@ export function loginKeys(
 	// run up. See `rememberDevice` in auth.ts.
 	if (device) return [[`device:${device}`, MAX_PER_DEVICE]];
 
-	const keys: Array<[string, number]> = [[`user:${backend}:${username.toLowerCase()}`, MAX_PER_USERNAME]];
+	// Folded up then down, as .NET's OrdinalIgnoreCase does for Jellyfin: it
+	// takes σ, ς and Σ for one letter, and `toLowerCase()` alone keeps them
+	// apart, so a name with such letters was guessed at in several buckets.
+	// For Navidrome, which folds ASCII only, this can only join buckets.
+	const keys: Array<[string, number]> = [
+		[`user:${backend}:${username.toUpperCase().toLowerCase()}`, MAX_PER_USERNAME]
+	];
 
 	if (perVisitorAddress(address)) {
 		keys.push([`addr:${address}`, MAX_PER_ADDRESS]);

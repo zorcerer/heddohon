@@ -1,4 +1,5 @@
 import type { RequestHandler } from './$types';
+import { tiedToSession } from '$lib/server/auth';
 import { proxyMedia, proxyTranscode, streamRequestFrom } from '$lib/server/proxy';
 import type { TranscodeRequest } from '$lib/server/backends/types';
 
@@ -11,7 +12,9 @@ import type { TranscodeRequest } from '$lib/server/backends/types';
  * so switching between the original and a transcode has to be a different URL
  * or the first one answers for both. It is a cache key, not an instruction.
  */
-const handler: RequestHandler = async (event) => {
+const handler: RequestHandler = async (event) => tiedToSession(event.locals.session!, event.request.signal, await respond(event));
+
+const respond = async (event: Parameters<RequestHandler>[0]): Promise<Response> => {
 	const settings = event.locals.settings;
 	const session = event.locals.session!;
 	const transcode: TranscodeRequest | null =

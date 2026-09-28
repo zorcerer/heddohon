@@ -1,6 +1,59 @@
+import { readFile, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import adapter from '@sveltejs/adapter-node';
+import type { Adapter } from '@sveltejs/kit';
 import { sveltekit } from '@sveltejs/kit/vite';
 import { defineConfig } from 'vite';
+import { SECURITY_HEADERS, STATIC_HTML_CSP } from './src/lib/headers';
+
+/*
+ * adapter-node, with the hardening headers on the files it serves itself.
+ *
+ * Its server answers `/_app/*`, `/service-worker.js` and everything in
+ * `static/` from disk (sirv) before SvelteKit, and so before `harden()` in
+ * `hooks.server.ts`, and SvelteKit answers a trailing-slash redirect before
+ * the hooks as well. All of those went out without `nosniff`, framing
+ * protection or HSTS, and `offline.html` without a policy. The adapter has
+ * no option for this, so after it writes `build/index.js` a middleware is put
+ * ahead of its handler that sets the same headers. A response SvelteKit
+ * renders sets them again from `harden()`, to the same values.
+ *
+ * The build fails if the entry no longer has the shape this edits, rather
+ * than shipping without the headers.
+ */
+function hardenedAdapter(): Adapter {
+	const base = adapter({ out: 'build' });
+	return {
+		...base,
+		async adapt(builder) {
+			await base.adapt(builder);
+			const entry = join('build', 'index.js');
+			const source = await readFile(entry, 'utf8');
+			const hook = '.use(handler)';
+			if (source.split(hook).length !== 2) {
+				throw new Error(`adapter-node's ${entry} no longer calls ${hook} once; see hardenedAdapter in vite.config.ts`);
+			}
+			await writeFile(
+				join('build', 'security-headers.js'),
+				[
+					'// Written by hardenedAdapter in vite.config.ts; the values are in src/lib/headers.ts.',
+					`const headers = ${JSON.stringify(SECURITY_HEADERS)};`,
+					`const htmlPolicy = ${JSON.stringify(STATIC_HTML_CSP)};`,
+					'export function securityHeaders(req, res, next) {',
+					'\tfor (const name in headers) res.setHeader(name, headers[name]);',
+					"\tif (/\\.html?(?:$|\\?)/.test(req.url ?? '')) res.setHeader('content-security-policy', htmlPolicy);",
+					'\tnext();',
+					'}',
+					''
+				].join('\n')
+			);
+			await writeFile(
+				entry,
+				`import { securityHeaders } from './security-headers.js';\n${source.replace(hook, '.use(securityHeaders, handler)')}`
+			);
+		}
+	};
+}
 
 /** Lightning CSS encodes versions as (major << 16) | (minor << 8) | patch. */
 const browser = (major: number, minor = 0) => (major << 16) | (minor << 8);
@@ -67,7 +120,7 @@ export default defineConfig({
 				runes: ({ filename }) =>
 					filename.split(/[/\\]/).includes('node_modules') ? undefined : true
 			},
-			adapter: adapter({ out: 'build' }),
+			adapter: hardenedAdapter(),
 			// How often an open tab asks whether the server runs a newer build.
 			// The root layout takes the update on the next page change made while
 			// nothing is playing.

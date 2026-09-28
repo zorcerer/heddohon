@@ -22,6 +22,7 @@
  * network as before.
  */
 import { version } from '$service-worker';
+import { MARKER, SECURITY_HEADERS, STATIC_HTML_CSP } from '$lib/headers';
 
 const sw = self as unknown as ServiceWorkerGlobalScope;
 
@@ -56,23 +57,24 @@ sw.addEventListener('activate', (event) => {
 	);
 });
 
-/**
- * Whether Heddohon itself is answering. `/healthz` replies with JSON whatever
- * state the server is in; a proxy's error page for a stopped container is
- * HTML, and no connection at all throws.
+/*
+ * The offline page, with the headers any page of Heddohon's carries.
+ *
+ * It is shown at whatever address failed, `/settings` among them, and the
+ * cached copy held only the headers the static file server sent when it was
+ * cached. Answered as it was, it was the one document on the origin that could
+ * be framed and that allowed the camera.
  */
-async function heddohonAnswers(): Promise<boolean> {
-	try {
-		const response = await fetch('/healthz', { cache: 'no-store' });
-		return response.headers.get('content-type')?.includes('application/json') ?? false;
-	} catch {
-		return false;
-	}
-}
-
 async function offlinePage(): Promise<Response> {
 	const cached = await caches.match(OFFLINE_PAGE);
-	return cached ?? new Response('Heddohon cannot reach its server.', { status: 503 });
+	const headers = new Headers(SECURITY_HEADERS);
+	headers.delete(MARKER);
+	headers.set('content-security-policy', STATIC_HTML_CSP);
+	headers.set('content-type', 'text/html; charset=utf-8');
+	headers.set('cache-control', 'no-store');
+	return cached
+		? new Response(await cached.arrayBuffer(), { status: 200, headers })
+		: new Response('Heddohon cannot reach its server.', { status: 503, headers });
 }
 
 async function navigate(event: FetchEvent): Promise<Response> {
@@ -80,8 +82,8 @@ async function navigate(event: FetchEvent): Promise<Response> {
 		const response = ((await event.preloadResponse) as Response | undefined) ?? (await fetch(event.request));
 		// A 502 to 504 is either the proxy's page for a stopped Heddohon or
 		// Heddohon's own error page for a music server that is down. Only the
-		// first is this worker's to replace.
-		if (GATEWAY_FAILURES.has(response.status) && !(await heddohonAnswers())) return offlinePage();
+		// first is this worker's to replace, and only Heddohon's carries MARKER.
+		if (GATEWAY_FAILURES.has(response.status) && !response.headers.has(MARKER)) return offlinePage();
 		return response;
 	} catch {
 		return offlinePage();

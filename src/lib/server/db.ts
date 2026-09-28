@@ -28,6 +28,8 @@ export interface AccountRow {
 	credential: string;
 	created_at: number;
 	last_login_at: number;
+	/** Bumped when the credential changes hands; see `rememberDevice` in auth.ts. Null reads as 0. */
+	device_epoch: number | null;
 }
 
 export interface SessionRow {
@@ -122,7 +124,8 @@ CREATE INDEX IF NOT EXISTS shares_expiry_idx ON shares(expires_at);
  * primary key index does not need and PostgreSQL does.
  */
 const POSTGRES_SCHEMA = `${SQLITE_SCHEMA.replace(/\bINTEGER\b/g, 'BIGINT')}
-CREATE INDEX IF NOT EXISTS accounts_username_idx ON accounts (backend, lower(username));
+DROP INDEX IF EXISTS accounts_username_idx;
+CREATE INDEX IF NOT EXISTS accounts_username_ascii_idx ON accounts (backend, lower(username COLLATE "C"));
 CREATE TABLE IF NOT EXISTS meta (
   key    TEXT PRIMARY KEY,
   value  TEXT NOT NULL
@@ -137,7 +140,8 @@ CREATE TABLE IF NOT EXISTS meta (
  */
 const ADDED_COLUMNS: { table: string; column: string; type: string }[] = [
 	{ table: 'sessions', column: 'device', type: 'TEXT' },
-	{ table: 'shares', column: 'kind', type: 'TEXT' }
+	{ table: 'shares', column: 'kind', type: 'TEXT' },
+	{ table: 'accounts', column: 'device_epoch', type: 'INTEGER' }
 ];
 
 function addColumnsSqlite(instance: Database.Database) {

@@ -166,7 +166,7 @@ export const log = {
  * `next` value decodes to the same shape. Text with neither a share segment
  * nor a Last.fm callback parameter (`LINK_PARAMS`) is returned exactly as given.
  */
-const SHARE_SEGMENT = /(\/share\/)[^/?#&\s"]+/gi;
+const SHARE_SEGMENT = /(\/share\/+[\s"'%]*)[^/?#&\s"]+/gi;
 
 /**
  * The query parameters of the Last.fm callback (`/settings/lastfm`): last.fm's

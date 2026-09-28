@@ -23,7 +23,7 @@ export const load: PageServerLoad = async (event) => {
 
 	if (query.length < 2) {
 		const { backend, credential, accountId } = libraryContext(event.locals);
-		const genres: Promise<Genre[]> = remembered(accountId, 'genres', () => backend.getGenres(credential))
+		const genres: Promise<Genre[]> = remembered({ accountId, credential }, 'genres', () => backend.getGenres(credential))
 			.then((all) =>
 				all
 					.filter((genre) => (genre.albumCount ?? 0) > 0)
