@@ -1055,6 +1055,51 @@ describe('the heart in the player', () => {
 	});
 });
 
+describe('a press on the transport', () => {
+	/** The keyframes running on a control's glyph, by the property they move. */
+	const moving = (page, selector) =>
+		page.evaluate((selector) => {
+			const glyph = document.querySelector(selector)?.querySelector('svg');
+			return (glyph?.getAnimations() ?? []).flatMap((a) => Object.keys(a.effect.getKeyframes()[0] ?? {}));
+		}, selector);
+
+	test('throws the skip glyph the way the queue went, and turns shuffle and repeat', async () => {
+		const { page, problems } = await watchedPage();
+		try {
+			await page.goto(app.url + '/albums/al11', { waitUntil: 'networkidle' });
+			const panel = page.locator('aside.panel');
+			await page.getByRole('button', { name: 'Play Song 11a', exact: true }).click();
+			await page.waitForFunction(() => document.querySelector('aside.panel h2.title')?.textContent === 'Song 11a');
+
+			await panel.getByRole('button', { name: 'Next track' }).click();
+			const next = await page.evaluate(() => {
+				const animation = document.querySelector('aside.panel button[aria-label="Next track"] svg')?.getAnimations()[0];
+				return animation ? String(animation.effect.getKeyframes()[1].translate) : null;
+			});
+			assert.match(next ?? '', /^0\.7rem/, 'next did not throw its glyph forward');
+
+			await page.waitForTimeout(600);
+			await panel.getByRole('button', { name: 'Previous track' }).click();
+			const previous = await page.evaluate(() => {
+				const animation = document.querySelector('aside.panel button[aria-label="Previous track"] svg')?.getAnimations()[0];
+				return animation ? String(animation.effect.getKeyframes()[1].translate) : null;
+			});
+			assert.match(previous ?? '', /^-0\.7rem/, 'previous did not throw its glyph back');
+
+			await panel.getByRole('button', { name: 'Shuffle' }).click();
+			assert.ok((await moving(page, 'aside.panel button[aria-label="Shuffle"]')).includes('transform'), 'shuffle did not turn over');
+			await panel.getByRole('button', { name: /^Repeat/ }).click();
+			assert.ok((await moving(page, 'aside.panel button[title^="Repeat"]')).includes('rotate'), 'repeat did not go round');
+			// Back as it was for the tests after this.
+			await panel.getByRole('button', { name: 'Shuffle' }).click();
+			for (let i = 0; i < 2; i++) await panel.getByRole('button', { name: /^Repeat/ }).click();
+		} finally {
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+});
+
 describe('the player on a skip', () => {
 	test('the song text slides in from the right on next and from the left on previous', async () => {
 		const { page, problems } = await watchedPage();
