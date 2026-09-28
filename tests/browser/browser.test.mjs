@@ -596,6 +596,15 @@ describe('resuming a transcode', () => {
 		try {
 			await page.goto(app.url + '/albums', { waitUntil: 'networkidle' });
 			await page.waitForFunction(() => document.querySelector('aside.panel h2.title')?.textContent === 'Song 5a');
+			// The position restored, before anything plays. A page closed by the test
+			// before this one saves its own queue on the way out, and a slow runner
+			// once delivered that after the state above was written; checked here,
+			// such a run fails as a restore rather than as a seek.
+			await page.waitForFunction(
+				() => document.querySelector('aside.panel .times .hh-numeric')?.textContent === '0:25',
+				null,
+				{ timeout: 5000 }
+			);
 			await page.locator('aside.panel button.play').click();
 			await page.waitForFunction(
 				() => [...document.querySelectorAll('audio')].some((a) => !a.paused && a.currentTime > 0),
@@ -1986,16 +1995,21 @@ describe('on a phone', () => {
 
 				await page.evaluate(() => scrollTo(0, 600));
 				await tap(page, page.locator('#dock-open'));
-				await page.waitForTimeout(600);
-				assert.equal(await sheetOpen(page), true, 'the sheet did not open');
+				// Waited for rather than timed: a slow runner took longer than 600ms.
+				await page.waitForFunction(() => document.querySelector('.app').classList.contains('player-open'), null, {
+					timeout: 5000
+				});
+				await page.waitForTimeout(300);
 				await page.mouse.move(200, 400);
 				await page.mouse.wheel(0, 800);
 				await page.waitForTimeout(300);
 				assert.equal(await page.evaluate(() => scrollY), 600, 'the page scrolled under the open sheet');
 
 				await tap(page, page.locator('#player-hide'));
-				await page.waitForTimeout(600);
-				assert.equal(await sheetOpen(page), false, 'the chevron did not close the sheet');
+				await page.waitForFunction(() => !document.querySelector('.app').classList.contains('player-open'), null, {
+					timeout: 5000
+				});
+				await page.waitForTimeout(300);
 				assert.equal(await page.evaluate(() => document.activeElement?.id), 'dock-open', 'focus is not back on the dock');
 				await page.mouse.wheel(0, 800);
 				await page.waitForTimeout(300);
@@ -2286,7 +2300,26 @@ describe('opening an album', () => {
 	 * in the browser, so it stands in until the larger one arrives.
 	 */
 	test('the hero shows the card\'s copy while its own is still coming', async () => {
-		const { page, problems } = await watchedPage();
+		// A context of its own and an empty cover cache. A card hovered in an
+		// earlier test warms the hero's copy, which a slow runner once had in hand
+		// within 900ms of opening the album, so the test checked nothing.
+		const fresh = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+		await fresh.request.post(`${app.url}/login`, {
+			form: { username: 'testuser', password: 'testpass', backend: 'subsonic', next: '/' },
+			headers: { origin: app.url, accept: 'text/html' },
+			maxRedirects: 0
+		});
+		const cleared = await fresh.request.post(`${app.url}/settings?/clearCovers`, {
+			headers: { origin: app.url, 'x-sveltekit-action': 'true', accept: 'application/json' },
+			form: {}
+		});
+		assert.equal(cleared.status(), 200);
+		const page = await fresh.newPage();
+		const problems = [];
+		page.on('console', (message) => {
+			if (message.type() === 'error') problems.push(`${page.url()}: ${message.text()}`);
+		});
+		page.on('pageerror', (err) => problems.push(`${page.url()}: ${err.message}`));
 		try {
 			await page.goto(app.url + '/albums', { waitUntil: 'networkidle' });
 			const card = page.locator('a.card[href="/albums/al9"]');
@@ -2312,7 +2345,7 @@ describe('opening an album', () => {
 			);
 		} finally {
 			subsonic.state.delays.clear();
-			await page.close();
+			await fresh.close();
 		}
 		assert.deepEqual(problems, []);
 	});
