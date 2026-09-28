@@ -53,6 +53,11 @@ export interface Song {
 	/** Epoch millis it was starred, where the server reports it (Subsonic does, Jellyfin does not). */
 	starredAt: number | null;
 	playCount: number | null;
+	/**
+	 * The listener's own rating, 1 to 5 stars, or 0 for none. Null where the
+	 * server keeps no ratings: Jellyfin has only likes, so it is always null there.
+	 */
+	rating: number | null;
 	quality: AudioQuality;
 	/** Null when the server reports no loudness data for the file. */
 	replayGain: ReplayGain | null;
@@ -72,6 +77,8 @@ export interface Album {
 	starred: boolean;
 	/** Epoch millis it was starred, where the server reports it. */
 	starredAt: number | null;
+	/** As on `Song`: 0 to 5, or null where the server keeps no ratings or did not say. */
+	rating: number | null;
 	/** Epoch millis the album was added to the library, when known. */
 	createdAt: number | null;
 }
@@ -169,6 +176,9 @@ export interface AlbumQuery {
 
 /** What every entity type can be favourited as. */
 export type StarKind = 'song' | 'album' | 'artist';
+
+/** What can be given a star rating. */
+export type RatingKind = 'song' | 'album';
 
 /** What an instant mix is made from. */
 export type MixSeed = 'song' | 'album' | 'artist';

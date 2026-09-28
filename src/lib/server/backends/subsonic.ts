@@ -229,6 +229,15 @@ function starredAt(value: unknown): number | null {
 	return Number.isFinite(parsed) ? parsed : null;
 }
 
+/**
+ * The listener's rating, 0 to 5. Navidrome leaves `userRating` out of an item
+ * that has none, so a missing value is 0 rather than unknown.
+ */
+function ratingOf(value: unknown): number {
+	const rating = numberOrNull(value) ?? 0;
+	return Math.min(5, Math.max(0, Math.round(rating)));
+}
+
 function toSong(raw: Record<string, any>): Song {
 	return {
 		id: String(raw.id),
@@ -247,6 +256,7 @@ function toSong(raw: Record<string, any>): Song {
 		starred: Boolean(raw.starred),
 		starredAt: starredAt(raw.starred),
 		playCount: numberOrNull(raw.playCount),
+		rating: ratingOf(raw.userRating),
 		quality: quality(raw),
 		replayGain: replayGainOf(raw.replayGain)
 	};
@@ -266,6 +276,7 @@ function toAlbum(raw: Record<string, any>): Album {
 		coverArt: raw.coverArt ? String(raw.coverArt) : null,
 		starred: Boolean(raw.starred),
 		starredAt: starredAt(raw.starred),
+		rating: ratingOf(raw.userRating),
 		createdAt: Number.isFinite(created) ? created : null
 	};
 }
@@ -333,6 +344,8 @@ function albumsFromSongs(
 			coverArt: raw.coverArt ? String(raw.coverArt) : null,
 			starred: false,
 			starredAt: null,
+			// The album's own rating is not on its tracks.
+			rating: null,
 			createdAt: null
 		});
 	}
@@ -645,6 +658,11 @@ export const subsonicBackend: MediaBackend = {
 	async setStarred(cred, id, kind: StarKind, starred) {
 		const key = kind === 'album' ? 'albumId' : kind === 'artist' ? 'artistId' : 'id';
 		await call(cred, starred ? 'star.view' : 'unstar.view', { [key]: id });
+	},
+
+	async setRating(cred, id, rating) {
+		// One method for a song, an album or an artist id alike; 0 removes it.
+		await call(cred, 'setRating.view', { id, rating });
 	},
 
 	async getLyrics(cred, song): Promise<Lyrics | null> {

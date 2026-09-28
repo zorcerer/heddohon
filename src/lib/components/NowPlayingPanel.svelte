@@ -50,6 +50,7 @@
 	import LyricsView from './LyricsView.svelte';
 	import MixButton from './MixButton.svelte';
 	import QualityBadge from './QualityBadge.svelte';
+	import RatingStars from './RatingStars.svelte';
 	import Seekbar from './Seekbar.svelte';
 
 	let { showQualityBadge = true }: { showQualityBadge?: boolean } = $props();
@@ -459,6 +460,12 @@
 								<dd class="hh-numeric hh-truncate">{value}</dd>
 							</div>
 						{/each}
+						{#if page.data.ratings}
+							<div class="rating">
+								<dt class="hh-muted">Rating</dt>
+								<dd><RatingStars id={song.id} kind="song" rating={song.rating} size={14} /></dd>
+							</div>
+						{/if}
 					</dl>
 					{#if page.data.downloads}
 						<!-- With the rest of the file's facts, where its format and size
@@ -1256,6 +1263,15 @@
 
 	.facts dd {
 		color: var(--text-default);
+	}
+
+	/* The stars' own padding would push the row taller than the text rows. */
+	.facts .rating {
+		align-items: center;
+	}
+
+	.facts .rating dd {
+		margin-left: -0.15rem;
 	}
 
 	.more-like {

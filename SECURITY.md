@@ -518,6 +518,7 @@ Covers are cached under `$HEDDOHON_DATA_DIR/covers` (see
 | Albums read for one play of an artist | 200 |
 | Sessions per account | 50; the oldest ends |
 | Playlist positions per removal | 1000, deduplicated |
+| Star rating | a whole number from 0 to 5 |
 | Genre id in a path | 200 characters; on Jellyfin a GUID, since `GenreIds` takes a list |
 | Cover size | one of ten, 64 to 1536 |
 | Transcode codec | `mp3`, `opus`, `aac` |
