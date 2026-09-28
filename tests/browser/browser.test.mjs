@@ -88,7 +88,9 @@ describe('playing from a card', () => {
 	test('a slow play shows it is busy, and a second click is ignored', async () => {
 		const { page, problems } = await watchedPage();
 		await page.goto(app.url + '/', { waitUntil: 'networkidle' });
-		const card = page.locator('a.card:has(button.play)').first();
+		// Album 3, which no test before this one opens: an album read in the last
+		// minute is held (`details.ts`), and its play would be answered at once.
+		const card = page.locator('a.card[href="/albums/al3"]:has(button.play)').first();
 		const button = card.locator('button.play');
 		const state = () =>
 			button.evaluate((b) => {
@@ -101,9 +103,7 @@ describe('playing from a card', () => {
 				};
 			});
 
-		// Hovering preloads the album page, which calls `getAlbum` itself.
-		await card.hover();
-		await page.waitForTimeout(600);
+		// Not hovered, for the same reason: hovering preloads the album page.
 		subsonic.state.delays.set('getAlbum', 1500);
 		subsonic.calls.reset();
 		try {
@@ -2447,6 +2447,85 @@ describe('restoring the queue', () => {
 				data: { songIds: [], index: 0, position: 0, repeat: 'off', shuffle: false },
 				headers: { origin: app.url }
 			});
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+});
+
+describe('the offline page', () => {
+	test('a page load with no connection shows the offline page, which reloads when the connection returns', async () => {
+		// A context of its own, so going offline touches no other test.
+		const offline = await browser.newContext();
+		try {
+			const page = await offline.newPage();
+			await page.goto(`${app.url}/login`, { waitUntil: 'networkidle' });
+			await page.waitForFunction(() => navigator.serviceWorker.controller !== null, null, { timeout: 10_000 });
+
+			await offline.setOffline(true);
+			const response = await page.goto(`${app.url}/login`);
+			assert.equal(response?.status(), 200, 'the worker answered the failed load');
+			await page.getByRole('heading', { name: 'Heddohon cannot reach its server' }).waitFor();
+
+			await offline.setOffline(false);
+			// The page asks every 5 seconds and on the browser's `online` event.
+			await page.locator('input[name="username"]').waitFor({ timeout: 10_000 });
+			assert.equal(new URL(page.url()).pathname, '/login');
+		} finally {
+			await offline.close();
+		}
+	});
+});
+
+describe('playing from favourites', () => {
+	for (const [kind, heading] of [
+		['artist', 'Artist 0000'],
+		['album', 'Album 0']
+	]) {
+		test(`a favourite track keeps playing after following its ${kind} link`, async () => {
+			subsonic.state.audio = { type: 'audio/wav', body: silentWav(30) };
+			const { page, problems } = await watchedPage();
+			try {
+				await page.goto(`${app.url}/favourites?tab=songs`, { waitUntil: 'networkidle' });
+				await page.getByRole('button', { name: 'Play Song 0a', exact: true }).first().click();
+				await page.waitForFunction(() =>
+					[...document.querySelectorAll('audio')].some((a) => !a.paused && a.currentTime > 0)
+				);
+				// A full page load would drop this.
+				await page.evaluate(() => (window.__stayed = true));
+
+				const row = page.locator('li, tr, [role="row"]').filter({ hasText: 'Song 0a' }).first();
+				await row.locator(`a[href^="/${kind}s/"]`).first().click();
+				await page.getByRole('heading', { name: heading, exact: true }).first().waitFor();
+				await page.waitForTimeout(1500);
+
+				assert.equal(await page.evaluate(() => window.__stayed === true), true, 'the page was reloaded');
+				const playing = await page.evaluate(() =>
+					[...document.querySelectorAll('audio')].some((a) => !a.paused && a.currentTime > 0)
+				);
+				assert.ok(playing, `playback stopped on the way to the ${kind} page`);
+			} finally {
+				subsonic.state.audio = null;
+				await page.close();
+			}
+			assert.deepEqual(problems, []);
+		});
+	}
+
+	test('Enter on a track\'s artist link opens the artist rather than playing the row', async () => {
+		const { page, problems } = await watchedPage();
+		try {
+			await page.goto(`${app.url}/favourites?tab=songs`, { waitUntil: 'networkidle' });
+			const current = await page.evaluate(() => document.querySelector('aside.panel h2.title')?.textContent ?? null);
+			await page.locator('li').filter({ hasText: 'Song 1a' }).first().locator('a[href^="/artists/"]').focus();
+			await page.keyboard.press('Enter');
+			await page.waitForURL(/\/artists\/ar1$/);
+			assert.equal(
+				await page.evaluate(() => document.querySelector('aside.panel h2.title')?.textContent ?? null),
+				current,
+				'the row\'s song was started'
+			);
+		} finally {
 			await page.close();
 		}
 		assert.deepEqual(problems, []);
