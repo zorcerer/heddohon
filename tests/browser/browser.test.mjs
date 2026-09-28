@@ -2578,6 +2578,63 @@ describe('the audio output', () => {
 		assert.deepEqual(problems, []);
 	});
 
+	/*
+	 * Chrome refuses the microphone at once, without a prompt, on a computer
+	 * with none connected. One sentence covered every refusal, so pressing
+	 * "List outputs" there looked like nothing happened. The browser's own
+	 * answers are stubbed here: headless Chromium has no outputs to name.
+	 */
+	async function outputPanel(stub, arg) {
+		const { page, problems } = await watchedPage();
+		await page.addInitScript(stub, arg);
+		await page.goto(`${app.url}/albums`, { waitUntil: 'networkidle' });
+		await page.locator('aside.panel .volume button[aria-label^="Audio output"]').click();
+		return { page, problems, outputs: page.getByRole('group', { name: 'Audio output' }) };
+	}
+
+	for (const [error, expected] of [
+		['NotFoundError', /no microphone is connected/],
+		['NotAllowedError', /blocked for this site/]
+	]) {
+		test(`"List outputs" says why when the microphone is refused (${error})`, async () => {
+			const { page, problems, outputs } = await outputPanel((name) => {
+				navigator.mediaDevices.getUserMedia = () => Promise.reject(new DOMException('refused', name));
+				navigator.mediaDevices.enumerateDevices = async () => [{ kind: 'audiooutput', deviceId: '', label: '', groupId: '' }];
+			}, error);
+			try {
+				await outputs.getByRole('button', { name: 'List outputs' }).click();
+				await outputs.getByRole('status').filter({ hasText: expected }).waitFor({ timeout: 3000 });
+				assert.equal(await outputs.getByRole('button', { name: 'List outputs' }).isEnabled(), true);
+			} finally {
+				await page.close();
+			}
+			assert.deepEqual(problems, []);
+		});
+	}
+
+	test('"List outputs" names the outputs once the microphone is granted', async () => {
+		const { page, problems, outputs } = await outputPanel(() => {
+			let granted = false;
+			navigator.mediaDevices.getUserMedia = async () => {
+				granted = true;
+				return new MediaStream();
+			};
+			navigator.mediaDevices.enumerateDevices = async () => [
+				{ kind: 'audiooutput', deviceId: 'default', label: granted ? 'Default' : '', groupId: 'g' },
+				{ kind: 'audiooutput', deviceId: granted ? 'dac' : '', label: granted ? 'USB DAC' : '', groupId: 'g' }
+			];
+		});
+		try {
+			await outputs.getByRole('button', { name: 'List outputs' }).click();
+			await outputs.getByRole('button', { name: 'USB DAC' }).waitFor({ timeout: 3000 });
+			assert.equal(await outputs.getByRole('button', { name: 'List outputs' }).count(), 0);
+			assert.equal(await outputs.getByRole('button', { name: 'Default', exact: true }).count(), 0, 'the default entry is not listed twice');
+		} finally {
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+
 	test('an output saved in this browser that is gone leaves the sound on the default', async () => {
 		const { page, problems } = await watchedPage();
 		try {
