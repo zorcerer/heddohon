@@ -592,6 +592,20 @@ selectors, so source order is the only thing separating them, and putting the
 control fallbacks up with the pane primitives left the buttons translucent for
 exactly the people who asked for them not to be.
 
+**A click is answered before its page has arrived.** A navigation starts on
+the click and changes nothing until the next page's data is back, which on a
+slow connection left a second in which the click seemed to be ignored. The
+link pressed now breathes (to 55 percent and back) from the moment it is
+pressed. If the data has not arrived 150ms later, the length the card play
+button waits before its spinner so that a fast answer shows nothing, a line
+in the accent sweeps along the top of the content column and the page being
+left softens under a layer of the room at 45 percent with a 3px blur of its
+own. The page itself is not dimmed or blurred, since it holds glass and a
+filter or opacity on an ancestor of glass drops the blur from all of it; the
+layer is a sibling over it, placed as the veil is. All of it clears when the
+data arrives, before the veil's own 150ms, which otherwise counted towards
+the wait and showed it on every page change.
+
 **A press is answered on the glyph, in a way that says what it did.**
 Previous and next throw their triangle the way the queue went, 0.7rem, and
 bring a fresh one in from the other side (480ms). Shuffle turns its arrows
