@@ -21,11 +21,6 @@ permissions:
   contents: read
   packages: write
 
-# A newer commit makes the build in progress moot.
-concurrency:
-  group: dev-image
-  cancel-in-progress: true
-
 env:
   GHCR: ghcr.io/zorcerer/heddohon
   HUB: zorcererd/heddohon
@@ -33,14 +28,28 @@ env:
 jobs:
   image:
     # A pull request's run is not a commit on `dev`, and a failed run is not
-    # published.
-    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'
+    # published. The repository is checked as well as the event: a fork can
+    # name its branch `dev`.
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    # A newer commit makes the build in progress moot. On the job, not the
+    # workflow: a workflow-level group is joined before `if` is read, so the
+    # `check` of any pull request from a branch named `dev` started a run
+    # that cancelled the build in progress and then skipped itself. That left
+    # 8c687f0, the head released as v0.3.0, without a `:dev` image.
+    concurrency:
+      group: dev-image
+      cancel-in-progress: true
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
+          # The token has `packages: write`; nothing after this step needs git.
+          persist-credentials: false
 
       - name: Name the build
         id: version
@@ -51,24 +60,24 @@ jobs:
 
       # The runtime stage runs as the target, which is arm64 half the time;
       # the build stage does not (see the Dockerfile).
-      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
         with:
           platforms: arm64
 
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
 
-      - uses: docker/login-action@v3
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: docker/login-action@v3
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
           platforms: linux/amd64,linux/arm64
