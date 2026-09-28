@@ -219,3 +219,73 @@ export function heroSweep(): (node: HTMLElement) => () => void {
 		};
 	};
 }
+
+/*
+ * ── The glyph in a pressed control ──────────────────────────────────────
+ *
+ * A press is answered on the icon itself, in a way that says what the control
+ * did: skip throws its glyph the way the queue went and brings a fresh one in
+ * from behind; shuffle turns its arrows over; repeat goes once round; a toggle
+ * pops. The icon moves and the button does not, since a button in the player
+ * sits on glass and the rules in `app.css` keep transforms off glass. Opacity
+ * goes on the svg, which holds none.
+ */
+
+/** The spring from `--ease-spring`, which a script cannot name as a variable. */
+function springCss(): string {
+	if (typeof document === 'undefined') return EASE_OUT_CSS;
+	const value = getComputedStyle(document.documentElement).getPropertyValue('--ease-spring').trim();
+	return value || EASE_OUT_CSS;
+}
+
+function glyphOf(control: Element | null): SVGElement | null {
+	return control?.querySelector('svg') ?? null;
+}
+
+/**
+ * Next (1) or previous (-1): the glyph leaves the way the queue moved, and
+ * its replacement slides in from the other side and settles on the spring.
+ */
+export function skipGlyph(control: Element | null, direction: 1 | -1): void {
+	const glyph = glyphOf(control);
+	const duration = motion(DUR.travel);
+	if (!glyph || duration === 0) return;
+	const travel = `${direction * 0.7}rem`;
+	const from = `${-direction * 0.7}rem`;
+	glyph.animate(
+		[
+			{ translate: '0 0', opacity: 1 },
+			{ translate: `${travel} 0`, opacity: 0, offset: 0.35 },
+			{ translate: `${from} 0`, opacity: 0, offset: 0.36 },
+			{ translate: '0 0', opacity: 1 }
+		],
+		{ duration, easing: EASE_OUT_CSS }
+	);
+}
+
+/** Turns the glyph over about its vertical axis: the shuffle arrows changing sides. */
+export function flipGlyph(control: Element | null): void {
+	const glyph = glyphOf(control);
+	const duration = motion(DUR.travel);
+	if (!glyph || duration === 0) return;
+	glyph.animate([{ transform: 'rotateY(180deg)' }, { transform: 'rotateY(0deg)' }], {
+		duration,
+		easing: springCss()
+	});
+}
+
+/** Once round, the way the repeat arrows point. */
+export function turnGlyph(control: Element | null): void {
+	const glyph = glyphOf(control);
+	const duration = motion(DUR.travel);
+	if (!glyph || duration === 0) return;
+	glyph.animate([{ rotate: '-180deg' }, { rotate: '0deg' }], { duration, easing: springCss() });
+}
+
+/** Swells from under size and settles: a toggle taking effect. */
+export function popGlyph(control: Element | null): void {
+	const glyph = glyphOf(control);
+	const duration = motion(DUR.state);
+	if (!glyph || duration === 0) return;
+	glyph.animate([{ scale: 0.7 }, { scale: 1 }], { duration, easing: springCss() });
+}

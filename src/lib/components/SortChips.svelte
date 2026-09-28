@@ -54,10 +54,12 @@
 		font-size: 0.8125rem;
 		font-weight: 500;
 		white-space: nowrap;
+		/* The fill as well, so the chosen order fades in rather than snapping. */
 		transition:
 			text-shadow var(--transition),
 			color var(--transition),
-			border-color var(--transition);
+			border-color var(--transition),
+			background var(--transition);
 	}
 
 	.chip:hover {

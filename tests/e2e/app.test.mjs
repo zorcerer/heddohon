@@ -282,6 +282,56 @@ describe('favourites', () => {
 	});
 });
 
+describe('Jellyfin albums by play', () => {
+	/** The albums a page links to, in order, each once. */
+	const albumOrder = (html) => [...new Set([...html.matchAll(/href="\/albums\/(b\d)"/g)].map((m) => m[1]))];
+
+	test('are ranked from their songs\' plays, which is where Jellyfin keeps them', async () => {
+		// Jellyfin leaves an album's own play count and date unset however often
+		// its songs are played. Sorted by those, every album tied and came back
+		// in name order: First, Second, Third, Compilation.
+		jellyfin.state.played = [
+			{ Id: 't1', AlbumId: 'b2', PlayCount: 4, LastPlayedDate: '2026-09-20T10:00:00.0000000Z' },
+			{ Id: 't2', AlbumId: 'b2', PlayCount: 3, LastPlayedDate: '2026-09-21T10:00:00.0000000Z' },
+			{ Id: 'x1', AlbumId: 'b3', PlayCount: 1, LastPlayedDate: '2026-09-27T10:00:00.0000000Z' },
+			{ Id: 'x2', AlbumId: 'b1', PlayCount: 5, LastPlayedDate: '2026-09-10T10:00:00.0000000Z' }
+		];
+		try {
+			const client = new Client(app.url);
+			await client.signIn({ username: 'jfuser', password: 'jfpass', backend: 'jellyfin' });
+			const recent = await client.page('/albums?sort=recentlyPlayed');
+			assert.equal(recent.response.status, 200, explain('recently played failed'));
+			assert.deepEqual(albumOrder(recent.html), ['b3', 'b2', 'b1'], 'latest play first, unplayed left out');
+			const most = await client.page('/albums?sort=mostPlayed');
+			assert.deepEqual(albumOrder(most.html), ['b2', 'b1', 'b3'], 'plays of all its songs added up');
+		} finally {
+			jellyfin.state.played = [];
+		}
+	});
+
+	test('nothing played leaves both lists empty', async () => {
+		const client = new Client(app.url);
+		await client.signIn({ username: 'jfuser', password: 'jfpass', backend: 'jellyfin' });
+		const { response, html } = await client.page('/albums?sort=mostPlayed');
+		assert.equal(response.status, 200, explain('most played failed'));
+		assert.deepEqual(albumOrder(html), []);
+	});
+});
+
+describe('release years', () => {
+	test('an album shows the year it first came out, not its edition\'s', async () => {
+		const { response, html } = await user.page('/albums/al29');
+		assert.equal(response.status, 200, explain('album page failed'));
+		assert.match(html, /1979/);
+		assert.ok(!html.includes('2009'), 'the edition year is still shown');
+	});
+
+	test('an original date without a year leaves the edition\'s year', async () => {
+		const { html } = await user.page('/albums/al28');
+		assert.match(html, /2008/);
+	});
+});
+
 describe('the phone\'s library and search tabs', () => {
 	test('the library page links to each part of the library and to settings', async () => {
 		const { response, html } = await user.page('/library');
@@ -705,6 +755,203 @@ describe('linking Last.fm and ListenBrainz', () => {
 });
 
 
+describe('instant mix', () => {
+	const mix = async (client, of, id) => {
+		const response = await client.json('/api/tracks', 'POST', { source: 'mix', of, id });
+		return { status: response.status, songs: response.ok ? (await response.json()).songs : null };
+	};
+
+	test('a server with nothing similar answers with an empty mix, not an error', async () => {
+		subsonic.state.mixSize = 0;
+		const { status, songs } = await mix(user, 'album', 'al3');
+		assert.equal(status, 200, explain('mix failed'));
+		assert.deepEqual(songs, []);
+	});
+
+	test('a song\'s mix starts with the song, and albums and artists mix too', async () => {
+		subsonic.state.mixSize = 5;
+		try {
+			const bySong = await mix(user, 'song', 's3a');
+			assert.equal(bySong.status, 200, explain('song mix failed'));
+			assert.equal(bySong.songs[0].id, 's3a', 'the mix does not start with its song');
+			assert.equal(bySong.songs.length, 6);
+			assert.equal(new Set(bySong.songs.map((song) => song.id)).size, 6, 'a song is in the mix twice');
+
+			for (const [of, id] of [['album', 'al3'], ['artist', 'ar3']]) {
+				const result = await mix(user, of, id);
+				assert.equal(result.songs.length, 5, `${of} mix`);
+			}
+		} finally {
+			subsonic.state.mixSize = 0;
+		}
+	});
+
+	test('the kind of seed and its id are required', async () => {
+		assert.equal((await mix(user, 'playlist', 'al3')).status, 400);
+		assert.equal((await mix(user, 'album', undefined)).status, 400);
+	});
+
+	test('Jellyfin mixes from its own endpoint, with a song first and once', async () => {
+		const client = new Client(app.url);
+		await client.signIn({ username: 'jfuser', password: 'jfpass', backend: 'jellyfin' });
+		const byAlbum = await mix(client, 'album', 'b1');
+		assert.equal(byAlbum.status, 200, explain('Jellyfin mix failed'));
+		assert.deepEqual(byAlbum.songs.map((song) => song.id), ['t1', 't2', 't3']);
+		const bySong = await mix(client, 'song', 't2');
+		assert.deepEqual(bySong.songs.map((song) => song.id), ['t2', 't1', 't3']);
+		assert.deepEqual((await mix(client, 'artist', 'a1')).songs, []);
+	});
+});
+
+describe('links to albums and playlists', () => {
+	const share = async (body) => {
+		const response = await user.json('/api/shares', 'POST', body);
+		return { status: response.status, body: response.ok ? await response.json() : null };
+	};
+	const anonymous = () => new Client(app.url);
+
+	test('an album link lists its tracks and plays each by its position, and nothing past them', async () => {
+		const made = await share({ kind: 'album', id: 'al5', days: 1 });
+		assert.equal(made.status, 200, explain('album link failed'));
+		const visitor = anonymous();
+		const { response, html } = await visitor.page(made.body.path);
+		assert.equal(response.status, 200);
+		for (const text of ['Album 5', 'Song 5a', 'Song 5b']) assert.match(html, new RegExp(text));
+		assert.ok(!html.includes('al5') && !html.includes('s5a'), 'an upstream id reached the page');
+
+		const status = async (path) => (await visitor.request(made.body.path + path)).status;
+		assert.equal(await status('/stream/0'), 200);
+		assert.equal(await status('/stream/1'), 200);
+		assert.equal(await status('/cover'), 200);
+		assert.equal(await status('/cover/1'), 200);
+		for (const path of ['/stream/2', '/stream/01', '/stream/-1', '/stream/abc', '/stream/99999', '/cover/2']) {
+			assert.equal(await status(path), 404, path);
+		}
+
+		// Withdrawn: every position stops.
+		assert.equal((await user.request(`/api/shares/${made.body.id}`, { method: 'DELETE' })).status, 200);
+		assert.equal(await status('/stream/1'), 404);
+	});
+
+	test('a playlist link plays the playlist as its owner has it', async () => {
+		const made = await share({ kind: 'playlist', id: 'pl1' });
+		assert.equal(made.status, 200, explain('playlist link failed'));
+		const { html } = await anonymous().page(made.body.path);
+		assert.match(html, /Mock Playlist/);
+		assert.match(html, /Song 1a/);
+		assert.match(html, /Song 2a/);
+		await user.request(`/api/shares/${made.body.id}`, { method: 'DELETE' });
+	});
+
+	test('an album its owner can no longer see stops playing through the link', async () => {
+		const made = await share({ kind: 'album', id: 'al6' });
+		subsonic.state.missing.add('al6');
+		try {
+			const visitor = anonymous();
+			assert.equal((await visitor.request(`${made.body.path}/stream/0`)).status, 404);
+			const { html } = await visitor.page(made.body.path);
+			assert.match(html, /This music is not available/);
+		} finally {
+			subsonic.state.missing.delete('al6');
+			await user.request(`/api/shares/${made.body.id}`, { method: 'DELETE' });
+		}
+	});
+
+	test('only a kind it knows, and an item the owner can see, becomes a link', async () => {
+		assert.equal((await share({ kind: 'artist', id: 'ar5' })).status, 400);
+		assert.equal((await share({ kind: 'album', id: 'al9999' })).status, 404);
+		assert.equal((await share({ kind: 'playlist', id: 'nope' })).status, 404);
+	});
+
+	test('a song link made the old way still works, at position 0 only', async () => {
+		const made = await share({ songId: 's7a' });
+		assert.equal(made.status, 200);
+		const visitor = anonymous();
+		assert.equal((await visitor.request(`${made.body.path}/stream`)).status, 200);
+		assert.equal((await visitor.request(`${made.body.path}/stream/0`)).status, 200);
+		assert.equal((await visitor.request(`${made.body.path}/stream/1`)).status, 404);
+		await user.request(`/api/shares/${made.body.id}`, { method: 'DELETE' });
+	});
+
+	test('Settings names each link by what it is to', async () => {
+		const album = await share({ kind: 'album', id: 'al8' });
+		const { html } = await user.page('/settings');
+		assert.match(html, /Album 8/);
+		assert.match(html, /Album ·/);
+		await user.request(`/api/shares/${album.body.id}`, { method: 'DELETE' });
+	});
+});
+
+describe('reordering a playlist', () => {
+	const move = (client, id, body) => client.json(`/api/playlists/${id}/tracks`, 'PATCH', body);
+
+	test('an entry moves, and the playlist is written back in the new order', async () => {
+		subsonic.state.playlistEntries = ['s1a', 's2a', 's3a'];
+		try {
+			const response = await move(user, 'pl1', { from: 0, to: 2, songId: 's1a', count: 3 });
+			assert.equal(response.status, 200, explain('move failed'));
+			assert.deepEqual(subsonic.state.playlistEntries, ['s2a', 's3a', 's1a']);
+			assert.equal(subsonic.state.lastRequest.post, false, 'a short playlist went as a form');
+		} finally {
+			subsonic.state.playlistEntries = ['s1a', 's2a'];
+		}
+	});
+
+	test('a playlist changed since the page loaded is refused and left alone', async () => {
+		subsonic.state.playlistEntries = ['s1a', 's2a', 's3a'];
+		try {
+			// Another song at `from` now, and one entry more than the page saw.
+			for (const body of [
+				{ from: 0, to: 1, songId: 's9a', count: 3 },
+				{ from: 0, to: 1, songId: 's1a', count: 2 },
+				{ from: 0, to: 5, songId: 's1a', count: 3 }
+			]) {
+				const response = await move(user, 'pl1', body);
+				assert.equal(response.status, 409, JSON.stringify(body));
+			}
+			assert.deepEqual(subsonic.state.playlistEntries, ['s1a', 's2a', 's3a']);
+		} finally {
+			subsonic.state.playlistEntries = ['s1a', 's2a'];
+		}
+	});
+
+	test('a long playlist is written as a form rather than a URL', async () => {
+		const ids = Array.from({ length: 160 }, (_, i) => `s${i % 40}${String.fromCharCode(97 + Math.floor(i / 40))}`);
+		subsonic.state.playlistEntries = [...ids];
+		try {
+			const response = await move(user, 'pl1', { from: 159, to: 0, songId: ids[159], count: 160 });
+			assert.equal(response.status, 200, explain('long move failed'));
+			assert.equal(subsonic.state.lastRequest.post, true, 'the rewrite went in the URL');
+			assert.deepEqual(subsonic.state.playlistEntries, [ids[159], ...ids.slice(0, 159)]);
+		} finally {
+			subsonic.state.playlistEntries = ['s1a', 's2a'];
+		}
+	});
+
+	test('the positions have to be two different places in the list', async () => {
+		for (const body of [
+			{ from: 1, to: 1, songId: 's2a', count: 2 },
+			{ from: -1, to: 0, songId: 's1a', count: 2 },
+			{ from: 0, to: 1.5, songId: 's1a', count: 2 },
+			{ from: 0, to: 1, count: 2 }
+		]) {
+			assert.equal((await move(user, 'pl1', body)).status, 400, JSON.stringify(body));
+		}
+	});
+
+	test('Jellyfin moves the entry in place, by its entry id', async () => {
+		const client = new Client(app.url);
+		await client.signIn({ username: 'jfuser', password: 'jfpass', backend: 'jellyfin' });
+		const response = await move(client, 'jpl', { from: 0, to: 2, songId: 'jt1', count: 3 });
+		assert.equal(response.status, 200, explain('Jellyfin move failed'));
+		assert.equal(jellyfin.calls.get('POST /Playlists/jpl/Items/e1/Move/2'), 1);
+		// The page's view is now stale: the first entry is jt2.
+		const stale = await move(client, 'jpl', { from: 0, to: 1, songId: 'jt1', count: 3 });
+		assert.equal(stale.status, 409);
+		await move(client, 'jpl', { from: 2, to: 0, songId: 'jt1', count: 3 });
+	});
+});
+
 describe('sessions ending', () => {
 	test('a credential the music server stops accepting signs the account out', async () => {
 		const client = new Client(app.url);
@@ -728,5 +975,131 @@ describe('sessions ending', () => {
 		assert.ok([200, 303].includes(response.status), `logout answered ${response.status}`);
 		const after = await client.request('/', { headers: { accept: 'text/html' } });
 		assert.equal(after.status, 303);
+	});
+});
+
+describe('signed in on', () => {
+	const FIREFOX_ANDROID = 'Mozilla/5.0 (Android 15; Mobile; rv:143.0) Gecko/143.0 Firefox/143.0';
+	const SAFARI_IPHONE =
+		'Mozilla/5.0 (iPhone; CPU iPhone OS 26_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Mobile/15E148 Safari/604.1';
+
+	/** A client signed in with `userAgent`, as a browser of that kind would be. */
+	async function signedIn(userAgent, account = { username: 'testuser', password: 'testpass', backend: 'subsonic' }) {
+		const client = new Client(app.url);
+		const response = await client.request('/login', {
+			method: 'POST',
+			headers: {
+				'content-type': 'application/x-www-form-urlencoded',
+				accept: 'text/html',
+				'user-agent': userAgent
+			},
+			body: new URLSearchParams({ ...account, next: '/' }).toString()
+		});
+		assert.equal(response.status, 303, explain('sign-in failed'));
+		return client;
+	}
+
+	/** The handles the settings page offers to sign out, in its order. */
+	async function handles(client) {
+		const { html } = await client.page('/settings');
+		return [...html.matchAll(/name="handle" value="([0-9a-f]{16})"/g)].map((match) => match[1]);
+	}
+
+	async function action(client, name, fields = {}) {
+		const response = await client.request(`/settings?/${name}`, {
+			method: 'POST',
+			headers: {
+				'content-type': 'application/x-www-form-urlencoded',
+				accept: 'application/json',
+				'x-sveltekit-action': 'true'
+			},
+			body: new URLSearchParams(fields).toString()
+		});
+		return { status: response.status, result: await response.json() };
+	}
+
+	const signedOut = async (client) => (await client.request('/', { headers: { accept: 'text/html' } })).status === 303;
+
+	test('settings lists each browser by name, and marks this one', async () => {
+		const phone = await signedIn(FIREFOX_ANDROID);
+		const iphone = await signedIn(SAFARI_IPHONE);
+		const { html } = await phone.page('/settings');
+		assert.match(html, /Firefox on Android/);
+		assert.match(html, /Safari on iPhone/);
+		assert.match(html, /This browser/);
+		// This browser has no sign-out button of its own in the list; the other does.
+		assert.ok((await handles(phone)).length >= 1);
+		assert.ok(!html.includes('Mozilla/5.0'), 'the whole user agent reached the page');
+		await iphone.request('/logout', { method: 'POST' });
+		await phone.request('/logout', { method: 'POST' });
+	});
+
+	test('another browser can be signed out, and only that one', async () => {
+		const phone = await signedIn(FIREFOX_ANDROID);
+		const iphone = await signedIn(SAFARI_IPHONE);
+		// Each browser is offered every session but its own, so the iPhone's is
+		// the one the phone is offered and the iPhone is not.
+		const iphoneSees = new Set(await handles(iphone));
+		const target = (await handles(phone)).find((handle) => !iphoneSees.has(handle));
+		assert.ok(target, 'no handle for the other browser');
+
+		const ended = await action(phone, 'endSession', { handle: target });
+		assert.equal(ended.result.type, 'success', JSON.stringify(ended.result));
+		assert.equal(await signedOut(iphone), true, 'the iPhone is still signed in');
+		assert.equal(await signedOut(phone), false, 'the phone signed itself out');
+		await phone.request('/logout', { method: 'POST' });
+	});
+
+	test('a handle that is not one of the account\'s own ends nothing', async () => {
+		const phone = await signedIn(FIREFOX_ANDROID);
+		const other = await signedIn(SAFARI_IPHONE, { username: 'jfuser', password: 'jfpass', backend: 'jellyfin' });
+		const otherHandles = await handles(await signedIn(FIREFOX_ANDROID, { username: 'jfuser', password: 'jfpass', backend: 'jellyfin' }));
+		assert.ok(otherHandles.length > 0);
+
+		for (const handle of [...otherHandles, 'ffffffffffffffff', 'not-a-handle', '']) {
+			const attempt = await action(phone, 'endSession', { handle });
+			assert.equal(attempt.result.type, 'failure', `${handle}: ${JSON.stringify(attempt.result)}`);
+		}
+		assert.equal(await signedOut(other), false, 'a session of another account ended');
+		await other.request('/logout', { method: 'POST' });
+		await phone.request('/logout', { method: 'POST' });
+	});
+
+	test('"everywhere else" leaves this browser signed in and the rest out', async () => {
+		const here = await signedIn(FIREFOX_ANDROID);
+		const others = [await signedIn(SAFARI_IPHONE), await signedIn(SAFARI_IPHONE)];
+		const ended = await action(here, 'endOtherSessions');
+		assert.equal(ended.result.type, 'success');
+		for (const client of others) assert.equal(await signedOut(client), true, 'another browser is still signed in');
+		assert.equal(await signedOut(here), false, 'this browser was signed out');
+		assert.deepEqual(await handles(here), [], 'the list still offers another session');
+	});
+
+	test('a database from before the device column opens and records it', async () => {
+		const { default: Database } = await import('better-sqlite3');
+		const { mkdtempSync } = await import('node:fs');
+		const { tmpdir } = await import('node:os');
+		const { join } = await import('node:path');
+		const dataDir = mkdtempSync(join(tmpdir(), 'heddohon-e2e-old-'));
+		const old = new Database(join(dataDir, 'heddohon.db'));
+		old.exec(`CREATE TABLE sessions (
+			token_digest TEXT PRIMARY KEY, account_id TEXT NOT NULL, created_at INTEGER NOT NULL,
+			expires_at INTEGER NOT NULL, last_seen_at INTEGER NOT NULL, client_pseudonym TEXT)`);
+		old.close();
+
+		const upgraded = await startApp({ subsonicUrl: subsonic.url, jellyfinUrl: jellyfin.url, dataDir });
+		try {
+			const client = new Client(upgraded.url);
+			const response = await client.request('/login', {
+				method: 'POST',
+				headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'text/html', 'user-agent': FIREFOX_ANDROID },
+				body: new URLSearchParams({ username: 'testuser', password: 'testpass', backend: 'subsonic', next: '/' }).toString()
+			});
+			assert.equal(response.status, 303, upgraded.output());
+			const { html } = await client.page('/settings');
+			assert.match(html, /Firefox on Android/);
+		} finally {
+			await upgraded.stop();
+		}
 	});
 });

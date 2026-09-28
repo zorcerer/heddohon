@@ -31,12 +31,23 @@
 	import { shareComposer } from '$lib/client/share.svelte';
 	import { pullHandlers } from '$lib/client/sheet.svelte';
 	import { page } from '$app/state';
-	import { DUR, EASE_OUT_CSS, easeExit, easeOut, motion } from '$lib/client/motion';
+	import {
+		DUR,
+		EASE_OUT_CSS,
+		easeExit,
+		easeOut,
+		flipGlyph,
+		motion,
+		popGlyph,
+		skipGlyph,
+		turnGlyph
+	} from '$lib/client/motion';
 	import { flip } from 'svelte/animate';
 	import Cover from './Cover.svelte';
 	import FavouriteButton from './FavouriteButton.svelte';
 	import Icon from './Icon.svelte';
 	import LyricsView from './LyricsView.svelte';
+	import MixButton from './MixButton.svelte';
 	import QualityBadge from './QualityBadge.svelte';
 	import Seekbar from './Seekbar.svelte';
 
@@ -457,6 +468,10 @@
 								: ''}
 						</a>
 					{/if}
+					<!-- A mix made from this track, among the things about this track. -->
+					<div class="more-like">
+						<MixButton of="song" id={song.id} label="Instant mix from this track" variant="inline" />
+					</div>
 				</div>
 			</div>
 		{/if}
@@ -503,7 +518,10 @@
 			<button
 				class="edge"
 				class:on={player.shuffle}
-				onclick={() => player.toggleShuffle()}
+				onclick={(event) => {
+					flipGlyph(event.currentTarget);
+					player.toggleShuffle();
+				}}
 				aria-pressed={player.shuffle}
 				aria-label="Shuffle"
 				title="Shuffle"
@@ -513,7 +531,10 @@
 
 			<button
 				class="step"
-				onclick={() => player.previous()}
+				onclick={(event) => {
+					skipGlyph(event.currentTarget, -1);
+					void player.previous();
+				}}
 				disabled={!player.hasQueue}
 				aria-label="Previous track"
 				title="Previous"
@@ -543,7 +564,10 @@
 
 			<button
 				class="step"
-				onclick={() => player.next()}
+				onclick={(event) => {
+					skipGlyph(event.currentTarget, 1);
+					void player.next();
+				}}
 				disabled={!player.hasQueue}
 				aria-label="Next track"
 				title="Next"
@@ -554,7 +578,10 @@
 			<button
 				class="edge"
 				class:on={player.repeat !== 'off'}
-				onclick={() => player.cycleRepeat()}
+				onclick={(event) => {
+					turnGlyph(event.currentTarget);
+					player.cycleRepeat();
+				}}
 				aria-label="Repeat: {player.repeat}"
 				title="Repeat: {player.repeat}"
 			>
@@ -567,7 +594,10 @@
 				<div class="volume">
 					<button
 						class="tool"
-						onclick={() => player.toggleMute()}
+						onclick={(event) => {
+							popGlyph(event.currentTarget);
+							player.toggleMute();
+						}}
 						aria-label={player.muted ? 'Unmute' : 'Mute'}
 						title={player.muted ? 'Unmute' : 'Mute'}
 					>
@@ -690,9 +720,12 @@
 				title="Queue ({player.queue.length})"
 			>
 				<Icon name="queue" size={18} />
-				{#if player.queue.length > 0}
-					<span class="count hh-numeric">{player.queue.length}</span>
-				{/if}
+				<!-- Keyed, so a track added from anywhere pops the count as it changes. -->
+				{#key player.queue.length}
+					{#if player.queue.length > 0}
+						<span class="count hh-numeric">{player.queue.length}</span>
+					{/if}
+				{/key}
 			</button>
 
 			<button
@@ -1163,6 +1196,10 @@
 		color: var(--text-default);
 	}
 
+	.more-like {
+		margin-top: var(--space-2);
+	}
+
 	.download {
 		display: inline-flex;
 		align-items: center;
@@ -1362,7 +1399,8 @@
 		transition:
 			text-shadow var(--transition),
 			color var(--transition),
-			border-color var(--transition);
+			border-color var(--transition),
+			background var(--transition);
 	}
 
 	.chip:hover {
@@ -1413,7 +1451,15 @@
 		filter: none;
 	}
 
+	/* A change of count, from here or from an "Add to queue" anywhere else. */
+	@keyframes count-pop {
+		from {
+			scale: 0.4;
+		}
+	}
+
 	.count {
+		animation: count-pop var(--dur-state) var(--ease-spring);
 		position: absolute;
 		top: 0.3rem;
 		right: 0.25rem;

@@ -11,6 +11,7 @@ import type {
 	Lyrics,
 	SearchResults,
 	Song,
+	MixSeed,
 	StarKind
 } from '$lib/types';
 import type { LastfmStart, ScrobblerLinks, ScrobblerService } from './navidrome';
@@ -53,6 +54,16 @@ export interface UpstreamResponse {
 	status: number;
 	headers: Headers;
 	body: ReadableStream<Uint8Array> | null;
+}
+
+/** One entry of a playlist moved, and what the caller saw before moving it. */
+export interface PlaylistMove {
+	from: number;
+	to: number;
+	/** The song the caller saw at `from`. */
+	songId: string;
+	/** How many entries the caller saw. */
+	count: number;
 }
 
 export interface PlaybackReport {
@@ -189,6 +200,14 @@ export interface MediaBackend {
 		limit: number
 	): Promise<Album[]>;
 
+	/**
+	 * Up to `limit` songs the music server considers like a song, an album or
+	 * an artist: an instant mix. Empty when it has none, which on Navidrome is
+	 * every item unless an external agent (Last.fm and others) is configured.
+	 * A song's mix starts with the song itself.
+	 */
+	getInstantMix(cred: StoredCredential, kind: MixSeed, id: string, limit: number): Promise<Song[]>;
+
 	/** Every genre with at least one album, sorted by name. */
 	getGenres(cred: StoredCredential): Promise<Genre[]>;
 	/** Albums in one genre, by name, a page at a time. */
@@ -220,6 +239,15 @@ export interface MediaBackend {
 	 * ambiguous anyway — the same track can legitimately appear twice.
 	 */
 	removeFromPlaylist(cred: StoredCredential, id: string, indices: number[]): Promise<void>;
+	/**
+	 * Moves the entry at position `from` to position `to`, the rest keeping
+	 * their order. `songId` and `count` are what the caller saw: the song at
+	 * `from` and the number of entries. If the playlist no longer matches
+	 * (changed in another player since the page loaded), nothing is written
+	 * and an `UpstreamError` of kind `conflict` is thrown, so an edit made
+	 * elsewhere is not overwritten.
+	 */
+	movePlaylistEntry(cred: StoredCredential, id: string, move: PlaylistMove): Promise<void>;
 	deletePlaylist(cred: StoredCredential, id: string): Promise<void>;
 	reportPlayback(cred: StoredCredential, report: PlaybackReport): Promise<void>;
 

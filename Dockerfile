@@ -1,7 +1,12 @@
 # syntax=docker/dockerfile:1
 
 # ── Build stage ───────────────────────────────────────────────────────────────
-FROM node:22-bookworm-slim AS builder
+# On the machine doing the build, whatever the target (`$BUILDPLATFORM`), so an
+# arm64 image is not built under emulation. Nothing this stage produces is tied
+# to its own architecture: `build/` is JavaScript, and the one native module,
+# better-sqlite3, carries the binaries for both targets (see below). Only the
+# runtime stage runs as the target, and all it does is install two packages.
+FROM --platform=$BUILDPLATFORM node:22-bookworm-slim AS builder
 
 WORKDIR /app
 

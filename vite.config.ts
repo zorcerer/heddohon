@@ -67,6 +67,10 @@ export default defineConfig({
 					filename.split(/[/\\]/).includes('node_modules') ? undefined : true
 			},
 			adapter: adapter({ out: 'build' }),
+			// How often an open tab asks whether the server runs a newer build.
+			// The root layout takes the update on the next page change made while
+			// nothing is playing.
+			version: { pollInterval: 300_000 },
 			// Written in place rather than lifted to a named constant so the
 			// keywords are typed against what the plugin accepts. Pulled out, they
 			// widen to `string[]` and stop matching the directive types.

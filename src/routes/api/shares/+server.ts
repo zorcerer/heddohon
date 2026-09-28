@@ -7,12 +7,13 @@ import {
 	ShareLimitError,
 	createShare,
 	describeShares,
+	isShareKind,
 	isShareLifetime
 } from '$lib/server/shares';
 import { log } from '$lib/server/log';
 import { config } from '$lib/server/config';
 
-/** The account's own live links, with the songs they point at. */
+/** The account's own live links, with what they point at. */
 export const GET: RequestHandler = async ({ locals }) => {
 	const session = locals.session;
 	if (!session) error(401, 'Not signed in');
@@ -20,11 +21,13 @@ export const GET: RequestHandler = async ({ locals }) => {
 };
 
 /**
- * Makes a link to one song.
+ * Makes a link to a song, an album or a playlist.
  *
- * The response is the only place the token ever appears. The body carries a
- * path rather than an absolute URL: the browser already knows the origin it is
- * on, and the server's idea of it can be wrong behind a proxy.
+ * The body is `{ kind, id, days }`; `{ songId, days }`, from before albums and
+ * playlists could be shared, still makes a song link. The response is the only
+ * place the token ever appears. It carries a path rather than an absolute URL:
+ * the browser already knows the origin it is on, and the server's idea of it
+ * can be wrong behind a proxy.
  */
 export const POST: RequestHandler = async ({ locals, request }) => {
 	const session = locals.session;
@@ -32,39 +35,45 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 	if (!config().sharing) error(403, 'Sharing is turned off on this server');
 
 	const body = (await request.json().catch(() => null)) as {
+		kind?: unknown;
+		id?: unknown;
 		songId?: unknown;
 		days?: unknown;
 	} | null;
-	if (!body || typeof body.songId !== 'string' || body.songId.length === 0 || body.songId.length >= 256) {
-		error(400, 'songId is required');
-	}
-	const days = body.days === undefined ? DEFAULT_SHARE_LIFETIME : body.days;
+	const kind = body?.kind === undefined ? 'song' : body.kind;
+	if (!isShareKind(kind)) error(400, 'kind must be song, album or playlist');
+	const id = body?.id ?? body?.songId;
+	if (typeof id !== 'string' || id.length === 0 || id.length >= 256) error(400, 'id is required');
+	const days = body?.days === undefined ? DEFAULT_SHARE_LIFETIME : body.days;
 	if (!isShareLifetime(days)) error(400, 'days must be 1, 7 or 30');
 
 	/*
-	 * The song is looked up with the sharer's own credential first. A link is
+	 * The item is looked up with the sharer's own credential first. A link is
 	 * only ever made to something its owner can play, so an id guessed or
 	 * copied from elsewhere does not become a row, and a typo is reported here
 	 * rather than to whoever opens the link.
 	 */
+	const missing = `That ${kind} is not in your library`;
 	try {
-		const [song] = await backendFor(session.account.backend).getSongs(session.credential, [body.songId]);
-		if (!song) error(404, 'That song is not in your library');
+		const backend = backendFor(session.account.backend);
+		if (kind === 'album') await backend.getAlbum(session.credential, id);
+		else if (kind === 'playlist') await backend.getPlaylist(session.credential, id);
+		else if (!(await backend.getSongs(session.credential, [id]))[0]) error(404, missing);
 	} catch (err) {
 		if (err instanceof UpstreamError) {
 			if (err.kind === 'auth') {
 				await destroyAllSessions(session.account.id);
 				error(401, 'Your music server credentials are no longer valid. Please sign in again.');
 			}
-			error(err.kind === 'not_found' ? 404 : 502, err.kind === 'not_found' ? 'That song is not in your library' : err.message);
+			error(err.kind === 'not_found' ? 404 : 502, err.kind === 'not_found' ? missing : err.message);
 		}
 		throw err;
 	}
 
 	try {
-		const share = await createShare(session.account, body.songId, days);
+		const share = await createShare(session.account, kind, id, days);
 		// The row id, never the token.
-		log.info('share-created', { share: share.id, days });
+		log.info('share-created', { share: share.id, kind, days });
 		return json({ id: share.id, path: `/share/${share.token}`, expiresAt: share.expiresAt });
 	} catch (err) {
 		if (err instanceof ShareLimitError) error(429, err.message);

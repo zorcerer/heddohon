@@ -695,6 +695,495 @@ describe('the artist and playlist headings', () => {
 	}
 });
 
+describe('instant mix', () => {
+	test('says when there is nothing similar, and otherwise plays the mix', async () => {
+		const { page, problems } = await watchedPage();
+		try {
+			await page.goto(app.url + '/albums/al18', { waitUntil: 'networkidle' });
+			// By its class: its name is its label, which says what happened for four seconds.
+			const button = page.locator('main button.mix');
+
+			const title = () => page.evaluate(() => document.querySelector('aside.panel h2.title')?.textContent);
+			// Whatever an earlier test left in the queue, restored on arrival.
+			await page.waitForTimeout(500);
+			const before = await title();
+
+			subsonic.state.mixSize = 0;
+			await button.click();
+			await page.getByText('Nothing similar on your music server').waitFor({ timeout: 5000 });
+			assert.equal(await title(), before, 'an empty mix changed the queue');
+
+			subsonic.state.mixSize = 4;
+			await button.click();
+			await page.waitForFunction(() => document.querySelector('aside.panel h2.title')?.textContent === 'Song 19a');
+		} finally {
+			subsonic.state.mixSize = 0;
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+});
+
+describe('an album link', () => {
+	test('is made from the album page, and plays from any track on the shared page', async () => {
+		subsonic.state.audio = { type: 'audio/wav', body: silentWav(30) };
+		const { page, problems } = await watchedPage();
+		const visitor = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+		try {
+			await page.goto(app.url + '/albums/al10', { waitUntil: 'networkidle' });
+			await page.getByRole('button', { name: 'Share a link to this album' }).click();
+			await page.getByText('Share an album').waitFor();
+			await page.getByRole('button', { name: 'Create link' }).click();
+			const url = await page.locator('dialog input.url').inputValue();
+			assert.match(url, /\/share\/[A-Za-z0-9_-]{43}$/);
+
+			const shared = await visitor.newPage();
+			await shared.goto(url, { waitUntil: 'networkidle' });
+			await shared.getByText('An album, shared with you.').waitFor();
+			await shared.getByRole('list', { name: 'Tracks' }).getByRole('button', { name: /Song 10b/ }).click();
+			await shared.waitForFunction(() => document.querySelector('.card h2.title')?.textContent === 'Song 10b');
+			await shared.waitForFunction(() => {
+				const audio = document.querySelector('.card audio');
+				return audio && !audio.paused && audio.src.endsWith('/stream/1');
+			});
+		} finally {
+			subsonic.state.audio = null;
+			await visitor.close();
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+});
+
+describe('reordering a playlist', () => {
+	const titles = (page) =>
+		page.evaluate(() => [...document.querySelectorAll('main .track .title')].map((el) => el.textContent));
+
+	test('a row is dragged to its new place by its handle', async () => {
+		subsonic.state.playlistEntries = ['s1a', 's2a', 's3a'];
+		const { page, problems } = await watchedPage();
+		try {
+			await page.goto(app.url + '/playlists/pl1', { waitUntil: 'networkidle' });
+			assert.deepEqual(await titles(page), ['Song 1a', 'Song 2a', 'Song 3a']);
+
+			const grip = page.locator('main .grip').first();
+			const box = await grip.boundingBox();
+			const rowHeight = await page.locator('main .tracks > li').first().evaluate((li) => li.offsetHeight);
+			await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+			await page.mouse.down();
+			for (let step = 1; step <= 10; step++) {
+				await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2 + (rowHeight * 2 * step) / 10);
+				await page.waitForTimeout(16);
+			}
+			// The move is saved by this request; network idle can come before it starts.
+			const saved = page.waitForResponse((r) => r.request().method() === 'PATCH' && r.url().endsWith('/tracks'));
+			await page.mouse.up();
+
+			await page.waitForFunction(
+				() => [...document.querySelectorAll('main .track .title')].map((el) => el.textContent).join() === 'Song 2a,Song 3a,Song 1a'
+			);
+			await saved;
+			assert.deepEqual(subsonic.state.playlistEntries, ['s2a', 's3a', 's1a']);
+		} finally {
+			subsonic.state.playlistEntries = ['s1a', 's2a'];
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+
+	test('a focused handle moves its row with the arrow keys, and keeps focus', async () => {
+		subsonic.state.playlistEntries = ['s1a', 's2a', 's3a'];
+		const { page, problems } = await watchedPage();
+		try {
+			await page.goto(app.url + '/playlists/pl1', { waitUntil: 'networkidle' });
+			await page.locator('main .grip').first().focus();
+			const saved = page.waitForResponse((r) => r.request().method() === 'PATCH' && r.url().endsWith('/tracks'));
+			await page.keyboard.press('ArrowDown');
+			await page.waitForFunction(
+				() => [...document.querySelectorAll('main .track .title')].map((el) => el.textContent).join() === 'Song 2a,Song 1a,Song 3a'
+			);
+			await saved;
+			assert.deepEqual(subsonic.state.playlistEntries, ['s2a', 's1a', 's3a']);
+			const focused = await page.evaluate(() => document.activeElement?.getAttribute('aria-label') ?? '');
+			assert.match(focused, /^Move Song 1a, number 2 of 3/);
+			// Enter on a handle is the handle's: it does not start the row's song.
+			await page.keyboard.press('Enter');
+			await page.waitForTimeout(300);
+			assert.notEqual(
+				await page.evaluate(() => document.querySelector('aside.panel h2.title')?.textContent),
+				'Song 1a'
+			);
+		} finally {
+			subsonic.state.playlistEntries = ['s1a', 's2a'];
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+});
+
+describe('waiting for a page', () => {
+	test('a slow page shows the press, a line and a softened page, and clears them when it lands', async () => {
+		subsonic.state.delays.set('getAlbumList2', 1500);
+		const { page, problems } = await watchedPage();
+		try {
+			await page.goto(app.url + '/settings', { waitUntil: 'networkidle' });
+			const link = page.locator('nav.rail').getByRole('link', { name: 'Albums' });
+			await link.click();
+			await page.waitForTimeout(500);
+			const during = await page.evaluate(() => {
+				const box = (el) => {
+					const r = el.getBoundingClientRect();
+					return { left: r.left, right: r.right, top: r.top, bottom: r.bottom };
+				};
+				return {
+					pending: document.querySelector('nav.rail a[href="/albums"]').classList.contains('hh-pending'),
+					veil: document.querySelector('.wait-veil').classList.contains('waiting'),
+					line: document.querySelector('.nav-progress').classList.contains('waiting'),
+					veilBox: box(document.querySelector('.wait-veil')),
+					rail: box(document.querySelector('nav.rail')),
+					panel: box(document.querySelector('aside.panel')),
+					path: location.pathname
+				};
+			});
+			assert.equal(during.path, '/settings', 'the page changed before its data arrived');
+			assert.ok(during.pending, 'the link pressed was not marked');
+			assert.ok(during.veil, 'the page being left was not softened');
+			assert.ok(during.line, 'there was no progress line');
+			const overlaps = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+			assert.ok(!overlaps(during.veilBox, during.rail), 'the wait layer is behind the rail');
+			assert.ok(!overlaps(during.veilBox, during.panel), 'the wait layer is behind the player');
+
+			await page.waitForURL(/\/albums$/);
+			await page.waitForTimeout(400);
+			const after = await page.evaluate(() => ({
+				pending: document.querySelectorAll('.hh-pending').length,
+				veil: document.querySelector('.wait-veil').classList.contains('waiting'),
+				line: document.querySelector('.nav-progress').classList.contains('waiting')
+			}));
+			assert.deepEqual(after, { pending: 0, veil: false, line: false });
+		} finally {
+			subsonic.state.delays.delete('getAlbumList2');
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+
+	test('a fast page shows none of it', async () => {
+		const { page, problems } = await watchedPage();
+		try {
+			await page.goto(app.url + '/settings', { waitUntil: 'networkidle' });
+			await page.evaluate(() => {
+				window.__waited = false;
+				new MutationObserver(() => {
+					if (document.querySelector('.wait-veil.waiting, .nav-progress.waiting')) window.__waited = true;
+				}).observe(document.body, { subtree: true, attributes: true, attributeFilter: ['class'] });
+			});
+			await page.locator('nav.rail').getByRole('link', { name: 'Playlists' }).click();
+			await page.waitForURL(/\/playlists$/);
+			await page.waitForTimeout(300);
+			assert.equal(await page.evaluate(() => window.__waited), false, 'a fast page showed the wait');
+		} finally {
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+});
+
+describe('a shared album\'s transport', () => {
+	test('puts play in the middle, with the track details behind the info button', async () => {
+		const made = await (
+			await context.request.post(`${app.url}/api/shares`, {
+				data: { kind: 'album', id: 'al19', days: 1 },
+				headers: { origin: app.url }
+			})
+		).json();
+		const visitor = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+		try {
+			const shared = await visitor.newPage();
+			await shared.goto(app.url + made.path, { waitUntil: 'networkidle' });
+			const layout = await shared.evaluate(() => {
+				const row = document.querySelector('.card .transport');
+				const buttons = [...row.querySelectorAll('button')];
+				const centre = (el) => {
+					const r = el.getBoundingClientRect();
+					return r.left + r.width / 2;
+				};
+				return {
+					labels: buttons.map((b) => b.getAttribute('aria-label')),
+					offset: Math.abs(centre(row.querySelector('.play')) - centre(row))
+				};
+			});
+			assert.deepEqual(layout.labels, ['Track details', 'Previous track', 'Play', 'Next track', 'Mute']);
+			assert.ok(layout.offset < 2, `play is ${layout.offset}px off the middle`);
+
+			await shared.getByRole('button', { name: 'Track details' }).click();
+			await shared.waitForTimeout(500);
+			const facts = await shared.locator('.card .fold.open dt').allTextContents();
+			assert.deepEqual(facts, ['Format', 'Depth and rate', 'Bitrate', 'Album', 'Year', 'Track']);
+		} finally {
+			await visitor.close();
+			await context.request.delete(`${app.url}/api/shares/${made.id}`, { headers: { origin: app.url } });
+		}
+	});
+});
+
+describe('playing across page changes', () => {
+	/*
+	 * Playback stopped on a page change, now and then, for three causes so far.
+	 * An effect in the layout that read what `player.attach` reads detached and
+	 * re-attached the player on navigation; every attach restores the queue
+	 * from `/api/play-state`, so a second request there is a re-attach. And
+	 * SvelteKit turns a page change into a full page load, which tears down the
+	 * audio, when the page's code is gone after an image update or its data
+	 * request fails; a second `load` event is a full page load.
+	 */
+	async function playAndWatch(page) {
+		const restores = [];
+		page.on('request', (r) => {
+			if (r.method() === 'GET' && new URL(r.url()).pathname === '/api/play-state') restores.push(r.url());
+		});
+		await page.goto(app.url + '/albums/al20', { waitUntil: 'networkidle' });
+		const row = page.getByRole('button', { name: 'Play Song 20a', exact: true });
+		await row.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+		await row.click();
+		await page.waitForFunction(() => [...document.querySelectorAll('audio')].some((a) => !a.paused && a.currentTime > 0.3));
+		return restores;
+	}
+
+	/** Still playing, and further in than a moment ago. */
+	async function assertPlaying(page, where) {
+		const first = await page.evaluate(() => Math.max(...[...document.querySelectorAll('audio')].map((a) => (a.paused ? -1 : a.currentTime))));
+		await page.waitForTimeout(400);
+		const second = await page.evaluate(() => Math.max(...[...document.querySelectorAll('audio')].map((a) => (a.paused ? -1 : a.currentTime))));
+		assert.ok(first >= 0 && second > first, `playback stopped at ${where} (${first} then ${second})`);
+	}
+
+	before(() => {
+		subsonic.state.audio = { type: 'audio/wav', body: silentWav(300) };
+	});
+
+	after(() => {
+		subsonic.state.audio = null;
+	});
+
+	test('on a wide screen, through the rail and by cards', async () => {
+		const { page, problems } = await watchedPage();
+		try {
+			const restores = await playAndWatch(page);
+			const count = restores.length;
+			const rail = (name) => page.locator('nav.rail').getByRole('link', { name, exact: true });
+			const steps = [
+				['rail Albums', () => rail('Albums').click(), /\/albums$/],
+				['an album card', () => page.locator('main a[href="/albums/al3"]').first().click(), /\/albums\/al3$/],
+				['rail Artists', () => rail('Artists').click(), /\/artists$/],
+				['an artist card', () => page.locator('main a[href="/artists/ar4"]').first().click(), /\/artists\/ar4$/],
+				['rail Genres', () => rail('Genres').click(), /\/genres$/],
+				['rail Playlists', () => rail('Playlists').click(), /\/playlists$/],
+				['a playlist card', () => page.locator('main a[href="/playlists/pl1"]').first().click(), /\/playlists\/pl1$/],
+				['rail Favourites', () => rail('Favourites').click(), /\/favourites/],
+				['rail Search', () => rail('Search').click(), /\/search$/],
+				['rail Home', () => rail('Home').click(), /\/$/],
+				['a home card', () => page.locator('main a[href^="/albums/al"]').first().click(), /\/albums\/al\d+$/],
+				['back', () => page.goBack(), /\/$/],
+				['rail Settings', () => page.locator('nav.rail a[href="/settings"]').click(), /\/settings$/],
+				['rail Albums again', () => rail('Albums').click(), /\/albums$/],
+				['a sort chip', () => page.locator('main a[href*="sort="]').nth(1).click(), /sort=/],
+				['rail Home again', () => rail('Home').click(), /\/$/]
+			];
+			for (const [where, go, url] of steps) {
+				await go();
+				await page.waitForURL(url);
+				await page.waitForLoadState('networkidle');
+				await assertPlaying(page, where);
+			}
+			assert.equal(restores.length, count, `the player was attached again ${restores.length - count} times`);
+		} finally {
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+
+	test('on a phone, through the dock, the Library page and cards', async () => {
+		const phone = await browser.newContext({ viewport: { width: 393, height: 852 }, isMobile: true, hasTouch: true });
+		const signIn = await phone.request.post(`${app.url}/login`, {
+			form: { username: 'testuser', password: 'testpass', backend: 'subsonic', next: '/' },
+			headers: { origin: app.url, accept: 'text/html' },
+			maxRedirects: 0
+		});
+		assert.equal(signIn.status(), 303);
+		const page = await phone.newPage();
+		const problems = [];
+		page.on('pageerror', (err) => problems.push(err.message));
+		try {
+			const restores = await playAndWatch(page);
+			const count = restores.length;
+			const tab = (name) => page.locator('.phone-dock').getByRole('link', { name, exact: true });
+			const steps = [
+				['dock Library', () => tab('Library').tap(), /\/library$/],
+				['Library Albums', () => page.locator('main a[href="/albums"]').first().tap(), /\/albums$/],
+				['an album card', () => page.locator('main a[href="/albums/al5"]').first().tap(), /\/albums\/al5$/],
+				['dock Home', () => tab('Home').tap(), /\/$/],
+				['dock Favourites', () => tab('Favourites').tap(), /\/favourites/],
+				['dock Search', () => tab('Search').tap(), /\/search$/],
+				['a genre tile', () => page.locator('main a[href^="/genres/"]').first().tap(), /\/genres\//],
+				['dock Library again', () => tab('Library').tap(), /\/library$/],
+				['Library Artists', () => page.locator('main a[href="/artists"]').first().tap(), /\/artists$/],
+				['an artist card', () => page.locator('main a[href="/artists/ar6"]').first().tap(), /\/artists\/ar6$/],
+				['back', () => page.goBack(), /\/artists$/],
+				['dock Library, Playlists', () => tab('Library').tap(), /\/library$/],
+				['Library Playlists', () => page.locator('main a[href="/playlists"]').first().tap(), /\/playlists$/],
+				['a playlist card', () => page.locator('main a[href="/playlists/pl1"]').first().tap(), /\/playlists\/pl1$/],
+				['dock Home again', () => tab('Home').tap(), /\/$/],
+				['settings', () => page.locator('main a[href="/settings"]').first().tap(), /\/settings$/]
+			];
+			for (const [where, go, url] of steps) {
+				// The dock folds away while the page scrolls down.
+				await page.evaluate(() => scrollTo(0, 0));
+				await go();
+				await page.waitForURL(url);
+				await page.waitForLoadState('networkidle');
+				await assertPlaying(page, where);
+			}
+			assert.equal(restores.length, count, `the player was attached again ${restores.length - count} times`);
+		} finally {
+			await phone.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+
+	test('after an image update removed the pages the tab had not opened', async () => {
+		const { page, problems } = await watchedPage();
+		let loads = 0;
+		page.on('load', () => loads++);
+		try {
+			await playAndWatch(page);
+			// The layout fetches every page's code 3 seconds after signing in.
+			await page.waitForTimeout(4000);
+			await page.waitForLoadState('networkidle');
+			// The new build: the old build's page files answer 404 and the
+			// version names a different build.
+			await page.route('**/_app/immutable/nodes/**', (route) => route.fulfill({ status: 404, body: 'Not Found' }));
+			await page.route('**/_app/version.json*', (route) =>
+				route.fulfill({ contentType: 'application/json', body: '{"version":"next"}' })
+			);
+			const before = loads;
+			const rail = (name) => page.locator('nav.rail').getByRole('link', { name, exact: true });
+			for (const [where, go, url] of [
+				['rail Playlists', () => rail('Playlists').click(), /\/playlists$/],
+				['a playlist card', () => page.locator('main a[href="/playlists/pl1"]').first().click(), /\/playlists\/pl1$/],
+				['rail Genres', () => rail('Genres').click(), /\/genres$/]
+			]) {
+				await go();
+				await page.waitForURL(url);
+				await assertPlaying(page, where);
+			}
+			assert.equal(loads, before, 'a page change loaded the whole page');
+		} finally {
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+
+	test('when a page\'s data request fails three times in a row', async () => {
+		const { page, problems } = await watchedPage();
+		let loads = 0;
+		page.on('load', () => loads++);
+		try {
+			await playAndWatch(page);
+			const before = loads;
+			let failures = 3;
+			await page.route('**/__data.json*', (route) => (failures-- > 0 ? route.abort('failed') : route.continue()));
+			await page.locator('nav.rail').getByRole('link', { name: 'Playlists', exact: true }).click();
+			await page.waitForURL(/\/playlists$/);
+			await assertPlaying(page, 'the playlists page');
+			assert.ok(failures < 0, 'every failure was used');
+			assert.equal(loads, before, 'the page change loaded the whole page');
+		} finally {
+			await page.close();
+		}
+		// Chromium reports each aborted request on the console.
+		assert.deepEqual(problems.filter((problem) => !problem.endsWith('Failed to load resource: net::ERR_FAILED')), []);
+	});
+});
+
+describe('shuffle', () => {
+	test('a queue played in order turns it off, and the saved state says so', async () => {
+		const { page, problems } = await watchedPage();
+		try {
+			await page.goto(app.url + '/albums/al12', { waitUntil: 'networkidle' });
+			const main = page.locator('main');
+			const title = () => page.locator('aside.panel h2.title').textContent();
+			// Waited for rather than read after the title changes: a shuffled
+			// queue can already be on the track pressed next, and then the title
+			// matches before the press has landed.
+			const shuffleIs = (on) =>
+				page.waitForFunction(
+					(on) => document.querySelector('aside.panel button[aria-label="Shuffle"]')?.getAttribute('aria-pressed') === String(on),
+					on,
+					{ timeout: 5000 }
+				);
+			const litAgain = () => shuffleIs(true);
+			await main.getByRole('button', { name: 'Shuffle', exact: true }).click();
+			await litAgain();
+
+			// It stayed on over every queue started in order after one shuffle.
+			const saved = page.waitForRequest(
+				(r) =>
+					new URL(r.url()).pathname === '/api/play-state' &&
+					r.method() !== 'GET' &&
+					(r.postData() ?? '').includes('"shuffle":false')
+			);
+			await main.getByRole('button', { name: 'Play', exact: true }).click();
+			await shuffleIs(false);
+			await page.waitForFunction(() => document.querySelector('aside.panel h2.title')?.textContent === 'Song 12a');
+			await saved;
+
+			await main.getByRole('button', { name: 'Shuffle', exact: true }).click();
+			await litAgain();
+			// A row other than the one playing: pressing that one pauses it and
+			// leaves the queue as it is.
+			const playing = await title();
+			const other = ['Song 12a', 'Song 12b'].find((name) => name !== playing);
+			await page.getByRole('button', { name: `Play ${other}`, exact: true }).click();
+			await shuffleIs(false);
+			assert.equal(await title(), other);
+		} finally {
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+});
+
+describe('the featured release', () => {
+	test('zooms and lifts its shade gradually under the pointer', async () => {
+		const { page, problems } = await watchedPage();
+		try {
+			await page.goto(app.url + '/', { waitUntil: 'networkidle' });
+			// Past the 1800ms arrival.
+			await page.waitForTimeout(2000);
+			const read = () =>
+				page.evaluate(() => ({
+					scale: Number(getComputedStyle(document.querySelector('.featured .art')).scale),
+					shade: Number(getComputedStyle(document.querySelector('.featured .scrim')).opacity)
+				}));
+			assert.deepEqual(await read(), { scale: 1.14, shade: 1 });
+			const panel = await page.locator('.featured').boundingBox();
+			await page.mouse.move(panel.x + panel.width * 0.75, panel.y + panel.height * 0.25);
+			await page.waitForTimeout(250);
+			// It jumped straight to 1.2: the arrival animation, filled forwards,
+			// held `scale` and the transition never ran.
+			const midway = await read();
+			assert.ok(midway.scale > 1.14 && midway.scale < 1.195, `the zoom snapped to ${midway.scale}`);
+			assert.ok(midway.shade > 0.8 && midway.shade < 1, `the shade did not fade (${midway.shade})`);
+			await page.waitForTimeout(1500);
+			assert.deepEqual(await read(), { scale: 1.2, shade: 0.8 });
+		} finally {
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+});
+
 describe('track rows', () => {
 	test('a double press on a row\'s heart does not play that row', async () => {
 		const { page, problems } = await watchedPage();
@@ -929,6 +1418,51 @@ describe('the heart in the player', () => {
 	});
 });
 
+describe('a press on the transport', () => {
+	/** The keyframes running on a control's glyph, by the property they move. */
+	const moving = (page, selector) =>
+		page.evaluate((selector) => {
+			const glyph = document.querySelector(selector)?.querySelector('svg');
+			return (glyph?.getAnimations() ?? []).flatMap((a) => Object.keys(a.effect.getKeyframes()[0] ?? {}));
+		}, selector);
+
+	test('throws the skip glyph the way the queue went, and turns shuffle and repeat', async () => {
+		const { page, problems } = await watchedPage();
+		try {
+			await page.goto(app.url + '/albums/al11', { waitUntil: 'networkidle' });
+			const panel = page.locator('aside.panel');
+			await page.getByRole('button', { name: 'Play Song 11a', exact: true }).click();
+			await page.waitForFunction(() => document.querySelector('aside.panel h2.title')?.textContent === 'Song 11a');
+
+			await panel.getByRole('button', { name: 'Next track' }).click();
+			const next = await page.evaluate(() => {
+				const animation = document.querySelector('aside.panel button[aria-label="Next track"] svg')?.getAnimations()[0];
+				return animation ? String(animation.effect.getKeyframes()[1].translate) : null;
+			});
+			assert.match(next ?? '', /^0\.7rem/, 'next did not throw its glyph forward');
+
+			await page.waitForTimeout(600);
+			await panel.getByRole('button', { name: 'Previous track' }).click();
+			const previous = await page.evaluate(() => {
+				const animation = document.querySelector('aside.panel button[aria-label="Previous track"] svg')?.getAnimations()[0];
+				return animation ? String(animation.effect.getKeyframes()[1].translate) : null;
+			});
+			assert.match(previous ?? '', /^-0\.7rem/, 'previous did not throw its glyph back');
+
+			await panel.getByRole('button', { name: 'Shuffle' }).click();
+			assert.ok((await moving(page, 'aside.panel button[aria-label="Shuffle"]')).includes('transform'), 'shuffle did not turn over');
+			await panel.getByRole('button', { name: /^Repeat/ }).click();
+			assert.ok((await moving(page, 'aside.panel button[title^="Repeat"]')).includes('rotate'), 'repeat did not go round');
+			// Back as it was for the tests after this.
+			await panel.getByRole('button', { name: 'Shuffle' }).click();
+			for (let i = 0; i < 2; i++) await panel.getByRole('button', { name: /^Repeat/ }).click();
+		} finally {
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+});
+
 describe('the player on a skip', () => {
 	test('the song text slides in from the right on next and from the left on previous', async () => {
 		const { page, problems } = await watchedPage();
@@ -1016,11 +1550,15 @@ describe('sliders and the playlist picker', () => {
 
 			await row.click();
 			await page.locator('dialog.picker .row.added').waitFor({ timeout: 5000 });
-			await page.waitForTimeout(500);
+			// Until the fade has finished. A fixed 500ms read 0.99 on a slow CI runner.
+			await page.waitForFunction(
+				() => getComputedStyle(document.querySelector('dialog.picker .row.added .check')).opacity === '1',
+				null,
+				{ timeout: 3000 }
+			);
 			const check = await page
 				.locator('dialog.picker .row.added .check')
-				.evaluate((el) => ({ opacity: getComputedStyle(el).opacity, width: el.getBoundingClientRect().width }));
-			assert.equal(check.opacity, '1');
+				.evaluate((el) => ({ width: el.getBoundingClientRect().width }));
 			assert.ok(check.width > 10, 'the check did not open beside the name');
 		} finally {
 			await page.close();
@@ -1181,6 +1719,58 @@ describe('moving between pages', () => {
 		}
 		assert.deepEqual(problems, []);
 	});
+});
+
+describe('a capped section of albums', () => {
+	/*
+	 * "You might like" asks for eight. Rows of three on a phone left two cards
+	 * and an empty third of a row; rows of seven at 1440 left one on a row of
+	 * its own. The section shows whole rows only.
+	 */
+	const suggestions = (page) =>
+		page.evaluate(() => {
+			const heading = [...document.querySelectorAll('h2')].find((h) => h.textContent === 'You might like');
+			const grid = heading?.closest('section')?.querySelector('.grid');
+			if (!grid) return null;
+			const shown = [...grid.children].filter((card) => getComputedStyle(card).display !== 'none').length;
+			const columns = getComputedStyle(grid).gridTemplateColumns.split(' ').length;
+			return { total: grid.children.length, shown, columns };
+		});
+
+	before(() => {
+		subsonic.state.similarAlbums = 8;
+	});
+
+	after(() => {
+		subsonic.state.similarAlbums = 0;
+	});
+
+	for (const [label, viewport, mobile] of [
+		['on a phone', { width: 393, height: 852 }, true],
+		['at 1440px', { width: 1440, height: 900 }, false]
+	]) {
+		test(`shows whole rows only, ${label}`, async () => {
+			const view = await browser.newContext({ viewport, isMobile: mobile, hasTouch: mobile });
+			const signIn = await view.request.post(`${app.url}/login`, {
+				form: { username: 'testuser', password: 'testpass', backend: 'subsonic', next: '/' },
+				headers: { origin: app.url, accept: 'text/html' },
+				maxRedirects: 0
+			});
+			assert.equal(signIn.status(), 303);
+			const page = await view.newPage();
+			try {
+				await page.goto(app.url + '/albums/al26', { waitUntil: 'networkidle' });
+				await page.waitForFunction(() => [...document.querySelectorAll('h2')].some((h) => h.textContent === 'You might like'));
+				const seen = await suggestions(page);
+				assert.equal(seen.total, 8, `the section has ${seen.total} albums`);
+				assert.equal(seen.shown % seen.columns, 0, `${seen.shown} shown in rows of ${seen.columns}`);
+				assert.equal(seen.shown, seen.total - (seen.total % seen.columns));
+				if (mobile) assert.equal(seen.shown, 6);
+			} finally {
+				await view.close();
+			}
+		});
+	}
 });
 
 describe('the phone dock on a wide screen', () => {
@@ -1456,6 +2046,93 @@ describe('on a phone', () => {
 				await page.waitForTimeout(600);
 				assert.equal(await sheetOpen(page), false, 'a 260px pull did not close the sheet');
 				assert.equal(page.url(), url, 'the pull followed the artwork link');
+			} finally {
+				await page.close();
+			}
+			assert.deepEqual(problems, []);
+		});
+
+		test('the cover flies into the sheet at full size, with the sheet\'s own cover hidden until it lands', async () => {
+			const { page, problems } = await phonePage('/');
+			try {
+				await playAlbum(page, 17);
+				await tap(page, page.locator('#dock-open'));
+				await page.waitForFunction(() => document.querySelector('.hh-cover-ghost'));
+				// Held at 400 of 480ms, where the sheet is within a few pixels of
+				// open. The flying cover used to be at 367 by 74 here, a strip
+				// across the dock, measured from the sheet while it was squashed.
+				const frame = await page.evaluate(() => {
+					for (const animation of document.getAnimations()) {
+						animation.pause();
+						animation.currentTime = 400;
+					}
+					const art = document.querySelector('aside.panel .stage .art');
+					const a = art.getBoundingClientRect();
+					const g = document.querySelector('.hh-cover-ghost').getBoundingClientRect();
+					return {
+						apart: Math.max(Math.abs(a.left - g.left), Math.abs(a.top - g.top), Math.abs(a.width - g.width), Math.abs(a.height - g.height)),
+						art: getComputedStyle(art).visibility
+					};
+				});
+				assert.ok(frame.apart <= 3, `the flying cover is ${frame.apart}px off the sheet's cover`);
+				assert.equal(frame.art, 'hidden', 'the sheet\'s own cover shows during the morph');
+				await page.evaluate(() => document.getAnimations().forEach((animation) => animation.play()));
+				await page.waitForFunction(() => !document.querySelector('.hh-cover-ghost'));
+				assert.equal(
+					await page.locator('aside.panel .stage .art').evaluate((el) => getComputedStyle(el).visibility),
+					'visible',
+					'the sheet\'s cover stayed hidden'
+				);
+
+				await tap(page, page.locator('#player-hide'));
+				await page.waitForFunction(() => document.querySelector('.hh-cover-ghost'));
+				assert.equal(
+					await page.locator('aside.panel .stage .art').evaluate((el) => getComputedStyle(el).visibility),
+					'hidden',
+					'the sheet\'s own cover shows while it closes'
+				);
+			} finally {
+				await page.close();
+			}
+			assert.deepEqual(problems, []);
+		});
+
+		test('the sheet closes into the dock, and leaves nothing behind', async () => {
+			const { page, problems } = await phonePage('/');
+			try {
+				await playAlbum(page, 17);
+				await tap(page, page.locator('#dock-open'));
+				await page.waitForTimeout(700);
+
+				await tap(page, page.locator('#player-hide'));
+				await page.waitForTimeout(120);
+				const midway = await page.evaluate(() => {
+					const wrapper = document.querySelector('.app > .player');
+					const dock = document.querySelector('.phone-dock').getBoundingClientRect();
+					const sheet = wrapper.getBoundingClientRect();
+					return {
+						ghost: document.querySelectorAll('.hh-cover-ghost').length,
+						translate: getComputedStyle(wrapper).translate,
+						// Shrinking toward the dock, not sliding down past it.
+						shrinking: sheet.height < innerHeight - 24 && sheet.top > 12 && sheet.bottom <= dock.bottom + 1
+					};
+				});
+				assert.equal(midway.ghost, 1, 'no cover flying to the dock');
+				assert.equal(midway.translate, 'none', 'the sheet is sliding, not morphing');
+				assert.ok(midway.shrinking, 'the sheet is not shrinking into the dock');
+
+				await page.waitForTimeout(700);
+				const after = await page.evaluate(() => {
+					const wrapper = document.querySelector('.app > .player');
+					return {
+						ghost: document.querySelectorAll('.hh-cover-ghost').length,
+						visibility: getComputedStyle(wrapper).visibility,
+						transform: getComputedStyle(wrapper).transform,
+						held: wrapper.classList.contains('morphing') || wrapper.classList.contains('parking')
+					};
+				});
+				assert.deepEqual(after, { ghost: 0, visibility: 'hidden', transform: 'none', held: false });
+				assert.equal(await page.locator('.phone-dock').isVisible(), true, 'the dock is not back');
 			} finally {
 				await page.close();
 			}

@@ -1,6 +1,7 @@
 <script lang="ts">
 	/**
-	 * The share dialog. Mounted once in the root layout and opened with a song.
+	 * The share dialog. Mounted once in the root layout and opened with a song,
+	 * an album or a playlist.
 	 *
 	 * Drawn as a small copy of the player panel: the cover runs to the dialog's
 	 * top corners and dissolves into the controls, with the title block under
@@ -15,7 +16,9 @@
 	let dialog = $state<HTMLDialogElement | null>(null);
 	let field = $state<HTMLInputElement | null>(null);
 
-	const song = $derived(shareComposer.song);
+	const subject = $derived(shareComposer.subject);
+	/** "a song", "an album" or "a playlist", as the dialog's words say it. */
+	const aNoun = $derived(subject?.kind === 'album' ? 'an album' : `a ${subject?.kind ?? 'song'}`);
 	const link = $derived(shareComposer.link);
 
 	$effect(() => {
@@ -45,9 +48,9 @@
 	class="share hh-glass hh-glass--deep"
 	aria-labelledby="share-title"
 >
-	{#if song}
+	{#if subject}
 		<div class="art" aria-hidden="true">
-			<Cover coverArt={song.coverArt} size={384} alt="" radius="var(--r-xl) var(--r-xl) 0 0" hidpi fill />
+			<Cover coverArt={subject.coverArt} size={384} alt="" radius="var(--r-xl) var(--r-xl) 0 0" hidpi fill />
 		</div>
 
 		<button class="close" onclick={() => shareComposer.close()} aria-label="Close" title="Close">
@@ -56,9 +59,11 @@
 
 		<div class="chrome">
 			<header>
-				<span class="hh-eyebrow">Share a song</span>
-				<h2 id="share-title" class="title hh-clamp-2">{song.title}</h2>
-				<p class="artist hh-truncate hh-muted">{song.artist ?? 'Unknown artist'}</p>
+				<span class="hh-eyebrow">Share {aNoun}</span>
+				<h2 id="share-title" class="title hh-clamp-2">{subject.title}</h2>
+				{#if subject.kind !== 'playlist'}
+					<p class="artist hh-truncate hh-muted">{subject.subtitle ?? 'Unknown artist'}</p>
+				{/if}
 			</header>
 
 			{#if shareComposer.error}
@@ -90,13 +95,17 @@
 
 					<p class="note hh-muted">
 						Anyone who has the link can listen, without an account. It plays through your account on
-						the music server, and opens this song and nothing else in your library.
+						the music server, and opens this {subject.kind} and nothing else in your library.
+						{#if subject.kind === 'playlist'}
+							It plays the playlist as it is when opened, so a change you make to it shows there
+							too.
+						{/if}
 					</p>
 
 					<p class="rights">
 						<Icon name="info" size={15} />
 						<span>
-							Only share music you have the right to share. Sending a song to a friend is not the same
+							Only share music you have the right to share. Sending {aNoun} to a friend is not the same
 							as posting it publicly, and a link anyone can open may infringe the artist's copyright.
 						</span>
 					</p>

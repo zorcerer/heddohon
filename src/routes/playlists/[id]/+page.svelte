@@ -1,13 +1,22 @@
 <script lang="ts">
 	import { goto, invalidateAll } from '$app/navigation';
 	import Icon from '$lib/components/Icon.svelte';
+	import { page } from '$app/state';
+	import { shareComposer } from '$lib/client/share.svelte';
 	import HeroTitle from '$lib/components/HeroTitle.svelte';
 	import Sleeve from '$lib/components/Sleeve.svelte';
 	import TrackList from '$lib/components/TrackList.svelte';
 	import { formatLongDuration } from '$lib/client/format';
 	import { player } from '$lib/client/player.svelte';
-	import { addSongsToPlaylist, deletePlaylist, removeTracks, renamePlaylist } from '$lib/client/playlists.svelte';
+	import {
+		addSongsToPlaylist,
+		deletePlaylist,
+		moveTrack,
+		removeTracks,
+		renamePlaylist
+	} from '$lib/client/playlists.svelte';
 	import { heroSweep } from '$lib/client/motion';
+	import type { Song } from '$lib/types';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -69,6 +78,40 @@
 		} catch (err) {
 			error = err instanceof Error ? err.message : 'Could not remove that track';
 		} finally {
+			busy = false;
+		}
+	}
+
+	/*
+	 * The new order is shown at once and written behind it. A refusal (the
+	 * playlist changed in another player since this page loaded, or the music
+	 * server would not write it) puts the page back to what the server holds
+	 * and says why.
+	 */
+	let reordered = $state<Song[] | null>(null);
+	const shownSongs = $derived(reordered ?? playlist.songs);
+
+	async function move(from: number, to: number) {
+		if (busy) return;
+		const before = shownSongs;
+		const next = [...before];
+		const [moved] = next.splice(from, 1);
+		next.splice(to, 0, moved);
+		reordered = next;
+		busy = true;
+		error = null;
+		try {
+			await moveTrack(playlist.id, { from, to, songId: moved.id, count: before.length });
+		} catch (err) {
+			error =
+				err instanceof Error && /changed/.test(err.message)
+					? 'This playlist was changed somewhere else. It has been reloaded; try the move again.'
+					: err instanceof Error
+						? err.message
+						: 'Could not move that track';
+		} finally {
+			await invalidateAll();
+			reordered = null;
 			busy = false;
 		}
 	}
@@ -166,6 +209,23 @@
 						<Icon name="queue" size={16} />
 						Queue
 					</button>
+					{#if page.data.sharing}
+						<button
+							class="hh-button"
+							onclick={() =>
+								shareComposer.open({
+									kind: 'playlist',
+									id: playlist.id,
+									title: playlist.name,
+									subtitle: null,
+									coverArt: playlist.coverArt
+								})}
+							disabled={playlist.songs.length === 0}
+						>
+							<Icon name="share" size={16} />
+							Share
+						</button>
+					{/if}
 				</div>
 
 				<div class="group group--edit">
@@ -221,7 +281,7 @@
 	{/if}
 
 	<section class="tracks">
-		<TrackList songs={playlist.songs} variant="artwork" showAlbum onremove={removeAt} />
+		<TrackList songs={shownSongs} variant="artwork" showAlbum onremove={removeAt} onmove={move} />
 	</section>
 </div>
 

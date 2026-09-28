@@ -258,22 +258,31 @@ export class Player {
 
 	// ── Queue control ──────────────────────────────────────────────────────
 
-	/** Replaces the queue and starts at `startAt`. */
+	/** Replaces the queue and starts at `startAt`, in the order given. */
 	async playNow(songs: Song[], startAt = 0) {
+		await this.#start(songs, startAt, false);
+	}
+
+	/** Replaces the queue with a shuffled copy and starts it. */
+	async playShuffled(songs: Song[]) {
+		await this.#start(shuffled(songs), 0, true);
+	}
+
+	/**
+	 * Shuffle describes the queue, so a new queue sets it: on for a shuffled
+	 * one, off for one in its own order. Only `playShuffled` used to touch it,
+	 * and after one shuffled play the button stayed lit, and was saved lit, over
+	 * every album played in order from then on.
+	 */
+	async #start(songs: Song[], startAt: number, shuffle: boolean) {
 		if (songs.length === 0) return;
+		this.shuffle = shuffle;
 		this.direction = 1;
 		this.queue = [...songs];
 		this.index = Math.min(Math.max(0, startAt), songs.length - 1);
 		this.#preloadedFor = null;
 		await this.#loadCurrent(true);
 		this.#persist();
-	}
-
-	/** Replaces the queue with a shuffled copy and starts it. */
-	async playShuffled(songs: Song[]) {
-		if (songs.length === 0) return;
-		this.shuffle = true;
-		await this.playNow(shuffled(songs));
 	}
 
 	/** Queues songs directly after the current track. */
@@ -351,6 +360,7 @@ export class Player {
 		this.stop();
 		this.queue = [];
 		this.index = 0;
+		this.shuffle = false;
 		this.#persist();
 	}
 
