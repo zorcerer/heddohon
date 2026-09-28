@@ -22,6 +22,7 @@
 		randomArtworkColor
 	} from '$lib/client/artwork';
 	import { formatDuration } from '$lib/client/format';
+	import { skipGlyph } from '$lib/client/motion';
 	import { prefersReducedMotion } from '$lib/client/sleeve-transition.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import Logo from '$lib/components/Logo.svelte';
@@ -336,7 +337,10 @@
 				<div class="transport">
 					<button
 						class="edge"
-						onclick={previous}
+						onclick={(event) => {
+							skipGlyph(event.currentTarget, -1);
+							previous();
+						}}
 						aria-label={many ? 'Previous track' : 'Back to the start'}
 						title={many ? 'Previous' : 'Back to the start'}
 					>
@@ -359,7 +363,10 @@
 					{#if many}
 						<button
 							class="edge"
-							onclick={next}
+							onclick={(event) => {
+								skipGlyph(event.currentTarget, 1);
+								next();
+							}}
 							disabled={current >= tracks.length - 1}
 							aria-label="Next track"
 							title="Next"

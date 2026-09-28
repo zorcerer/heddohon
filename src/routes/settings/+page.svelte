@@ -796,8 +796,20 @@
 		max-width: 54ch;
 	}
 
+	/*
+	 * Fades in rather than appearing in one frame. Opacity only, on the notice
+	 * itself: it is a pane of glass, and a transform on glass is kept off
+	 * throughout (see docs/design.md).
+	 */
+	@keyframes saved-in {
+		from {
+			opacity: 0;
+		}
+	}
+
 	.saved {
 		margin: 0;
+		animation: saved-in var(--dur-state) var(--ease-out);
 		padding: var(--space-3) var(--space-4);
 		background: color-mix(in srgb, var(--positive) 16%, var(--field-face));
 		-webkit-backdrop-filter: var(--control-blur);

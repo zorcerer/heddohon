@@ -592,6 +592,19 @@ selectors, so source order is the only thing separating them, and putting the
 control fallbacks up with the pane primitives left the buttons translucent for
 exactly the people who asked for them not to be.
 
+**A press is answered on the glyph, in a way that says what it did.**
+Previous and next throw their triangle the way the queue went, 0.7rem, and
+bring a fresh one in from the other side (480ms). Shuffle turns its arrows
+over about the vertical axis, repeat goes once round, and mute and the phone
+dock's play button pop from 70 percent on the spring. The glyph moves and the
+button does not, since the buttons sit on the player's glass
+(`skipGlyph`, `flipGlyph`, `turnGlyph` and `popGlyph` in `client/motion.ts`).
+A change of state that used to land in one frame now moves over 220 to 340ms:
+the queue count pops when it changes, the quality badge's label rises in when
+it switches to a conversion or a new format, the fill of a sort chip or a sleep
+chip fades in, and "Settings saved" fades in, by opacity alone since it is
+glass.
+
 ### Motion from component libraries
 
 On 2026-09-24 the Svelte ports of Magic UI, Luxe and Aceternity collected at
