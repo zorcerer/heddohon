@@ -1697,3 +1697,19 @@ dialog:not([open])::backdrop {
 	pointer-events: none;
 	box-shadow: 0 6px 24px rgb(0 0 0 / 0.3);
 }
+
+/*
+ * A link pressed whose page is still loading (`pendingLink` in +layout.svelte):
+ * it breathes until the page arrives, so the press is answered at once on a
+ * slow connection. Opacity on the link itself: no link holds glass, and the
+ * ones that are glass (sort chips, the Library page's doors) take their own.
+ */
+.hh-pending {
+	animation: hh-pending 0.9s var(--ease-colour) infinite alternate;
+}
+
+@keyframes hh-pending {
+	to {
+		opacity: 0.55;
+	}
+}

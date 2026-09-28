@@ -46,6 +46,26 @@
 	const song = $derived(tracks[current] ?? null);
 	const noun = $derived(ready?.item.kind ?? 'song');
 	const aNoun = $derived(noun === 'album' ? 'an album' : `a ${noun}`);
+
+	/** The fold of the playing track's facts, behind the info button. */
+	let details = $state(false);
+	const facts = $derived(
+		song
+			? [
+					['Format', song.quality.format?.toUpperCase() ?? '—'],
+					[
+						'Depth and rate',
+						song.quality.bitDepth && song.quality.sampleRateHz
+							? `${song.quality.bitDepth}-bit · ${(song.quality.sampleRateHz / 1000).toFixed(1)} kHz`
+							: '—'
+					],
+					['Bitrate', song.quality.bitrateKbps ? `${song.quality.bitrateKbps} kbps` : '—'],
+					['Album', song.album ?? '—'],
+					['Year', song.year ? String(song.year) : '—'],
+					['Track', song.track ? String(song.track) : '—']
+				]
+			: []
+	);
 	const capitalized = $derived(aNoun[0].toUpperCase() + aNoun.slice(1));
 	const signedIn = $derived(Boolean(data.account));
 	const expires = $derived(
@@ -335,6 +355,23 @@
 				</div>
 
 				<div class="transport">
+					<!--
+						With several tracks the row is five: this, previous, play, next and
+						mute, so play sits in the middle. A song link keeps its three.
+					-->
+					{#if many}
+						<button
+							class="edge"
+							class:on={details}
+							onclick={() => (details = !details)}
+							aria-expanded={details}
+							aria-label="Track details"
+							title="Track details"
+						>
+							<Icon name="info" size={20} />
+						</button>
+					{/if}
+
 					<button
 						class="edge"
 						onclick={(event) => {
@@ -386,6 +423,22 @@
 						<Icon name={muted ? 'mute' : 'volume'} size={20} />
 					</button>
 				</div>
+
+				<!-- The playing track's facts, as the player's track details show them. -->
+				{#if many}
+					<div class="fold" class:open={details} inert={!details}>
+						<div>
+							<dl class="facts">
+								{#each facts as [term, value] (term)}
+									<div>
+										<dt class="hh-muted">{term}</dt>
+										<dd class="hh-numeric hh-truncate">{value}</dd>
+									</div>
+								{/each}
+							</dl>
+						</div>
+					</div>
+				{/if}
 
 				{#if failed}
 					<p class="error" role="alert">
@@ -726,6 +779,55 @@
 			color var(--transition),
 			filter var(--transition),
 			background var(--transition);
+	}
+
+	/*
+	 * The playing track's facts, folded under the transport as the player's
+	 * track details are: a one-row grid whose track opens from 0fr to 1fr.
+	 * Opacity on the fold, which holds no glass.
+	 */
+	.fold {
+		display: grid;
+		grid-template-rows: 0fr;
+		opacity: 0;
+		margin-block-start: calc(var(--space-4) * -1);
+		transition:
+			grid-template-rows var(--dur-state) var(--ease-out),
+			opacity var(--dur-state) var(--ease-out),
+			margin-block-start var(--dur-state) var(--ease-out);
+	}
+
+	.fold.open {
+		grid-template-rows: 1fr;
+		opacity: 1;
+		margin-block-start: 0;
+	}
+
+	.fold > * {
+		overflow: hidden;
+		min-height: 0;
+	}
+
+	.facts {
+		margin: 0;
+		display: grid;
+		gap: 0.15rem;
+		font-size: 0.75rem;
+	}
+
+	.facts > div {
+		display: grid;
+		grid-template-columns: 7.5rem minmax(0, 1fr);
+		gap: var(--space-3);
+	}
+
+	.facts dt,
+	.facts dd {
+		margin: 0;
+	}
+
+	.facts dd {
+		color: var(--text-default);
 	}
 
 	/*

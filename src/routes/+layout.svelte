@@ -2,6 +2,7 @@
 	import '$lib/styles/app.css';
 	import { untrack } from 'svelte';
 	import { afterNavigate, onNavigate } from '$app/navigation';
+	import { navigating } from '$app/state';
 	import { player } from '$lib/client/player.svelte';
 	import { tintFrom } from '$lib/client/artwork';
 	import { ambience } from '$lib/client/ambience.svelte';
@@ -227,6 +228,9 @@
 	 * navigation — the pages are identical either way.
 	 */
 	onNavigate((navigation) => {
+		// The data is here: the wait for it is over. See `waiting`.
+		landed = true;
+
 		// A card click points the room at the album it is opening. Any navigation
 		// to anywhere else drops that, so a back button or a rail link cannot
 		// inherit it, and neither can the click that was abandoned.
@@ -304,6 +308,83 @@
 	const VEIL_IN_MS = 150;
 	let veil = $state<'off' | 'in' | 'out'>('off');
 	const shellShown = $derived(signedIn && Boolean(data.account));
+
+	/*
+	 * Waiting for the next page.
+	 *
+	 * A navigation starts on the click and changes nothing until the next
+	 * page's data has arrived: on a slow connection a second in which the page
+	 * appeared to ignore the click. The link pressed pulses from the moment it
+	 * is pressed (`.hh-pending` in app.css). After 150ms, the length the card
+	 * play button waits before its spinner so that a fast answer shows nothing,
+	 * a line runs along the top of the content column and the page being left
+	 * softens under a layer of the room with a light blur of its own. The page
+	 * itself is not dimmed or blurred: it holds glass, and a filter or opacity
+	 * on an ancestor of glass drops the blur from all of it (see the veil
+	 * above). The layer is a sibling over it, as the veil is.
+	 *
+	 * Not while a sleeve is carried into an album page: the card is already
+	 * moving, and a layer over the page would be over the morph.
+	 */
+	const WAIT_SHOW_MS = 150;
+	let waiting = $state(false);
+	/*
+	 * Set when the page's data has arrived (`onNavigate`), which ends the wait
+	 * even though the navigation goes on for the veil's 150ms: counted from the
+	 * click alone, every page change reached the 150ms and showed it.
+	 */
+	let landed = $state(false);
+
+	$effect(() => {
+		const going =
+			shellShown &&
+			navigating.to !== null &&
+			!landed &&
+			sleeveTransition.activeId === null &&
+			!/^\/(login|share)(\/|$)/.test(navigating.to.url.pathname);
+		if (!going) {
+			waiting = false;
+			return;
+		}
+		const timer = setTimeout(() => (waiting = true), WAIT_SHOW_MS);
+		return () => clearTimeout(timer);
+	});
+
+	/*
+	 * The link pressed, marked from the click until its page arrives. In the
+	 * capture phase, since SvelteKit handles the click itself and cancels its
+	 * default. A click that turns out not to navigate (a handler of its own
+	 * cancelled it) is unmarked if no navigation has started 300ms later.
+	 */
+	let pendingLink: HTMLAnchorElement | null = null;
+
+	function clearPending() {
+		pendingLink?.classList.remove('hh-pending');
+		pendingLink = null;
+	}
+
+	$effect(() => {
+		const onClick = (event: MouseEvent) => {
+			if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+			const link = (event.target as Element | null)?.closest?.('a[href]');
+			if (!(link instanceof HTMLAnchorElement)) return;
+			if (link.target || link.hasAttribute('download') || link.origin !== location.origin) return;
+			clearPending();
+			pendingLink = link;
+			link.classList.add('hh-pending');
+			setTimeout(() => {
+				if (pendingLink === link && !navigating.to) clearPending();
+			}, 300);
+		};
+		document.addEventListener('click', onClick, true);
+		return () => document.removeEventListener('click', onClick, true);
+	});
+
+	$effect(() => {
+		if (navigating.to) return;
+		clearPending();
+		landed = false;
+	});
 
 	/*
 	 * The page arriving: it rises 12px into place while the veil clears, and
@@ -529,6 +610,13 @@
 			<ShareDialog />
 		{/if}
 
+		<!-- Waiting for the next page; see `waiting`. Always there, and hidden
+		     while not waiting, so it fades both ways. -->
+		<div class="wait-veil hh-ambience" class:waiting aria-hidden="true"></div>
+		<div class="nav-progress" class:waiting role="progressbar" aria-label="Loading the page" aria-hidden={!waiting}>
+			<span></span>
+		</div>
+
 		{#if veil !== 'off'}
 			<div
 				class="page-veil hh-ambience"
@@ -628,6 +716,78 @@
 
 	.app .page-veil.out {
 		animation: page-veil-out var(--dur-travel) var(--ease-out) forwards;
+	}
+
+	/*
+	 * The page being left, softened while the next one loads: the room at 45
+	 * percent over it, with a 3px blur of its own. Placed as the veil is, in the
+	 * content cell and nothing of it behind the rail or the player. It is glass
+	 * itself, so its opacity is its own; the page under it is left alone.
+	 */
+	.app .wait-veil {
+		grid-area: content;
+		position: relative;
+		inset: auto;
+		background-attachment: fixed;
+		z-index: 1;
+		opacity: 0;
+		visibility: hidden;
+		pointer-events: none;
+		-webkit-backdrop-filter: blur(3px);
+		backdrop-filter: blur(3px);
+		transition:
+			opacity var(--dur-hover) var(--ease-out),
+			visibility 0s linear var(--dur-hover);
+	}
+
+	.app .wait-veil.waiting {
+		opacity: 0.45;
+		visibility: visible;
+		transition:
+			opacity var(--dur-state) var(--ease-out),
+			visibility 0s linear 0s;
+	}
+
+	/*
+	 * A line along the top of the content column, the accent sweeping across
+	 * it for as long as the page is loading. Over the wait layer, and like it
+	 * in the content cell only.
+	 */
+	.nav-progress {
+		grid-area: content;
+		align-self: start;
+		position: relative;
+		z-index: 2;
+		height: 2px;
+		margin: 0 var(--space-5);
+		border-radius: var(--r-pill);
+		overflow: hidden;
+		opacity: 0;
+		transition: opacity var(--dur-hover) var(--ease-out);
+		pointer-events: none;
+	}
+
+	.nav-progress.waiting {
+		opacity: 1;
+	}
+
+	.nav-progress span {
+		display: block;
+		width: 35%;
+		height: 100%;
+		border-radius: inherit;
+		background: var(--accent);
+		box-shadow: 0 0 8px color-mix(in srgb, var(--accent) 60%, transparent);
+		animation: nav-sweep 1.1s var(--ease-colour) infinite;
+	}
+
+	@keyframes nav-sweep {
+		from {
+			translate: -100% 0;
+		}
+		to {
+			translate: 300% 0;
+		}
 	}
 
 	/* The page rising into place as the veil clears; see `rising`. */
@@ -969,9 +1129,19 @@
 		 * iOS Safari draws the wash against the veil's own box. Fixed, that box
 		 * is the screen less the dock rather than the whole length of the page.
 		 */
-		.app .page-veil {
+		.app .page-veil,
+		.app .wait-veil {
 			position: fixed;
 			inset: var(--edge-top) var(--edge-right) var(--dock-space) var(--edge-left);
+		}
+
+		/* At the top of the screen, under the status bar, as the page scrolls. */
+		.nav-progress {
+			position: fixed;
+			top: var(--edge-top);
+			left: var(--edge-left);
+			right: var(--edge-right);
+			margin: 0 var(--space-2);
 		}
 
 		/*
@@ -1079,6 +1249,15 @@
 		.player,
 		.app:not(.player-open) .player {
 			transition: none;
+		}
+	}
+
+	/* Loading without the sweep: the line held across the column, dimmed. */
+	@media (prefers-reduced-motion: reduce) {
+		.nav-progress span {
+			width: 100%;
+			opacity: 0.6;
+			animation: none;
 		}
 	}
 </style>
