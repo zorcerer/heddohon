@@ -1,8 +1,8 @@
 <script lang="ts">
 	import '$lib/styles/app.css';
 	import { untrack } from 'svelte';
-	import { afterNavigate, onNavigate } from '$app/navigation';
-	import { navigating } from '$app/state';
+	import { afterNavigate, beforeNavigate, onNavigate, preloadCode } from '$app/navigation';
+	import { navigating, updated } from '$app/state';
 	import { player } from '$lib/client/player.svelte';
 	import { tintFrom } from '$lib/client/artwork';
 	import { ambience } from '$lib/client/ambience.svelte';
@@ -105,6 +105,63 @@
 		untrack(() => player.attach(primary, secondary, data.settings));
 		void restoreQueue();
 		return () => player.detach();
+	});
+
+	/**
+	 * Every signed-in page, by a path that matches its route. `_` stands in for
+	 * an id: preloading fetches a route's code, not its data.
+	 */
+	const PAGE_PATHS = [
+		'/',
+		'/library',
+		'/albums',
+		'/albums/_',
+		'/artists',
+		'/artists/_',
+		'/genres',
+		'/genres/_',
+		'/playlists',
+		'/playlists/_',
+		'/favourites',
+		'/search',
+		'/settings'
+	];
+
+	/**
+	 * The code for every page, fetched 3 seconds after signing in.
+	 *
+	 * The build names each page's code by a hash of its content, and an image
+	 * update replaces the build: the files an open tab has not fetched yet are
+	 * gone from the new server. Following a link to a page the tab had not
+	 * opened before then asked for a file that answered 404, and SvelteKit
+	 * loaded the whole page from the server instead, which stopped playback.
+	 * Reproduced in the browser suite in Chromium and WebKit. The whole client
+	 * is 322 KB of JavaScript before compression, so every page is fetched up
+	 * front while the tab still matches the server.
+	 */
+	$effect(() => {
+		if (!signedIn) return;
+		let cancelled = false;
+		const timer = setTimeout(async () => {
+			for (const path of PAGE_PATHS) {
+				if (cancelled) return;
+				await preloadCode(path).catch(() => undefined);
+			}
+		}, 3000);
+		return () => {
+			cancelled = true;
+			clearTimeout(timer);
+		};
+	});
+
+	/**
+	 * A tab that has missed an update takes it on the next page change made
+	 * while nothing is playing. SvelteKit checks the server's version every 5
+	 * minutes (`version.pollInterval` in `vite.config.ts`). While music plays,
+	 * the tab keeps the code it has, since a full page load stops playback.
+	 */
+	beforeNavigate(({ willUnload, to }) => {
+		if (updated.current && !willUnload && to?.url && !player.playing) location.href = to.url.href;
 	});
 
 	// Settings can change from the settings page while the player is running.
