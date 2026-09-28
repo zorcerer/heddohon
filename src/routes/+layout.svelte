@@ -239,7 +239,8 @@
 			const savedIndex = Math.min(Math.max(0, state.index ?? 0), ids.length - 1);
 			const settings = {
 				repeat: state.repeat ?? 'off',
-				shuffle: state.shuffle ?? false
+				shuffle: state.shuffle ?? false,
+				orderIds: Array.isArray(state.orderIds) ? (state.orderIds as string[]) : undefined
 			};
 
 			const [current] = await lookUp([ids[savedIndex]]);
