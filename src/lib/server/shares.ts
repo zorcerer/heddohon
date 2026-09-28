@@ -18,7 +18,7 @@
  * it points at and withdraw it, and cannot read it back.
  */
 import { randomUUID } from 'node:crypto';
-import type { BackendKind, Song } from '$lib/types';
+import type { BackendKind, Playlist, Song } from '$lib/types';
 import type { Account, AuthenticatedSession } from './auth';
 import { backendFor, UpstreamError, type StoredCredential } from './backends';
 import { config } from './config';
@@ -26,6 +26,7 @@ import { mapLimited } from './backends/http';
 import { openJson, randomToken, shareDigest } from './crypto';
 import { now, store, type ShareRow } from './db';
 import { log, reason } from './log';
+import { Memo } from './memo';
 
 /** The lifetimes a link can be given, in days. Anything else is refused. */
 export const SHARE_LIFETIMES_DAYS = [1, 7, 30] as const;
@@ -217,13 +218,64 @@ export interface SharedItem {
 	tracks: Song[];
 }
 
-/**
- * What a link is to, as the sharer's account sees it now, or null, on the
- * same terms as `sharedSong`. The tracks are read on every request, so a
- * track removed from the album, or a playlist its owner has reordered or can
- * no longer see, is what the link serves from then on.
+/*
+ * What each link is to, held for five minutes per link.
+ *
+ * The item was read from the music server on every request, and a request
+ * names nothing but a position, so it cost as much as the whole album or
+ * playlist. Measured against a mock Subsonic server with a playlist of 5000
+ * entries: 50 parallel `HEAD /share/<token>/stream/499` from one anonymous
+ * client made 100 upstream calls and fetched 59.7MB of JSON in 747ms. A
+ * listener paid the same on every range request and track change.
+ *
+ * The token, the expiry and withdrawal are still checked on every request
+ * (`shareAccess`); only the upstream's answer is held. The cost is that a
+ * change made outside Heddohon reaches a link up to five minutes late: a
+ * track taken out of the album or playlist, a reordering, and a library the
+ * sharer's account can no longer see. Playlist edits made through Heddohon
+ * drop the sharer's entries at once. A link that finds nothing is not held,
+ * so a failure is not served from here either.
+ *
+ * Keyed by the sharer's account and the link, and dropped with the rest of
+ * the account's entries when its credential stops working. An entry is at
+ * most `MAX_SHARED_TRACKS` songs, a few hundred kilobytes, so 64 of them stay
+ * in the tens of megabytes.
  */
-export async function sharedItem(share: ResolvedShare, credential: StoredCredential): Promise<SharedItem | null> {
+const SHARED_ITEM_TTL_MS = 5 * 60_000;
+const sharedItems = new Memo(SHARED_ITEM_TTL_MS, 64);
+
+/** Drops every link item held for an account, after it edits a playlist or its credential stops working. */
+export function forgetSharedItems(accountId: string): void {
+	sharedItems.forgetAccount(accountId);
+}
+
+/**
+ * What a link is to, as the sharer's account saw it at most five minutes ago
+ * (see `sharedItems`), or null, on the same terms as `sharedSong`. A track
+ * removed from the album, or a playlist its owner has reordered or can no
+ * longer see, is what the link serves from then on.
+ */
+export function sharedItem(share: ResolvedShare, credential: StoredCredential): Promise<SharedItem | null> {
+	return sharedItems.get({ accountId: share.sharerAccountId, credential }, share.id, () => readSharedItem(share, credential), (item) =>
+		item ? SHARED_ITEM_TTL_MS : 0
+	);
+}
+
+/**
+ * Whether a playlist is the sharer's own, and so one it may link to.
+ *
+ * Navidrome lists another user's public playlist to every account, and a link
+ * made to one served that user's name and tracks, as they edited them, to
+ * anyone with the link, which the other user could neither see nor withdraw.
+ * Navidrome names the owner; Jellyfin does not report one (`owner` is null),
+ * and lists only playlists the account may open.
+ */
+export function ownsPlaylist(playlist: Playlist, username: string): boolean {
+	const fold = (name: string) => name.replace(/[A-Z]/g, (letter) => letter.toLowerCase());
+	return playlist.owner === null || fold(playlist.owner) === fold(username);
+}
+
+async function readSharedItem(share: ResolvedShare, credential: StoredCredential): Promise<SharedItem | null> {
 	const backend = backendFor(share.backend);
 	try {
 		if (share.kind === 'album') {
@@ -238,6 +290,7 @@ export async function sharedItem(share: ResolvedShare, credential: StoredCredent
 		}
 		if (share.kind === 'playlist') {
 			const playlist = await backend.getPlaylist(credential, share.itemId);
+			if (!ownsPlaylist(playlist, share.sharedBy)) return null;
 			return {
 				kind: 'playlist',
 				title: playlist.name,
@@ -391,6 +444,7 @@ function cutShareStreams(shareId: string): void {
 export async function revokeShare(accountId: string, id: string): Promise<boolean> {
 	const result = await (await store()).run('DELETE FROM shares WHERE id = ? AND account_id = ?', id, accountId);
 	if (result.changes > 0) cutShareStreams(id);
+	sharedItems.forget(accountId, id);
 	return result.changes > 0;
 }
 
@@ -400,6 +454,7 @@ export async function revokeAllShares(accountId: string): Promise<number> {
 	const rows = await database.all<{ id: string }>('SELECT id FROM shares WHERE account_id = ?', accountId);
 	await database.run('DELETE FROM shares WHERE account_id = ?', accountId);
 	for (const { id } of rows) cutShareStreams(id);
+	forgetSharedItems(accountId);
 	return rows.length;
 }
 

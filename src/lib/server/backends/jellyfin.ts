@@ -72,6 +72,23 @@ function creds(cred: StoredCredential) {
 }
 
 /**
+ * An item, refused as not found unless it is a `type`.
+ *
+ * Read before anything that lists by it, and on its own. The lists take the
+ * id as `ParentId`, `AlbumArtistIds` or `ArtistIds`, and Jellyfin answers
+ * any id it can resolve: an album link made with a library's id listed every
+ * track in the library, and an id Jellyfin's list binder drops as malformed
+ * leaves the list unfiltered, so `{"source":"artist","id":"x"}` read every
+ * album. Run in parallel, the listing still ran on the server after the item
+ * lookup had failed.
+ */
+async function itemOf(cred: StoredCredential, id: string, type: string): Promise<JellyfinItem> {
+	const item = await call<JellyfinItem>(cred, `/Items/${seg(id)}`, { userId: creds(cred).userId, Fields: ITEM_FIELDS });
+	if (item.Type !== type) throw new UpstreamError('Not found', 404, 'not_found');
+	return item;
+}
+
+/**
  * Jellyfin identifies clients through this header. The device id is generated
  * per account at login and kept with the credential so the server sees a stable
  * device rather than a new one on every request.
@@ -664,8 +681,9 @@ export const jellyfinBackend: MediaBackend = {
 				Fields: SONG_FIELDS
 			}),
 			kind === 'song'
-				? call<ItemsResponse>(cred, '/Items', { userId, Ids: id, Fields: SONG_FIELDS }).then(
-						(body) => body.Items?.[0] ?? null
+				? call<ItemsResponse>(cred, '/Items', { userId, Ids: id, Limit: 1, Fields: SONG_FIELDS }).then(
+						// The seed is queued first, so it has to be a track.
+						(body) => (body.Items?.[0]?.Type === 'Audio' ? body.Items[0] : null)
 					)
 				: Promise.resolve(null)
 		]);
@@ -677,18 +695,16 @@ export const jellyfinBackend: MediaBackend = {
 
 	async getAlbum(cred, id): Promise<AlbumDetail> {
 		const { userId } = creds(cred);
-		const [album, tracks] = await Promise.all([
-			call<JellyfinItem>(cred, `/Items/${seg(id)}`, { userId, Fields: ITEM_FIELDS }),
-			call<ItemsResponse>(cred, '/Items', {
-				userId,
-				ParentId: id,
-				IncludeItemTypes: 'Audio',
-				Recursive: 'true',
-				Fields: SONG_FIELDS,
-				SortBy: 'ParentIndexNumber,IndexNumber,SortName',
-				SortOrder: 'Ascending'
-			})
-		]);
+		const album = await itemOf(cred, id, 'MusicAlbum');
+		const tracks = await call<ItemsResponse>(cred, '/Items', {
+			userId,
+			ParentId: id,
+			IncludeItemTypes: 'Audio',
+			Recursive: 'true',
+			Fields: SONG_FIELDS,
+			SortBy: 'ParentIndexNumber,IndexNumber,SortName',
+			SortOrder: 'Ascending'
+		});
 		return { ...toAlbum(album), songs: (tracks.Items ?? []).map(toSong) };
 	},
 
@@ -747,8 +763,8 @@ export const jellyfinBackend: MediaBackend = {
 
 	async getArtist(cred, id): Promise<ArtistDetail> {
 		const { userId } = creds(cred);
-		const [artist, albums, top] = await Promise.all([
-			call<JellyfinItem>(cred, `/Items/${seg(id)}`, { userId, Fields: ITEM_FIELDS }),
+		const artist = await itemOf(cred, id, 'MusicArtist');
+		const [albums, top] = await Promise.all([
 			call<ItemsResponse>(cred, '/Items', {
 				userId,
 				AlbumArtistIds: id,
@@ -779,6 +795,7 @@ export const jellyfinBackend: MediaBackend = {
 
 	async getArtistAlbums(cred, artistId): Promise<Album[]> {
 		const { userId } = creds(cred);
+		await itemOf(cred, artistId, 'MusicArtist');
 		const body = await call<ItemsResponse>(cred, '/Items', {
 			userId,
 			AlbumArtistIds: artistId,
@@ -840,7 +857,7 @@ export const jellyfinBackend: MediaBackend = {
 	async getPlaylist(cred, id): Promise<PlaylistDetail> {
 		const { userId } = creds(cred);
 		const [playlist, items] = await Promise.all([
-			call<JellyfinItem>(cred, `/Items/${seg(id)}`, { userId, Fields: ITEM_FIELDS }),
+			itemOf(cred, id, 'Playlist'),
 			call<ItemsResponse>(cred, `/Playlists/${seg(id)}/Items`, {
 				userId,
 				Fields: SONG_FIELDS
@@ -852,12 +869,17 @@ export const jellyfinBackend: MediaBackend = {
 	async getSongs(cred, ids) {
 		if (ids.length === 0) return [];
 		const { userId } = creds(cred);
+		// `Limit` bounds what Jellyfin reads when it drops ids it cannot parse, which
+		// leaves the list unfiltered; only tracks are songs.
 		const body = await call<ItemsResponse>(cred, '/Items', {
 			userId,
 			Ids: ids.join(','),
+			Limit: ids.length,
 			Fields: SONG_FIELDS
 		});
-		const byId = new Map((body.Items ?? []).map((item) => [item.Id, toSong(item)]));
+		const byId = new Map(
+			(body.Items ?? []).filter((item) => item.Type === 'Audio').map((item) => [item.Id, toSong(item)])
+		);
 		// Preserve the caller's ordering — queue restoration depends on it.
 		return ids.map((id) => byId.get(id)).filter((song): song is Song => song !== undefined);
 	},

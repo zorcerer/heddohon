@@ -53,6 +53,15 @@ function write(output: Output) {
 	}
 }
 
+/**
+ * Forgets the output saved in this browser. Called from the sign-in page, so
+ * the next account to sign in here is not moved to the previous one's
+ * headset, and the device's name is not left behind after signing out.
+ */
+export function forgetSavedOutput() {
+	write(DEFAULT_OUTPUT);
+}
+
 class AudioOutputs {
 	/** Whether this browser can move audio to another output at all. False until `init`. */
 	supported = $state(false);

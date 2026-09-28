@@ -3,6 +3,7 @@ import { version } from '$app/environment';
 import { resolveSession } from '$lib/server/auth';
 import { getSettings, DEFAULT_SETTINGS } from '$lib/server/settings';
 import { ConfigError, config } from '$lib/server/config';
+import { SECURITY_HEADERS } from '$lib/headers';
 import {
 	isEnabled,
 	log,
@@ -32,24 +33,11 @@ function isPublic(pathname: string): boolean {
 /**
  * Applied to every response, including the ones that return before `resolve`.
  * Those early exits — the config 500, the CSRF 403, the 401 — used to ship bare,
- * which is exactly the set an attacker probes first.
- *
- * HSTS is set unconditionally rather than only on https. The app is always
- * behind a TLS-terminating proxy in the deployment it is written for, and the
- * header is ignored by browsers over plain http, so the only thing a condition
- * would add is a way to get it wrong.
+ * which is exactly the set an attacker probes first. The list and the reasons
+ * for it are in `lib/headers.ts`.
  */
 function harden(headers: Headers): void {
-	headers.set('x-content-type-options', 'nosniff');
-	headers.set('referrer-policy', 'same-origin');
-	headers.set('x-frame-options', 'SAMEORIGIN');
-	headers.set('strict-transport-security', 'max-age=31536000; includeSubDomains');
-	// The microphone for this origin only: Chrome and Edge name the audio
-	// outputs only once the page may use it (`client/output.svelte.ts`), and
-	// ask for it only when "List outputs" is pressed. No frame can ask.
-	headers.set('permissions-policy', 'camera=(), microphone=(self), geolocation=(), payment=()');
-	headers.set('cross-origin-opener-policy', 'same-origin');
-	headers.set('cross-origin-resource-policy', 'same-origin');
+	for (const [name, value] of Object.entries(SECURITY_HEADERS)) headers.set(name, value);
 
 	// Every response here is either a signed-in user's own data or an error. The
 	// media routes set their own `private, max-age=...` and keep it; everything
@@ -277,6 +265,14 @@ const handleRequest: Handle = async ({ event, resolve }) => {
 				'application/json'
 			);
 		}
+	}
+
+	// Every id in a path, before anything is looked up with it. SECURITY.md
+	// holds ids under 256 characters, and only the download route checked:
+	// lyrics, playlists and the album and artist pages sent any length on to
+	// the music server.
+	if (Object.values(event.params).some((value) => value !== undefined && value.length >= 256)) {
+		return sealed('Not found', 404, 'text/plain; charset=utf-8');
 	}
 
 	const session = await resolveSession(event);

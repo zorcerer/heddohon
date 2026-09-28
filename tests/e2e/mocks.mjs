@@ -132,6 +132,12 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 		playlistEntries: ['s1a', 's2a'],
 		/** The last Subsonic call, and whether it came as a form POST. */
 		lastRequest: null,
+		/** Who `getPlaylist` names as the owner of `pl1`; null for the signed-in user. */
+		playlistOwner: null,
+		/** Entries of `pl1` counted in `songCount` but left out of the list, as Navidrome does for a missing file. */
+		hiddenEntries: 0,
+		/** The last request that wrote a playlist, which a verifying read may follow. */
+		lastWrite: null,
 		/**
 		 * Songs `getSimilarSongs` answers with, one from each album after the
 		 * seed's (for a song, album or artist id alike). Zero answers with none,
@@ -259,6 +265,7 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 		const p = new URLSearchParams(url.search);
 		for (const [key, value] of new URLSearchParams(form)) p.append(key, value);
 		state.lastRequest = { method, post: req.method === 'POST' };
+		if (method === 'createPlaylist' || method === 'updatePlaylist') state.lastWrite = state.lastRequest;
 		const send = (body) => {
 			res.setHeader('content-type', 'application/json');
 			res.end(JSON.stringify(body));
@@ -312,6 +319,8 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 				return send(ok({ topSongs: { song: [song(0, 'a'), song(0, 'b'), song(1, 'a'), song(2, 'a')] } }));
 			case 'getAlbum': {
 				const id = p.get('id') ?? '';
+				// An internal failure, worded as Navidrome words one.
+				if (id === 'broken') return send(failed(0, 'open /var/lib/navidrome/navidrome.db: database is locked'));
 				const i = index(id);
 				if (state.missing.has(id) || !(i >= 0 && i < artistCount)) return send(failed(70, 'Album not found'));
 				const songs = Array.from({ length: state.albumSongs }, (_, k) => song(i, String.fromCharCode(97 + k)));
@@ -344,7 +353,14 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 				const entry = state.playlistEntries.map((id) => song(index(id), id.slice(-1)));
 				return send(
 					ok({
-						playlist: { id: 'pl1', name: 'Mock Playlist', songCount: entry.length, duration: 180 * entry.length, owner: state.username, entry }
+						playlist: {
+							id: 'pl1',
+							name: 'Mock Playlist',
+							songCount: entry.length + state.hiddenEntries,
+							duration: 180 * entry.length,
+							owner: state.playlistOwner ?? state.username,
+							entry
+						}
 					})
 				);
 			}
@@ -505,6 +521,9 @@ export async function startJellyfin() {
 		// A playlist of three tracks, each entry with an id of its own, which is
 		// what Jellyfin moves and removes entries by.
 		if (url.pathname === '/Items/jpl') return send({ Id: 'jpl', Name: 'Jellyfin Playlist', Type: 'Playlist' });
+		// Artists and albums by id, each with its type, as the adapter checks it.
+		const item = [...artists, ...albums].find((entry) => url.pathname === `/Items/${entry.Id}`);
+		if (req.method === 'GET' && item) return send(item);
 		if (req.method === 'GET' && url.pathname === '/Playlists/jpl/Items') {
 			return send({ Items: playlist.map((entry) => ({ ...trackItem(entry.track), PlaylistItemId: entry.id })) });
 		}

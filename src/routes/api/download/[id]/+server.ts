@@ -2,6 +2,7 @@ import { error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { backendFor, UpstreamError } from '$lib/server/backends';
 import { config } from '$lib/server/config';
+import { tiedToSession } from '$lib/server/auth';
 import { proxyMedia, streamRequestFrom } from '$lib/server/proxy';
 import type { Song } from '$lib/types';
 
@@ -39,7 +40,7 @@ const handler: RequestHandler = async (event) => {
 	if (response.status === 200 || response.status === 206) {
 		response.headers.set('content-disposition', attachment(song));
 	}
-	return response;
+	return tiedToSession(session, event.request.signal, response);
 };
 
 /**

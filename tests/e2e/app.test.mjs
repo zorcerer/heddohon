@@ -1052,7 +1052,7 @@ describe('reordering a playlist', () => {
 			const response = await move(user, 'pl1', { from: 0, to: 2, songId: 's1a', count: 3 });
 			assert.equal(response.status, 200, explain('move failed'));
 			assert.deepEqual(subsonic.state.playlistEntries, ['s2a', 's3a', 's1a']);
-			assert.equal(subsonic.state.lastRequest.post, false, 'a short playlist went as a form');
+			assert.equal(subsonic.state.lastWrite.post, false, 'a short playlist went as a form');
 		} finally {
 			subsonic.state.playlistEntries = ['s1a', 's2a'];
 		}
@@ -1082,7 +1082,7 @@ describe('reordering a playlist', () => {
 		try {
 			const response = await move(user, 'pl1', { from: 159, to: 0, songId: ids[159], count: 160 });
 			assert.equal(response.status, 200, explain('long move failed'));
-			assert.equal(subsonic.state.lastRequest.post, true, 'the rewrite went in the URL');
+			assert.equal(subsonic.state.lastWrite.post, true, 'the rewrite went in the URL');
 			assert.deepEqual(subsonic.state.playlistEntries, [ids[159], ...ids.slice(0, 159)]);
 		} finally {
 			subsonic.state.playlistEntries = ['s1a', 's2a'];
@@ -1188,27 +1188,42 @@ describe('signed in on', () => {
 		assert.match(html, /Firefox on Android/);
 		assert.match(html, /Safari on iPhone/);
 		assert.match(html, /This browser/);
-		// This browser has no sign-out button of its own in the list; the other does.
-		assert.ok((await handles(phone)).length >= 1);
+		// A browser signs out only sessions older than its own: the iPhone, signed
+		// in second, is offered the phone; the phone is told to use the iPhone.
+		assert.ok((await handles(iphone)).length >= 1);
+		assert.match(html, /Sign out from that browser/);
 		assert.ok(!html.includes('Mozilla/5.0'), 'the whole user agent reached the page');
 		await iphone.request('/logout', { method: 'POST' });
 		await phone.request('/logout', { method: 'POST' });
 	});
 
-	test('another browser can be signed out, and only that one', async () => {
+	test('an older browser can be signed out, and only that one', async () => {
 		const phone = await signedIn(FIREFOX_ANDROID);
 		const iphone = await signedIn(SAFARI_IPHONE);
-		// Each browser is offered every session but its own, so the iPhone's is
-		// the one the phone is offered and the iPhone is not.
-		const iphoneSees = new Set(await handles(iphone));
-		const target = (await handles(phone)).find((handle) => !iphoneSees.has(handle));
-		assert.ok(target, 'no handle for the other browser');
+		// Each browser is offered the sessions older than its own, so the phone's
+		// is the one the iPhone is offered and the phone is not.
+		const phoneSees = new Set(await handles(phone));
+		const target = (await handles(iphone)).find((handle) => !phoneSees.has(handle));
+		assert.ok(target, 'no handle for the phone');
 
-		const ended = await action(phone, 'endSession', { handle: target });
+		const ended = await action(iphone, 'endSession', { handle: target });
 		assert.equal(ended.result.type, 'success', JSON.stringify(ended.result));
-		assert.equal(await signedOut(iphone), true, 'the iPhone is still signed in');
-		assert.equal(await signedOut(phone), false, 'the phone signed itself out');
-		await phone.request('/logout', { method: 'POST' });
+		assert.equal(await signedOut(phone), true, 'the phone is still signed in');
+		assert.equal(await signedOut(iphone), false, 'the iPhone signed itself out');
+		await iphone.request('/logout', { method: 'POST' });
+	});
+
+	test('a stolen, older session cannot sign out the owner who signed in after it', async () => {
+		const stolen = await signedIn(FIREFOX_ANDROID);
+		const owner = await signedIn(SAFARI_IPHONE);
+		const attempt = await action(stolen, 'endOtherSessions');
+		assert.equal(attempt.result.type, 'success');
+		assert.equal(await signedOut(owner), false, 'the owner was signed out');
+
+		const ownerSees = await handles(owner);
+		for (const handle of ownerSees) await action(owner, 'endSession', { handle });
+		assert.equal(await signedOut(stolen), true, 'the owner could not end the older session');
+		await owner.request('/logout', { method: 'POST' });
 	});
 
 	test('a handle that is not one of the account\'s own ends nothing', async () => {
@@ -1226,14 +1241,18 @@ describe('signed in on', () => {
 		await phone.request('/logout', { method: 'POST' });
 	});
 
-	test('"everywhere else" leaves this browser signed in and the rest out', async () => {
-		const here = await signedIn(FIREFOX_ANDROID);
+	test('"everywhere else" leaves this browser signed in and the older ones out', async () => {
 		const others = [await signedIn(SAFARI_IPHONE), await signedIn(SAFARI_IPHONE)];
+		const here = await signedIn(FIREFOX_ANDROID);
+		const later = await signedIn(SAFARI_IPHONE);
 		const ended = await action(here, 'endOtherSessions');
 		assert.equal(ended.result.type, 'success');
-		for (const client of others) assert.equal(await signedOut(client), true, 'another browser is still signed in');
+		for (const client of others) assert.equal(await signedOut(client), true, 'an older browser is still signed in');
 		assert.equal(await signedOut(here), false, 'this browser was signed out');
+		assert.equal(await signedOut(later), false, 'a browser that signed in later was signed out');
 		assert.deepEqual(await handles(here), [], 'the list still offers another session');
+		await later.request('/logout', { method: 'POST' });
+		await here.request('/logout', { method: 'POST' });
 	});
 
 	test('a database from before the device column opens and records it', async () => {
@@ -1261,6 +1280,249 @@ describe('signed in on', () => {
 			assert.match(html, /Firefox on Android/);
 		} finally {
 			await upgraded.stop();
+		}
+	});
+});
+
+describe('the security review of 2026-09-28', () => {
+	// The session tests above end every older session of the account, the shared
+	// client's among them.
+	before(async () => {
+		assert.equal((await user.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' })).status, 303);
+	});
+
+	const share = async (body, client = user) => {
+		const response = await client.json('/api/shares', 'POST', body);
+		return { status: response.status, body: response.ok ? await response.json() : null };
+	};
+	const withdraw = (id) => user.request(`/api/shares/${id}`, { method: 'DELETE' });
+
+	test('a link reads its album from the music server once while it is held', async () => {
+		const made = await share({ kind: 'album', id: 'al6', days: 1 });
+		assert.equal(made.status, 200, explain('album link failed'));
+		subsonic.calls.reset();
+		const visitor = new Client(app.url);
+		await visitor.page(made.body.path);
+		for (let i = 0; i < 5; i++) {
+			assert.equal((await visitor.request(`${made.body.path}/stream/${i % 2}`, { method: 'HEAD' })).status, 200);
+			assert.equal((await visitor.request(`${made.body.path}/cover/${i % 2}`)).status, 200);
+		}
+		assert.equal(subsonic.calls.get('getAlbum'), 1);
+		await withdraw(made.body.id);
+	});
+
+	test('a playlist edited here reaches its link at once', async () => {
+		const made = await share({ kind: 'playlist', id: 'pl1' });
+		assert.equal(made.status, 200, explain('playlist link failed'));
+		const visitor = new Client(app.url);
+		const order = (html) => html.indexOf('>Song 2a<') < html.indexOf('>Song 1a<');
+		subsonic.state.playlistEntries = ['s1a', 's2a'];
+		try {
+			assert.equal(order((await visitor.page(made.body.path)).html), false);
+			const moved = await user.json('/api/playlists/pl1/tracks', 'PATCH', { from: 0, to: 1, songId: 's1a', count: 2 });
+			assert.equal(moved.status, 200, explain('move failed'));
+			assert.equal(order((await visitor.page(made.body.path)).html), true, 'the link served the old order');
+		} finally {
+			subsonic.state.playlistEntries = ['s1a', 's2a'];
+			await withdraw(made.body.id);
+		}
+	});
+
+	test('a link withdrawn while its track is being looked up does not play it', async () => {
+		const made = await share({ kind: 'album', id: 'al7', days: 1 });
+		subsonic.state.delays.set('getAlbum', 1500);
+		try {
+			const pending = new Client(app.url).request(`${made.body.path}/stream/0`);
+			await new Promise((done) => setTimeout(done, 300));
+			assert.equal((await withdraw(made.body.id)).status, 200);
+			const response = await pending;
+			assert.equal(response.status, 404, 'the track played after the link was withdrawn');
+		} finally {
+			subsonic.state.delays.clear();
+		}
+	});
+
+	test('a link to a playlist the account does not own is refused', async () => {
+		subsonic.state.playlistOwner = 'someone-else';
+		try {
+			assert.equal((await share({ kind: 'playlist', id: 'pl1' })).status, 403);
+		} finally {
+			subsonic.state.playlistOwner = null;
+		}
+	});
+
+	test('on Jellyfin a link is only made to an item of its kind', async () => {
+		const client = new Client(app.url);
+		await client.signIn({ username: 'jfuser', password: 'jfpass', backend: 'jellyfin' });
+		assert.equal((await share({ kind: 'album', id: 'jpl' }, client)).status, 404, 'an album link to a playlist');
+		assert.equal((await share({ kind: 'song', id: 'b1' }, client)).status, 404, 'a song link to an album');
+		const album = await share({ kind: 'album', id: 'b1' }, client);
+		assert.equal(album.status, 200, explain('album link on Jellyfin failed'));
+		await client.request(`/api/shares/${album.body.id}`, { method: 'DELETE' });
+	});
+
+	test('on Jellyfin an artist id that names no artist reads nothing', async () => {
+		const client = new Client(app.url);
+		await client.signIn({ username: 'jfuser', password: 'jfpass', backend: 'jellyfin' });
+		jellyfin.calls.reset();
+		const response = await client.json('/api/tracks', 'POST', { source: 'artist', id: 'x' });
+		assert.equal(response.status, 404);
+		assert.equal(jellyfin.calls.get('GET /Items MusicAlbum'), 0, 'the albums were listed without a filter');
+		assert.equal((await client.json('/api/tracks', 'POST', { source: 'artist', id: 'a2' })).status, 200);
+	});
+
+	test('a playlist with entries the server leaves out of its list is not rewritten', async () => {
+		subsonic.state.playlistEntries = ['s1a', 's2a'];
+		subsonic.state.hiddenEntries = 1;
+		try {
+			const response = await user.json('/api/playlists/pl1/tracks', 'PATCH', { from: 0, to: 1, songId: 's1a', count: 2 });
+			assert.equal(response.status, 409);
+			assert.deepEqual(subsonic.state.playlistEntries, ['s1a', 's2a'], 'the playlist was rewritten');
+		} finally {
+			subsonic.state.hiddenEntries = 0;
+		}
+	});
+
+	test("the music server's own error text stays in the log", async () => {
+		const response = await user.json('/api/tracks', 'POST', { source: 'album', id: 'broken' });
+		assert.equal(response.status, 502);
+		assert.ok(!(await response.text()).includes('navidrome.db'), 'the upstream text reached the browser');
+		assert.match((await user.page('/albums/broken')).html, /Something went wrong|music server/);
+		assert.ok(!(await user.page('/albums/broken')).html.includes('navidrome.db'));
+	});
+
+	test('an id of 256 characters or more is refused before the music server is asked', async () => {
+		subsonic.calls.reset();
+		assert.equal((await user.request(`/albums/${'a'.repeat(300)}`, { headers: { accept: 'text/html' } })).status, 404);
+		assert.equal((await user.request(`/api/lyrics/${'a'.repeat(300)}`)).status, 404);
+		assert.equal(subsonic.calls.get('getAlbum'), 0);
+	});
+
+	test('files served from disk carry the hardening headers', async () => {
+		const anonymous = new Client(app.url);
+		for (const path of ['/offline.html', '/offline.js', '/service-worker.js', '/_app/version.json']) {
+			const response = await anonymous.request(path);
+			assert.equal(response.status, 200, path);
+			assert.equal(response.headers.get('x-content-type-options'), 'nosniff', path);
+			assert.equal(response.headers.get('x-frame-options'), 'SAMEORIGIN', path);
+			assert.match(response.headers.get('strict-transport-security') ?? '', /max-age/, path);
+		}
+		const page = await anonymous.request('/offline.html');
+		assert.match(page.headers.get('content-security-policy') ?? '', /default-src 'none'/);
+	});
+
+	test("every response is marked as Heddohon's, for the offline page to tell it from a proxy's", async () => {
+		const anonymous = new Client(app.url);
+		for (const path of ['/login', '/offline.js', '/healthz', '/api/settings', '/nowhere']) {
+			assert.equal((await anonymous.request(path)).headers.get('x-heddohon'), '1', path);
+		}
+	});
+
+	test('signing out deletes the cookie as it was set', async () => {
+		const client = new Client(app.url);
+		await client.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' });
+		const response = await client.request('/logout', { method: 'POST', headers: { accept: 'text/html' } });
+		const bare = response.headers.getSetCookie().find((line) => line.startsWith('heddohon_session='));
+		assert.ok(bare, 'the cookie was not deleted');
+		assert.doesNotMatch(bare, /;\s*Secure/i, 'a plain-http deletion marked Secure is ignored by the browser');
+	});
+
+	test('an account holds at most 50 sessions', async () => {
+		const separate = await startApp({ subsonicUrl: subsonic.url, jellyfinUrl: jellyfin.url });
+		try {
+			let last;
+			for (let i = 0; i < 55; i++) {
+				last = new Client(separate.url);
+				assert.equal((await last.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' })).status, 303);
+			}
+			const { html } = await last.page('/settings');
+			const count = Number(/Signed in on<\/h3>\s*<span[^>]*>(\d+)</.exec(html)?.[1]);
+			assert.equal(count, 50, separate.output());
+		} finally {
+			await separate.stop();
+		}
+	});
+
+	test('a share token after stray characters is still taken out of the log', async () => {
+		const logged = await startApp({ subsonicUrl: subsonic.url, jellyfinUrl: jellyfin.url, env: { HEDDOHON_LOG_LEVEL: 'debug' } });
+		try {
+			const token = 'A'.repeat(20) + 'b'.repeat(23);
+			const visitor = new Client(logged.url);
+			for (const path of [`/share/%20${token}/stream/0`, `/share//${token}`, `/share/%22${token}`]) {
+				await visitor.request(path);
+			}
+			assert.ok(!logged.output().includes(token), 'a token reached the log');
+		} finally {
+			await logged.stop();
+		}
+	});
+
+	test('an unreachable music server is not named to the browser', async () => {
+		const unreachable = await startApp({ subsonicUrl: 'http://127.0.0.1:9', jellyfinUrl: jellyfin.url });
+		try {
+			const client = new Client(unreachable.url);
+			const response = await client.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' });
+			const html = await response.text();
+			assert.ok(!html.includes('127.0.0.1:9') && !html.includes('ECONNREFUSED'), html.slice(0, 400));
+		} finally {
+			await unreachable.stop();
+		}
+	});
+
+	test('ending a session stops the audio it is receiving', async () => {
+		const agent = (ua) => ({ 'user-agent': ua, 'content-type': 'application/x-www-form-urlencoded', accept: 'text/html' });
+		const signed = async (ua) => {
+			const client = new Client(app.url);
+			const response = await client.request('/login', {
+				method: 'POST',
+				headers: agent(ua),
+				body: new URLSearchParams({ username: 'testuser', password: 'testpass', backend: 'subsonic', next: '/' }).toString()
+			});
+			assert.equal(response.status, 303);
+			return client;
+		};
+		const offered = async (client) =>
+			[...(await client.page('/settings')).html.matchAll(/name="handle" value="([0-9a-f]{16})"/g)].map((m) => m[1]);
+
+		subsonic.state.audio = { type: 'audio/flac', body: Buffer.alloc(200_000, 7) };
+		// Half the file at once and the rest 1.5s later; the mock holds back only
+		// where it ignores ranges.
+		subsonic.state.ignoreRange = true;
+		subsonic.state.streamSlowMs = 1500;
+		try {
+			const phone = await signed('Mozilla/5.0 (Android 15; Mobile; rv:143.0) Gecko/143.0 Firefox/143.0');
+			const laptop = await signed('Mozilla/5.0 (X11; Linux x86_64; rv:143.0) Gecko/20100101 Firefox/143.0');
+			const phoneSees = new Set(await offered(phone));
+			const target = (await offered(laptop)).find((handle) => !phoneSees.has(handle));
+			assert.ok(target, 'no handle for the phone');
+
+			const response = await phone.request('/api/stream/s1a?mode=raw');
+			assert.equal(response.status, 200);
+			const reader = response.body.getReader();
+			let received = (await reader.read()).value?.byteLength ?? 0;
+
+			const ended = await laptop.request('/settings?/endSession', {
+				method: 'POST',
+				headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json', 'x-sveltekit-action': 'true' },
+				body: new URLSearchParams({ handle: target }).toString()
+			});
+			assert.equal((await ended.json()).type, 'success');
+
+			try {
+				for (;;) {
+					const { done, value } = await reader.read();
+					if (done) break;
+					received += value.byteLength;
+				}
+			} catch {
+				// Cut mid-body, which is the point.
+			}
+			assert.ok(received < 200_000, `the whole file arrived after the session ended (${received} bytes)`);
+			await laptop.request('/logout', { method: 'POST' });
+		} finally {
+			subsonic.state.audio = null;
+			subsonic.state.ignoreRange = false;
+			subsonic.state.streamSlowMs = 0;
 		}
 	});
 });
