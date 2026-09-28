@@ -151,6 +151,7 @@
 		'/folders',
 		'/folders/_',
 		'/history',
+		'/screen',
 		'/favourites',
 		'/search',
 		'/settings'
@@ -581,7 +582,8 @@
 	}
 
 	function onKeydown(event: KeyboardEvent) {
-		if (!signedIn) return;
+		// The living-room screen takes these keys itself, with more of its own.
+		if (!signedIn || data.isScreenPage) return;
 		const target = event.target as HTMLElement | null;
 		// Never steal keys from a field the user is typing into.
 		if (target?.matches('input, textarea, select, [contenteditable="true"]')) return;
@@ -625,7 +627,7 @@
 <audio bind:this={primaryAudio} preload="metadata"></audio>
 <audio bind:this={secondaryAudio} preload="none"></audio>
 
-{#if signedIn && data.account}
+{#if signedIn && data.account && !data.isScreenPage}
 	<div
 		class="app"
 		class:player-open={player.panelOpen}

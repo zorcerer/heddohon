@@ -79,6 +79,7 @@ describe('the policy', () => {
 			'/folders',
 			'/folders/d-al1',
 			'/history',
+			'/screen',
 			'/search?q=song',
 			'/settings'
 		];
@@ -1646,6 +1647,55 @@ describe('casting', () => {
 			subsonic.state.audio = null;
 			subsonic.state.albumSongs = 2;
 			await casting.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+});
+
+describe('the living-room screen', () => {
+	test('shows what plays with its lyrics, keeps playing on the way in, and takes a remote\'s keys', async () => {
+		const { page, problems } = await watchedPage();
+		const title = () => page.locator('.screen h1.title').textContent();
+		subsonic.state.audio = { type: 'audio/wav', body: silentWav(30) };
+		subsonic.state.lyrics.set('s14a', [
+			{ start: 0, value: 'First line on the screen' },
+			{ start: 60_000, value: 'A line a minute in' }
+		]);
+		try {
+			await page.goto(app.url + '/albums/al14', { waitUntil: 'networkidle' });
+			await page.getByRole('button', { name: 'Play Song 14a', exact: true }).click();
+			await page.waitForFunction(() => [...document.querySelectorAll('audio')].some((a) => !a.paused), null, { timeout: 5000 });
+
+			// From the rail, in place: the music does not stop on the way.
+			await page.locator('nav.rail a[href="/screen"]').click();
+			await page.waitForURL(/\/screen$/);
+			await page.waitForFunction(() => document.querySelector('.screen h1.title')?.textContent === 'Song 14a');
+			assert.equal(await page.locator('nav.rail').count(), 0, 'the rail is drawn on the screen');
+			assert.equal(await page.locator('aside.panel').count(), 0, 'the player panel is drawn on the screen');
+			assert.ok(await page.evaluate(() => [...document.querySelectorAll('audio')].some((a) => !a.paused)), 'playback stopped on the way in');
+			await page.locator('.screen .lyrics .now', { hasText: 'First line on the screen' }).waitFor({ timeout: 5000 });
+			assert.equal(await page.locator('.screen .lyrics .next').textContent(), 'A line a minute in');
+			assert.match(await page.locator('.screen .up-next').textContent(), /Song 14b/);
+
+			await page.keyboard.press('ArrowRight');
+			await page.waitForFunction(() => document.querySelector('.screen h1.title')?.textContent === 'Song 14b');
+			await page.keyboard.press('Enter');
+			await page.waitForFunction(() => [...document.querySelectorAll('audio')].every((a) => a.paused), null, { timeout: 5000 });
+			assert.equal(await page.locator('.screen .hh-eyebrow').first().textContent(), 'Paused');
+			await page.keyboard.press('Space');
+			await page.waitForFunction(() => [...document.querySelectorAll('audio')].some((a) => !a.paused), null, { timeout: 5000 });
+			const before = await page.evaluate(() => [...document.querySelectorAll('audio')].find((a) => !a.paused).volume);
+			await page.keyboard.press('ArrowDown');
+			await page.waitForFunction((was) => [...document.querySelectorAll('audio')].find((a) => !a.paused)?.volume < was, before, { timeout: 5000 });
+			assert.equal(await title(), 'Song 14b');
+
+			await page.keyboard.press('Escape');
+			await page.waitForURL((url) => url.pathname === '/');
+			await page.locator('nav.rail').waitFor();
+		} finally {
+			subsonic.state.audio = null;
+			subsonic.state.lyrics.clear();
+			await page.close();
 		}
 		assert.deepEqual(problems, []);
 	});

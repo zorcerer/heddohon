@@ -149,6 +149,11 @@
 	</ul>
 
 	<div class="foot">
+		<a class="link" href="/screen" title="Living-room screen">
+			<Icon name="screen" size={19} />
+			<span class="hh-visually-hidden">Living-room screen</span>
+		</a>
+
 		<a
 			class="link"
 			class:active={isActive('/settings', false)}

@@ -111,6 +111,8 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 		musicFolders: [{ id: 1, name: 'Music' }],
 		/** Ratings by song or album id, 1 to 5, as `setRating` leaves them. */
 		ratings: new Map(),
+		/** Synced lyrics by song id, as `[{ start, value }]` in milliseconds, for `getLyricsBySongId`. */
+		lyrics: new Map(),
 		/** Song and album ids that answer `getSong` or `getAlbum` with error 70, as a deleted one does. */
 		missing: new Set(),
 		/** Milliseconds to hold an endpoint's answer, by method name. */
@@ -354,6 +356,10 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 			case 'unstar':
 				for (const id of p.getAll('id')) state.starred.delete(id);
 				return send(ok({}));
+			case 'getLyricsBySongId': {
+				const lines = state.lyrics.get(p.get('id'));
+				return send(ok({ lyricsList: lines ? { structuredLyrics: [{ synced: true, line: lines }] } : {} }));
+			}
 			case 'getMusicFolders':
 				return send(ok({ musicFolders: { musicFolder: state.musicFolders } }));
 			case 'getIndexes': {
