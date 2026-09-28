@@ -636,6 +636,21 @@
 							<Icon name="output" size={17} />
 						</button>
 					{/if}
+					<!-- A speaker or a TV on the network, beside the choice of output
+					     on this device: both say where the sound goes. -->
+					{#if player.castAvailable || player.casting}
+						<button
+							class="tool"
+							class:on={player.casting}
+							onclick={() => void player.cast()}
+							disabled={!song}
+							aria-pressed={player.casting}
+							aria-label={player.casting ? 'Casting; choose where to play' : 'Cast to a speaker or a TV'}
+							title={player.casting ? 'Casting' : 'Cast'}
+						>
+							<Icon name="cast" size={17} />
+						</button>
+					{/if}
 				</div>
 				{#if audioOutputs.problem && (audioOutputs.picker || !outputOpen)}
 					<p class="output-note hh-muted" role="status">{audioOutputs.problem}</p>

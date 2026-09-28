@@ -21,7 +21,7 @@ only ever talks to Heddohon and your upstream credentials stay on the server.
 
 ## Features
 
-- **Original files**, up to FLAC 24/192, with the decoded format shown in the player. Optional transcoding to MP3, Opus or AAC, switched from the quality badge.
+- **Original files**, up to FLAC 24/192, with the decoded format shown in the player. Optional transcoding to MP3, Opus or AAC, switched from the quality badge. Casts to a Chromecast from Chrome on Android and to AirPlay from Safari.
 - **Coloured by the artwork:** the interface takes its accent from the playing cover, in two themes, Liquid (dark) and Sleek (light).
 - **Library:** albums, artists, genres, playlists, favourites and the folders on disk, with synced lyrics and recommendations from your music server. Playlists reorder by dragging or with the arrow keys. Songs and albums take a rating of one to five stars on Navidrome.
 - **Instant mix** from a track, an album or an artist: up to 100 similar tracks from your music server, with AudioMuse-AI's sonic similarity where it is installed.
