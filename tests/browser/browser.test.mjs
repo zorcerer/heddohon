@@ -1530,6 +1530,59 @@ describe('playback on another browser', () => {
 			subsonic.state.audio = null;
 		}
 	});
+
+	test('a visitor with no account joins, follows a skip and a pause, and a reaction reaches the host', async () => {
+		const { page: hostPage, problems } = await signedInPage();
+		const guestContext = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+		browsers.push(guestContext);
+		const guest = await guestContext.newPage();
+		const guestAudio = () =>
+			guest.evaluate(() => {
+				const a = document.querySelector('audio.together-audio');
+				return { src: a?.getAttribute('src') ?? '', paused: a?.paused ?? true, time: a?.currentTime ?? 0 };
+			});
+		subsonic.state.audio = { type: 'audio/wav', body: silentWav(60) };
+		try {
+			await hostPage.goto(remoteApp.url + '/albums/al17', { waitUntil: 'load' });
+			await hostPage.getByRole('button', { name: 'Play Song 17a', exact: true }).click();
+			await hostPage.waitForFunction(() => [...document.querySelectorAll('audio')].some((a) => !a.paused), null, { timeout: 5000 });
+
+			await hostPage.getByRole('button', { name: 'Share a link to this song' }).click();
+			await hostPage.getByRole('button', { name: 'Listen together' }).click();
+			const field = hostPage.getByRole('textbox', { name: 'Listen-together link' });
+			await field.waitFor({ timeout: 5000 });
+			const link = await field.inputValue();
+			assert.match(link, /\/together\/[\w-]+$/);
+			await hostPage.locator('dialog.together').getByRole('button', { name: 'Close' }).click();
+
+			await guest.goto(link, { waitUntil: 'load' });
+			await guest.locator('h1', { hasText: 'Song 17a' }).waitFor({ timeout: 5000 });
+			await guest.getByRole('button', { name: 'Join' }).click();
+			await guest.waitForFunction(() => !document.querySelector('audio.together-audio')?.paused, null, { timeout: 5000 });
+			const joined = await guestAudio();
+			assert.match(joined.src, /\?song=s17a$/);
+			const hostTime = await hostPage.evaluate(() => [...document.querySelectorAll('audio')].find((a) => !a.paused)?.currentTime ?? 0);
+			assert.ok(Math.abs(joined.time - hostTime) < 1.5, `the guest is at ${joined.time}, the host at ${hostTime}`);
+			await hostPage.locator('aside.panel .live', { hasText: '1 listening' }).waitFor({ timeout: 5000 });
+
+			await hostPage.locator('aside.panel button.step').nth(1).click();
+			await guest.locator('h1', { hasText: 'Song 17b' }).waitFor({ timeout: 5000 });
+			await guest.waitForFunction(() => /\?song=s17b$/.test(document.querySelector('audio.together-audio')?.getAttribute('src') ?? ''), null, { timeout: 5000 });
+
+			await hostPage.keyboard.press('Space');
+			await guest.waitForFunction(() => document.querySelector('audio.together-audio')?.paused === true, null, { timeout: 5000 });
+
+			await guest.getByRole('button', { name: 'Send 🔥' }).click();
+			await hostPage.locator('.reactions .reaction', { hasText: '🔥' }).waitFor({ timeout: 5000 });
+
+			await hostPage.locator('aside.panel .live').click();
+			await hostPage.getByRole('button', { name: 'End listening together' }).click();
+			await guest.locator('h1', { hasText: 'It has ended' }).waitFor({ timeout: 5000 });
+		} finally {
+			subsonic.state.audio = null;
+		}
+		assert.deepEqual(problems, []);
+	});
 });
 
 describe('casting', () => {
@@ -1667,12 +1720,14 @@ describe('your listening', () => {
 			await page.goto(app.url + '/stats', { waitUntil: 'networkidle' });
 			assert.equal(await page.locator('.plot').nth(0).locator('.column').count(), 24);
 			assert.equal(await page.locator('.plot').nth(1).locator('.column').count(), 7);
-			// The plays were all just now: this hour, today, a run of one day.
-			const hour = await page.evaluate(() => new Date().getHours());
+			// This test's three plays were in one hour, so the busiest hour holds at
+			// least three. Which hour it is, is not checked: other tests play too,
+			// and an earlier one leaves Playwright's clock on this context.
 			const peak = page.locator('.plot').nth(0).locator('.column.peak');
 			assert.equal(await peak.count(), 1);
-			assert.match(await peak.getAttribute('aria-label'), /: \d+ plays$/);
-			assert.equal(await page.locator('.plot').nth(0).locator('.column').nth(hour).getAttribute('class').then((c) => c.includes('peak')), true);
+			const label = await peak.getAttribute('aria-label');
+			assert.ok(Number(/: (\d+) plays$/.exec(label ?? '')?.[1] ?? 0) >= 3, `the busiest hour reads "${label}"`);
+			// Every play in the suite is today, so the run is one day.
 			const run = page.locator('.figure', { hasText: 'Longest run' }).locator('.number');
 			assert.equal(await run.textContent(), '1');
 		} finally {

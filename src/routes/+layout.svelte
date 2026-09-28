@@ -7,6 +7,7 @@
 	import { audioOutputs } from '$lib/client/output.svelte';
 	import { remote } from '$lib/client/remote.svelte';
 	import { settleStarred } from '$lib/client/favourites.svelte';
+	import { together } from '$lib/client/together.svelte';
 	import { tintFrom } from '$lib/client/artwork';
 	import { ambience } from '$lib/client/ambience.svelte';
 	import {
@@ -24,6 +25,8 @@
 	import NowPlayingPanel from '$lib/components/NowPlayingPanel.svelte';
 	import PhoneDock from '$lib/components/PhoneDock.svelte';
 	import DevicesDialog from '$lib/components/DevicesDialog.svelte';
+	import Reactions from '$lib/components/Reactions.svelte';
+	import TogetherDialog from '$lib/components/TogetherDialog.svelte';
 	import PlaylistPicker from '$lib/components/PlaylistPicker.svelte';
 	import ShareDialog from '$lib/components/ShareDialog.svelte';
 	import Sidebar from '$lib/components/Sidebar.svelte';
@@ -121,6 +124,13 @@
 		if (!signedIn || !data.remoteControl) return;
 		untrack(() => remote.start());
 		return () => remote.stop();
+	});
+
+	// A listen-together party this browser hosts carries on across a reload.
+	$effect(() => {
+		if (!signedIn || !data.together) return;
+		untrack(() => void together.resume());
+		return () => together.stop();
 	});
 
 	// What this browser plays, for the others: the track, whether it is meant
@@ -703,6 +713,10 @@
 
 		<PlaylistPicker />
 		<DevicesDialog />
+		{#if data.together}
+			<TogetherDialog />
+			<Reactions reactions={together.reactions} />
+		{/if}
 		{#if data.sharing}
 			<ShareDialog />
 		{/if}
