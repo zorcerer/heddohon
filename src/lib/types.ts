@@ -133,6 +133,28 @@ export interface PlaylistDetail extends Playlist {
 	songs: Song[];
 }
 
+/** A folder as a link: where it is and what it is called. */
+export interface FolderRef {
+	id: string;
+	name: string;
+	coverArt: string | null;
+}
+
+/**
+ * A folder of the library as it is laid out on disk, with what is in it. The
+ * top (`id` null) holds the server's libraries, or the first level of the only
+ * one.
+ */
+export interface Folder {
+	id: string | null;
+	name: string;
+	/** The folders above this one, from the top down, not counting the top itself. */
+	parents: FolderRef[];
+	folders: FolderRef[];
+	/** The tracks directly in this folder, not those in folders below it. */
+	songs: Song[];
+}
+
 export interface SearchResults {
 	albums: Album[];
 	artists: Artist[];

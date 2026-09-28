@@ -5,6 +5,7 @@ import type {
 	Artist,
 	ArtistDetail,
 	BackendKind,
+	Folder,
 	Genre,
 	Playlist,
 	PlaylistDetail,
@@ -214,6 +215,20 @@ export interface MediaBackend {
 	getGenreAlbums(cred: StoredCredential, genreId: string, limit: number, offset: number): Promise<Album[]>;
 	/** Up to `limit` songs from one genre in random order, for playing it. */
 	getGenreSongs(cred: StoredCredential, genreId: string, limit: number): Promise<Song[]>;
+
+	/**
+	 * A folder of the library as it is on disk, or the top with `id` null.
+	 *
+	 * Subsonic: `getMusicFolders` for the libraries, `getIndexes` for the first
+	 * level of one, `getMusicDirectory` below that. Navidrome 0.55 and later
+	 * answer these from the folders on disk; earlier versions make up a tree of
+	 * artists and albums. Jellyfin: the music libraries from `/UserViews`, then
+	 * `/Items?ParentId=`, which lists what a library holds as it is on disk
+	 * (plain folders, and a folder of tracks as its album).
+	 *
+	 * An id that is not a folder is `not_found`.
+	 */
+	getFolder(cred: StoredCredential, id: string | null): Promise<Folder>;
 
 	getPlaylists(cred: StoredCredential): Promise<Playlist[]>;
 	getPlaylist(cred: StoredCredential, id: string): Promise<PlaylistDetail>;
