@@ -99,6 +99,7 @@ function announce(): void {
 			data: cfg.dataDir,
 			covers: cfg.coverCacheBytes > 0 ? `${Math.round(cfg.coverCacheBytes / 1024 / 1024)}MB` : 'off',
 			sharing: cfg.sharing ? 'on' : 'off',
+			remoteControl: cfg.remoteControl ? 'on' : 'off',
 			database: cfg.database.kind === 'postgres' ? `postgres=${cfg.database.label}` : 'sqlite',
 			sessionHours: cfg.sessionMaxHours,
 			cookieSecure: String(cfg.cookieSecure),

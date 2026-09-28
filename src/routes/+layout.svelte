@@ -5,6 +5,7 @@
 	import { navigating, updated } from '$app/state';
 	import { player } from '$lib/client/player.svelte';
 	import { audioOutputs } from '$lib/client/output.svelte';
+	import { remote } from '$lib/client/remote.svelte';
 	import { tintFrom } from '$lib/client/artwork';
 	import { ambience } from '$lib/client/ambience.svelte';
 	import {
@@ -21,6 +22,7 @@
 	import Icon from '$lib/components/Icon.svelte';
 	import NowPlayingPanel from '$lib/components/NowPlayingPanel.svelte';
 	import PhoneDock from '$lib/components/PhoneDock.svelte';
+	import DevicesDialog from '$lib/components/DevicesDialog.svelte';
 	import PlaylistPicker from '$lib/components/PlaylistPicker.svelte';
 	import ShareDialog from '$lib/components/ShareDialog.svelte';
 	import Sidebar from '$lib/components/Sidebar.svelte';
@@ -107,6 +109,27 @@
 		untrack(() => void audioOutputs.init());
 		void restoreQueue();
 		return () => player.detach();
+	});
+
+	/**
+	 * The stream that makes this browser one of the account's devices, from
+	 * signing in to signing out; see `client/remote.svelte.ts`. Its own effect,
+	 * so nothing it reads can detach the player above.
+	 */
+	$effect(() => {
+		if (!signedIn || !data.remoteControl) return;
+		untrack(() => remote.start());
+		return () => remote.stop();
+	});
+
+	// What this browser plays, for the others: the track, whether it is meant
+	// to be playing (`engaged`, which holds across a track change), and the
+	// volume. The position goes on a timer of its own.
+	$effect(() => {
+		void player.current?.id;
+		void player.engaged;
+		void player.volume;
+		untrack(() => remote.report());
 	});
 
 	/**
@@ -668,6 +691,7 @@
 		</div>
 
 		<PlaylistPicker />
+		<DevicesDialog />
 		{#if data.sharing}
 			<ShareDialog />
 		{/if}

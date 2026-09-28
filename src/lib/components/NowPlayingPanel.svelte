@@ -51,6 +51,7 @@
 	import MixButton from './MixButton.svelte';
 	import QualityBadge from './QualityBadge.svelte';
 	import RatingStars from './RatingStars.svelte';
+	import { remote } from '$lib/client/remote.svelte';
 	import Seekbar from './Seekbar.svelte';
 
 	let { showQualityBadge = true }: { showQualityBadge?: boolean } = $props();
@@ -779,6 +780,21 @@
 					<span class="count hh-numeric">{sleepMinutesLeft}</span>
 				{/if}
 			</button>
+
+			<!-- Only while another browser of the account has the player open, so
+			     the row is its usual seven the rest of the time. -->
+			{#if remote.peers.length > 0}
+				<button
+					class="tool"
+					class:on={remote.open}
+					onclick={() => (remote.open = true)}
+					aria-label="Devices ({remote.peers.length} other)"
+					title="Devices"
+				>
+					<Icon name="devices" size={18} />
+					<span class="count hh-numeric">{remote.peers.length}</span>
+				</button>
+			{/if}
 
 			<button
 				class="tool"
