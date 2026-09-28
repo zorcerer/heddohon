@@ -2126,9 +2126,22 @@ describe('on a phone', () => {
 	 * A tap rather than `click()`. Playwright scrolls a target into view
 	 * before clicking it, and with the dock pinned that moved a scrolled page,
 	 * which a finger on the dock does not do.
+	 *
+	 * Tapped once the target has held still for a frame. After a scroll the
+	 * dock folds its tabs and `#dock-open` slides 56px down over about 200ms
+	 * (measured at 393x641); measured at the start of that and tapped at the
+	 * end, the tap landed above the button and the sheet did not open, which
+	 * failed CI twice on 2026-09-28.
 	 */
 	async function tap(page, locator) {
-		const box = await locator.boundingBox();
+		let box = await locator.boundingBox();
+		for (let frame = 0; frame < 60; frame++) {
+			await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => done())));
+			const next = await locator.boundingBox();
+			const still = box && next && box.x === next.x && box.y === next.y && box.width === next.width && box.height === next.height;
+			box = next;
+			if (still) break;
+		}
 		await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
 	}
 
