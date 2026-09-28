@@ -544,14 +544,22 @@ export async function startJellyfin() {
 	 * Songs the user has played: `{ Id, AlbumId, PlayCount, LastPlayedDate }`.
 	 * Jellyfin keeps plays on songs only, so its albums carry none.
 	 */
-	const state = { played: [] };
+	/** Item ids the user has made a favourite, which every item it answers with carries in `UserData`. */
+	const state = { played: [], favourites: new Set() };
+
+	/** An item as Jellyfin answers with it for this user: with its favourite state. */
+	const withUserData = (item) =>
+		item && typeof item === 'object' && typeof item.Id === 'string' && item.Type !== 'UserRootFolder'
+			? { ...item, UserData: { ...(item.UserData ?? {}), IsFavorite: state.favourites.has(item.Id) } }
+			: item;
 
 	const server = await listen((req, res) => {
 		const url = new URL(req.url, 'http://mock');
 		const send = (body, status = 200) => {
 			res.statusCode = status;
 			res.setHeader('content-type', 'application/json');
-			res.end(JSON.stringify(body));
+			const decorated = Array.isArray(body?.Items) ? { ...body, Items: body.Items.map(withUserData) } : withUserData(body);
+			res.end(JSON.stringify(decorated));
 		};
 		const types = url.searchParams.get('IncludeItemTypes') ?? url.searchParams.get('includeItemTypes');
 		calls.hit(`${req.method} ${url.pathname}${types ? ` ${types}` : ''}`);
@@ -567,6 +575,23 @@ export async function startJellyfin() {
 			return;
 		}
 		if (url.pathname === '/QuickConnect/Enabled') return send(false);
+		// Favourites, by the route Heddohon uses: POST adds, DELETE removes, and
+		// the answer is the item's user data.
+		const favourite = /^\/Users\/u1\/FavoriteItems\/([^/]+)$/.exec(url.pathname);
+		if (favourite && (req.method === 'POST' || req.method === 'DELETE')) {
+			if (req.method === 'POST') state.favourites.add(favourite[1]);
+			else state.favourites.delete(favourite[1]);
+			return send({ IsFavorite: state.favourites.has(favourite[1]), ItemId: favourite[1] });
+		}
+		// The favourites of one kind, as the favourites page and "play favourites" ask.
+		if (url.pathname === '/Items' && url.searchParams.get('Filters') === 'IsFavorite') {
+			const pool = { Audio: tracks, MusicAlbum: albums, MusicArtist: artists }[types] ?? [];
+			return send({ Items: pool.filter((entry) => state.favourites.has(entry.Id)) });
+		}
+		// An album's tracks, as the album page asks for them.
+		if (url.pathname === '/Items' && types === 'Audio' && url.searchParams.get('ParentId')) {
+			return send({ Items: tracks.filter((track) => track.AlbumId === url.searchParams.get('ParentId')) });
+		}
 		if (url.pathname === '/UserViews') return send({ Items: views });
 		if (url.pathname === '/Items/lib1') return send(views[0]);
 		if (url.pathname === '/Items/fb') return send(folderB);

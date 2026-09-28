@@ -636,9 +636,11 @@
 							<Icon name="output" size={17} />
 						</button>
 					{/if}
-					<!-- A speaker or a TV on the network, beside the choice of output
-					     on this device: both say where the sound goes. -->
-					{#if player.castAvailable || player.casting}
+					<!-- A speaker or a TV on the network. Where the browser lists its
+					     outputs, it is the last of them ("Cast…" below); a button of
+					     its own here as well was one control twice. Safari and iOS
+					     list no outputs, so there it is this button. -->
+					{#if (player.castAvailable || player.casting) && (!audioOutputs.supported || audioOutputs.picker)}
 						<button
 							class="tool"
 							class:on={player.casting}

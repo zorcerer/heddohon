@@ -562,6 +562,11 @@ export class Player {
 		this.#persist();
 	}
 
+	/** Sets the favourite state of every queued copy of a song, after a heart is pressed. */
+	markStarred(id: string, starred: boolean) {
+		for (const song of this.queue) if (song.id === id) song.starred = starred;
+	}
+
 	clearQueue() {
 		this.stop();
 		this.queue = [];
