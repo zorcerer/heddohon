@@ -54,6 +54,8 @@ export interface AppConfig {
 	sharing: boolean;
 	/** Whether the original file can be downloaded from the player. */
 	downloads: boolean;
+	/** Whether a browser can control playback on the account's other browsers; see `remote.ts`. */
+	remoteControl: boolean;
 	/** LRCLIB base URL for lyrics the music server lacks, or null when off. */
 	lrclibUrl: string | null;
 	database: DatabaseConfig;
@@ -238,6 +240,9 @@ function build(): AppConfig {
 		registrationHint: env('HEDDOHON_LOGIN_HINT') ?? null,
 		sharing: flagEnv('HEDDOHON_SHARING', true),
 		downloads: flagEnv('HEDDOHON_DOWNLOADS', true),
+		// The browsers are known to one process only, so a deployment of several
+		// behind a load balancer turns it off.
+		remoteControl: flagEnv('HEDDOHON_REMOTE_CONTROL', true),
 		// Off unless asked for: turning it on sends the artist, title, album and
 		// length of every track whose lyrics are opened to a third party.
 		lrclibUrl: flagEnv('HEDDOHON_LYRICS_LRCLIB', false)
@@ -320,6 +325,7 @@ export function config(): AppConfig {
 			registrationHint: null,
 			sharing: true,
 			downloads: true,
+			remoteControl: true,
 			lrclibUrl: null,
 			database: { kind: 'sqlite' }
 		};

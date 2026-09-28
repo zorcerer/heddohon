@@ -584,6 +584,162 @@ describe('folders', () => {
 	});
 });
 
+describe('playback on another browser', () => {
+	/**
+	 * A browser's event stream, read as it arrives. `next(type)` resolves with
+	 * the next event of that type, and `closed` when the server ends it.
+	 */
+	async function listen(client) {
+		const response = await client.request('/api/remote/events', { headers: { accept: 'text/event-stream' } });
+		assert.equal(response.status, 200, explain('the event stream was refused'));
+		assert.match(response.headers.get('content-type') ?? '', /^text\/event-stream/);
+		const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
+		const events = [];
+		const waiting = [];
+		let buffer = '';
+		const closed = (async () => {
+			for (;;) {
+				const { value, done } = await reader.read().catch(() => ({ done: true }));
+				if (done) return;
+				buffer += value;
+				let end;
+				while ((end = buffer.indexOf('\n\n')) >= 0) {
+					const block = buffer.slice(0, end);
+					buffer = buffer.slice(end + 2);
+					const type = /^event: (.*)$/m.exec(block)?.[1];
+					const data = /^data: (.*)$/m.exec(block)?.[1];
+					if (!type) continue;
+					events.push({ type, data: JSON.parse(data) });
+					for (const wait of [...waiting]) wait();
+				}
+			}
+		})();
+		let read = 0;
+		const next = (type, timeout = 3000) =>
+			new Promise((resolve, reject) => {
+				const timer = setTimeout(() => reject(new Error(`no ${type} event within ${timeout}ms`)), timeout);
+				const check = () => {
+					const at = events.findIndex((event, i) => i >= read && event.type === type);
+					if (at < 0) return;
+					read = at + 1;
+					clearTimeout(timer);
+					waiting.splice(waiting.indexOf(check), 1);
+					resolve(events[at].data);
+				};
+				waiting.push(check);
+				check();
+			});
+		const { id } = await next('hello');
+		return { id, next, closed, cancel: () => reader.cancel().catch(() => undefined) };
+	}
+
+	const signedIn = async (username = 'testuser', password = 'testpass') => {
+		const client = new Client(app.url);
+		await client.signIn({ username, password, backend: 'subsonic' });
+		return client;
+	};
+
+	test('two browsers of one account see each other, and one plays and pauses the other', async () => {
+		const desktop = await signedIn();
+		const phone = await signedIn();
+		const a = await listen(desktop);
+		const b = await listen(phone);
+		try {
+			const { peers } = await b.next('peers');
+			assert.deepEqual(new Set(peers.map((peer) => peer.id)), new Set([a.id, b.id]));
+
+			const state = { songId: 's3a', title: 'Song 3a', artist: 'Artist 0003', coverArt: 'al-3', position: 12, duration: 180, playing: true, volume: 0.5 };
+			assert.equal((await desktop.json('/api/remote/state', 'POST', { peer: a.id, state })).status, 200);
+			const seen = await b.next('peers');
+			const reported = seen.peers.find((peer) => peer.id === a.id);
+			assert.equal(reported.state.title, 'Song 3a');
+			assert.equal(reported.state.playing, true);
+			assert.equal(typeof seen.now, 'number');
+
+			assert.equal((await phone.json('/api/remote', 'POST', { to: a.id, command: { type: 'toggle' } })).status, 200);
+			assert.deepEqual(await a.next('command'), { type: 'toggle' });
+			await phone.json('/api/remote', 'POST', { to: a.id, command: { type: 'seek', position: 42 } });
+			assert.deepEqual(await a.next('command'), { type: 'seek', position: 42 });
+
+			// "Play here": the phone asks, and the desktop answers with its queue.
+			await phone.json('/api/remote', 'POST', { to: a.id, command: { type: 'handoff', to: b.id } });
+			assert.deepEqual(await a.next('command'), { type: 'handoff', to: b.id });
+			const transfer = { type: 'transfer', ids: ['s3a', 's3b'], index: 1, position: 30, playing: true };
+			assert.equal((await desktop.json('/api/remote', 'POST', { to: b.id, command: transfer })).status, 200);
+			assert.deepEqual(await b.next('command'), transfer);
+		} finally {
+			a.cancel();
+			b.cancel();
+		}
+	});
+
+	test('another account reaches neither browser, nor reports for them', async () => {
+		const desktop = await signedIn();
+		const a = await listen(desktop);
+		try {
+			await asFreshAccount('stranger', async (stranger) => {
+				const sent = await stranger.json('/api/remote', 'POST', { to: a.id, command: { type: 'pause' } });
+				assert.equal(sent.status, 404);
+				const reported = await stranger.json('/api/remote/state', 'POST', { peer: a.id, state: null });
+				assert.equal(reported.status, 404);
+			});
+			// A second browser of the same account may send to it, but not report as it.
+			const other = await signedIn();
+			const reported = await other.json('/api/remote/state', 'POST', { peer: a.id, state: null });
+			assert.equal(reported.status, 404);
+			await assert.rejects(a.next('command', 300), /no command event/);
+		} finally {
+			a.cancel();
+		}
+	});
+
+	test('a command is one of the few it can be, with every field in bounds', async () => {
+		const desktop = await signedIn();
+		const a = await listen(desktop);
+		try {
+			const ids = (n) => Array.from({ length: n }, (_, i) => `s${i}a`);
+			for (const command of [
+				{ type: 'eject' },
+				{ type: 'seek', position: -1 },
+				{ type: 'seek', position: 'end' },
+				{ type: 'volume', volume: 1.5 },
+				{ type: 'transfer', ids: [], index: 0, position: 0, playing: true },
+				{ type: 'transfer', ids: ids(1001), index: 0, position: 0, playing: true },
+				{ type: 'transfer', ids: ids(2), index: 2, position: 0, playing: true },
+				{ type: 'transfer', ids: ['x'.repeat(256)], index: 0, position: 0, playing: true },
+				{ type: 'handoff', to: a.id },
+				null
+			]) {
+				const response = await desktop.json('/api/remote', 'POST', { to: a.id, command });
+				assert.equal(response.status, 400, `${JSON.stringify(command)?.slice(0, 60)} was not refused`);
+			}
+			assert.equal((await desktop.json('/api/remote', 'POST', { to: 'nobody', command: { type: 'pause' } })).status, 404);
+		} finally {
+			a.cancel();
+		}
+	});
+
+	test('signing out ends the stream, and the other browsers are told', async () => {
+		const desktop = await signedIn();
+		const phone = await signedIn();
+		const a = await listen(desktop);
+		const b = await listen(phone);
+		try {
+			await b.next('peers');
+			await desktop.request('/logout', { method: 'POST' });
+			await Promise.race([a.closed, new Promise((_, reject) => setTimeout(() => reject(new Error('the stream stayed open')), 3000))]);
+			for (;;) {
+				const { peers } = await b.next('peers');
+				if (!peers.some((peer) => peer.id === a.id)) break;
+			}
+			assert.equal((await phone.json('/api/remote', 'POST', { to: a.id, command: { type: 'pause' } })).status, 404);
+		} finally {
+			a.cancel();
+			b.cancel();
+		}
+	});
+});
+
 describe('the offline page', () => {
 	test('the worker, the page and its script are served without a session', async () => {
 		const anonymous = new Client(app.url);

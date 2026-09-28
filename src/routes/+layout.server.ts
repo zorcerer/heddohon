@@ -15,6 +15,7 @@ export const load: LayoutServerLoad = async ({ locals, url }) => {
 		// keeps the buttons from offering what the server will refuse.
 		sharing: cfg.sharing,
 		downloads: cfg.downloads,
+		remoteControl: cfg.remoteControl,
 		// Whether the music server keeps star ratings. Navidrome does, Jellyfin
 		// does not, and the stars are drawn only where a press can be saved.
 		ratings: Boolean(session && backendFor(session.account.backend).setRating),
