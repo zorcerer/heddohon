@@ -62,21 +62,6 @@ export const EASE_OUT_CSS = 'cubic-bezier(0.22, 1, 0.36, 1)';
 /** `--ease-exit`: gathers speed and goes. */
 export const easeExit = bezier(0.55, 0, 1, 0.45);
 
-/**
- * `--ease-spring`: the damped spring the stylesheet samples with `linear()`,
- * computed rather than sampled (damping ratio 0.7, 4.6 percent overshoot).
- */
-export function easeSpring(t: number): number {
-	if (t <= 0) return 0;
-	if (t >= 1) return 1;
-	const zeta = 0.7;
-	const damped = Math.sqrt(1 - zeta * zeta);
-	// The time at which the spring is within 0.1 percent of rest, for unit
-	// natural frequency; the curve is stretched so that is t = 1.
-	const time = t * 10.28;
-	return 1 - Math.exp(-zeta * time) * (Math.cos(damped * time) + (zeta / damped) * Math.sin(damped * time));
-}
-
 /** A duration, or 0 for someone who has asked for less motion. */
 export function motion(duration: number): number {
 	return prefersReducedMotion() ? 0 : duration;

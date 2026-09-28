@@ -662,7 +662,13 @@
 							recorded: the microphone is closed as soon as the list is read.
 						</p>
 						<div>
-							<button class="chip" onclick={() => void audioOutputs.nameOutputs()}>List outputs</button>
+							<button
+								class="chip"
+								disabled={audioOutputs.listing}
+								onclick={() => void audioOutputs.nameOutputs()}
+							>
+								{audioOutputs.listing ? 'Listing…' : 'List outputs'}
+							</button>
 						</div>
 					{/if}
 					{#if audioOutputs.problem}

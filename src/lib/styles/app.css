@@ -283,7 +283,6 @@
 	   heavier weight. `--accent-strong` holds the same worst-hue contrast. */
 	--highres: var(--accent-strong);
 
-	--shadow-low: 0 1px 2px rgb(0 0 0 / 0.4);
 	--shadow-mid: 0 8px 22px -10px rgb(0 0 0 / 0.7);
 	--shadow-high: 0 24px 56px -26px rgb(0 0 0 / 0.85);
 
@@ -308,7 +307,6 @@
 	--glass-base-deep: 66%;
 	/* Controls are small panes of the same material rather than grey slabs. */
 	--control-face: color-mix(in srgb, var(--bg-raised) 46%, transparent);
-	--control-face-hover: color-mix(in srgb, var(--bg-hover) 72%, transparent);
 	--control-blur: blur(14px) saturate(90%) brightness(0.72);
 	/*
 	 * A field is the same material as a control. It is *not* mixed from the
@@ -416,7 +414,6 @@
 	--highres: var(--accent-strong);
 
 	/* Shadows in the grey of the page, not black: a lit room's shade is blue-grey. */
-	--shadow-low: 0 1px 2px rgb(54 64 80 / 0.08);
 	--shadow-mid: 0 8px 22px -12px rgb(54 64 80 / 0.22);
 	--shadow-high: 0 24px 56px -28px rgb(54 64 80 / 0.28);
 
@@ -431,7 +428,6 @@
 	--glass-blur-deep: blur(46px) saturate(96%) brightness(1.03);
 	--glass-base-deep: 84%;
 	--control-face: color-mix(in srgb, var(--bg-raised) 60%, transparent);
-	--control-face-hover: color-mix(in srgb, var(--bg-raised) 85%, transparent);
 	--control-blur: blur(14px) saturate(100%);
 	--field-face: color-mix(in srgb, var(--bg-sunken) 50%, transparent);
 	--field-face-focus: color-mix(in srgb, var(--bg-raised) 88%, transparent);
