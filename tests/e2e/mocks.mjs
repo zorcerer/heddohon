@@ -457,6 +457,11 @@ export async function startJellyfin() {
 	});
 	/** Playlist `jpl`, in order: the entry id, and which track it is. */
 	const playlist = [1, 2, 3].map((n) => ({ id: `e${n}`, track: n }));
+	/**
+	 * Songs the user has played: `{ Id, AlbumId, PlayCount, LastPlayedDate }`.
+	 * Jellyfin keeps plays on songs only, so its albums carry none.
+	 */
+	const state = { played: [] };
 
 	const server = await listen((req, res) => {
 		const url = new URL(req.url, 'http://mock');
@@ -481,6 +486,13 @@ export async function startJellyfin() {
 		if (url.pathname === '/QuickConnect/Enabled') return send(false);
 		if (url.pathname === '/Users/u1') return send({ Id: 'u1', Name: 'jfuser', Policy: { IsAdministrator: false } });
 		if (url.pathname === '/Items' && types === 'MusicArtist') return send({ Items: artists });
+		if (url.pathname === '/Items' && types === 'Audio' && url.searchParams.get('Filters') === 'IsPlayed') {
+			const key = url.searchParams.get('SortBy') === 'PlayCount' ? 'PlayCount' : 'LastPlayedDate';
+			const items = state.played
+				.map(({ Id, AlbumId, PlayCount, LastPlayedDate }) => ({ Id, Type: 'Audio', AlbumId, UserData: { PlayCount, LastPlayedDate, Played: true } }))
+				.sort((a, b) => (a.UserData[key] < b.UserData[key] ? 1 : a.UserData[key] > b.UserData[key] ? -1 : 0));
+			return send({ Items: items });
+		}
 		if (url.pathname === '/Items' && types === 'MusicAlbum') return send({ Items: albums });
 		// An instant mix of the first album or of one of its tracks, and those
 		// tracks by id; any other item has no mix.
@@ -488,7 +500,7 @@ export async function startJellyfin() {
 		if (/^\/Items\/[^/]+\/InstantMix$/.test(url.pathname)) return send({ Items: [] });
 		if (url.pathname === '/Items' && url.searchParams.get('Ids')) {
 			const ids = url.searchParams.get('Ids').split(',');
-			return send({ Items: tracks.filter((track) => ids.includes(track.Id)) });
+			return send({ Items: [...tracks, ...albums].filter((item) => ids.includes(item.Id)) });
 		}
 		// A playlist of three tracks, each entry with an id of its own, which is
 		// what Jellyfin moves and removes entries by.
@@ -509,5 +521,5 @@ export async function startJellyfin() {
 		return send({}, 404);
 	});
 
-	return { ...server, calls };
+	return { ...server, calls, state };
 }
