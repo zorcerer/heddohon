@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+		<meta name="theme-color" content="#0b0c0f" />
+		<meta name="robots" content="noindex" />
+		<title>Heddohon · Offline</title>
+		<link rel="icon" href="/favicon.svg" />
+		<!--
+			Served by the service worker when a page load fails, so everything it
+			needs is in this file or in offline.js, both cached at install. The app's
+			fonts and stylesheet have hashed names that change every build, so the
+			system font stands in. Colours are the Liquid theme's (`app.css`).
+		-->
+		<style>
+			:root {
+				color-scheme: dark;
+				--bg-base: #0b0c0f;
+				--bg-raised: #181a1f;
+				--bg-hover: #202329;
+				--text-strong: #f7f8fa;
+				--text-muted: #a2a6ae;
+				--border-hairline: #1f2227;
+			}
+			* {
+				box-sizing: border-box;
+			}
+			html,
+			body {
+				height: 100%;
+				margin: 0;
+			}
+			body {
+				display: grid;
+				place-items: center;
+				padding: 1.5rem;
+				background: var(--bg-base);
+				color: var(--text-strong);
+				font: 400 1rem/1.5 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+				-webkit-font-smoothing: antialiased;
+			}
+			main {
+				display: flex;
+				flex-direction: column;
+				align-items: center;
+				gap: 1rem;
+				max-width: 22rem;
+				text-align: center;
+			}
+			svg {
+				width: 3.5rem;
+				height: 3.5rem;
+				color: var(--text-muted);
+			}
+			h1 {
+				margin: 0.5rem 0 0;
+				font-size: 1.25rem;
+				font-weight: 600;
+				letter-spacing: -0.01em;
+			}
+			p {
+				margin: 0;
+				color: var(--text-muted);
+				font-size: 0.9375rem;
+			}
+			button {
+				margin-top: 0.5rem;
+				padding: 0.55rem 1.25rem;
+				border: 1px solid var(--border-hairline);
+				border-radius: 999px;
+				background: var(--bg-raised);
+				color: var(--text-strong);
+				font: inherit;
+				font-size: 0.875rem;
+				font-weight: 500;
+				cursor: pointer;
+				transition: background 160ms ease;
+			}
+			button:hover {
+				background: var(--bg-hover);
+			}
+			button:focus-visible {
+				outline: 2px solid var(--text-strong);
+				outline-offset: 2px;
+			}
+			button:disabled {
+				cursor: default;
+				opacity: 0.6;
+			}
+		</style>
+	</head>
+	<body>
+		<main>
+			<!-- The crest from Logo.svelte. -->
+			<svg viewBox="0 0 32 32" fill="none" aria-hidden="true">
+				<circle cx="16" cy="16" r="13.6" stroke="currentColor" stroke-width="1.8" />
+				<path
+					d="M8.98 19.27A7.75 7.75 0 1 1 23.02 19.27"
+					stroke="currentColor"
+					stroke-width="2.75"
+					stroke-linecap="round"
+				/>
+				<rect x="6.62" y="17.9" width="4.72" height="8.3" rx="2.36" fill="currentColor" />
+				<rect x="20.66" y="17.9" width="4.72" height="8.3" rx="2.36" fill="currentColor" />
+			</svg>
+			<h1>Heddohon cannot reach its server</h1>
+			<p id="status">
+				Check your connection. This page reloads by itself when the server answers.
+			</p>
+			<button type="button" id="retry">Try again</button>
+		</main>
+		<script src="/offline.js"></script>
+	</body>
+</html>

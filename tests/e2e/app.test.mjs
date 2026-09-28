@@ -36,6 +36,25 @@ function explain(message) {
 	return `${message}\n--- app output ---\n${app.output()}`;
 }
 
+/**
+ * Signs in a new client as `username`, an account nothing is remembered for
+ * yet, and runs `run` with it and the call counts reset. The mock serves one
+ * user at a time, so it is switched for the length of `run` and put back.
+ */
+async function asFreshAccount(username, run) {
+	subsonic.state.username = username;
+	subsonic.state.password = `${username}pass`;
+	try {
+		const client = new Client(app.url);
+		await client.signIn({ username, password: `${username}pass`, backend: 'subsonic' });
+		subsonic.calls.reset();
+		await run(client);
+	} finally {
+		subsonic.state.username = 'testuser';
+		subsonic.state.password = 'testpass';
+	}
+}
+
 describe('the gate', () => {
 	test('/healthz answers without a session and names no upstream URL', async () => {
 		const response = await fetch(`${app.url}/healthz`);
@@ -272,6 +291,41 @@ describe('favourites', () => {
 		}
 	});
 
+	test('a shuffle holds its order for its seed, and the chip deals a new seed', async () => {
+		const ids = ['s2a', 's3a', 's4a', 's5b', 's10a'];
+		for (const id of ids) await user.json('/api/star', 'POST', { id, kind: 'song', starred: true });
+		const titles = ['Song 0a', 'Song 1a', 'Song 2a', 'Song 3a', 'Song 4a', 'Song 5b', 'Song 10a'];
+		const order = (html) =>
+			titles
+				.map((title) => [title, html.indexOf(`>${title}<`)])
+				.sort((a, b) => a[1] - b[1])
+				.map(([title]) => title);
+
+		try {
+			const first = await user.page('/favourites?tab=songs&sort=random&seed=1');
+			assert.equal(first.response.status, 200, explain('shuffled favourites failed'));
+			assert.match(first.html, />Random</);
+			const again = await user.page('/favourites?tab=songs&sort=random&seed=1');
+			assert.deepEqual(order(again.html), order(first.html), 'one seed, one order');
+			assert.deepEqual([...order(first.html)].sort(), [...titles].sort(), 'every favourite is in the shuffle');
+
+			// The hash is fixed, so which seeds differ is too; one of the next
+			// twenty dealing the same seven in the same order would be a broken hash.
+			const others = [];
+			for (let seed = 2; seed <= 21; seed++) {
+				others.push(order((await user.page(`/favourites?tab=songs&sort=random&seed=${seed}`)).html).join());
+			}
+			assert.ok(others.some((other) => other !== order(first.html).join()), 'every seed dealt the same order');
+
+			// Without a seed one is drawn; a malformed one is replaced, not an error.
+			assert.equal((await user.page('/favourites?tab=songs&sort=random')).response.status, 200);
+			assert.equal((await user.page('/favourites?tab=songs&sort=random&seed=-4')).response.status, 200);
+			assert.match(first.html, /href="\/favourites\?tab=songs&amp;sort=random&amp;seed=\d+"/);
+		} finally {
+			for (const id of ids) await user.json('/api/star', 'POST', { id, kind: 'song', starred: false });
+		}
+	});
+
 	test('Jellyfin, which does not date a favourite, is not offered "recently starred"', async () => {
 		const client = new Client(app.url);
 		await client.signIn({ username: 'jfuser', password: 'jfpass', backend: 'jellyfin' });
@@ -315,6 +369,77 @@ describe('Jellyfin albums by play', () => {
 		const { response, html } = await client.page('/albums?sort=mostPlayed');
 		assert.equal(response.status, 200, explain('most played failed'));
 		assert.deepEqual(albumOrder(html), []);
+	});
+});
+
+describe('held album details and suggestions', () => {
+	test('an album page, a return to it and "Play" read the album once', async () => {
+		await asFreshAccount('fifth', async (client) => {
+			assert.equal((await client.page('/albums/al3')).response.status, 200, explain('album page failed'));
+			assert.equal((await client.page('/albums/al3')).response.status, 200);
+			const tracks = await client.json('/api/tracks', 'POST', { source: 'album', id: 'al3' });
+			assert.deepEqual((await tracks.json()).songs.map((song) => song.id), ['s3a', 's3b']);
+			assert.equal(subsonic.calls.get('getAlbum'), 1);
+
+			// Reset first: the album page's "More from" reads `getArtist` as well.
+			subsonic.calls.reset();
+			await client.page('/artists/ar3');
+			await client.page('/artists/ar3');
+			assert.equal(subsonic.calls.get('getArtist'), 1);
+		});
+	});
+
+	test('a star drops the held details, so the heart is right on the next load', async () => {
+		await asFreshAccount('sixth', async (client) => {
+			await client.page('/albums/al3');
+			await client.json('/api/star', 'POST', { id: 's3a', kind: 'song', starred: true });
+			try {
+				await client.page('/albums/al3');
+				assert.equal(subsonic.calls.get('getAlbum'), 2);
+			} finally {
+				await client.json('/api/star', 'POST', { id: 's3a', kind: 'song', starred: false });
+			}
+		});
+	});
+
+	test('a "You might like" shelf is read once, and a star leaves it', async () => {
+		subsonic.state.similarAlbums = 3;
+		try {
+			await asFreshAccount('seventh', async (client) => {
+				const { html } = await client.page('/albums/al4');
+				// Streamed, so the shelf's albums arrive as data rather than markup.
+				assert.match(html, /Album 5\b/, explain('the shelf is missing'));
+				await client.json('/api/star', 'POST', { id: 's4a', kind: 'song', starred: true });
+				await client.json('/api/star', 'POST', { id: 's4a', kind: 'song', starred: false });
+				await client.page('/albums/al4');
+				assert.equal(subsonic.calls.get('getSimilarSongs2'), 1);
+				assert.equal(subsonic.calls.get('getAlbum'), 2, 'the star dropped the album itself');
+			});
+		} finally {
+			subsonic.state.similarAlbums = 0;
+		}
+	});
+});
+
+describe('the offline page', () => {
+	test('the worker, the page and its script are served without a session', async () => {
+		const anonymous = new Client(app.url);
+		const worker = await anonymous.request('/service-worker.js');
+		assert.equal(worker.status, 200);
+		assert.match(worker.headers.get('content-type') ?? '', /javascript/);
+		const body = await worker.text();
+		assert.match(body, /offline\.html/);
+		assert.ok(!/\/api\//.test(body.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '')), 'the worker names an API path');
+
+		const page = await anonymous.request('/offline.html');
+		assert.equal(page.status, 200);
+		assert.match(await page.text(), /cannot reach its server/);
+		assert.equal((await anonymous.request('/offline.js')).status, 200);
+	});
+
+	test('the page policy admits a worker from this origin', async () => {
+		const page = await new Client(app.url).request('/login');
+		assert.match(page.headers.get('content-security-policy') ?? '', /worker-src 'self'/);
 	});
 });
 
@@ -372,21 +497,24 @@ describe('playing things', () => {
 	});
 
 	test('playing an artist in two parts: the first album, then the rest', async () => {
-		subsonic.calls.reset();
-		const first = await user.json('/api/tracks', 'POST', { source: 'artist', id: 'ar0', part: 'first' });
-		assert.equal(first.status, 200);
-		const head = await first.json();
-		assert.deepEqual(head.songs.map((song) => song.id), ['s0a', 's0b']);
-		assert.equal(head.more, true);
-		assert.equal(subsonic.calls.get('getAlbum'), 1, 'one album looked up before playing');
+		// A fresh account: the test above read these albums, and they are held
+		// for a minute (`details.ts`).
+		await asFreshAccount('fourth', async (client) => {
+			const first = await client.json('/api/tracks', 'POST', { source: 'artist', id: 'ar0', part: 'first' });
+			assert.equal(first.status, 200);
+			const head = await first.json();
+			assert.deepEqual(head.songs.map((song) => song.id), ['s0a', 's0b']);
+			assert.equal(head.more, true);
+			assert.equal(subsonic.calls.get('getAlbum'), 1, 'one album looked up before playing');
 
-		const rest = await (await user.json('/api/tracks', 'POST', { source: 'artist', id: 'ar0', part: 'rest' })).json();
-		assert.deepEqual(rest.songs.map((song) => song.id), ['s0a', 's0b']);
-		assert.equal(rest.more, undefined);
-		assert.equal(subsonic.calls.get('getAlbum'), 2);
+			const rest = await (await client.json('/api/tracks', 'POST', { source: 'artist', id: 'ar0', part: 'rest' })).json();
+			assert.deepEqual(rest.songs.map((song) => song.id), ['s0a', 's0b']);
+			assert.equal(rest.more, undefined);
+			assert.equal(subsonic.calls.get('getAlbum'), 2);
 
-		const single = await (await user.json('/api/tracks', 'POST', { source: 'artist', id: 'ar1', part: 'first' })).json();
-		assert.equal(single.more, false, 'an artist with one album has no rest');
+			const single = await (await client.json('/api/tracks', 'POST', { source: 'artist', id: 'ar1', part: 'first' })).json();
+			assert.equal(single.more, false, 'an artist with one album has no rest');
+		});
 	});
 
 	test('a saved queue restores when one of its tracks was deleted', async () => {
