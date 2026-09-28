@@ -68,3 +68,22 @@ through the same volume, and do nothing there either.
 
 Codec support is the browser's: Chromium and Firefox decode FLAC and ALAC
 natively; DSD is not supported by any browser and will not play.
+
+## Audio output
+
+The speaker button to the right of the volume slider sends the sound to
+another output: a USB DAC, headphones, a second sound card. It moves the
+browser's stream to that device (`setSinkId`); the operating system's mixer
+still sits in between, as described above, so it is a choice of device, not an
+exclusive or bit-perfect path.
+
+| Browser | How the output is chosen |
+| --- | --- |
+| Firefox | The button opens Firefox's own device picker. |
+| Chrome, Edge | The button lists the outputs. The browser names them only once Heddohon may use the microphone, so "List outputs" asks for it; the stream is closed as soon as it opens and nothing is recorded. |
+| Safari, iPhone, iPad | Not offered; the output follows the system. |
+
+The control appears only over https or on localhost, which browsers require
+for it. The choice is kept in that browser, since an output's id is different
+on every computer, and a device that is missing at the next visit leaves the
+sound on the system default. Firefox asks again after a reload.

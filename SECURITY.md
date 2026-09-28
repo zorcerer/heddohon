@@ -491,10 +491,16 @@ x-content-type-options: nosniff
 referrer-policy: same-origin
 x-frame-options: SAMEORIGIN
 strict-transport-security: max-age=31536000; includeSubDomains
-permissions-policy: camera=(), microphone=(), geolocation=(), payment=()
+permissions-policy: camera=(), microphone=(self), geolocation=(), payment=()
 cross-origin-opener-policy: same-origin
 cross-origin-resource-policy: same-origin
 ```
+
+`microphone=(self)` lets this origin, and no frame, ask for the microphone.
+Chrome and Edge list audio outputs by name only once a page holds that
+permission, and the output control asks for it only when "List outputs" is
+pressed. The stream it opens is stopped as soon as it is granted and read by
+nothing (`lib/client/output.svelte.ts`).
 
 Authenticated pages and private JSON get `Cache-Control: private, no-store` and
 `Vary: Cookie`. Unexpected errors return a fixed message and the detail is

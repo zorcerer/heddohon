@@ -44,7 +44,10 @@ function harden(headers: Headers): void {
 	headers.set('referrer-policy', 'same-origin');
 	headers.set('x-frame-options', 'SAMEORIGIN');
 	headers.set('strict-transport-security', 'max-age=31536000; includeSubDomains');
-	headers.set('permissions-policy', 'camera=(), microphone=(), geolocation=(), payment=()');
+	// The microphone for this origin only: Chrome and Edge name the audio
+	// outputs only once the page may use it (`client/output.svelte.ts`), and
+	// ask for it only when "List outputs" is pressed. No frame can ask.
+	headers.set('permissions-policy', 'camera=(), microphone=(self), geolocation=(), payment=()');
 	headers.set('cross-origin-opener-policy', 'same-origin');
 	headers.set('cross-origin-resource-policy', 'same-origin');
 

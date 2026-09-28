@@ -4,6 +4,7 @@
 	import { afterNavigate, beforeNavigate, onNavigate, preloadCode } from '$app/navigation';
 	import { navigating, updated } from '$app/state';
 	import { player } from '$lib/client/player.svelte';
+	import { audioOutputs } from '$lib/client/output.svelte';
 	import { tintFrom } from '$lib/client/artwork';
 	import { ambience } from '$lib/client/ambience.svelte';
 	import {
@@ -103,6 +104,7 @@
 		const primary = primaryAudio;
 		const secondary = secondaryAudio;
 		untrack(() => player.attach(primary, secondary, data.settings));
+		untrack(() => void audioOutputs.init());
 		void restoreQueue();
 		return () => player.detach();
 	});
