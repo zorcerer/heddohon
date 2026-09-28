@@ -41,6 +41,13 @@
 		{/each}
 	</nav>
 
+	<a class="settings hh-glass" href="/screen">
+		<Icon name="screen" size={19} />
+		<span>Living-room screen</span>
+		<span class="hh-muted note">Now playing, full screen, for a TV</span>
+		<Icon name="chevron-right" size={16} />
+	</a>
+
 	<a class="settings hh-glass" href="/settings">
 		<Icon name="settings" size={19} />
 		<span>Settings</span>
