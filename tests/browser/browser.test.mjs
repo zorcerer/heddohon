@@ -103,7 +103,10 @@ describe('playing from a card', () => {
 				};
 			});
 
-		// Not hovered, for the same reason: hovering preloads the album page.
+		// Not hovered, for the same reason: hovering preloads the album page. The
+		// wait stays: the timings below are measured from a page that has settled,
+		// and on a CI runner a page just loaded let 60ms stretch past the 150ms.
+		await page.waitForTimeout(600);
 		subsonic.state.delays.set('getAlbum', 1500);
 		subsonic.calls.reset();
 		try {
