@@ -32,6 +32,8 @@ import type {
 	Artist,
 	ArtistDetail,
 	AudioQuality,
+	Folder,
+	FolderRef,
 	Playlist,
 	PlaylistDetail,
 	LyricLine,
@@ -370,6 +372,53 @@ function toPlaylist(raw: Record<string, any>): Playlist {
 	};
 }
 
+/**
+ * The top of one library, which `getIndexes` lists by its music folder id
+ * rather than `getMusicDirectory` by a directory id. The prefix keeps the two
+ * kinds of id apart in a folder's address.
+ */
+const LIBRARY_PREFIX = 'library:';
+
+/**
+ * Folders read upward for the trail above a folder. Subsonic names a
+ * directory's parent and nothing above it, so each level is a call of its
+ * own, in series. `Artist/Album/Disc` is three.
+ */
+const MAX_FOLDER_DEPTH = 8;
+
+/** A subfolder: an entry of `getIndexes` (`name`) or a child of a directory (`title`). */
+function toFolderRef(raw: Record<string, any>): FolderRef {
+	return {
+		id: String(raw.id),
+		name: String(raw.title ?? raw.name ?? 'Untitled folder'),
+		coverArt: raw.coverArt ? String(raw.coverArt) : null
+	};
+}
+
+/** What a directory holds: its subfolders, and its tracks without any video. */
+function folderContents(children: Record<string, any>[]): Pick<Folder, 'folders' | 'songs'> {
+	return {
+		folders: children.filter((child) => child.isDir === true).map(toFolderRef),
+		songs: children.filter((child) => child.isDir !== true && child.isVideo !== true).map(toSong)
+	};
+}
+
+async function libraryIndex(cred: StoredCredential, musicFolderId: string | null): Promise<Pick<Folder, 'folders' | 'songs'>> {
+	const body = await call<{ indexes?: Record<string, any> }>(
+		cred,
+		'getIndexes.view',
+		musicFolderId === null ? {} : { musicFolderId }
+	);
+	const indexes = body.indexes ?? {};
+	return {
+		folders: asArray(indexes.index as Record<string, any>[])
+			.flatMap((index) => asArray(index.artist as Record<string, any>[]))
+			.map(toFolderRef),
+		// Files at the top of a library, beside its folders.
+		songs: folderContents(asArray(indexes.child as Record<string, any>[])).songs
+	};
+}
+
 const SORT_TO_LIST_TYPE: Record<AlbumQuery['sort'], string> = {
 	recentlyAdded: 'newest',
 	recentlyPlayed: 'recent',
@@ -589,6 +638,65 @@ export const subsonicBackend: MediaBackend = {
 			asArray(body.similarSongs2?.song as Record<string, any>[]),
 			{ excludeAlbumId: albumId, seedArtistId: artistId, limit }
 		);
+	},
+
+	async getFolder(cred, id): Promise<Folder> {
+		if (id === null) {
+			const body = await call<{ musicFolders?: { musicFolder?: unknown } }>(cred, 'getMusicFolders.view');
+			const libraries = asArray(body.musicFolders?.musicFolder as Record<string, any>[]);
+			// With one library, a level holding only it is a press that goes nowhere.
+			if (libraries.length <= 1) return { id: null, name: 'Folders', parents: [], ...(await libraryIndex(cred, null)) };
+			return {
+				id: null,
+				name: 'Folders',
+				parents: [],
+				folders: libraries.map((library) => ({
+					id: `${LIBRARY_PREFIX}${library.id}`,
+					name: String(library.name ?? `Library ${library.id}`),
+					coverArt: null
+				})),
+				songs: []
+			};
+		}
+
+		if (id.startsWith(LIBRARY_PREFIX)) {
+			const musicFolderId = id.slice(LIBRARY_PREFIX.length);
+			const [body, contents] = await Promise.all([
+				call<{ musicFolders?: { musicFolder?: unknown } }>(cred, 'getMusicFolders.view'),
+				libraryIndex(cred, musicFolderId)
+			]);
+			const library = asArray(body.musicFolders?.musicFolder as Record<string, any>[]).find(
+				(entry) => String(entry.id) === musicFolderId
+			);
+			if (!library) throw new UpstreamError('Folder not found', 404, 'not_found');
+			return { id, name: String(library.name ?? 'Library'), parents: [], ...contents };
+		}
+
+		const body = await call<{ directory?: Record<string, any> }>(cred, 'getMusicDirectory.view', { id });
+		const directory = body.directory;
+		if (!directory) throw new UpstreamError('Folder not found', 404, 'not_found');
+
+		const parents: FolderRef[] = [];
+		const seen = new Set([id]);
+		let parent = directory.parent ? String(directory.parent) : null;
+		while (parent && !seen.has(parent) && parents.length < MAX_FOLDER_DEPTH) {
+			seen.add(parent);
+			// The trail is a convenience: a level that cannot be read ends it
+			// rather than failing the folder the listener asked for.
+			const above = await call<{ directory?: Record<string, any> }>(cred, 'getMusicDirectory.view', {
+				id: parent
+			}).catch(() => null);
+			if (!above?.directory) break;
+			parents.unshift(toFolderRef(above.directory));
+			parent = above.directory.parent ? String(above.directory.parent) : null;
+		}
+
+		return {
+			id,
+			name: String(directory.name ?? 'Untitled folder'),
+			parents,
+			...folderContents(asArray(directory.child as Record<string, any>[]))
+		};
 	},
 
 	async getPlaylists(cred) {

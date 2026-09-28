@@ -1,7 +1,7 @@
 import { player } from './player.svelte';
 import type { MixSeed, Song } from '$lib/types';
 
-type Source = 'album' | 'playlist' | 'artist' | 'genre' | 'starred' | 'random';
+type Source = 'album' | 'playlist' | 'artist' | 'genre' | 'folder' | 'starred' | 'random';
 
 async function requestTracks(body: Record<string, unknown>): Promise<{ songs: Song[]; more: boolean }> {
 	const response = await fetch('/api/tracks', {
