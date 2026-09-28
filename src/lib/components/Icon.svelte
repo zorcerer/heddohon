@@ -54,6 +54,7 @@
 		| 'radio'
 		| 'output'
 		| 'devices'
+		| 'cast'
 		| 'github';
 
 	let {
@@ -128,6 +129,8 @@
 		folder: 'M3.5 7A1.5 1.5 0 0 1 5 5.5h4.3l2 2.2H19a1.5 1.5 0 0 1 1.5 1.5v8.3A1.5 1.5 0 0 1 19 19H5a1.5 1.5 0 0 1-1.5-1.5V7Z',
 		// Six dots, the handle a row is dragged by.
 		grip: 'M9 6.5h.01M15 6.5h.01M9 12h.01M15 12h.01M9 17.5h.01M15 17.5h.01',
+		// A screen with waves from its corner, the usual mark for casting.
+		cast: 'M3.5 9V6.5A1.5 1.5 0 0 1 5 5h14a1.5 1.5 0 0 1 1.5 1.5v11A1.5 1.5 0 0 1 19 19h-6M3.5 19h.01M3.5 15.5a3.5 3.5 0 0 1 3.5 3.5M3.5 12a7 7 0 0 1 7 7',
 		// A screen and a phone beside it: the other places Heddohon is open.
 		devices:
 			'M16 8.5V6A1.5 1.5 0 0 0 14.5 4.5h-10A1.5 1.5 0 0 0 3 6v7.5A1.5 1.5 0 0 0 4.5 15H12M6.5 19h5.5M9 15v4M17 10h3a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1h-3a1 1 0 0 1-1-1v-8a1 1 0 0 1 1-1Z',

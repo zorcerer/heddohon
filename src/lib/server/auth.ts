@@ -651,6 +651,38 @@ export interface SessionSummary {
 	endable: boolean;
 }
 
+/**
+ * The account's session that goes by `handle`, if it has not ended or
+ * expired, for a request that carries no cookie: a speaker fetching a cast
+ * address (`cast.ts`). Nothing is written, and `last_seen_at` is left alone,
+ * since the browser is not the one asking.
+ */
+export async function sessionByHandle(accountId: string, handle: string): Promise<AuthenticatedSession | null> {
+	const database = await store();
+	const rows = await database.all<{ token_digest: string; created_at: number; expires_at: number }>(
+		'SELECT token_digest, created_at, expires_at FROM sessions WHERE account_id = ? AND expires_at > ?',
+		accountId,
+		now()
+	);
+	const row = rows.find((candidate) => constantTimeEquals(sessionHandle(candidate.token_digest), handle));
+	if (!row) return null;
+	const account = await database.get<AccountRow>('SELECT * FROM accounts WHERE id = ?', accountId);
+	if (!account) return null;
+	let credential: StoredCredential;
+	try {
+		credential = openJson<StoredCredential>(account.credential);
+	} catch {
+		return null;
+	}
+	return {
+		account: toAccount(account),
+		createdAt: Number(row.created_at),
+		expiresAt: Number(row.expires_at),
+		credential,
+		handle
+	};
+}
+
 /** The account's sessions that have not expired, most recently used first. */
 export async function listSessions(session: AuthenticatedSession): Promise<SessionSummary[]> {
 	const rows = await (await store()).all<{
