@@ -192,6 +192,19 @@ describe('settings', () => {
 		assert.match(html, /Settings/);
 		assert.equal(subsonic.calls.get('getUser'), 1);
 	});
+
+	test('a settings tab is chosen by the address, with the other groups hidden but still in the form', async () => {
+		const section = (html, heading) => html.match(new RegExp(`<section[^>]*>\\s*<div class="group-head[^>]*>\\s*<h2[^>]*>${heading}<`))?.[0] ?? '';
+		const storage = (await user.page('/settings?tab=storage')).html;
+		assert.doesNotMatch(section(storage, 'Cover cache'), /hidden/);
+		assert.match(section(storage, 'Appearance'), /hidden/);
+		// Saving reads every field, so the hidden groups' fields are still sent.
+		assert.match(storage, /name="transcodeBitrateKbps"/);
+
+		const back = (await user.page('/settings?lastfm=linked')).html;
+		assert.doesNotMatch(section(back, 'Session &amp; security'), /hidden/, 'the way back from last.fm opens on Account');
+		assert.match(section(back, 'Appearance'), /hidden/);
+	});
 });
 
 describe('artists', () => {
