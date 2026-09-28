@@ -206,6 +206,21 @@ SQLite and PostgreSQL alike. PostgreSQL's `lower()` follows the database
 locale, where a name written with the Kelvin sign (U+212A) matched `kate`, so
 it is compared under the `"C"` collation.
 
+**Controlling another browser reaches the same account only.** With
+`HEDDOHON_REMOTE_CONTROL` on (the default), each signed-in browser with the
+player open holds `/api/remote/events` open, and is told the other browsers of
+its account: a random id per stream, a browser name ("Firefox on Linux"), and
+what each is playing. `POST /api/remote` sends a command (play, pause, skip,
+seek, volume, or a queue of up to 1000 track ids) to one of them; the target
+is looked up among the signing-in account's own streams, so an id from another
+account reaches nothing. `POST /api/remote/state` is taken only from the
+session that opened the stream it names. A stream is tied to its session like
+audio: signing out, being signed out from Settings and the 72-hour expiry end
+it. An account holds at most 20 streams. Anyone signed in to the account can
+already play and change its queue, so this gives a browser no access it lacked;
+it lets one browser of the account start sound on another. The registry is in
+the process's memory.
+
 **One cookie name is read.** Accepting both names would let a sibling subdomain
 plant `heddohon_session` with `Domain=.example.com` and pin a session that
 signing out cannot clear. Browsers refuse a `__Host-` cookie with a `Domain`,
@@ -519,6 +534,9 @@ Covers are cached under `$HEDDOHON_DATA_DIR/covers` (see
 | Sessions per account | 50; the oldest ends |
 | Playlist positions per removal | 1000, deduplicated |
 | Star rating | a whole number from 0 to 5 |
+| Remote control streams per account | 20 |
+| Remote command | one of nine types; a seek from 0 to 86400 s, a volume from 0 to 1, a queue of 1 to 1000 ids |
+| Remote state text (title, artist) | 300 characters, cut |
 | Genre id in a path | 200 characters; on Jellyfin a GUID, since `GenreIds` takes a list |
 | Cover size | one of ten, 64 to 1536 |
 | Transcode codec | `mp3`, `opus`, `aac` |

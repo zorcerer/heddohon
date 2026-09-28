@@ -23,7 +23,9 @@ let context;
 before(async () => {
 	subsonic = await startSubsonic({ artistCount: 40 });
 	jellyfin = await startJellyfin();
-	app = await startApp({ subsonicUrl: subsonic.url, jellyfinUrl: jellyfin.url });
+	// An open event stream keeps a page from ever reaching `networkidle`, which
+	// most tests here wait for; the remote control has its own app below.
+	app = await startApp({ subsonicUrl: subsonic.url, jellyfinUrl: jellyfin.url, env: { HEDDOHON_REMOTE_CONTROL: 'false' } });
 	// Fake capture devices, so the output control's microphone request (Chrome
 	// names outputs only once it is granted) resolves without a real one.
 	browser = await chromium.launch({ args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'] });
@@ -1431,6 +1433,99 @@ describe('the heart in the player', () => {
 			await page.close();
 		}
 		assert.deepEqual(problems, []);
+	});
+});
+
+describe('playback on another browser', () => {
+	/*
+	 * An app of its own with the remote control on, and two browsers signed in
+	 * to it. The pages hold the event stream open, so nothing here waits for
+	 * `networkidle`.
+	 */
+	let remoteApp;
+	const browsers = [];
+
+	before(async () => {
+		remoteApp = await startApp({ subsonicUrl: subsonic.url, jellyfinUrl: jellyfin.url });
+	});
+
+	after(async () => {
+		for (const context of browsers) await context.close();
+		await remoteApp?.stop();
+	});
+
+	async function signedInPage() {
+		const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+		browsers.push(context);
+		const signIn = await context.request.post(`${remoteApp.url}/login`, {
+			form: { username: 'testuser', password: 'testpass', backend: 'subsonic', next: '/' },
+			headers: { origin: remoteApp.url, accept: 'text/html' },
+			maxRedirects: 0
+		});
+		assert.equal(signIn.status(), 303);
+		const page = await context.newPage();
+		const problems = [];
+		page.on('console', (message) => message.type() === 'error' && problems.push(message.text()));
+		page.on('pageerror', (err) => problems.push(err.message));
+		return { page, problems };
+	}
+
+	const titleIs = (page, text) =>
+		page.waitForFunction((want) => document.querySelector('aside.panel h2.title')?.textContent === want, text, {
+			timeout: 5000
+		});
+
+	test('a second browser sees the first, pauses it, and takes its queue with "Play here"', async () => {
+		const { page: desktop, problems: desktopProblems } = await signedInPage();
+		const { page: phone, problems: phoneProblems } = await signedInPage();
+		subsonic.state.audio = { type: 'audio/wav', body: silentWav(30) };
+		try {
+			await desktop.goto(remoteApp.url + '/albums/al7', { waitUntil: 'load' });
+			await desktop.getByRole('button', { name: 'Play Song 7b', exact: true }).click();
+			await titleIs(desktop, 'Song 7b');
+			await desktop.waitForFunction(() => [...document.querySelectorAll('audio')].some((a) => !a.paused), null, { timeout: 5000 });
+
+			await phone.goto(remoteApp.url + '/', { waitUntil: 'load' });
+			const devices = phone.getByRole('button', { name: /^Devices/ });
+			await devices.waitFor({ timeout: 5000 });
+			await devices.click();
+			const dialog = phone.locator('dialog.devices');
+			// The desktop's report follows its play within the 250ms settle.
+			await dialog.getByText('Song 7b').waitFor({ timeout: 5000 });
+			await dialog.getByText('Playing', { exact: true }).waitFor({ timeout: 5000 });
+
+			await dialog.getByRole('button', { name: /^Pause on/ }).click();
+			await desktop.waitForFunction(() => [...document.querySelectorAll('audio')].every((a) => a.paused), null, { timeout: 5000 });
+			await dialog.getByText('Paused', { exact: true }).waitFor({ timeout: 5000 });
+
+			await dialog.getByRole('button', { name: 'Play here' }).click();
+			await titleIs(phone, 'Song 7b');
+			await phone.waitForFunction(() => [...document.querySelectorAll('audio')].some((a) => !a.paused), null, { timeout: 5000 });
+		} finally {
+			subsonic.state.audio = null;
+		}
+		assert.deepEqual([...desktopProblems, ...phoneProblems], []);
+	});
+
+	test('"Play this queue there" moves the queue to the other browser and pauses this one', async () => {
+		const { page: desktop } = await signedInPage();
+		const { page: phone } = await signedInPage();
+		subsonic.state.audio = { type: 'audio/wav', body: silentWav(30) };
+		try {
+			await desktop.goto(remoteApp.url + '/', { waitUntil: 'load' });
+			await phone.goto(remoteApp.url + '/albums/al8', { waitUntil: 'load' });
+			await phone.getByRole('button', { name: 'Play Song 8a', exact: true }).click();
+			await titleIs(phone, 'Song 8a');
+
+			// Every other browser of the account is listed; this one is the newest.
+			await phone.getByRole('button', { name: /^Devices/ }).click();
+			const peer = phone.locator('dialog.devices li.peer').first();
+			await peer.getByRole('button', { name: 'Play this queue there' }).click();
+			await titleIs(desktop, 'Song 8a');
+			await phone.waitForFunction(() => [...document.querySelectorAll('audio')].every((a) => a.paused), null, { timeout: 5000 });
+		} finally {
+			subsonic.state.audio = null;
+		}
 	});
 });
 
