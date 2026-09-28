@@ -1,4 +1,4 @@
-import type { AudioQuality, Song } from '$lib/types';
+import type { AudioQuality } from '$lib/types';
 
 export function formatDuration(seconds: number | null | undefined): string {
 	if (seconds === null || seconds === undefined || !Number.isFinite(seconds) || seconds < 0) {
@@ -108,8 +108,4 @@ export function warmAlbumCover(coverArt: string | null | undefined): void {
  */
 export function streamUrl(songId: string, mode: string = 'raw'): string {
 	return `/api/stream/${encodeURIComponent(songId)}?mode=${encodeURIComponent(mode)}`;
-}
-
-export function songSubtitle(song: Song): string {
-	return [song.artist, song.album].filter(Boolean).join(' · ');
 }

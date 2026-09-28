@@ -38,12 +38,6 @@ async function readError(response: Response, fallback: string): Promise<string> 
 	return payload?.message ?? fallback;
 }
 
-/** Withdraws one of the signed-in account's links. */
-export async function withdrawShare(id: string): Promise<void> {
-	const response = await fetch(`/api/shares/${encodeURIComponent(id)}`, { method: 'DELETE' });
-	if (!response.ok) throw new Error(await readError(response, 'Could not withdraw that link'));
-}
-
 class ShareComposer {
 	subject = $state<ShareSubject | null>(null);
 	days = $state<ShareDays>(7);
