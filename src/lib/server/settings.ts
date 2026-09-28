@@ -249,6 +249,8 @@ export interface PersistedPlayState {
 	position: number;
 	repeat: 'off' | 'all' | 'one';
 	shuffle: boolean;
+	/** While shuffle is on, the ids in their order before it, for turning it off. */
+	orderIds: string[];
 	updatedAt: number;
 }
 
@@ -258,6 +260,7 @@ const EMPTY_PLAY_STATE: PersistedPlayState = {
 	position: 0,
 	repeat: 'off',
 	shuffle: false,
+	orderIds: [],
 	updatedAt: 0
 };
 
@@ -278,16 +281,20 @@ export async function getPlayState(accountId: string): Promise<PersistedPlayStat
 
 export function sanitizePlayState(input: unknown): PersistedPlayState {
 	const raw = (typeof input === 'object' && input !== null ? input : {}) as Record<string, unknown>;
-	const songIds = Array.isArray(raw.songIds)
-		? raw.songIds.filter((id): id is string => typeof id === 'string' && id.length < 256).slice(0, MAX_QUEUE)
-		: [];
+	const ids = (value: unknown) =>
+		Array.isArray(value)
+			? value.filter((id): id is string => typeof id === 'string' && id.length < 256).slice(0, MAX_QUEUE)
+			: [];
+	const songIds = ids(raw.songIds);
+	const shuffle = raw.shuffle === true;
 	const repeat = raw.repeat === 'all' || raw.repeat === 'one' ? raw.repeat : 'off';
 	return {
 		songIds,
 		index: clamp(Number(raw.index ?? 0), 0, Math.max(0, songIds.length - 1), 0),
 		position: clamp(Number(raw.position ?? 0), 0, 86_400, 0),
 		repeat,
-		shuffle: raw.shuffle === true,
+		shuffle,
+		orderIds: shuffle ? ids(raw.orderIds) : [],
 		updatedAt: now()
 	};
 }
