@@ -9,8 +9,9 @@ the conclusions are not obvious from the result.
 ---
 
 **The palette is deliberately colourless.** A near-black graphite in the dark
-theme (Liquid), a soft cool grey in the light one (Sleek), and no hue of their own beyond a
-fraction of a degree of cool cast to stop large surfaces reading as dead grey.
+theme (Liquid), with no hue of its own beyond a fraction of a degree of cool
+cast to stop large surfaces reading as dead grey. The light theme (Paper) is
+the exception: parchment and ink, with a warm cast of its own; see below.
 
 That is the whole idea, and it follows from the material: glass has no colour;
 what you see through it does. Every hue in the interface comes from the artwork
@@ -416,7 +417,7 @@ and translucency eats exactly that difference. Theme choice is stored
 server-side against your account, so the correct palette is in the
 server-rendered HTML and there is no flash on load.
 
-Settings calls them **Liquid** and **Sleek**; the stored values are still
+Settings calls them **Liquid** and **Paper**; the stored values are still
 `dark` and `light`, so nothing an account has saved changes.
 
 Liquid was taken a step darker on 2026-09-25: the ground from `#101114` to
@@ -425,25 +426,32 @@ Liquid was taken a step darker on 2026-09-25: the ground from `#101114` to
 `#a2a6ae` secondary). Before that the ground, the panes and the secondary text
 sat close enough together that the screen read as grey.
 
-**Sleek is a light theme as light themes are drawn**, replacing one that was a
-dark theme inverted. The first light palette ran near-white panes (lifted to
-125% brightness) on `#f2f3f6`, with `#15171b` headlines and an accent at 27%
-lightness: glare in the panels, ink-dark type and a primary button that read
-as black. Sleek puts the page at `#e3e6eb` and the panes a step lighter at
-full brightness, so only the things meant to catch the eye are near white. Text
-is a charcoal (`#373c44`, secondary `#6b727c`) and headlines drop to weight
-700. The accent's lightness follows its hue, from 31% at yellow, green and red
-to 40% at blue and violet (`cos()` of the distance from 255 degrees), since
-how light a hue can go under white type depends on the hue; the worst cases
-computed are 4.9:1 for yellow and 4.3:1 for cyan at full saturation. At one
-flat 27%, blue read as black.
+**Paper is parchment and ink**, after zor.rip, and replaced Sleek on
+2026-09-29. The page is `#f0e7d5` and the type `#2e241a`; every other tone is
+one of the two mixed into the other (secondary text at 78 percent ink,
+faint at 68, which holds 4.8:1 on the page), so nothing on screen is a grey.
+Panes are sheets a step lighter than the page, mostly opaque, and what shows
+through them is browned (`sepia(0.25)` in the backdrop filter). Headlines stay
+at weight 700.
 
-Its finish borrows from the menus of the Wii and the 3DS without copying
-them: pale plastic panes with a gloss over their first 9rem, keys with a
-bright top edge and a soft shade below, pinstripes across the room (1px in
-every 5 at 26% white), and a ring of the pale accent around the key or cover
-under the pointer, in place of the dark theme's coloured glow. All of it is
-paint on elements that already exist ("Sleek finish" in `app.css`).
+The accent is still the artwork's hue, at the lightness Sleek worked out for
+pale type on it (31% at yellow, green and red to 40% at blue and violet), then
+mixed in oklab with a rust ink, `#7a2e12`, zor.rip's link colour: 30 percent
+for a cover at 45% saturation or more, rising to all of it by 22%. A grey
+cover's hue says little, and at a flat 30 percent the neutral tint shown while
+nothing plays came out a plum grey; now it prints in the rust. A vivid blue
+cover still gives a plum.
+
+Its finish ("Paper finish" in `app.css`) is paint on elements that already
+exist: a ledger grid across the room (a line of ink at 5 percent every 34px
+down, 3 percent across), seven faint stains in the brown of old paper, the
+grain, and the artwork's pools at 16 percent where Liquid has 38. Keys are
+flat, with an ink edge and a line of the paper's light along the top, and the
+key or cover under the pointer takes a ring of the pale accent. Shadows are a
+brown of the ink.
+
+Sleek, before it, was a cool grey after the menus of the Wii and the 3DS:
+`#e3e6eb` under pale plastic panes with a gloss, pinstripes, and charcoal type.
 
 **Every piece of text carries a hairline of shade.** Type sits on translucent
 panes over arbitrary artwork, and one pixel of shadow is what separates a glyph

@@ -3511,3 +3511,40 @@ describe('On this day', () => {
 		}
 	});
 });
+
+describe('Paper, the light theme', () => {
+	/*
+	 * Parchment under ink, and with nothing playing the accent in the rust:
+	 * the neutral tint's hue mixed with the rust at a flat 30 percent came out
+	 * a plum grey (oklab a 0.025, b 0.016), with neither channel warm enough.
+	 */
+	test('is parchment, and its accent with nothing playing is the rust', async () => {
+		const paper = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+		try {
+			const signIn = await paper.request.post(`${app.url}/login`, {
+				form: { username: 'testuser', password: 'testpass', backend: 'subsonic', next: '/' },
+				headers: { origin: app.url, accept: 'text/html' },
+				maxRedirects: 0
+			});
+			assert.equal(signIn.status(), 303);
+			await paper.request.patch(`${app.url}/api/settings`, { data: { theme: 'light' }, headers: { origin: app.url } });
+			const page = await paper.newPage();
+			await page.goto(app.url + '/settings', { waitUntil: 'networkidle' });
+			const { ground, accent } = await page.evaluate(() => {
+				const probe = document.createElement('div');
+				probe.style.color = 'var(--accent)';
+				document.body.append(probe);
+				const accent = getComputedStyle(probe).color;
+				probe.remove();
+				return { ground: getComputedStyle(document.documentElement).getPropertyValue('--bg-base').trim(), accent };
+			});
+			assert.equal(ground, '#f0e7d5');
+			const [, a, b] = /oklab\(\s*[\d.]+\s+(-?[\d.]+)\s+(-?[\d.]+)/.exec(accent)?.map(Number) ?? [];
+			assert.ok(a > 0.06 && b > 0.04, `the accent is not the rust: ${accent}`);
+			assert.equal(await page.locator('select[name="theme"] option[value="light"]').textContent(), 'Paper');
+		} finally {
+			await paper.request.patch(`${app.url}/api/settings`, { data: { theme: 'dark' }, headers: { origin: app.url } });
+			await paper.close();
+		}
+	});
+});
