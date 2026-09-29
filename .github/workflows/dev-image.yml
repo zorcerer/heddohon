@@ -58,6 +58,19 @@ jobs:
           echo "short=$short" >> "$GITHUB_OUTPUT"
           echo "version=$(jq -r .version package.json)-dev.$short" >> "$GITHUB_OUTPUT"
 
+      # The version the app reports in its footer, the settings page and the
+      # Jellyfin client header is package.json's, read at build time. A dev
+      # build reports the last release with `-dev.<short sha>`, written there for
+      # the build only.
+      - name: Set the version in package.json
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          for file in package.json package-lock.json; do
+            jq --arg v "$VERSION" '.version = $v | if .packages then .packages[""].version = $v else . end' "$file" > "$file.tmp"
+            mv "$file.tmp" "$file"
+          done
+
       # The runtime stage runs as the target, which is arm64 half the time;
       # the build stage does not (see the Dockerfile).
       - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
