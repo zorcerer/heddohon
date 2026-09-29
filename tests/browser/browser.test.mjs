@@ -80,6 +80,7 @@ describe('the policy', () => {
 			'/folders/d-al1',
 			'/history',
 			'/screen',
+			'/stats',
 			'/search?q=song',
 			'/settings'
 		];
@@ -1647,6 +1648,37 @@ describe('casting', () => {
 			subsonic.state.audio = null;
 			subsonic.state.albumSongs = 2;
 			await casting.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+});
+
+describe('your listening', () => {
+	test('draws the hour and the day in this browser\'s time, with the run of days', async () => {
+		const { page, problems } = await watchedPage();
+		try {
+			for (const songId of ['s15a', 's15a', 's16a']) {
+				const response = await context.request.post(`${app.url}/api/playback`, {
+					data: { songId, event: 'stop', position: 100, completed: true },
+					headers: { origin: app.url }
+				});
+				assert.equal(response.status(), 200);
+			}
+			await page.goto(app.url + '/stats', { waitUntil: 'networkidle' });
+			assert.equal(await page.locator('.plot').nth(0).locator('.column').count(), 24);
+			assert.equal(await page.locator('.plot').nth(1).locator('.column').count(), 7);
+			// This test's three plays were in one hour, so the busiest hour holds at
+			// least three. Which hour it is, is not checked: other tests play too,
+			// and an earlier one leaves Playwright's clock on this context.
+			const peak = page.locator('.plot').nth(0).locator('.column.peak');
+			assert.equal(await peak.count(), 1);
+			const label = await peak.getAttribute('aria-label');
+			assert.ok(Number(/: (\d+) plays$/.exec(label ?? '')?.[1] ?? 0) >= 3, `the busiest hour reads "${label}"`);
+			// At least today. A run of the suite that crosses midnight makes it two.
+			const run = page.locator('.figure', { hasText: 'Longest run' }).locator('.number');
+			assert.ok(Number(await run.textContent()) >= 1);
+		} finally {
+			await page.close();
 		}
 		assert.deepEqual(problems, []);
 	});

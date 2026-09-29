@@ -16,6 +16,17 @@
 	let saving = $state(false);
 	let clearing = $state(false);
 	let clearingHistory = $state(false);
+	/** How long the listening history is kept, saved on its own as it is changed. */
+	let historyDays = $state(untrack(() => data.settings.historyDays));
+	async function keepHistory(days: number) {
+		if (days !== 90 && days !== 365) return;
+		historyDays = days;
+		await fetch('/api/settings', {
+			method: 'PATCH',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ historyDays: days })
+		}).catch(() => undefined);
+	}
 	let withdrawing = $state<string | null>(null);
 	let ending = $state<string | null>(null);
 
@@ -855,9 +866,24 @@
 		<p class="hh-muted note">
 			Each track that plays past half its length, or four minutes, is noted on this server for
 			<a href="/history">Recently played</a>, whether or not plays are reported to
-			{data.serverLabel || 'the music server'}. The last 90 days are kept, up to 5,000 plays. It
+			{data.serverLabel || 'the music server'}. How long it is kept is chosen below. It
 			is yours alone: no other account can read it.
 		</p>
+
+		<label class="row">
+			<span class="label">
+				Keep
+				<span class="hint hh-muted">A year gives <a href="/stats?period=year">Your listening</a> a year to sum up.</span>
+			</span>
+			<select
+				class="hh-input"
+				value={String(historyDays)}
+				onchange={(event) => void keepHistory(Number(event.currentTarget.value))}
+			>
+				<option value="90">90 days, up to 5,000 plays</option>
+				<option value="365">A year, up to 50,000 plays</option>
+			</select>
+		</label>
 
 		<form
 			method="POST"
