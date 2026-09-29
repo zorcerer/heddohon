@@ -30,6 +30,9 @@ env:
 jobs:
   plan:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
     outputs:
       release: ${{ steps.plan.outputs.release }}
       version: ${{ steps.plan.outputs.version }}
@@ -42,6 +45,9 @@ jobs:
 
       - name: Work out the version and the notes
         id: plan
+        env:
+          # To credit each entry to its author and pull request.
+          GH_TOKEN: ${{ github.token }}
         run: |
           if [[ "$GITHUB_REF_TYPE" == tag ]]; then
             node .github/scripts/release-plan.mjs --tag "$GITHUB_REF_NAME"
