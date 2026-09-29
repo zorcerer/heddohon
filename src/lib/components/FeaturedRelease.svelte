@@ -15,8 +15,6 @@
 		onplay
 	}: { album: Album; eyebrow?: string; onplay: () => void } = $props();
 
-	// The year is set separately as a folio, so it is dropped from the inline
-	// facts to avoid printing it twice.
 	const facts = $derived(
 		[album.genre, album.songCount ? `${album.songCount} tracks` : null].filter(Boolean) as string[]
 	);
@@ -36,12 +34,6 @@
 		<!-- The whole panel opens the album; the links and the button in the
 		     details sit above this and keep their own clicks. -->
 		<a class="open" href="/albums/{album.id}" aria-label="Open {album.name}"></a>
-
-		{#if album.year}
-			<!-- The year as a folio number, the way a catalogue prints its edition on
-			     the outer edge of the page. -->
-			<span class="folio hh-display" aria-hidden="true">{album.year}</span>
-		{/if}
 
 		<div class="body">
 			<span class="hh-eyebrow eyebrow">{eyebrow}</span>
@@ -179,19 +171,6 @@
 		outline-offset: -4px;
 	}
 
-	.folio {
-		position: absolute;
-		right: var(--space-5);
-		top: var(--space-4);
-		z-index: 0;
-		font-size: clamp(3rem, 1.5rem + 7cqw, 7rem);
-		line-height: 0.8;
-		color: rgb(255 255 255 / 0.16);
-		letter-spacing: -0.06em;
-		user-select: none;
-		pointer-events: none;
-	}
-
 	/* Above the panel's link; only its own links and button take the pointer. */
 	.body {
 		position: relative;
@@ -248,12 +227,6 @@
 		padding: 0.65rem 1.25rem;
 		border-radius: var(--r-md);
 		text-shadow: none;
-	}
-
-	@container (max-width: 50rem) {
-		.folio {
-			display: none;
-		}
 	}
 
 	@container (max-width: 30rem) {

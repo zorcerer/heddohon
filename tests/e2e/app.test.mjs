@@ -266,6 +266,20 @@ describe('artists', () => {
 	});
 });
 
+describe('the home page', () => {
+	// As an account of its own: the home page reads the starred set, which the
+	// favourites tests count the reads of for the shared one.
+	test('the latest addition names the album without its year', async () => {
+		await asFreshAccount('home', async (client) => {
+			const { html } = await client.page('/');
+			const featured = /<section class="featured[^"]*">[\s\S]*?<\/section>/.exec(html)?.[0] ?? '';
+			assert.match(featured, /Album 0/, explain('the latest addition is missing'));
+			// Album 0 is from 2000 in the mock.
+			assert.doesNotMatch(featured, /2000/);
+		});
+	});
+});
+
 describe('favourites', () => {
 	test('home, every tab and "play favourites" read the starred set once', async () => {
 		subsonic.calls.reset();
