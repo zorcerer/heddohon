@@ -1,5 +1,5 @@
-# The development build: `:dev` is published from every change on the `dev`
-# branch that passes the test suites, ahead of the next release. It can break,
+# The development build: `:dev` is published once a day from the `dev` branch,
+# when it has changed and passed the test suites, ahead of the next release. It can break,
 # and a database it has migrated may not open in the release before it, which
 # is why it keeps its data in a volume of its own.
 #

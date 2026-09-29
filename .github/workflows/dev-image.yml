@@ -1,73 +1,103 @@
-# Publishes `:dev` from every commit on the `dev` branch that passes `check`.
+# Publishes `:dev` from the head of the `dev` branch once a day, and when run
+# by hand from the Actions tab.
 #
 # `ghcr.io/zorcerer/heddohon:dev` and `zorcererd/heddohon:dev`, with
 # `:dev-<short sha>` beside them so a report can name the exact build. The
 # `dev` branch carries what the next release will be; `:latest` and the
 # version tags still come only from release tags (`release.yml`).
 #
-# Runs after the `check` workflow finishes on a push to `dev`, and only when
-# it succeeded, so the tag never points at a commit whose suites failed. A
-# `workflow_run` workflow is read from the default branch, which is why this
-# file is on `main` while the builds are of `dev`.
+# Until 2026-09-29 it built from every push to `dev`, several images a day.
+# The daily run builds only when the head has changed since the last build
+# (there is no `:dev-<short sha>` for it yet). Either run builds only a commit
+# whose `check` on the push to `dev` succeeded, so the tag never points at a
+# commit whose suites failed. A scheduled or hand-started workflow is read
+# from the default branch, which is why this file has to be on `main` to take
+# effect while the builds are of `dev`.
 name: dev-image
 
 on:
-  workflow_run:
-    workflows: [check]
-    types: [completed]
-    branches: [dev]
+  schedule:
+    # 04:17 UTC. Off the hour, where GitHub queues scheduled runs longest.
+    - cron: '17 4 * * *'
+  workflow_dispatch:
 
 permissions:
   contents: read
-  packages: write
 
 env:
   GHCR: ghcr.io/zorcerer/heddohon
   HUB: zorcererd/heddohon
 
 jobs:
+  plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      # To read the `check` runs of the commit.
+      actions: read
+    outputs:
+      build: ${{ steps.plan.outputs.build }}
+      sha: ${{ steps.plan.outputs.sha }}
+      short: ${{ steps.plan.outputs.short }}
+    steps:
+      # `check` on the push that made this commit the head of `dev`. A pull
+      # request's run is of a merge that is not on `dev`, so only a push
+      # counts. A run still going, or none yet, is not a success either.
+      - name: Decide whether to build
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          sha=$(gh api "repos/$GITHUB_REPOSITORY/commits/dev" -q .sha)
+          short=${sha:0:7}
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "short=$short" >> "$GITHUB_OUTPUT"
+          passed=$(gh run list -R "$GITHUB_REPOSITORY" --workflow check.yml --commit "$sha" --event push \
+            --json conclusion -q '[.[] | select(.conclusion == "success")] | length')
+          if [ "$passed" = "0" ]; then
+            echo "::notice::check has not passed on $short; nothing built."
+            echo "build=false" >> "$GITHUB_OUTPUT"
+          elif [ "$EVENT" = "schedule" ] && docker buildx imagetools inspect "$GHCR:dev-$short" > /dev/null 2>&1; then
+            echo "::notice::$short is already built; nothing to do."
+            echo "build=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "build=true" >> "$GITHUB_OUTPUT"
+          fi
+
   image:
-    # A pull request's run is not a commit on `dev`, and a failed run is not
-    # published. The repository is checked as well as the event: a fork can
-    # name its branch `dev`.
-    if: >-
-      github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.event == 'push' &&
-      github.event.workflow_run.head_repository.full_name == github.repository
-    # A newer commit makes the build in progress moot. On the job, not the
-    # workflow: a workflow-level group is joined before `if` is read, so the
-    # `check` of any pull request from a branch named `dev` started a run
-    # that cancelled the build in progress and then skipped itself. That left
-    # 8c687f0, the head released as v0.3.0, without a `:dev` image.
+    needs: plan
+    if: needs.plan.outputs.build == 'true'
+    # A run started by hand while the daily one is building waits for it.
     concurrency:
       group: dev-image
-      cancel-in-progress: true
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    env:
+      SHORT: ${{ needs.plan.outputs.short }}
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
+          ref: ${{ needs.plan.outputs.sha }}
           # The token has `packages: write`; nothing after this step needs git.
           persist-credentials: false
-
-      - name: Name the build
-        id: version
-        run: |
-          short=$(git rev-parse --short HEAD)
-          echo "short=$short" >> "$GITHUB_OUTPUT"
-          echo "version=$(jq -r .version package.json)-dev.$short" >> "$GITHUB_OUTPUT"
 
       # The version the app reports in its footer, the settings page and the
       # Jellyfin client header is package.json's, read at build time. A dev
       # build reports the last release with `-dev.<short sha>`, written there for
       # the build only.
       - name: Set the version in package.json
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
+        id: version
         run: |
+          version="$(jq -r .version package.json)-dev.$SHORT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
           for file in package.json package-lock.json; do
-            jq --arg v "$VERSION" '.version = $v | if .packages then .packages[""].version = $v else . end' "$file" > "$file.tmp"
+            jq --arg v "$version" '.version = $v | if .packages then .packages[""].version = $v else . end' "$file" > "$file.tmp"
             mv "$file.tmp" "$file"
           done
 
@@ -97,12 +127,12 @@ jobs:
           push: true
           tags: |
             ${{ env.GHCR }}:dev
-            ${{ env.GHCR }}:dev-${{ steps.version.outputs.short }}
+            ${{ env.GHCR }}:dev-${{ env.SHORT }}
             ${{ env.HUB }}:dev
-            ${{ env.HUB }}:dev-${{ steps.version.outputs.short }}
+            ${{ env.HUB }}:dev-${{ env.SHORT }}
           labels: |
             org.opencontainers.image.version=${{ steps.version.outputs.version }}
-            org.opencontainers.image.revision=${{ github.event.workflow_run.head_sha }}
+            org.opencontainers.image.revision=${{ needs.plan.outputs.sha }}
           cache-from: type=gha,scope=dev
           cache-to: type=gha,scope=dev,mode=max
 
@@ -111,5 +141,5 @@ jobs:
       # reported here rather than by the first person to start it on a Pi.
       - name: Open a database in the arm64 image
         run: |
-          docker run --rm --platform linux/arm64 -w /app "$GHCR:dev-${{ steps.version.outputs.short }}" \
+          docker run --rm --platform linux/arm64 -w /app "$GHCR:dev-$SHORT" \
             node -e "new (require('better-sqlite3'))(':memory:').prepare('select 1').get(); console.log(process.arch, 'ok')"

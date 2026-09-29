@@ -68,9 +68,10 @@ NAS, an Ampere server); 32-bit ARM is not built. An Unraid template is in
 [`templates/heddohon.xml`](templates/heddohon.xml). Without Docker, on Node 22
 or later: `npm ci && npm run build && node build/index.js`.
 
-`latest` is the newest release. `dev` is built from every change that passes
-the test suites ahead of the next release, for trying what is coming; it can
-break, and a database it has migrated may not open in the release before it.
+`latest` is the newest release. `dev` is built once a day from the `dev`
+branch, when it has changed and passed the test suites, ahead of the next
+release, for trying what is coming; it can break, and a database it has
+migrated may not open in the release before it.
 
 ## Documentation
 

@@ -43,8 +43,8 @@ approach is agreed before you spend time on it.
 Pull requests go against the `dev` branch of
 [zorcerer/heddohon](https://github.com/zorcerer/heddohon), where development
 happens; `main` holds the released code. An accepted pull request is merged
-into `dev`, is in the `:dev` image once its checks pass, and ships in the
-next release, whose notes credit you.
+into `dev`, is in the next day's `:dev` image once its checks pass, and ships
+in the next release, whose notes credit you.
 
 ### Setting up
 
