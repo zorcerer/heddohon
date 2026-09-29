@@ -3,7 +3,7 @@ import { version } from '$app/environment';
 import { resolveSession } from '$lib/server/auth';
 import { getSettings, DEFAULT_SETTINGS } from '$lib/server/settings';
 import { ConfigError, config } from '$lib/server/config';
-import { SECURITY_HEADERS } from '$lib/headers';
+import { FALLBACK_HTML_CSP, SECURITY_HEADERS } from '$lib/headers';
 import {
 	isEnabled,
 	log,
@@ -38,6 +38,10 @@ function isPublic(pathname: string): boolean {
  */
 function harden(headers: Headers): void {
 	for (const [name, value] of Object.entries(SECURITY_HEADERS)) headers.set(name, value);
+
+	if (headers.get('content-type')?.startsWith('text/html') && !headers.has('content-security-policy')) {
+		headers.set('content-security-policy', FALLBACK_HTML_CSP);
+	}
 
 	// Every response here is either a signed-in user's own data or an error. The
 	// media routes set their own `private, max-age=...` and keep it; everything

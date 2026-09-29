@@ -122,6 +122,8 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 		missing: new Set(),
 		/** Milliseconds to hold an endpoint's answer, by method name. */
 		delays: new Map(),
+		/** Methods answered with headers and the start of a body that never ends. */
+		stalled: new Set(),
 		/**
 		 * What `stream` answers with, as `{ type, body }`. The default is 1000
 		 * bytes no browser can decode, which is all the HTTP suite needs.
@@ -520,6 +522,11 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 		let form = '';
 		req.on('data', (chunk) => (form += chunk));
 		req.on('end', () => {
+			if (state.stalled.has(method)) {
+				res.writeHead(200, { 'content-type': 'application/json' });
+				res.write('{"subsonic-response":');
+				return;
+			}
 			const delay = state.delays.get(method) ?? 0;
 			if (delay > 0) setTimeout(() => respond(req, res, form), delay);
 			else respond(req, res, form);
