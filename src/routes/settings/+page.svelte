@@ -24,7 +24,7 @@
 	/** How long the listening history is kept, saved on its own as it is changed. */
 	let historyDays = $state(untrack(() => data.settings.historyDays));
 	async function keepHistory(days: number) {
-		if (days !== 90 && days !== 365) return;
+		if (days !== 0 && days !== 90 && days !== 365) return;
 		historyDays = days;
 		await fetch('/api/settings', {
 			method: 'PATCH',
@@ -963,13 +963,17 @@
 		<label class="row">
 			<span class="label">
 				Keep
-				<span class="hint hh-muted">A year gives <a href="/stats?period=year">Your listening</a> a year to sum up.</span>
+				<span class="hint hh-muted">
+					How far back <a href="/stats?period=all">Your listening</a> can sum up. A shorter time drops
+					older plays at the next play.
+				</span>
 			</span>
 			<select
 				class="hh-input"
 				value={String(historyDays)}
 				onchange={(event) => void keepHistory(Number(event.currentTarget.value))}
 			>
+				<option value="0">Forever</option>
 				<option value="90">90 days, up to 5,000 plays</option>
 				<option value="365">A year, up to 50,000 plays</option>
 			</select>

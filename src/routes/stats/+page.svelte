@@ -129,7 +129,7 @@
 		</nav>
 		{#if (data.period === 'year' || data.period === 'all') && data.historyDays === 90}
 			<p class="hh-muted note">
-				History is kept for 90 days. <a href="/settings?tab=storage">Keep a year</a> for a year's summary.
+				History is kept for 90 days. <a href="/settings?tab=storage">Keep it longer</a> to sum up a year.
 			</p>
 		{/if}
 	</header>
