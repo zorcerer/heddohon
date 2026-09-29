@@ -6,6 +6,7 @@ name: Release
 # else none). When there is one, the suites run, the image is published as that
 # version and `latest`, and the tag and a GitHub release are created, with the
 # notes from the titles and both compose files attached.
+# `package.json` on `dev` is then set to the version (the `version` job).
 #
 # A `v*` tag pushed by hand is released as that version, as before. The tag
 # this workflow creates does not start it again: a push made with the
@@ -180,3 +181,37 @@ jobs:
             --title "v$VERSION" \
             --notes-file release-notes.md \
             docker-compose.yml docker-compose.dev.yml
+
+  # The repository's package.json follows the releases, so a `:dev` build,
+  # which reports that version with `-dev.<short sha>`, counts on from the last
+  # one. The commit goes to `dev` and reaches `main` with the next release. A
+  # push made with this token starts no workflow, and a `chore` title releases
+  # nothing.
+  version:
+    needs: [plan, publish]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.plan.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: dev
+
+      - name: Set the version on dev
+        run: |
+          current=$(jq -r .version package.json)
+          # A version set higher by hand stays.
+          if [ "$(printf '%s\n' "$current" "$VERSION" | sort -V | tail -n 1)" = "$current" ]; then
+            echo "dev is at $current, not below $VERSION"
+            exit 0
+          fi
+          for file in package.json package-lock.json; do
+            jq --tab --arg v "$VERSION" '.version = $v | if .packages then .packages[""].version = $v else . end' "$file" > "$file.tmp"
+            mv "$file.tmp" "$file"
+          done
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -am "chore: set the version to $VERSION"
+          git push origin HEAD:dev

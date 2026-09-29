@@ -123,12 +123,13 @@ if (credited) {
 	commits.forEach((commit, index) => Object.assign(commit, credits[index]));
 }
 
-// "by @login in #12" for everyone but the owner, as GitHub's own notes put it.
+// "by @login in #12" for everyone but the owner and bots (the release
+// workflow's own version commit on `dev` among them), as GitHub's notes put it.
 function entry(commit, prefix) {
 	if (!credited) return `- ${prefix}${commit.title} (${commit.hash})`;
 	const where = commit.pull ? `#${commit.pull}` : commit.hash;
 	const who = commit.login ? `@${commit.login}` : commit.name;
-	if (commit.login === owner) return `- ${prefix}${commit.title} (${where})`;
+	if (commit.login === owner || commit.login?.endsWith('[bot]')) return `- ${prefix}${commit.title} (${where})`;
 	return `- ${prefix}${commit.title} by ${who} in ${where}`;
 }
 
@@ -148,7 +149,7 @@ if (release) {
 		if (key === 'other') lines.push(`<details><summary>${heading} (${entries.length})</summary>`, '', ...entries, '', '</details>', '');
 		else lines.push(`## ${heading}`, '', ...entries, '');
 	}
-	const thanked = [...new Set(commits.filter((commit) => commit.login !== owner).map((commit) => (commit.login ? `@${commit.login}` : commit.name)))];
+	const thanked = [...new Set(commits.filter((commit) => commit.login !== owner && !commit.login?.endsWith('[bot]')).map((commit) => (commit.login ? `@${commit.login}` : commit.name)))];
 	if (credited && thanked.length > 0) {
 		const names = thanked.length === 1 ? thanked[0] : `${thanked.slice(0, -1).join(', ')} and ${thanked.at(-1)}`;
 		lines.push('## Contributors', '', `Thanks to ${names} for their work on this release.`, '');
