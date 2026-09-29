@@ -1369,13 +1369,23 @@ describe('presses, cards and arriving at an album', () => {
 		try {
 			await page.goto(app.url + '/albums', { waitUntil: 'networkidle' });
 			const card = page.locator('a.card:has(button.play)').first();
+			// The glow's opacity on every frame from before the hover. It has to pass
+			// through values between 0 and 1: a `drop-shadow` transitioned from `none`
+			// drew nothing until it ended and then all of it. Sampled rather than read
+			// at a fixed time: a CI runner had not started the hover 100ms after it.
+			await card.evaluate((el) => {
+				const glow = getComputedStyle(el.querySelector('.art'), '::before');
+				window.__glow = [];
+				const sample = () => {
+					window.__glow.push(Number(glow.opacity));
+					if (window.__glow.length < 120) requestAnimationFrame(sample);
+				};
+				requestAnimationFrame(sample);
+			});
 			await card.hover();
-			// Part of the way in: the glow fades, where a `drop-shadow` transitioned
-			// from `none` drew nothing until it ended and then all of it.
-			await page.waitForTimeout(100);
-			const early = Number(await card.evaluate((el) => getComputedStyle(el.querySelector('.art'), '::before').opacity));
-			assert.ok(early > 0 && early < 1, `glow at ${early} after 100ms`);
-			await page.waitForTimeout(350);
+			await page.waitForTimeout(700);
+			const frames = await page.evaluate(() => window.__glow);
+			assert.ok(frames.some((value) => value > 0 && value < 1), `the glow did not fade in: ${[...new Set(frames)].join(', ')}`);
 			const state = await card.evaluate((el) => {
 				const play = el.querySelector('button.play');
 				const shine = getComputedStyle(el.querySelector('.cover'), '::after');
