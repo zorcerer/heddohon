@@ -838,6 +838,36 @@ export const jellyfinBackend: MediaBackend = {
 		};
 	},
 
+	/**
+	 * The albums of the tracks the artist is on (`ArtistIds` on `Audio` names
+	 * every artist of a track), less those the artist is an album artist of,
+	 * read in one more request by id. Up to 1000 tracks.
+	 */
+	async getAppearsOn(cred, artistId): Promise<Album[]> {
+		const { userId } = creds(cred);
+		const tracks = await call<ItemsResponse>(cred, '/Items', {
+			userId,
+			ArtistIds: artistId,
+			IncludeItemTypes: 'Audio',
+			Recursive: 'true',
+			Fields: 'AlbumId',
+			EnableImages: 'false',
+			EnableUserData: 'false',
+			Limit: 1000
+		});
+		const ids = [...new Set((tracks.Items ?? []).map((track) => track.AlbumId).filter((id): id is string => Boolean(id)))];
+		if (ids.length === 0) return [];
+		// A hundred ids to a request, which keeps the address under 4KB.
+		const chunks = Array.from({ length: Math.ceil(ids.length / 100) }, (_, i) => ids.slice(i * 100, i * 100 + 100));
+		const pages = await Promise.all(
+			chunks.map((chunk) => call<ItemsResponse>(cred, '/Items', { userId, Ids: chunk.join(','), Fields: ITEM_FIELDS }))
+		);
+		return pages
+			.flatMap((page) => page.Items ?? [])
+			.filter((album) => album.Type === 'MusicAlbum' && !album.AlbumArtists?.some((artist) => artist.Id === artistId))
+			.map(toAlbum);
+	},
+
 	async getArtistAlbums(cred, artistId): Promise<Album[]> {
 		const { userId } = creds(cred);
 		await itemOf(cred, artistId, 'MusicArtist');

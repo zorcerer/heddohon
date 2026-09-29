@@ -1,7 +1,7 @@
 import type { PageServerLoad } from './$types';
 import { library, libraryContext } from '$lib/server/library';
 import { log, reason } from '$lib/server/log';
-import { artistDetail } from '$lib/server/details';
+import { appearsOn, artistDetail } from '$lib/server/details';
 import { similarArtists } from '$lib/server/suggestions';
 
 /**
@@ -22,6 +22,11 @@ export const load: PageServerLoad = async (event) => {
 		// album page's loader.
 		similar: similarArtists(ctx, artist.id, SUGGESTION_COUNT).catch((err) => {
 			log.warn('similar-artists-failed', { artist: artist.id, detail: reason(err) });
+			return [];
+		}),
+		// A search on Subsonic (`subsonic.ts`), so streamed as well.
+		appearsOn: appearsOn(ctx, artist).catch((err) => {
+			log.warn('appears-on-failed', { artist: artist.id, detail: reason(err) });
 			return [];
 		})
 	};
