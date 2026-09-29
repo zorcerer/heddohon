@@ -3464,3 +3464,48 @@ describe('the Last.fm notice', () => {
 		assert.deepEqual(problems, []);
 	});
 });
+
+describe('On this day', () => {
+	/*
+	 * In a time zone 14 hours ahead of UTC, where the local date and the UTC
+	 * date differ for 14 hours of every day. A play at 00:30 on this local
+	 * date a year ago was on the day before in UTC, and one at 23:30 on the
+	 * local day before was on that day in UTC too; only the first is shown.
+	 */
+	test('shows the albums played on this date in earlier years, by the browser\'s date', async () => {
+		const ahead = await browser.newContext({ viewport: { width: 1440, height: 900 }, timezoneId: 'Pacific/Kiritimati' });
+		const HOUR_MS = 60 * 60 * 1000;
+		const local = new Date(Date.now() + 14 * HOUR_MS);
+		const lastYear = (days, hours, minutes) =>
+			new Date(
+				Date.UTC(local.getUTCFullYear() - 1, local.getUTCMonth(), local.getUTCDate() + days, hours, minutes) - 14 * HOUR_MS
+			).toISOString();
+		subsonic.state.played.set('s1a', lastYear(0, 0, 30));
+		subsonic.state.played.set('s2a', lastYear(-1, 23, 30));
+		const action = (name) =>
+			ahead.request.post(`${app.url}/settings?/${name}`, {
+				headers: { origin: app.url, accept: 'application/json', 'x-sveltekit-action': 'true', 'content-type': 'application/x-www-form-urlencoded' },
+				data: ''
+			});
+		try {
+			const signIn = await ahead.request.post(`${app.url}/login`, {
+				form: { username: 'testuser', password: 'testpass', backend: 'subsonic', next: '/' },
+				headers: { origin: app.url, accept: 'text/html' },
+				maxRedirects: 0
+			});
+			assert.equal(signIn.status(), 303);
+			assert.equal((await action('importHistory')).status(), 200);
+			const page = await ahead.newPage();
+			await page.goto(app.url + '/', { waitUntil: 'networkidle' });
+			const shelf = page.locator('section.shelf', { has: page.getByRole('heading', { name: 'On this day' }) });
+			await shelf.waitFor();
+			const albums = await shelf.locator('a[href^="/albums/"]').evaluateAll((links) => [...new Set(links.map((a) => a.getAttribute('href')))]);
+			assert.deepEqual(albums, ['/albums/al1']);
+			assert.match(await shelf.innerText(), new RegExp(`Artist 0001 · ${local.getUTCFullYear() - 1}`));
+		} finally {
+			subsonic.state.played.clear();
+			await action('clearHistory');
+			await ahead.close();
+		}
+	});
+});

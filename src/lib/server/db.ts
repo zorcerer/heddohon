@@ -169,6 +169,18 @@ const ADDED_COLUMNS: { table: string; column: string; type: string }[] = [
 	{ table: 'plays', column: 'duration', type: 'INTEGER' }
 ];
 
+/**
+ * Indexes over columns in `ADDED_COLUMNS`, created once those are there. In
+ * the schema above they would run first and fail on a database from before
+ * the column.
+ *
+ * `plays_album_idx` is for the albums an account played and each one's latest
+ * play; see `forgottenAlbums` in history.ts.
+ */
+const LATER_INDEXES = `
+CREATE INDEX IF NOT EXISTS plays_album_idx ON plays(account_id, album_id, played_at);
+`;
+
 function addColumnsSqlite(instance: Database.Database) {
 	for (const { table, column, type } of ADDED_COLUMNS) {
 		const present = (instance.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).some(
@@ -214,6 +226,7 @@ function openSqlite(file: string): Database.Database {
 	instance.pragma('busy_timeout = 5000');
 	instance.exec(SQLITE_SCHEMA);
 	addColumnsSqlite(instance);
+	instance.exec(LATER_INDEXES);
 	return instance;
 }
 
@@ -372,6 +385,7 @@ async function open(): Promise<Store> {
 	await pool.query(`CREATE SCHEMA IF NOT EXISTS ${SCHEMA}`);
 	await pool.query(POSTGRES_SCHEMA);
 	await addColumnsPostgres(pool);
+	await pool.query(LATER_INDEXES);
 	if (database.importSqlite) await importFromSqlite(pool);
 	log.info('database', { kind: 'postgres', at: database.label, schema: SCHEMA });
 

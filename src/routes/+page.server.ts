@@ -1,4 +1,5 @@
 import type { PageServerLoad } from './$types';
+import { forgottenAlbums } from '$lib/server/history';
 import { libraryContext, librarySettled } from '$lib/server/library';
 import { remembered } from '$lib/server/listings';
 import { log, reason } from '$lib/server/log';
@@ -8,6 +9,9 @@ const FAVOURITES_SHOWN = 8;
 
 /** Albums in the "Jump back in" column: its height beside the featured release. */
 const RESUME_SHOWN = 6;
+
+/** Albums on the "Rediscover" shelf. */
+const REDISCOVER_SHOWN = 12;
 
 /**
  * The home page is rendered on the server, so the first paint already has real
@@ -35,6 +39,13 @@ export const load: PageServerLoad = async ({ locals }) => {
 			return [];
 		});
 
+	// From this server's history, so it costs no upstream call. A failed read
+	// leaves the shelf out, as a failed upstream shelf does.
+	const rediscover = forgottenAlbums(accountId, REDISCOVER_SHOWN).catch((err) => {
+		log.warn('section-failed', { section: 'rediscover', detail: reason(err) });
+		return [];
+	});
+
 	const shelves = await librarySettled({
 		recentlyAdded: backend.getAlbums(credential, { sort: 'recentlyAdded', limit: 12, offset: 0 }),
 		mostPlayed: backend.getAlbums(credential, { sort: 'mostPlayed', limit: 12, offset: 0 }),
@@ -47,6 +58,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 		mostPlayed: shelves.mostPlayed ?? [],
 		recentlyPlayed: shelves.recentlyPlayed ?? [],
 		favouriteSongs,
+		rediscover: await rediscover,
 		discover: shelves.discover ?? []
 	};
 };

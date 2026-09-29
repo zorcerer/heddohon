@@ -1106,6 +1106,76 @@ describe('listening history', () => {
 			jellyfin.state.played = [];
 		}
 	});
+
+	/** The album links on the home page's shelf titled `title`, in order. */
+	const shelfAlbums = (html, title) => {
+		const section = html.split(`>${title}<`)[1]?.split('</section>')[0] ?? '';
+		return [...section.matchAll(/href="\/albums\/([^"]+)"/g)].map((m) => m[1]);
+	};
+
+	test('Rediscover offers an album played three times or more, and not in the last six months', async () => {
+		await asFreshAccount('rediscover', async (client) => {
+			await client.json('/api/settings', 'PATCH', { reportPlayback: false });
+			subsonic.state.played.set('s1a', daysAgo(200));
+			subsonic.state.played.set('s1b', daysAgo(200));
+			subsonic.state.played.set('s2a', daysAgo(200));
+			try {
+				await importHistory(client);
+				assert.doesNotMatch((await client.page('/')).html, />Rediscover</, 'two plays of an album count as often');
+
+				// A second, older play of s1a makes three for Album 1.
+				subsonic.state.played.set('s1a', daysAgo(250));
+				assert.equal((await importHistory(client)).imported, 1);
+				const { response, html } = await client.page('/');
+				assert.equal(response.status, 200, explain('the home page failed'));
+				assert.deepEqual(shelfAlbums(html, 'Rediscover'), ['al1']);
+
+				await play(client, 's1b');
+				assert.doesNotMatch((await client.page('/')).html, />Rediscover</, 'an album played today is still offered');
+			} finally {
+				subsonic.state.played.clear();
+			}
+		});
+	});
+
+	test('On this day names the albums played on the asked date in earlier years, in the asked time zone', async () => {
+		await asFreshAccount('anniversary', async (client) => {
+			const now = new Date();
+			const utc = (years, days, hours = 12) =>
+				new Date(Date.UTC(now.getUTCFullYear() - years, now.getUTCMonth(), now.getUTCDate() + days, hours));
+			const onThisDay = async (date, offset) => {
+				const response = await client.request(`/api/on-this-day?date=${date.toISOString().slice(0, 10)}&offset=${offset}`);
+				return response.ok ? (await response.json()).albums : response.status;
+			};
+			subsonic.state.played.set('s3a', utc(1, 0).toISOString());
+			subsonic.state.played.set('s4a', utc(2, 0).toISOString());
+			subsonic.state.played.set('s4b', utc(2, 0, 13).toISOString());
+			subsonic.state.played.set('s5a', utc(1, -5).toISOString());
+			subsonic.state.played.set('s6a', utc(0, -2).toISOString());
+			try {
+				assert.equal((await importHistory(client)).imported, 5);
+				const today = await onThisDay(utc(0, 0), 0);
+				assert.deepEqual(
+					today.map((album) => [album.id, album.year, album.plays]),
+					[
+						['al3', now.getUTCFullYear() - 1, 1],
+						['al4', now.getUTCFullYear() - 2, 2]
+					]
+				);
+				assert.equal(today[0].name, 'Album 3');
+				// Noon in UTC is two in the morning of the next day at UTC+14.
+				assert.deepEqual(await onThisDay(utc(0, 0), 840), []);
+				assert.deepEqual((await onThisDay(utc(0, 1), 840)).map((album) => album.id), ['al3', 'al4']);
+
+				assert.doesNotMatch((await client.page('/')).html, />On this day</, 'the server drew the shelf in its own time zone');
+				for (const query of ['date=2026-02-30&offset=0', 'date=2026-9-29&offset=0', 'date=9999-01-01&offset=0', `date=${utc(0, 0).toISOString().slice(0, 10)}&offset=900`, 'offset=0']) {
+					assert.equal((await client.request(`/api/on-this-day?${query}`)).status, 400, query);
+				}
+			} finally {
+				subsonic.state.played.clear();
+			}
+		});
+	});
 });
 
 describe('Jellyfin favourites', () => {

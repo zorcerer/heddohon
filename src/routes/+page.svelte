@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { player } from '$lib/client/player.svelte';
 	import AlbumTile from '$lib/components/AlbumTile.svelte';
 	import FeaturedRelease from '$lib/components/FeaturedRelease.svelte';
@@ -8,6 +9,7 @@
 	import TrackList from '$lib/components/TrackList.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import { playContainer } from '$lib/client/actions';
+	import type { RememberedAlbum } from '$lib/server/history';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -29,10 +31,39 @@
 
 	const shelves = $derived(
 		[
-			{ title: 'Recently added', albums: restOfRecent, href: '/albums?sort=recentlyAdded' },
-			{ title: 'On repeat', albums: data.mostPlayed, href: '/albums?sort=mostPlayed' }
+			{ title: 'Recently added', eyebrow: null, albums: restOfRecent, href: '/albums?sort=recentlyAdded' },
+			{ title: 'On repeat', eyebrow: null, albums: data.mostPlayed, href: '/albums?sort=mostPlayed' },
+			// From the history on this server; see forgottenAlbums.
+			{ title: 'Rediscover', eyebrow: 'Played often, not in the last six months', albums: data.rediscover, href: null }
 		].filter((shelf) => shelf.albums.length > 0)
 	);
+
+	/*
+	 * Albums played on this date in earlier years. The date is the listener's,
+	 * in this browser's time zone, which the server does not know, so the shelf
+	 * is asked for once the page is in the browser. It is not needed for the
+	 * first paint.
+	 */
+	let onThisDay = $state<{ date: string; albums: RememberedAlbum[] }>({ date: '', albums: [] });
+
+	onMount(() => {
+		const today = new Date();
+		const pad = (n: number) => String(n).padStart(2, '0');
+		const date = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
+		const offset = -today.getTimezoneOffset();
+		const controller = new AbortController();
+		fetch(`/api/on-this-day?date=${date}&offset=${offset}`, { signal: controller.signal })
+			.then((response) => (response.ok ? response.json() : null))
+			.then((body: { albums: RememberedAlbum[] } | null) => {
+				if (body) onThisDay = { date: today.toLocaleDateString(undefined, { day: 'numeric', month: 'long' }), albums: body.albums };
+			})
+			// The shelf is left out when it cannot be read.
+			.catch(() => {});
+		return () => controller.abort();
+	});
+
+	// The numbered sections above Favourites.
+	const albumShelves = $derived(shelves.length + (onThisDay.albums.length > 0 ? 1 : 0));
 </script>
 
 <svelte:head>
@@ -86,7 +117,7 @@
 	{/if}
 
 	{#each shelves as shelf, index (shelf.title)}
-		<MediaShelf title={shelf.title} href={shelf.href} index={index + 1}>
+		<MediaShelf title={shelf.title} eyebrow={shelf.eyebrow} href={shelf.href} index={index + 1}>
 			{#each shelf.albums as album (album.id)}
 				<MediaCard
 					href="/albums/{album.id}"
@@ -100,11 +131,26 @@
 		</MediaShelf>
 	{/each}
 
+	{#if onThisDay.albums.length > 0}
+		<MediaShelf title="On this day" eyebrow={onThisDay.date} index={shelves.length + 1}>
+			{#each onThisDay.albums as album (album.id)}
+				<MediaCard
+					href="/albums/{album.id}"
+					title={album.name}
+					subtitle={album.artist ? `${album.artist} · ${album.year}` : String(album.year)}
+					coverArt={album.coverArt}
+					transitionId={album.id}
+					onplay={() => playContainer('album', album.id)}
+				/>
+			{/each}
+		</MediaShelf>
+	{/if}
+
 	<!-- Streamed: the page does not wait for the favourites. See the loader. -->
 	{#await data.favouriteSongs then favouriteSongs}
 		{#if favouriteSongs.length > 0}
 			<section>
-				<SectionHeader title="Favourites" href="/favourites" index={shelves.length + 1} />
+				<SectionHeader title="Favourites" href="/favourites" index={albumShelves + 1} />
 				<TrackList songs={favouriteSongs} variant="artwork" showAlbum showQuality={false} columns />
 			</section>
 		{/if}
@@ -114,7 +160,7 @@
 				<SectionHeader
 					title="Something different"
 					eyebrow="Picked at random"
-					index={shelves.length + (favouriteSongs.length > 0 ? 2 : 1)}
+					index={albumShelves + (favouriteSongs.length > 0 ? 2 : 1)}
 				/>
 				<TrackList songs={data.discover} variant="artwork" showAlbum showQuality={false} columns />
 			</section>
