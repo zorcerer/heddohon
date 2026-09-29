@@ -974,9 +974,10 @@ describe('listening history', () => {
 		});
 	});
 
-	test('an account keeps at most 5000 plays, the oldest dropped', async () => {
+	test('with 90 days chosen, an account keeps at most 5000 plays, the oldest dropped', async () => {
 		await asFreshAccount('heavy', async (client) => {
-			await client.json('/api/settings', 'PATCH', { reportPlayback: false });
+			// Kept for good by default, which has no limit.
+			await client.json('/api/settings', 'PATCH', { reportPlayback: false, historyDays: 90 });
 			// s0a first, then 5000 more: s0a is the one past the limit.
 			await play(client, 's0a');
 			for (let batch = 0; batch < 100; batch++) {
@@ -985,6 +986,19 @@ describe('listening history', () => {
 			const last = await client.page('/history?page=50');
 			assert.match(last.html, /5,000 plays/, explain('the history was not held to 5000'));
 			assert.ok(!titles(last.html).includes('Song 0a'), 'the oldest play was kept');
+		});
+	});
+
+	test('kept for good, the default, an account keeps plays past 5000', async () => {
+		await asFreshAccount('hoarder', async (client) => {
+			await client.json('/api/settings', 'PATCH', { reportPlayback: false });
+			await play(client, 's0a');
+			for (let batch = 0; batch < 101; batch++) {
+				await Promise.all(Array.from({ length: 50 }, (_, i) => play(client, `s${1 + ((batch * 50 + i) % 30)}b`)));
+			}
+			const last = await client.page('/history?page=51');
+			assert.match(last.html, /5,051 plays/, explain('plays past 5000 were dropped'));
+			assert.ok(titles(last.html).includes('Song 0a'), 'the oldest play was dropped');
 		});
 	});
 
@@ -1060,12 +1074,15 @@ describe('your listening', () => {
 		});
 	});
 
-	test('the history is kept 90 days or a year, and nothing else', async () => {
+	test('the history is kept for good unless 90 days or a year is chosen, and nothing else', async () => {
 		await asFreshAccount('keeper', async (client) => {
+			assert.equal((await (await client.json('/api/settings', 'PATCH', {})).json()).historyDays, 0, 'kept for good by default');
+			assert.doesNotMatch((await client.page('/history')).html, /in the last/);
 			assert.equal((await (await client.json('/api/settings', 'PATCH', { historyDays: 365 })).json()).historyDays, 365);
 			assert.equal((await (await client.json('/api/settings', 'PATCH', { historyDays: 100 })).json()).historyDays, 365);
 			assert.equal((await (await client.json('/api/settings', 'PATCH', { historyDays: '90' })).json()).historyDays, 365);
 			assert.match((await client.page('/history')).html, /in the last year/);
+			assert.equal((await (await client.json('/api/settings', 'PATCH', { historyDays: 0 })).json()).historyDays, 0);
 		});
 	});
 

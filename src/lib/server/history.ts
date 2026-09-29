@@ -18,10 +18,11 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
  * Plays kept per account, the oldest dropped first, by how long the account
- * keeps its history: 5000 for the 90 days of the default, 50,000 for a year,
- * which is a year at about 140 tracks a day.
+ * keeps its history: 5000 for 90 days, 50,000 for a year, which is a year at
+ * about 140 tracks a day, and no limit for 0, kept for good (the default).
  */
 export function maxPlays(keepDays: number): number {
+	if (keepDays === 0) return Infinity;
 	return keepDays > 90 ? 50_000 : 5000;
 }
 
@@ -60,7 +61,9 @@ export async function recordPlay(
 		song?.coverArt ?? null,
 		song ? Math.round(song.duration) : null
 	);
-	await database.run('DELETE FROM plays WHERE account_id = ? AND played_at < ?', accountId, at - (options.keepDays ?? 90) * DAY_MS);
+	const keepDays = options.keepDays ?? 0;
+	if (keepDays === 0) return;
+	await database.run('DELETE FROM plays WHERE account_id = ? AND played_at < ?', accountId, at - keepDays * DAY_MS);
 	// The played_at of the play at the limit, and everything older than it.
 	// Two plays in one millisecond at the boundary are both kept.
 	await database.run(
@@ -69,7 +72,7 @@ export async function recordPlay(
 		 )`,
 		accountId,
 		accountId,
-		maxPlays(options.keepDays ?? 90) - 1
+		maxPlays(keepDays) - 1
 	);
 }
 

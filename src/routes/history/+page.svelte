@@ -40,9 +40,11 @@
 		<span class="hh-eyebrow">Library</span>
 		<h1 class="hh-display">Recently played</h1>
 		<p class="meta hh-numeric hh-muted">
-			{data.page.total.toLocaleString()} play{data.page.total === 1 ? '' : 's'} in the last {data.historyDays === 365
-				? 'year'
-				: '90 days'}
+			{data.page.total.toLocaleString()} play{data.page.total === 1 ? '' : 's'}{data.historyDays === 365
+				? ' in the last year'
+				: data.historyDays === 90
+					? ' in the last 90 days'
+					: ''}
 			· <a href="/stats">Your listening</a>
 		</p>
 	</header>
