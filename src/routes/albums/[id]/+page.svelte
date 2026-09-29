@@ -310,27 +310,41 @@
 	.holder {
 		position: relative;
 		transform: rotateY(calc(var(--tilt-x, 0) * 1deg)) rotateX(calc(var(--tilt-y, 0) * 1deg));
-		transition:
-			transform var(--dur-travel) var(--ease-spring),
-			filter var(--dur-state) var(--ease-out);
+		transition: transform var(--dur-travel) var(--ease-spring);
+	}
+
+	/*
+	 * The glow under the turned sleeve, following the turn, faded by opacity.
+	 * It was a `drop-shadow` filter on the holder transitioned from `none`,
+	 * which Chromium drew only once the transition had ended, so it snapped on
+	 * (see MediaCard). The filter also shaded the sleeve's own drop below it;
+	 * 24% here stands in for its 16%.
+	 *
+	 * Kept inside the hero's 24px of padding, which clips: at 1.4rem of blur
+	 * pushed up to 0.72rem sideways, the glow reached 33px past the sleeve and
+	 * was cut off along the edge by the rail. Now at most 0.2rem sideways and
+	 * 0.55rem of blur, 12px.
+	 */
+	.holder::before {
+		content: '';
+		position: absolute;
+		inset: 0;
+		border-radius: var(--r-lg);
+		box-shadow: calc(var(--tilt-x, 0) * -0.022rem) calc(0.4rem + var(--tilt-y, 0) * 0.02rem) 0.55rem
+			color-mix(in srgb, var(--accent) 24%, transparent);
+		opacity: 0;
+		transition: opacity var(--dur-state) var(--ease-out);
+		pointer-events: none;
+	}
+
+	.holder.tilting::before {
+		opacity: 1;
 	}
 
 	.holder.tilting {
 		transform: rotateY(calc(var(--tilt-x, 0) * 1deg)) rotateX(calc(var(--tilt-y, 0) * 1deg))
 			translateZ(1.25rem);
-		/*
-		 * Kept inside the hero's 24px of padding, which clips: at 1.4rem of blur
-		 * pushed up to 0.72rem sideways, the glow reached 33px past the sleeve and
-		 * was cut off along the edge by the rail. Now at most 0.2rem sideways and
-		 * 0.55rem of blur, 12px, at 16 percent of the accent.
-		 */
-		filter: drop-shadow(
-			calc(var(--tilt-x, 0) * -0.022rem) calc(0.4rem + var(--tilt-y, 0) * 0.02rem) 0.55rem
-				color-mix(in srgb, var(--accent) 16%, transparent)
-		);
-		transition:
-			transform 120ms var(--ease-out),
-			filter var(--dur-state) var(--ease-out);
+		transition: transform 120ms var(--ease-out);
 	}
 
 	/* Light off the sleeve's face where the pointer is, as off a glossy print. */
