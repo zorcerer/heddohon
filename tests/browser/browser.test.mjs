@@ -3140,6 +3140,44 @@ describe('restoring the queue', () => {
 		}
 		assert.deepEqual(problems, []);
 	});
+
+	/*
+	 * A play pressed while the saved queue's current track was still being
+	 * looked up was replaced by the saved queue when the lookup answered: the
+	 * dock showed the new track for a moment, then the old one, and the next
+	 * save wrote the old queue back. It surfaced in CI as phone tests that
+	 * came back to the previous test's album after a page load.
+	 */
+	test('a track played while the saved queue is being looked up stays, and is what is saved', async () => {
+		await context.request.put(`${app.url}/api/play-state`, {
+			data: { songIds: ['s30a', 's30b'], index: 0, position: 0, repeat: 'off', shuffle: false },
+			headers: { origin: app.url }
+		});
+		subsonic.state.delays.set('getSong', 1500);
+		const page = await context.newPage();
+		const title = () => page.evaluate(() => document.querySelector('aside.panel h2.title')?.textContent);
+		try {
+			// The restore's first lookup going out means the layout has hydrated.
+			const lookup = page.waitForRequest((request) => request.url().endsWith('/api/songs'));
+			await page.goto(app.url + '/albums/al31', { waitUntil: 'load' });
+			await lookup;
+			await page.getByRole('button', { name: 'Play Song 31a', exact: true }).click();
+			await page.waitForFunction(() => document.querySelector('aside.panel h2.title')?.textContent === 'Song 31a');
+
+			// Past the lookup's 1.5s, and the 1.2s the save waits for.
+			await page.waitForTimeout(3000);
+			assert.equal(await title(), 'Song 31a', 'the saved queue replaced the track played');
+			const saved = await (await context.request.get(`${app.url}/api/play-state`)).json();
+			assert.deepEqual(saved.songIds, ['s31a', 's31b'], 'the saved queue was written back');
+		} finally {
+			subsonic.state.delays.clear();
+			await context.request.put(`${app.url}/api/play-state`, {
+				data: { songIds: [], index: 0, position: 0, repeat: 'off', shuffle: false },
+				headers: { origin: app.url }
+			});
+			await page.close();
+		}
+	});
 });
 
 describe('the offline page', () => {
