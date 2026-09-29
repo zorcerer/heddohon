@@ -1,4 +1,5 @@
 <script lang="ts">
+	import ListeningTabs from '$lib/components/ListeningTabs.svelte';
 	import Pager from '$lib/components/Pager.svelte';
 	import TrackList from '$lib/components/TrackList.svelte';
 	import type { Song } from '$lib/types';
@@ -45,8 +46,8 @@
 				: data.historyDays === 90
 					? ' in the last 90 days'
 					: ''}
-			· <a href="/stats">Your listening</a>
 		</p>
+		<ListeningTabs />
 	</header>
 
 	{#each days as day (day.key)}

@@ -1038,6 +1038,16 @@ describe('listening history', () => {
 		});
 	});
 
+	test('Recently played and Your listening are tabs of each other, under History on the rail', async () => {
+		const current = (html) => /<nav class="tabs[^"]*" aria-label="Listening history">[\s\S]*?aria-current="page"[^>]*>([^<]+)</.exec(html)?.[1];
+		const rail = (html) => /title="([^"]+)" aria-current="page"/.exec(html)?.[1];
+		for (const [path, tab] of [['/history', 'Recently played'], ['/stats', 'Your listening']]) {
+			const { html } = await user.page(path);
+			assert.equal(current(html), tab, `${path} does not mark its tab`);
+			assert.equal(rail(html), 'History', `${path} does not light History on the rail`);
+		}
+	});
+
 	test('Jellyfin plays are noted too', async () => {
 		const client = new Client(app.url);
 		await client.signIn({ username: 'jfuser', password: 'jfpass', backend: 'jellyfin' });
