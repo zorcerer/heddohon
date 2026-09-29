@@ -419,6 +419,9 @@ async function libraryIndex(cred: StoredCredential, musicFolderId: string | null
 	};
 }
 
+/** Songs a page of `getPlayedSongs` reads. */
+const PLAYED_PAGE = 500;
+
 const SORT_TO_LIST_TYPE: Record<AlbumQuery['sort'], string> = {
 	recentlyAdded: 'newest',
 	recentlyPlayed: 'recent',
@@ -967,6 +970,27 @@ export const subsonicBackend: MediaBackend = {
 			id: report.songId,
 			submission: report.event === 'stop' ? 'true' : 'false'
 		});
+	},
+
+	async getPlayedSongs(cred) {
+		const played: { song: Song; playedAt: number }[] = [];
+		// The whole library a page at a time, since no call lists played songs
+		// alone. 500 is the most Navidrome returns in one page.
+		for (let offset = 0; ; offset += PLAYED_PAGE) {
+			const body = await call<{ searchResult3?: Record<string, any> }>(cred, 'search3.view', {
+				query: '',
+				songCount: PLAYED_PAGE,
+				songOffset: offset,
+				albumCount: 0,
+				artistCount: 0
+			});
+			const songs = asArray(body.searchResult3?.song as Record<string, any>[]);
+			for (const raw of songs) {
+				const at = typeof raw.played === 'string' ? Date.parse(raw.played) : NaN;
+				if (Number.isFinite(at)) played.push({ song: toSong(raw), playedAt: at });
+			}
+			if (songs.length < PLAYED_PAGE) return played;
+		}
 	},
 
 	async openStream(cred, songId, req: StreamRequest, transcode): Promise<UpstreamResponse> {

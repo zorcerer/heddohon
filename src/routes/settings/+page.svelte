@@ -21,6 +21,7 @@
 	let saving = $state(false);
 	let clearing = $state(false);
 	let clearingHistory = $state(false);
+	let importingHistory = $state(false);
 	/** How long the listening history is kept, saved on its own as it is changed. */
 	let historyDays = $state(untrack(() => data.settings.historyDays));
 	async function keepHistory(days: number) {
@@ -47,6 +48,7 @@
 	const TABS = [
 		{ id: 'appearance', label: 'Appearance' },
 		{ id: 'playback', label: 'Playback' },
+		{ id: 'history', label: 'Listening history' },
 		{ id: 'account', label: 'Account' },
 		{ id: 'sharing', label: 'Shared links' },
 		{ id: 'storage', label: 'Cover cache' }
@@ -948,7 +950,7 @@
 		{/if}
 	</section>
 
-	<section class="hh-card hh-glass group" hidden={shown !== 'storage'}>
+	<section class="hh-card hh-glass group" hidden={shown !== 'history'}>
 		<div class="group-head">
 			<h2>Listening history</h2>
 		</div>
@@ -978,6 +980,48 @@
 				<option value="365">A year, up to 50,000 plays</option>
 			</select>
 		</label>
+
+		<div class="history-links">
+			<a class="hh-button" href="/history">
+				<Icon name="history" size={16} />
+				Recently played
+			</a>
+			<a class="hh-button" href="/stats">Your listening</a>
+		</div>
+
+		<h3 class="subhead">Import from {data.serverLabel || 'the music server'}</h3>
+		<p class="hh-muted note">
+			{data.account.backend === 'jellyfin' ? 'Jellyfin' : 'Navidrome'} keeps the date each track was last
+			played, and a count of plays without their dates. The import adds one play per track played, at that
+			date, so the listening from before Heddohon shows in the history and the stats. Plays already here are
+			skipped, and importing again adds only tracks played elsewhere since.
+		</p>
+		<form
+			method="POST"
+			action="?/importHistory"
+			use:enhance={() => {
+				importingHistory = true;
+				return async ({ update }) => {
+					await update({ reset: false });
+					await invalidateAll();
+					importingHistory = false;
+				};
+			}}
+		>
+			<button class="hh-button" type="submit" disabled={importingHistory}>
+				<Icon name="history" size={16} />
+				{importingHistory ? 'Importing…' : 'Import play history'}
+			</button>
+		</form>
+		{#if form && 'historyImported' in form && form.historyImported}
+			<p class="hh-muted note-inline" role="status">
+				{form.historyImported.imported === 0
+					? `Nothing new to import. ${form.historyImported.found.toLocaleString()} played track${form.historyImported.found === 1 ? ' was' : 's were'} already in the history${historyDays === 0 ? '' : ' or older than it keeps'}.`
+					: `Imported ${form.historyImported.imported.toLocaleString()} play${form.historyImported.imported === 1 ? '' : 's'} of ${form.historyImported.found.toLocaleString()} played track${form.historyImported.found === 1 ? '' : 's'}.`}
+			</p>
+		{:else if form && 'historyImportError' in form && form.historyImportError}
+			<p class="hh-muted note-inline" role="alert">{form.historyImportError}</p>
+		{/if}
 
 		<form
 			method="POST"
@@ -1352,6 +1396,13 @@
 		gap: var(--space-2);
 	}
 
+	.history-links {
+		display: flex;
+		flex-wrap: wrap;
+		gap: var(--space-2);
+	}
+
+	.subhead,
 	.sessions-head h3 {
 		margin: 0;
 		font-size: 0.9375rem;

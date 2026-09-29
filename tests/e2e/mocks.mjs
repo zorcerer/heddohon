@@ -113,6 +113,11 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 		ratings: new Map(),
 		/** Synced lyrics by song id, as `[{ start, value }]` in milliseconds, for `getLyricsBySongId`. */
 		lyrics: new Map(),
+		/**
+		 * Last plays by song id, as ISO dates, which `search3` with an empty query
+		 * reports in OpenSubsonic's `played`, as Navidrome does.
+		 */
+		played: new Map(),
 		/** Song and album ids that answer `getSong` or `getAlbum` with error 70, as a deleted one does. */
 		missing: new Set(),
 		/** Milliseconds to hold an endpoint's answer, by method name. */
@@ -332,6 +337,16 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 			// the next artist's album as a guest (OpenSubsonic `artists`), and a track
 			// that matched on its title alone. Anything else finds nothing.
 			case 'search3': {
+				// The whole library, a page at a time, as Navidrome answers syncing
+				// clients, with `played` on the songs `state.played` holds.
+				if (p.get('query') === '') {
+					const all = Array.from({ length: artistCount * 2 }, (_, k) => song(k >> 1, k % 2 ? 'b' : 'a'));
+					const offset = Number(p.get('songOffset') ?? 0);
+					const page = all
+						.slice(offset, offset + Number(p.get('songCount') ?? 20))
+						.map((entry) => (state.played.has(entry.id) ? { ...entry, played: state.played.get(entry.id) } : entry));
+					return send(ok({ searchResult3: page.length > 0 ? { song: page } : {} }));
+				}
 				const match = /^Artist (\d{4})$/.exec(p.get('query') ?? '');
 				if (!match) return send(ok({}));
 				const i = Number(match[1]);
@@ -640,7 +655,13 @@ export async function startJellyfin() {
 		if (url.pathname === '/Items' && types === 'Audio' && url.searchParams.get('Filters') === 'IsPlayed') {
 			const key = url.searchParams.get('SortBy') === 'PlayCount' ? 'PlayCount' : 'LastPlayedDate';
 			const items = state.played
-				.map(({ Id, AlbumId, PlayCount, LastPlayedDate }) => ({ Id, Type: 'Audio', AlbumId, UserData: { PlayCount, LastPlayedDate, Played: true } }))
+				.map(({ Id, AlbumId, PlayCount, LastPlayedDate }) => ({
+					...tracks.find((track) => track.Id === Id),
+					Id,
+					Type: 'Audio',
+					AlbumId,
+					UserData: { PlayCount, LastPlayedDate, Played: true }
+				}))
 				.sort((a, b) => (a.UserData[key] < b.UserData[key] ? 1 : a.UserData[key] > b.UserData[key] ? -1 : 0));
 			return send({ Items: items });
 		}

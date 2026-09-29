@@ -264,8 +264,8 @@ The events at each level, by name:
 | Level | Events |
 | --- | --- |
 | `error` | `request` at 5xx or thrown, `unhandled` with a stack, `config-invalid`, `sign-in-failed`, `quick-connect-failed` on a fault in this server |
-| `warn` | `request-slow`, `cross-origin-blocked`, `sign-in-rejected`, `sign-in-throttled`, `quick-connect-throttled`, `quick-connect-failed`, `sessions-destroyed`, `upstream-timeout`, `upstream-unreachable`, `section-failed`, `cover-write-failed`, `history-write-failed`, `transcode-read-failed`, `scrobbler-failed` (with the `step`: status, a link, an unlink, or a refused Last.fm return) |
-| `info` | `started`, `signed-in` (with `method=quick-connect` for a Quick Connect sign-in), `quick-connect-started`, `scrobbler-linked`, `scrobbler-unlinked`, `cover-cache-cleared`, `cover-cache-swept` |
+| `warn` | `request-slow`, `cross-origin-blocked`, `sign-in-rejected`, `sign-in-throttled`, `quick-connect-throttled`, `quick-connect-failed`, `sessions-destroyed`, `upstream-timeout`, `upstream-unreachable`, `section-failed`, `cover-write-failed`, `history-write-failed`, `history-import-failed`, `transcode-read-failed`, `scrobbler-failed` (with the `step`: status, a link, an unlink, or a refused Last.fm return) |
+| `info` | `started`, `signed-in` (with `method=quick-connect` for a Quick Connect sign-in), `quick-connect-started`, `scrobbler-linked`, `scrobbler-unlinked`, `cover-cache-cleared`, `cover-cache-swept`, `history-imported` (with how many songs the music server had played and how many plays were added) |
 | `debug` | `request` (one per request, with its path, status and duration), `upstream` (one per music-server call, with its time), `cover-hit`, `cover-miss`, `cover-stored`, `unauthenticated` |
 
 ### Working out why something is slow
