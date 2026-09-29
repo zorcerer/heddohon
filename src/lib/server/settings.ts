@@ -50,6 +50,11 @@ export interface UserSettings {
 	/** Send now-playing / scrobble events upstream. */
 	reportPlayback: boolean;
 	/**
+	 * How long the listening history is kept, in days: 90, or 365 for a year's
+	 * summary on the stats page. See `history.ts`.
+	 */
+	historyDays: 90 | 365;
+	/**
 	 * The aurora behind the glass: drifting, held still, or not drawn. Moving,
 	 * it is a layer under every glass surface that changes three times a
 	 * second, and each of them draws its blur again when it does. Off by
@@ -100,6 +105,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
 	crossfadeSeconds: 4,
 	normalizeVolume: false,
 	reportPlayback: true,
+	historyDays: 90,
 	aurora: 'off',
 	showQualityBadge: true,
 	gridSize: 'comfortable',
@@ -154,6 +160,7 @@ export function sanitizeSettings(input: unknown, base: UserSettings = DEFAULT_SE
 		normalizeVolume: typeof raw.normalizeVolume === 'boolean' ? raw.normalizeVolume : base.normalizeVolume,
 		aurora: pick('aurora', ['moving', 'still', 'off'] as const, base.aurora),
 		reportPlayback: typeof raw.reportPlayback === 'boolean' ? raw.reportPlayback : base.reportPlayback,
+		historyDays: raw.historyDays === 90 || raw.historyDays === 365 ? raw.historyDays : base.historyDays,
 		showQualityBadge:
 			typeof raw.showQualityBadge === 'boolean' ? raw.showQualityBadge : base.showQualityBadge,
 		gridSize: pick('gridSize', ['compact', 'comfortable', 'roomy'] as const, base.gridSize),
@@ -249,6 +256,8 @@ export interface PersistedPlayState {
 	position: number;
 	repeat: 'off' | 'all' | 'one';
 	shuffle: boolean;
+	/** While shuffle is on, the ids in their order before it, for turning it off. */
+	orderIds: string[];
 	updatedAt: number;
 }
 
@@ -258,6 +267,7 @@ const EMPTY_PLAY_STATE: PersistedPlayState = {
 	position: 0,
 	repeat: 'off',
 	shuffle: false,
+	orderIds: [],
 	updatedAt: 0
 };
 
@@ -278,16 +288,20 @@ export async function getPlayState(accountId: string): Promise<PersistedPlayStat
 
 export function sanitizePlayState(input: unknown): PersistedPlayState {
 	const raw = (typeof input === 'object' && input !== null ? input : {}) as Record<string, unknown>;
-	const songIds = Array.isArray(raw.songIds)
-		? raw.songIds.filter((id): id is string => typeof id === 'string' && id.length < 256).slice(0, MAX_QUEUE)
-		: [];
+	const ids = (value: unknown) =>
+		Array.isArray(value)
+			? value.filter((id): id is string => typeof id === 'string' && id.length < 256).slice(0, MAX_QUEUE)
+			: [];
+	const songIds = ids(raw.songIds);
+	const shuffle = raw.shuffle === true;
 	const repeat = raw.repeat === 'all' || raw.repeat === 'one' ? raw.repeat : 'off';
 	return {
 		songIds,
 		index: clamp(Number(raw.index ?? 0), 0, Math.max(0, songIds.length - 1), 0),
 		position: clamp(Number(raw.position ?? 0), 0, 86_400, 0),
 		repeat,
-		shuffle: raw.shuffle === true,
+		shuffle,
+		orderIds: shuffle ? ids(raw.orderIds) : [],
 		updatedAt: now()
 	};
 }

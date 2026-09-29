@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
-	import { invalidateAll } from '$app/navigation';
+	import { invalidateAll, replaceState } from '$app/navigation';
 	import { page } from '$app/state';
 	import type { SubmitFunction } from '@sveltejs/kit';
 	import { untrack } from 'svelte';
@@ -15,8 +15,63 @@
 	let settings = $state(untrack(() => ({ ...data.settings })));
 	let saving = $state(false);
 	let clearing = $state(false);
+	let clearingHistory = $state(false);
+	/** How long the listening history is kept, saved on its own as it is changed. */
+	let historyDays = $state(untrack(() => data.settings.historyDays));
+	async function keepHistory(days: number) {
+		if (days !== 90 && days !== 365) return;
+		historyDays = days;
+		await fetch('/api/settings', {
+			method: 'PATCH',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ historyDays: days })
+		}).catch(() => undefined);
+	}
 	let withdrawing = $state<string | null>(null);
 	let ending = $state<string | null>(null);
+
+	/*
+	 * One group of settings at a time, chosen by tab. The tabs are links to
+	 * `?tab=`, so a tab can be linked to and opens without JavaScript; with it,
+	 * the switch happens here without asking the server for the page again.
+	 *
+	 * Sections on other tabs are hidden rather than left out. The save form
+	 * spans Appearance and Playback, and the server reads every field of it on
+	 * each save, so a field missing from the post would be saved as its default.
+	 */
+	const TABS = [
+		{ id: 'appearance', label: 'Appearance' },
+		{ id: 'playback', label: 'Playback' },
+		{ id: 'account', label: 'Account' },
+		{ id: 'sharing', label: 'Shared links' },
+		{ id: 'storage', label: 'Cover cache' }
+	] as const;
+	type Tab = (typeof TABS)[number]['id'];
+
+	const sharingShown = $derived(data.sharing || data.shares.length > 0);
+	const tabs = $derived(TABS.filter((entry) => entry.id !== 'sharing' || sharingShown));
+
+	function tabFrom(url: URL): Tab {
+		const requested = url.searchParams.get('tab');
+		if (TABS.some((entry) => entry.id === requested)) return requested as Tab;
+		// The way back from last.fm lands on the section that started it.
+		return url.searchParams.has('lastfm') ? 'account' : 'appearance';
+	}
+
+	let tab = $state<Tab>(untrack(() => tabFrom(page.url)));
+	// A link to the sharing tab where sharing is off and no links remain.
+	const shown = $derived<Tab>(tab === 'sharing' && !sharingShown ? 'appearance' : tab);
+
+	function selectTab(event: MouseEvent, next: Tab) {
+		// A modified click opens the tab's link as a link would.
+		if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
+		event.preventDefault();
+		tab = next;
+		replaceState(`?tab=${next}`, page.state);
+	}
+
+	// A browser signs out only sessions that began before it did.
+	const endableSessions = $derived(data.sessions.filter((entry) => entry.endable).length);
 
 	const shortDate = (at: number) =>
 		new Date(at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
@@ -50,13 +105,17 @@
 	let linking = $state<'lastfm' | 'listenbrainz' | null>(null);
 
 	/** What the return from last.fm said, from the query `/settings/lastfm` redirects with. */
-	const lastfmNotice = $derived(
-		{
-			linked: 'Last.fm is linked.',
-			failed: 'The music server did not accept the approval from last.fm. Try linking again.',
-			refused: 'That approval was not started from this session, or it took longer than 5 minutes. Try linking again.'
-		}[page.url.searchParams.get('lastfm') ?? ''] ?? null
-	);
+	const LASTFM_NOTICES: Record<string, string> = {
+		linked: 'Last.fm is linked.',
+		failed: 'The music server did not accept the approval from last.fm. Try linking again.',
+		refused: 'That approval was not started from this session, or it took longer than 5 minutes. Try linking again.'
+	};
+	// Own keys only: an object literal also answers `constructor`, `toString`
+	// and `__proto__`, and `?lastfm=constructor` printed a function's source.
+	const lastfmNotice = $derived.by(() => {
+		const key = page.url.searchParams.get('lastfm') ?? '';
+		return Object.hasOwn(LASTFM_NOTICES, key) ? LASTFM_NOTICES[key] : null;
+	});
 
 	/** An enhanced form that re-reads the page, so the link state follows the change. */
 	function refreshAfter(service: 'lastfm' | 'listenbrainz'): SubmitFunction {
@@ -108,6 +167,22 @@
 		</p>
 	</header>
 
+	<nav class="tabs" aria-label="Settings">
+		{#each tabs as entry (entry.id)}
+			<a
+				class="tab"
+				class:active={entry.id === shown}
+				href="?tab={entry.id}"
+				aria-current={entry.id === shown ? 'page' : undefined}
+				data-sveltekit-noscroll
+				data-sveltekit-preload-data="off"
+				onclickcapture={(event) => selectTab(event, entry.id)}
+			>
+				{entry.label}
+			</a>
+		{/each}
+	</nav>
+
 	{#if form?.saved}
 		<p class="saved" role="status">Settings saved.</p>
 	{/if}
@@ -115,6 +190,7 @@
 	<form
 		method="POST"
 		action="?/save"
+		hidden={shown !== 'appearance' && shown !== 'playback'}
 		use:enhance={() => {
 			saving = true;
 			return async ({ update }) => {
@@ -127,7 +203,7 @@
 			};
 		}}
 	>
-		<section class="hh-card hh-glass group">
+		<section class="hh-card hh-glass group" hidden={shown !== 'appearance'}>
 			<div class="group-head">
 				<h2>Appearance</h2>
 				<p class="hh-muted">How the library is drawn.</p>
@@ -239,7 +315,7 @@
 			</label>
 		</section>
 
-		<section class="hh-card hh-glass group">
+		<section class="hh-card hh-glass group" hidden={shown !== 'playback'}>
 			<div class="group-head">
 				<h2>Playback</h2>
 				<p class="hh-muted">
@@ -323,7 +399,7 @@
 			</label>
 		</section>
 
-		<section class="hh-card hh-glass group">
+		<section class="hh-card hh-glass group" hidden={shown !== 'playback'}>
 			<div class="group-head">
 				<h2>Transcoding</h2>
 				<p class="hh-muted">
@@ -387,7 +463,7 @@
 		</div>
 	</form>
 
-	<section class="hh-card hh-glass group">
+	<section class="hh-card hh-glass group" hidden={shown !== 'account'}>
 		<div class="group-head">
 			<h2>Session &amp; security</h2>
 		</div>
@@ -437,7 +513,16 @@
 							<span class="hh-numeric">{shortDate(entry.lastSeenAt)}</span>
 						</span>
 					</span>
-					{#if !entry.current}
+					{#if !entry.current && !entry.endable}
+						<!-- Signed in after this browser; see `endSessions` in auth.ts. In
+						     grey where the button would be, "Sign out from that browser"
+						     was read as a button that did not work, so it says why there
+						     is none and what to do instead. -->
+						<span class="hh-muted later">
+							Signed in after this browser.
+							<span class="later-how">Sign it out there, or sign in again here.</span>
+						</span>
+					{:else if !entry.current}
 						<form
 							method="POST"
 							action="?/endSession"
@@ -479,7 +564,7 @@
 					Sign out
 				</button>
 			</form>
-			{#if data.sessions.length > 1}
+			{#if endableSessions > 0}
 				<form
 					method="POST"
 					action="?/endOtherSessions"
@@ -495,7 +580,7 @@
 					<button class="hh-button danger" type="submit" disabled={ending === 'others'}>
 						{ending === 'others'
 							? 'Signing out…'
-							: `Sign out everywhere else (${data.sessions.length - 1})`}
+							: `Sign out everywhere else (${endableSessions})`}
 					</button>
 				</form>
 			{/if}
@@ -506,7 +591,7 @@
 	     with Last.fm or ListenBrainz turned on. -->
 	{#await data.scrobblerLinks then links}
 		{#if links && (links.lastfm.available || links.listenbrainz.available)}
-			<section class="hh-card hh-glass group" id="scrobbling">
+			<section class="hh-card hh-glass group" id="scrobbling" hidden={shown !== 'account'}>
 				<div class="group-head">
 					<h2>Scrobbling</h2>
 					<p class="hh-muted">
@@ -605,7 +690,7 @@
 	<!-- Kept while sharing is off if the account still has links, so they can
 	     be withdrawn before the operator turns it back on. -->
 	{#if data.sharing || data.shares.length > 0}
-	<section class="hh-card hh-glass group">
+	<section class="hh-card hh-glass group" hidden={shown !== 'sharing'}>
 		<div class="group-head">
 			<h2>Shared links</h2>
 			<p class="hh-muted">
@@ -703,7 +788,7 @@
 	</section>
 	{/if}
 
-	<section class="hh-card hh-glass group">
+	<section class="hh-card hh-glass group" hidden={shown !== 'storage'}>
 		<div class="group-head">
 			<h2>Cover cache</h2>
 		</div>
@@ -773,6 +858,56 @@
 		{/if}
 	</section>
 
+	<section class="hh-card hh-glass group" hidden={shown !== 'storage'}>
+		<div class="group-head">
+			<h2>Listening history</h2>
+		</div>
+
+		<p class="hh-muted note">
+			Each track that plays past half its length, or four minutes, is noted on this server for
+			<a href="/history">Recently played</a>, whether or not plays are reported to
+			{data.serverLabel || 'the music server'}. How long it is kept is chosen below. It
+			is yours alone: no other account can read it.
+		</p>
+
+		<label class="row">
+			<span class="label">
+				Keep
+				<span class="hint hh-muted">A year gives <a href="/stats?period=year">Your listening</a> a year to sum up.</span>
+			</span>
+			<select
+				class="hh-input"
+				value={String(historyDays)}
+				onchange={(event) => void keepHistory(Number(event.currentTarget.value))}
+			>
+				<option value="90">90 days, up to 5,000 plays</option>
+				<option value="365">A year, up to 50,000 plays</option>
+			</select>
+		</label>
+
+		<form
+			method="POST"
+			action="?/clearHistory"
+			use:enhance={() => {
+				clearingHistory = true;
+				return async ({ update }) => {
+					await update({ reset: false });
+					await invalidateAll();
+					clearingHistory = false;
+				};
+			}}
+		>
+			<button class="hh-button" type="submit" disabled={clearingHistory || data.historyCount === 0}>
+				<Icon name="trash" size={16} />
+				{clearingHistory
+					? 'Clearing…'
+					: data.historyCount === 0
+						? 'No listening history'
+						: `Clear listening history (${data.historyCount.toLocaleString()})`}
+			</button>
+		</form>
+	</section>
+
 	<footer class="about">
 		<span>{data.appName}</span>
 		<span class="hh-numeric">v{data.appVersion}</span>
@@ -789,6 +924,48 @@
 	header {
 		display: grid;
 		gap: 0.2rem;
+	}
+
+	/* The same tabs as the favourites page. */
+	.tabs {
+		display: flex;
+		gap: var(--space-1);
+		border-bottom: 1px solid var(--border-hairline);
+		padding-bottom: var(--space-2);
+		overflow-x: auto;
+		/* Five tabs are wider than a phone; the row scrolls sideways there. */
+		scrollbar-width: none;
+	}
+
+	.tab {
+		padding: 0.35rem 0.8rem;
+		border-radius: var(--r-pill);
+		color: var(--text-muted);
+		font-size: 0.875rem;
+		font-weight: 500;
+		white-space: nowrap;
+		transition:
+			background var(--transition),
+			color var(--transition);
+	}
+
+	.tab:hover,
+	.tab.active {
+		color: var(--glow-color);
+		text-shadow: var(--glow-text);
+	}
+
+	/* `.group` and `form` set `display`, which the `hidden` attribute alone does not win against. */
+	[hidden] {
+		display: none !important;
+	}
+
+	.later {
+		display: grid;
+		justify-items: end;
+		font-size: 0.75rem;
+		text-align: right;
+		max-width: 16rem;
 	}
 
 	.lede {

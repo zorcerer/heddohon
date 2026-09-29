@@ -8,6 +8,7 @@ import { backendFor, UpstreamError, type ScrobblerService } from '$lib/server/ba
 import { linkStateDigest } from '$lib/server/crypto';
 import { log, reason } from '$lib/server/log';
 import { describeShares, revokeAllShares, revokeShare } from '$lib/server/shares';
+import { clearHistory, recentPlays } from '$lib/server/history';
 
 /**
  * A ListenBrainz user token as ListenBrainz issues it: a UUID, 36 characters.
@@ -51,10 +52,10 @@ export const load: PageServerLoad = async ({ locals }) => {
 			})
 		: Promise.resolve(null);
 
-	// Five independent reads, started together. They were awaited one after
+	// Independent reads, started together. They were awaited one after
 	// another, so the page waited for the sum of a directory scan, two upstream
 	// calls and two database reads rather than for the slowest of them.
-	const [coverCache, isAdmin, settings, sessions, shares] = await Promise.all([
+	const [coverCache, isAdmin, settings, sessions, shares, history] = await Promise.all([
 		cacheStats(),
 		/*
 		 * Read here rather than stored at sign-in: this is the only page that
@@ -69,7 +70,8 @@ export const load: PageServerLoad = async ({ locals }) => {
 		// settings from before the save.
 		getSettings(session.account.id),
 		listSessions(session),
-		describeShares(session)
+		describeShares(session),
+		recentPlays(session.account.id, 0, 0)
 	]);
 
 	return {
@@ -83,7 +85,8 @@ export const load: PageServerLoad = async ({ locals }) => {
 		sessionMaxHours: cfg.sessionMaxHours,
 		sessions,
 		shares,
-		scrobblerLinks
+		scrobblerLinks,
+		historyCount: history.total
 	};
 };
 
@@ -249,5 +252,11 @@ export const actions: Actions = {
 		if (!locals.session) return fail(401, { error: 'Not signed in' });
 		await clearCache();
 		return { cleared: true, coverCache: await cacheStats() };
+	},
+
+	clearHistory: async ({ locals }) => {
+		if (!locals.session) return fail(401, { error: 'Not signed in' });
+		await clearHistory(locals.session.account.id);
+		return { historyCleared: true };
 	}
 };

@@ -13,7 +13,7 @@
  *
  * `memo.ts` has how entries are held and shared.
  */
-import type { Album, AlbumDetail, ArtistDetail } from '$lib/types';
+import type { Album, AlbumDetail, ArtistDetail, Folder } from '$lib/types';
 import type { LibraryContext } from './library';
 import { Memo } from './memo';
 
@@ -29,16 +29,25 @@ const MAX_DETAILS = 256;
 const details = new Memo(DETAIL_TTL_MS, MAX_DETAILS);
 
 export function albumDetail({ backend, credential, accountId }: LibraryContext, id: string): Promise<AlbumDetail> {
-	return details.get(accountId, `album\u0000${id}`, () => backend.getAlbum(credential, id));
+	return details.get({ accountId, credential }, `album\u0000${id}`, () => backend.getAlbum(credential, id));
 }
 
 export function artistDetail({ backend, credential, accountId }: LibraryContext, id: string): Promise<ArtistDetail> {
-	return details.get(accountId, `artist\u0000${id}`, () => backend.getArtist(credential, id));
+	return details.get({ accountId, credential }, `artist\u0000${id}`, () => backend.getArtist(credential, id));
 }
 
 /** An artist's albums, without the biography and top songs `artistDetail` reads. */
 export function albumsByArtist({ backend, credential, accountId }: LibraryContext, id: string): Promise<Album[]> {
-	return details.get(accountId, `albums\u0000${id}`, () => backend.getArtistAlbums(credential, id));
+	return details.get({ accountId, credential }, `albums\u0000${id}`, () => backend.getArtistAlbums(credential, id));
+}
+
+/**
+ * A folder and what is in it, the top as `null`. Held so that "Play" on a
+ * folder page, and Back to a folder, do not read it again; on Subsonic a folder
+ * is a call for each level above it as well as its own.
+ */
+export function folderDetail({ backend, credential, accountId }: LibraryContext, id: string | null): Promise<Folder> {
+	return details.get({ accountId, credential }, `folder\u0000${id ?? ''}`, () => backend.getFolder(credential, id));
 }
 
 /** Drops every detail held for an account, after a star or a credential that stopped working. */

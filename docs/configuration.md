@@ -117,6 +117,7 @@ npm run build && npm start   # production
 | `HEDDOHON_COVER_CACHE_MB` | no | `512` | Disk budget for cached cover art, in megabytes. `0` switches the cache off. |
 | `HEDDOHON_SHARING` | no | `true` | Song links. `false` hides the share buttons, refuses new links, and stops existing links from opening. Read at startup, so a change takes a restart. Links are kept, and open again if it is set back to `true`. |
 | `HEDDOHON_DOWNLOADS` | no | `true` | The "Download original" link in the player's track details, and the route behind it. `false` removes both. Signed-in browsers are sent the same files to play them, so this is not copy protection. |
+| `HEDDOHON_REMOTE_CONTROL` | no | `true` | The player's Devices button, which pauses, skips, seeks and moves the queue between browsers signed in to the same account, and the routes behind it (`/api/remote`). Each browser with the player open holds `/api/remote/events` open as a server-sent events stream; a reverse proxy must not buffer it (nginx: `proxy_buffering off`, or the `X-Accel-Buffering: no` header Heddohon sends). The browsers are known to one process, so set `false` when running more than one behind a load balancer. Listening together uses the same in-memory registry, and is off when this is `false`. |
 | `HEDDOHON_LYRICS_LRCLIB` | no | `false` | Lyrics from LRCLIB for tracks the music server has no synced lyrics for. When `true`, the server sends the artist, title, album and length of each such track to LRCLIB when its lyrics are opened. |
 | `HEDDOHON_LYRICS_LRCLIB_URL` | no | `https://lrclib.net` | Base URL of the LRCLIB instance to ask, for a self-hosted copy. Only read when the above is `true`. |
 | `HEDDOHON_LOG_LEVEL` | no | `error` | `error`, `warn`, `info` or `debug`. |
@@ -177,7 +178,7 @@ without touching their tables. When the connection is not encrypted, a
 
 **Moving from SQLite.** On the first start against an empty database, if
 `heddohon.db` is in `HEDDOHON_DATA_DIR`, it is copied across: accounts,
-settings, saved queues and share links. Sessions and sign-in counters are not,
+settings, saved queues, share links and listening history (with each play's track details). Sessions and sign-in counters are not,
 so everyone signs in once. Stored music-server credentials are copied sealed,
 so `HEDDOHON_SECRET` must stay the same. The copy is one transaction and the
 SQLite file is only read; a `sqlite_import` row in the `meta` table records
@@ -263,7 +264,7 @@ The events at each level, by name:
 | Level | Events |
 | --- | --- |
 | `error` | `request` at 5xx or thrown, `unhandled` with a stack, `config-invalid`, `sign-in-failed`, `quick-connect-failed` on a fault in this server |
-| `warn` | `request-slow`, `cross-origin-blocked`, `sign-in-rejected`, `sign-in-throttled`, `quick-connect-throttled`, `quick-connect-failed`, `sessions-destroyed`, `upstream-timeout`, `upstream-unreachable`, `section-failed`, `cover-write-failed`, `transcode-read-failed`, `scrobbler-failed` (with the `step`: status, a link, an unlink, or a refused Last.fm return) |
+| `warn` | `request-slow`, `cross-origin-blocked`, `sign-in-rejected`, `sign-in-throttled`, `quick-connect-throttled`, `quick-connect-failed`, `sessions-destroyed`, `upstream-timeout`, `upstream-unreachable`, `section-failed`, `cover-write-failed`, `history-write-failed`, `transcode-read-failed`, `scrobbler-failed` (with the `step`: status, a link, an unlink, or a refused Last.fm return) |
 | `info` | `started`, `signed-in` (with `method=quick-connect` for a Quick Connect sign-in), `quick-connect-started`, `scrobbler-linked`, `scrobbler-unlinked`, `cover-cache-cleared`, `cover-cache-swept` |
 | `debug` | `request` (one per request, with its path, status and duration), `upstream` (one per music-server call, with its time), `cover-hit`, `cover-miss`, `cover-stored`, `unauthenticated` |
 

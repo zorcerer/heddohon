@@ -1,6 +1,7 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { backendFor, UpstreamError } from '$lib/server/backends';
+import { forgetSharedItems } from '$lib/server/shares';
 
 const MAX_NAME = 200;
 
@@ -15,6 +16,8 @@ export const PATCH: RequestHandler = async ({ locals, params, request }) => {
 
 	try {
 		await backendFor(session.account.backend).renamePlaylist(session.credential, params.id, name);
+		// A link to this playlist serves the edit on its next request.
+		forgetSharedItems(session.account.id);
 		return json({ id: params.id, name });
 	} catch (err) {
 		if (err instanceof UpstreamError) error(err.status === 404 ? 404 : 502, err.message);
@@ -27,6 +30,7 @@ export const DELETE: RequestHandler = async ({ locals, params }) => {
 	if (!session) error(401, 'Not signed in');
 	try {
 		await backendFor(session.account.backend).deletePlaylist(session.credential, params.id);
+		forgetSharedItems(session.account.id);
 		return json({ id: params.id, deleted: true });
 	} catch (err) {
 		if (err instanceof UpstreamError) error(err.status === 404 ? 404 : 502, err.message);

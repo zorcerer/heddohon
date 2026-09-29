@@ -43,12 +43,25 @@ export async function streamShared(event: RequestEvent, position: number): Promi
 	const access = await shareAccess(token);
 	if (!access) error(404, 'Not found');
 	const { share, credential } = access;
-	const song = await sharedSong(share, credential, position);
-	if (!song) error(404, 'Not found');
 
+	// Registered before the track is looked up. Registered after it, a link
+	// withdrawn while the lookup was out (seconds, for a long playlist) was
+	// not seen by the withdrawal, and the track went on to play in full.
 	const controller = new AbortController();
 	const release = holdShareStream(share.id, controller);
 	event.request.signal.addEventListener('abort', release, { once: true });
+
+	let song;
+	try {
+		song = await sharedSong(share, credential, position);
+	} catch (err) {
+		release();
+		throw err;
+	}
+	if (!song || controller.signal.aborted) {
+		release();
+		error(404, 'Not found');
+	}
 
 	const req = {
 		...streamRequestFrom(event),

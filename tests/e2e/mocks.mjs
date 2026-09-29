@@ -101,6 +101,18 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 			['s0a', '2026-01-01T00:00:00Z'],
 			['s1a', '2026-01-02T00:00:00Z']
 		]),
+		/**
+		 * The libraries `getMusicFolders` lists. Each holds a folder per artist
+		 * (`d-ar{i}`) and one empty folder, `d-empty`, under a top folder
+		 * `d-lib`; an artist's folder holds its album's (`d-al{i}`), which
+		 * holds the album's two songs and a video. With two, the second holds
+		 * only `d-ar2`.
+		 */
+		musicFolders: [{ id: 1, name: 'Music' }],
+		/** Ratings by song or album id, 1 to 5, as `setRating` leaves them. */
+		ratings: new Map(),
+		/** Synced lyrics by song id, as `[{ start, value }]` in milliseconds, for `getLyricsBySongId`. */
+		lyrics: new Map(),
 		/** Song and album ids that answer `getSong` or `getAlbum` with error 70, as a deleted one does. */
 		missing: new Set(),
 		/** Milliseconds to hold an endpoint's answer, by method name. */
@@ -132,6 +144,12 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 		playlistEntries: ['s1a', 's2a'],
 		/** The last Subsonic call, and whether it came as a form POST. */
 		lastRequest: null,
+		/** Who `getPlaylist` names as the owner of `pl1`; null for the signed-in user. */
+		playlistOwner: null,
+		/** Entries of `pl1` counted in `songCount` but left out of the list, as Navidrome does for a missing file. */
+		hiddenEntries: 0,
+		/** The last request that wrote a playlist, which a verifying read may follow. */
+		lastWrite: null,
 		/**
 		 * Songs `getSimilarSongs` answers with, one from each album after the
 		 * seed's (for a song, album or artist id alike). Zero answers with none,
@@ -170,7 +188,8 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 		bitDepth: 16,
 		samplingRate: 44100,
 		size: 20_000_000,
-		starred: state.starred.get(`s${i}${side}`)
+		starred: state.starred.get(`s${i}${side}`),
+		userRating: state.ratings.get(`s${i}${side}`)
 	});
 	const album = (i, id = `al${i}`) => ({
 		id,
@@ -181,6 +200,7 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 		songCount: 2,
 		duration: 360,
 		year: 2000 + (i % 20),
+		userRating: state.ratings.get(id),
 		// A 2009 edition of a record from 1979, and a date with no year (Navidrome
 		// sends 0), which leaves the edition's year.
 		...(i === 29 ? { originalReleaseDate: { year: 1979, month: 5, day: 1 } } : {}),
@@ -259,6 +279,7 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 		const p = new URLSearchParams(url.search);
 		for (const [key, value] of new URLSearchParams(form)) p.append(key, value);
 		state.lastRequest = { method, post: req.method === 'POST' };
+		if (method === 'createPlaylist' || method === 'updatePlaylist') state.lastWrite = state.lastRequest;
 		const send = (body) => {
 			res.setHeader('content-type', 'application/json');
 			res.end(JSON.stringify(body));
@@ -312,6 +333,8 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 				return send(ok({ topSongs: { song: [song(0, 'a'), song(0, 'b'), song(1, 'a'), song(2, 'a')] } }));
 			case 'getAlbum': {
 				const id = p.get('id') ?? '';
+				// An internal failure, worded as Navidrome words one.
+				if (id === 'broken') return send(failed(0, 'open /var/lib/navidrome/navidrome.db: database is locked'));
 				const i = index(id);
 				if (state.missing.has(id) || !(i >= 0 && i < artistCount)) return send(failed(70, 'Album not found'));
 				const songs = Array.from({ length: state.albumSongs }, (_, k) => song(i, String.fromCharCode(97 + k)));
@@ -333,6 +356,53 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 			case 'unstar':
 				for (const id of p.getAll('id')) state.starred.delete(id);
 				return send(ok({}));
+			case 'getLyricsBySongId': {
+				const lines = state.lyrics.get(p.get('id'));
+				return send(ok({ lyricsList: lines ? { structuredLyrics: [{ synced: true, line: lines }] } : {} }));
+			}
+			case 'getMusicFolders':
+				return send(ok({ musicFolders: { musicFolder: state.musicFolders } }));
+			case 'getIndexes': {
+				const artists =
+					p.get('musicFolderId') === '2'
+						? [2]
+						: Array.from({ length: Math.min(12, artistCount) }, (_, i) => i).filter(
+								(i) => state.musicFolders.length < 2 || i !== 2
+							);
+				const entries = [...artists.map((i) => ({ id: `d-ar${i}`, name: name(i) })), { id: 'd-empty', name: 'Empty' }];
+				return send(ok({ indexes: { index: [{ name: 'A', artist: entries }] } }));
+			}
+			// As Navidrome 0.55 and later answer it: the folders on disk, each
+			// naming the one above it, up to the library's own top folder.
+			case 'getMusicDirectory': {
+				const id = p.get('id') ?? '';
+				if (id === 'd-lib') {
+					const tops = Array.from({ length: Math.min(12, artistCount) }, (_, i) => ({ id: `d-ar${i}`, isDir: true, title: name(i), parent: 'd-lib' }));
+					return send(ok({ directory: { id, name: 'Music', child: tops } }));
+				}
+				if (id === 'd-empty') return send(ok({ directory: { id, name: 'Empty', parent: 'd-lib' } }));
+				const folder = /^d-(ar|al)(\d+)$/.exec(id);
+				const i = folder ? Number(folder[2]) : -1;
+				if (!folder || i >= artistCount) return send(failed(70, 'Directory not found'));
+				if (folder[1] === 'ar') {
+					const child = [{ id: `d-al${i}`, isDir: true, title: `Album ${i}`, coverArt: `al-${i}`, parent: id }];
+					return send(ok({ directory: { id, name: name(i), parent: 'd-lib', child } }));
+				}
+				const child = [
+					{ ...song(i, 'a'), isDir: false, parent: id },
+					{ ...song(i, 'b'), isDir: false, parent: id },
+					{ id: `v${i}`, isDir: false, isVideo: true, title: 'A video', parent: id }
+				];
+				return send(ok({ directory: { id, name: `Album ${i}`, parent: `d-ar${i}`, child } }));
+			}
+			// 0 removes the rating, as Navidrome does; anything outside 0 to 5 is refused.
+			case 'setRating': {
+				const rating = Number(p.get('rating'));
+				if (!Number.isInteger(rating) || rating < 0 || rating > 5) return send(failed(10, 'Invalid rating'));
+				if (rating === 0) state.ratings.delete(p.get('id'));
+				else state.ratings.set(p.get('id'), rating);
+				return send(ok({}));
+			}
 			case 'getAlbumList2':
 				return send(ok({ albumList2: { album: Array.from({ length: Math.min(12, artistCount) }, (_, i) => album(i)) } }));
 			case 'getGenres':
@@ -344,7 +414,14 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 				const entry = state.playlistEntries.map((id) => song(index(id), id.slice(-1)));
 				return send(
 					ok({
-						playlist: { id: 'pl1', name: 'Mock Playlist', songCount: entry.length, duration: 180 * entry.length, owner: state.username, entry }
+						playlist: {
+							id: 'pl1',
+							name: 'Mock Playlist',
+							songCount: entry.length + state.hiddenEntries,
+							duration: 180 * entry.length,
+							owner: state.playlistOwner ?? state.username,
+							entry
+						}
 					})
 				);
 			}
@@ -430,11 +507,23 @@ export async function startJellyfin() {
 		{ Id: 'g2', Name: 'Compilation Track Artist', Type: 'MusicArtist', ImageTags: {} }
 	];
 	const albums = [
-		{ Id: 'b1', Name: 'First', Type: 'MusicAlbum', AlbumArtists: [{ Id: 'a1', Name: 'Artist A' }] },
-		{ Id: 'b2', Name: 'Second', Type: 'MusicAlbum', AlbumArtists: [{ Id: 'a2', Name: 'Artist B' }] },
-		{ Id: 'b3', Name: 'Third', Type: 'MusicAlbum', AlbumArtists: [{ Id: 'a2', Name: 'Artist B' }] },
-		{ Id: 'b4', Name: 'Compilation', Type: 'MusicAlbum', AlbumArtists: [{ Id: 'a3', Name: 'Various Artists' }] }
+		{ Id: 'b1', Name: 'First', Type: 'MusicAlbum', IsFolder: true, AlbumArtists: [{ Id: 'a1', Name: 'Artist A' }] },
+		{ Id: 'b2', Name: 'Second', Type: 'MusicAlbum', IsFolder: true, AlbumArtists: [{ Id: 'a2', Name: 'Artist B' }] },
+		{ Id: 'b3', Name: 'Third', Type: 'MusicAlbum', IsFolder: true, AlbumArtists: [{ Id: 'a2', Name: 'Artist B' }] },
+		{ Id: 'b4', Name: 'Compilation', Type: 'MusicAlbum', IsFolder: true, AlbumArtists: [{ Id: 'a3', Name: 'Various Artists' }] }
 	];
+	/**
+	 * The libraries, and the folders on disk under the music one: `fb` (a
+	 * plain folder, "Artist B") holds the album `b2`, which holds its tracks.
+	 * Each folder's ancestors are listed nearest first, ending at the server's
+	 * own root, as `/Items/{id}/Ancestors` answers.
+	 */
+	const views = [
+		{ Id: 'lib1', Name: 'Music', Type: 'CollectionFolder', CollectionType: 'music', IsFolder: true },
+		{ Id: 'lib2', Name: 'Films', Type: 'CollectionFolder', CollectionType: 'movies', IsFolder: true }
+	];
+	const root = { Id: 'root', Name: 'Media Folders', Type: 'UserRootFolder', IsFolder: true };
+	const folderB = { Id: 'fb', Name: 'Artist B', Type: 'Folder', IsFolder: true };
 	const tracks = [1, 2, 3].map((n) => ({
 		Id: `t${n}`,
 		Name: `Track ${n}`,
@@ -461,14 +550,22 @@ export async function startJellyfin() {
 	 * Songs the user has played: `{ Id, AlbumId, PlayCount, LastPlayedDate }`.
 	 * Jellyfin keeps plays on songs only, so its albums carry none.
 	 */
-	const state = { played: [] };
+	/** Item ids the user has made a favourite, which every item it answers with carries in `UserData`. */
+	const state = { played: [], favourites: new Set() };
+
+	/** An item as Jellyfin answers with it for this user: with its favourite state. */
+	const withUserData = (item) =>
+		item && typeof item === 'object' && typeof item.Id === 'string' && item.Type !== 'UserRootFolder'
+			? { ...item, UserData: { ...(item.UserData ?? {}), IsFavorite: state.favourites.has(item.Id) } }
+			: item;
 
 	const server = await listen((req, res) => {
 		const url = new URL(req.url, 'http://mock');
 		const send = (body, status = 200) => {
 			res.statusCode = status;
 			res.setHeader('content-type', 'application/json');
-			res.end(JSON.stringify(body));
+			const decorated = Array.isArray(body?.Items) ? { ...body, Items: body.Items.map(withUserData) } : withUserData(body);
+			res.end(JSON.stringify(decorated));
 		};
 		const types = url.searchParams.get('IncludeItemTypes') ?? url.searchParams.get('includeItemTypes');
 		calls.hit(`${req.method} ${url.pathname}${types ? ` ${types}` : ''}`);
@@ -484,6 +581,35 @@ export async function startJellyfin() {
 			return;
 		}
 		if (url.pathname === '/QuickConnect/Enabled') return send(false);
+		// Favourites, by the route Heddohon uses: POST adds, DELETE removes, and
+		// the answer is the item's user data.
+		const favourite = /^\/Users\/u1\/FavoriteItems\/([^/]+)$/.exec(url.pathname);
+		if (favourite && (req.method === 'POST' || req.method === 'DELETE')) {
+			if (req.method === 'POST') state.favourites.add(favourite[1]);
+			else state.favourites.delete(favourite[1]);
+			return send({ IsFavorite: state.favourites.has(favourite[1]), ItemId: favourite[1] });
+		}
+		// The favourites of one kind, as the favourites page and "play favourites" ask.
+		if (url.pathname === '/Items' && url.searchParams.get('Filters') === 'IsFavorite') {
+			const pool = { Audio: tracks, MusicAlbum: albums, MusicArtist: artists }[types] ?? [];
+			return send({ Items: pool.filter((entry) => state.favourites.has(entry.Id)) });
+		}
+		// An album's tracks, as the album page asks for them.
+		if (url.pathname === '/Items' && types === 'Audio' && url.searchParams.get('ParentId')) {
+			return send({ Items: tracks.filter((track) => track.AlbumId === url.searchParams.get('ParentId')) });
+		}
+		if (url.pathname === '/UserViews') return send({ Items: views });
+		if (url.pathname === '/Items/lib1') return send(views[0]);
+		if (url.pathname === '/Items/fb') return send(folderB);
+		if (url.pathname === '/Items/t1') return send({ ...tracks[0], IsFolder: false });
+		if (url.pathname === '/Items/fb/Ancestors') return send([views[0], root]);
+		if (url.pathname === '/Items/b2/Ancestors') return send([folderB, views[0], root]);
+		// A folder's children, which the album page also asks for, by type.
+		const parent = url.searchParams.get('ParentId');
+		if (url.pathname === '/Items' && parent && !types) {
+			const children = { lib1: [folderB], fb: [albums[1]], b2: tracks.map((track) => ({ ...track, IsFolder: false })) };
+			return send({ Items: children[parent] ?? [] });
+		}
 		if (url.pathname === '/Users/u1') return send({ Id: 'u1', Name: 'jfuser', Policy: { IsAdministrator: false } });
 		if (url.pathname === '/Items' && types === 'MusicArtist') return send({ Items: artists });
 		if (url.pathname === '/Items' && types === 'Audio' && url.searchParams.get('Filters') === 'IsPlayed') {
@@ -505,6 +631,9 @@ export async function startJellyfin() {
 		// A playlist of three tracks, each entry with an id of its own, which is
 		// what Jellyfin moves and removes entries by.
 		if (url.pathname === '/Items/jpl') return send({ Id: 'jpl', Name: 'Jellyfin Playlist', Type: 'Playlist' });
+		// Artists and albums by id, each with its type, as the adapter checks it.
+		const item = [...artists, ...albums].find((entry) => url.pathname === `/Items/${entry.Id}`);
+		if (req.method === 'GET' && item) return send(item);
 		if (req.method === 'GET' && url.pathname === '/Playlists/jpl/Items') {
 			return send({ Items: playlist.map((entry) => ({ ...trackItem(entry.track), PlaylistItemId: entry.id })) });
 		}

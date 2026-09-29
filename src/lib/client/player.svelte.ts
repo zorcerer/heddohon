@@ -68,6 +68,15 @@ function seekableTo(element: HTMLMediaElement, time: number): boolean {
  * playback report leaving together both fit.
  */
 const KEEPALIVE_LIMIT = 32_000;
+
+/** Cast addresses are asked for again after this, an hour before they stop working. */
+const CAST_REFRESH_MS = 5 * 60 * 60 * 1000;
+
+/** Safari's AirPlay members of a media element, which the DOM types leave out. */
+type AirPlayElement = HTMLMediaElement & {
+	webkitShowPlaybackTargetPicker?: () => void;
+	webkitCurrentPlaybackTargetIsWireless?: boolean;
+};
 /**
  * The sleep timer's lengths in minutes, and how long the level takes to come
  * down before it pauses. The fade is stepped from `timeupdate`, which Chromium
@@ -92,12 +101,41 @@ function shuffled<T>(items: T[]): T[] {
 	return out;
 }
 
+/**
+ * `queue` put back in `order`, the ids it had before it was shuffled, with
+ * `current` where it lands. Matched by id one for one, so a track queued twice
+ * comes back twice. An entry removed since is left out. Entries added since
+ * ("Play next", "Add to queue") go straight after the current track, in the
+ * order they were in, since they were queued to come up; where the current
+ * track is itself one of them, the added entries lead the queue.
+ */
+function unshuffled<T extends { id: string }>(queue: T[], order: string[], current: T | undefined): T[] {
+	const waiting = new Map<string, T[]>();
+	for (const entry of queue) {
+		const list = waiting.get(entry.id);
+		if (list) list.push(entry);
+		else waiting.set(entry.id, [entry]);
+	}
+	const originals: T[] = [];
+	for (const id of order) {
+		const entry = waiting.get(id)?.shift();
+		if (entry) originals.push(entry);
+	}
+	const kept = new Set(originals);
+	const added = queue.filter((entry) => !kept.has(entry));
+	if (current === undefined || !kept.has(current)) return [...added, ...originals];
+	const at = originals.indexOf(current) + 1;
+	return [...originals.slice(0, at), ...added, ...originals.slice(at)];
+}
+
 interface PersistPayload {
 	songIds: string[];
 	index: number;
 	position: number;
 	repeat: RepeatMode;
 	shuffle: boolean;
+	/** The ids in the order they had before shuffling, while shuffle is on. */
+	orderIds?: string[];
 }
 
 export class Player {
@@ -199,6 +237,12 @@ export class Player {
 	 */
 	#partial: { queue: Song[]; ids: string[]; index: number } | null = null;
 	/**
+	 * While shuffle is on, the ids in the order the queue had before it was
+	 * shuffled, so turning shuffle off can put it back (`unshuffled`). Saved with
+	 * the queue, so it survives a reload.
+	 */
+	#unshuffledIds: string[] | null = null;
+	/**
 	 * Set while a resume waits for the position to become seekable; see
 	 * `#holdForSeek`. The retries on `canplay` and on the tab coming back leave
 	 * the element alone while it is set, or they would play it from the start.
@@ -225,6 +269,22 @@ export class Player {
 	 */
 	rampsVolume = $state(true);
 
+	/**
+	 * Whether the system offers a speaker or a TV to play on: a Chromecast
+	 * through Chrome's Remote Playback API (Chrome on Android), or AirPlay
+	 * through Safari. The cast button shows only while this holds.
+	 */
+	castAvailable = $state(false);
+	/** Whether the audio is playing on one of those rather than here. */
+	casting = $state(false);
+	/**
+	 * Cast addresses by track id while casting (`server/cast.ts`), and when
+	 * they were issued. The receiver fetches the stream itself, without this
+	 * browser's cookie, so each track goes to it as a signed address.
+	 */
+	#castUrls: Map<string, string> | null = null;
+	#castUrlsAt = 0;
+
 	/** Called once from the root layout after the audio elements are mounted. */
 	attach(primary: HTMLAudioElement, secondary: HTMLAudioElement, settings: UserSettings) {
 		this.#primary = primary;
@@ -239,6 +299,148 @@ export class Player {
 		this.#startProgressReporting();
 		this.#watchVisibility();
 		this.#adoptViewport();
+		this.#watchCast(primary, secondary);
+	}
+
+	// ── Casting ────────────────────────────────────────────────────────────
+
+	/**
+	 * Opens the system's picker for a speaker or a TV. Called from the press:
+	 * both pickers need it.
+	 *
+	 * Chrome sends the receiver the element's address when a device is picked,
+	 * so the track is moved to its cast address first. Safari opens its picker
+	 * only inside the press itself, so there the address changes after a
+	 * speaker is chosen, when the element reports a wireless target.
+	 */
+	async cast(): Promise<void> {
+		const element = this.#primary;
+		if (!element || !this.current) return;
+		const airplay = element as AirPlayElement;
+		if (typeof airplay.webkitShowPlaybackTargetPicker === 'function') {
+			airplay.webkitShowPlaybackTargetPicker();
+			return;
+		}
+		if (!element.remote) return;
+		if (!(await this.#beginCast())) return;
+		try {
+			await element.remote.prompt();
+		} catch {
+			// Closed without a choice, or refused: the rest of the queue goes
+			// back to this browser's own addresses.
+			if (element.remote.state === 'disconnected') this.#endCast();
+		}
+	}
+
+	#watchCast(...elements: HTMLAudioElement[]) {
+		for (const element of elements) {
+			const remote = element.remote;
+			if (remote) {
+				const connect = () => (this.casting = true);
+				const disconnect = () => this.#endCast();
+				remote.addEventListener('connect', connect);
+				remote.addEventListener('disconnect', disconnect);
+				this.#lifecycleOff.push(() => {
+					remote.removeEventListener('connect', connect);
+					remote.removeEventListener('disconnect', disconnect);
+				});
+			}
+			// Safari's own events, which it fires in place of the ones above.
+			const availability = (event: Event) =>
+				(this.castAvailable = (event as Event & { availability?: string }).availability === 'available');
+			const wireless = () => {
+				if ((element as AirPlayElement).webkitCurrentPlaybackTargetIsWireless) {
+					this.casting = true;
+					void this.#beginCast();
+				} else this.#endCast();
+			};
+			element.addEventListener('webkitplaybacktargetavailabilitychanged', availability);
+			element.addEventListener('webkitcurrentplaybacktargetiswirelesschanged', wireless);
+			this.#lifecycleOff.push(() => {
+				element.removeEventListener('webkitplaybacktargetavailabilitychanged', availability);
+				element.removeEventListener('webkitcurrentplaybacktargetiswirelesschanged', wireless);
+			});
+		}
+
+		// Whether there is anything to pick. Chrome on the desktop has the API
+		// and refuses to watch, which leaves the button hidden.
+		const remote = elements[0]?.remote;
+		if (!remote) return;
+		let watch: number | null = null;
+		remote
+			.watchAvailability((available) => (this.castAvailable = available))
+			.then((id) => (watch = id))
+			.catch(() => (this.castAvailable = false));
+		this.#lifecycleOff.push(() => {
+			if (watch !== null) void remote.cancelWatchAvailability(watch).catch(() => undefined);
+		});
+	}
+
+	/**
+	 * Moves playback to cast addresses: the current track re-opened from its
+	 * own where it had got to, and nothing buffered ahead. While casting, one
+	 * element plays every track, since the receiver follows the element it was
+	 * picked from; the preloaded handoff and the crossfade, which alternate
+	 * two, are left out.
+	 */
+	async #beginCast(): Promise<boolean> {
+		if (this.#castUrls) return true;
+		this.#castUrls = new Map();
+		this.#castUrlsAt = Date.now();
+		if (!(await this.#ensureCastUrls())) {
+			this.#castUrls = null;
+			return false;
+		}
+		this.#invalidatePreload();
+		await this.#reopenCurrent();
+		return true;
+	}
+
+	#endCast() {
+		this.casting = false;
+		this.#castUrls = null;
+	}
+
+	/**
+	 * Cast addresses for the queue from the current track on, those not held
+	 * already. Asked again after 5 hours, before the 6 they last.
+	 */
+	async #ensureCastUrls(): Promise<boolean> {
+		if (!this.#castUrls) return false;
+		if (Date.now() - this.#castUrlsAt > CAST_REFRESH_MS) {
+			this.#castUrls.clear();
+			this.#castUrlsAt = Date.now();
+		}
+		const held = this.#castUrls;
+		const ids = [...new Set(this.queue.slice(this.index, this.index + 1000).map((song) => song.id))].filter(
+			(id) => !held.has(id)
+		);
+		if (ids.length === 0) return true;
+		const response = await fetch('/api/cast', {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ ids })
+		}).catch(() => null);
+		const urls = (await response?.json().catch(() => null))?.urls as Record<string, string> | undefined;
+		if (!response?.ok || !urls) return false;
+		for (const [id, url] of Object.entries(urls)) held.set(id, url);
+		return true;
+	}
+
+	/** Where the element fetches a track from: its cast address while casting. */
+	#srcOf(song: Song): string {
+		return this.#castUrls?.get(song.id) ?? streamUrl(song.id, this.deliveryMode);
+	}
+
+	/**
+	 * Sends both elements to the audio output `deviceId`, or to the system's
+	 * default for `''`. Both, since they swap roles at every track change and
+	 * the one pre-buffering now is the one playing next. Rejects where the
+	 * browser refuses the device; `client/output.svelte.ts` handles that.
+	 */
+	async setOutput(deviceId: string): Promise<void> {
+		const elements = [this.#primary, this.#secondary].filter((el): el is HTMLAudioElement => el !== null);
+		await Promise.all(elements.map((el) => el.setSinkId(deviceId)));
 	}
 
 	detach() {
@@ -266,6 +468,9 @@ export class Player {
 	/** Replaces the queue with a shuffled copy and starts it. */
 	async playShuffled(songs: Song[]) {
 		await this.#start(shuffled(songs), 0, true);
+		// After `#start`, which clears it for every new queue.
+		this.#unshuffledIds = songs.map((song) => song.id);
+		this.#persist();
 	}
 
 	/**
@@ -277,6 +482,7 @@ export class Player {
 	async #start(songs: Song[], startAt: number, shuffle: boolean) {
 		if (songs.length === 0) return;
 		this.shuffle = shuffle;
+		this.#unshuffledIds = null;
 		this.direction = 1;
 		this.queue = [...songs];
 		this.index = Math.min(Math.max(0, startAt), songs.length - 1);
@@ -356,11 +562,17 @@ export class Player {
 		this.#persist();
 	}
 
+	/** Sets the favourite state of every queued copy of a song, after a heart is pressed. */
+	markStarred(id: string, starred: boolean) {
+		for (const song of this.queue) if (song.id === id) song.starred = starred;
+	}
+
 	clearQueue() {
 		this.stop();
 		this.queue = [];
 		this.index = 0;
 		this.shuffle = false;
+		this.#unshuffledIds = null;
 		this.#persist();
 	}
 
@@ -375,9 +587,19 @@ export class Player {
 
 	// ── Transport ──────────────────────────────────────────────────────────
 
+	/**
+	 * Pauses what is meant to be playing, and plays otherwise.
+	 *
+	 * Decided by `engaged`, the listener's intent, while the track plays or is
+	 * still loading. It was decided by `playing`, which follows the element
+	 * and lags a press: a pause pressed just after a skip, with the next track
+	 * still loading, left `playing` true for up to a second, so the play
+	 * pressed next paused again and nothing played. A play that was refused
+	 * (engaged, neither playing nor loading) is tried again.
+	 */
 	async toggle() {
 		if (!this.#primary || !this.current) return;
-		if (this.playing) this.pause();
+		if (this.engaged && (this.playing || this.loading)) this.pause();
 		else await this.play();
 	}
 
@@ -411,6 +633,9 @@ export class Player {
 				this.playing = false;
 				return;
 			}
+			// A pause pressed while the play was starting. That is the listener
+			// changing their mind, not a failure to report.
+			if (err instanceof DOMException && err.name === 'AbortError' && !this.engaged) return;
 			this.error = err instanceof Error ? err.message : 'Playback failed';
 			this.playing = false;
 		}
@@ -562,21 +787,44 @@ export class Player {
 	}
 
 	/**
-	 * Shuffling rewrites the queue rather than keeping a shadow order, so what
-	 * the queue panel shows is always what will actually play next. Turning it
-	 * off does not restore the original order — that would be a lie about a
-	 * queue the user may have edited since.
+	 * Shuffling rewrites the queue, so what the queue panel shows is always what
+	 * will actually play next. The order it had is kept beside it, and turning
+	 * shuffle off puts the queue back in that order around the playing track,
+	 * with edits made in the meantime kept (`unshuffled`). It used to leave the
+	 * queue shuffled, which read as the button doing nothing.
 	 */
 	toggleShuffle() {
 		this.shuffle = !this.shuffle;
-		if (this.shuffle && this.queue.length > 1) {
-			// The track that is playing stays put; everything else is reordered
-			// around it, so turning shuffle on never interrupts the audio.
-			const current = this.queue[this.index];
-			const rest = shuffled(this.queue.filter((_, i) => i !== this.index));
-			this.queue = [current, ...rest];
-			this.index = 0;
+		if (this.shuffle) {
+			// A queue still being restored holds only its current track; the saved
+			// ids are its real order.
+			this.#unshuffledIds = this.#partial ? [...this.#partial.ids] : this.queue.map((song) => song.id);
+			if (this.queue.length > 1) {
+				// The track that is playing stays put; everything else is reordered
+				// around it, so turning shuffle on never interrupts the audio.
+				const current = this.queue[this.index];
+				const rest = shuffled(this.queue.filter((_, i) => i !== this.index));
+				this.queue = [current, ...rest];
+				this.index = 0;
+			}
+		} else if (this.#unshuffledIds) {
+			const order = this.#unshuffledIds;
+			const partial = this.#partial;
+			if (partial) {
+				// Reordered in the saved ids, which `completeRestore` fills in. The
+				// queue itself is left as it is: it is the one track, and replacing
+				// the array would make `completeRestore` think the queue was changed.
+				const entries = partial.ids.map((id) => ({ id }));
+				const reordered = unshuffled(entries, order, entries[partial.index]);
+				this.#partial = { ...partial, ids: reordered.map((entry) => entry.id), index: reordered.indexOf(entries[partial.index]) };
+			} else {
+				const current = this.queue[this.index];
+				const queue = unshuffled(this.queue, order, current);
+				this.queue = queue;
+				this.index = Math.max(0, queue.indexOf(current));
+			}
 		}
+		if (!this.shuffle) this.#unshuffledIds = null;
 		this.#invalidatePreload();
 		this.#persist();
 	}
@@ -668,7 +916,13 @@ export class Player {
 			this.#swapElements();
 		} else {
 			this.loading = true;
-			this.#primary.src = streamUrl(song.id, this.deliveryMode);
+			// A track that has come into the queue since casting began needs an
+			// address of its own first.
+			if (this.#castUrls && !this.#castUrls.has(song.id)) {
+				await this.#ensureCastUrls();
+				if (this.current !== song || !this.#primary) return;
+			}
+			this.#primary.src = this.#srcOf(song);
 			this.#primary.load();
 		}
 
@@ -707,6 +961,7 @@ export class Player {
 		if (this.#fadeTimer !== null) return;
 		const settings = this.settings;
 		if (!settings || settings.transition !== 'crossfade') return;
+		if (this.#castUrls) return;
 		// Without a ramp this would be two tracks at full level. The `ended`
 		// handler makes the tight handoff instead, from the buffered element.
 		if (!this.rampsVolume) return;
@@ -830,7 +1085,8 @@ export class Player {
 				return;
 			}
 			this.#seekHolds += 1;
-			element.src = `${streamUrl(song.id, this.deliveryMode)}&attempt=${this.#seekHolds}`;
+			const src = this.#srcOf(song);
+			element.src = `${src}${src.includes('?') ? '&' : '?'}attempt=${this.#seekHolds}`;
 			element.load();
 		}, SEEK_HOLD_MS);
 	}
@@ -861,7 +1117,7 @@ export class Player {
 			// The listener pressed pause while we were waiting. Their call wins.
 			if (!this.engaged || this.#primary !== element) return;
 			this.#pendingSeek = position;
-			element.src = streamUrl(song.id, this.deliveryMode);
+			element.src = this.#srcOf(song);
 			element.load();
 			void element.play().catch(() => undefined);
 		}, RECOVERY_BACKOFF_MS * this.#recoveries);
@@ -900,6 +1156,8 @@ export class Player {
 	/** Buffers the upcoming track so the handoff does not wait on the network. */
 	#maybePreloadNext() {
 		if (!this.settings?.preloadNext || this.settings.transition === 'off') return;
+		// Casting follows one element; see `#beginCast`.
+		if (this.#castUrls) return;
 		const next = this.upNext ?? (this.repeat === 'all' ? this.queue[0] : null);
 		if (!next || !this.#secondary) return;
 		if (this.#preloadedFor === next.id) return;
@@ -1261,7 +1519,8 @@ export class Player {
 			index: partial ? partial.index : this.index,
 			position: this.currentTime,
 			repeat: this.repeat,
-			shuffle: this.shuffle
+			shuffle: this.shuffle,
+			...(this.shuffle && this.#unshuffledIds ? { orderIds: this.#unshuffledIds } : {})
 		};
 		const body = JSON.stringify(payload);
 		void fetch('/api/play-state', {
@@ -1307,6 +1566,15 @@ export class Player {
 		this.#persistSettings({ transcode: on });
 		this.#invalidatePreload();
 
+		await this.#reopenCurrent();
+	}
+
+	/**
+	 * Re-opens the current track from its address as it now is (another
+	 * delivery mode, or a cast address), at the position it had reached and
+	 * playing if it was.
+	 */
+	async #reopenCurrent(): Promise<void> {
 		const element = this.#primary;
 		const song = this.current;
 		if (!element || !song) return;
@@ -1315,7 +1583,7 @@ export class Player {
 		const wasPlaying = this.playing;
 		this.loading = true;
 		this.#pendingSeek = position;
-		element.src = streamUrl(song.id, this.deliveryMode);
+		element.src = this.#srcOf(song);
 		element.load();
 		if (wasPlaying) await element.play().catch(() => undefined);
 	}
@@ -1374,7 +1642,7 @@ export class Player {
 	 */
 	async restore(
 		songs: Song[],
-		state: { index: number; position: number; repeat: RepeatMode; shuffle: boolean },
+		state: { index: number; position: number; repeat: RepeatMode; shuffle: boolean; orderIds?: string[] },
 		partial?: { ids: string[]; index: number }
 	) {
 		if (songs.length === 0) return;
@@ -1383,6 +1651,7 @@ export class Player {
 		this.index = Math.min(Math.max(0, state.index), songs.length - 1);
 		this.repeat = state.repeat;
 		this.shuffle = state.shuffle;
+		this.#unshuffledIds = state.shuffle && state.orderIds?.length ? state.orderIds : null;
 		this.duration = this.current?.duration ?? 0;
 		this.currentTime = state.position;
 		this.#pendingSeek = state.position;

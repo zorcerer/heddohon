@@ -8,7 +8,8 @@ import {
 	createShare,
 	describeShares,
 	isShareKind,
-	isShareLifetime
+	isShareLifetime,
+	ownsPlaylist
 } from '$lib/server/shares';
 import { log } from '$lib/server/log';
 import { config } from '$lib/server/config';
@@ -57,7 +58,10 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 	try {
 		const backend = backendFor(session.account.backend);
 		if (kind === 'album') await backend.getAlbum(session.credential, id);
-		else if (kind === 'playlist') await backend.getPlaylist(session.credential, id);
+		else if (kind === 'playlist') {
+			const playlist = await backend.getPlaylist(session.credential, id);
+			if (!ownsPlaylist(playlist, session.account.username)) error(403, 'Only your own playlists can be shared');
+		}
 		else if (!(await backend.getSongs(session.credential, [id]))[0]) error(404, missing);
 	} catch (err) {
 		if (err instanceof UpstreamError) {

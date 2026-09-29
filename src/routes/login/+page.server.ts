@@ -82,7 +82,7 @@ export const actions: Actions = {
 		 * concurrent attempts cannot all pass a check none of them has yet paid
 		 * for. Anything the upstream did not actually judge is handed back below.
 		 */
-		const keys = loginKeys(backend, username, event.getClientAddress(), knownDevice(event, backend, username));
+		const keys = loginKeys(backend, username, event.getClientAddress(), await knownDevice(event, backend, username));
 		const verdict = await reserveLoginAttempt(keys);
 		if (!verdict.allowed) {
 			// Named at warn: a throttled address is the signal somebody is guessing,
@@ -138,7 +138,7 @@ export const actions: Actions = {
 
 		await clearLoginFailures(keys);
 		await createSession(event, account, event.request.headers.get('user-agent'));
-		rememberDevice(event, backend, account.username);
+		rememberDevice(event, account);
 		log.info('signed-in', { username: account.username, backend, address: event.getClientAddress() });
 		redirect(303, next);
 	}

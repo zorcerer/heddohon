@@ -3,6 +3,7 @@ import { version } from '$app/environment';
 import { resolveSession } from '$lib/server/auth';
 import { getSettings, DEFAULT_SETTINGS } from '$lib/server/settings';
 import { ConfigError, config } from '$lib/server/config';
+import { SECURITY_HEADERS } from '$lib/headers';
 import {
 	isEnabled,
 	log,
@@ -21,7 +22,7 @@ import {
  * Every route under it resolves the token itself and serves the one song the
  * link names, and nothing under it accepts a write. See `lib/server/shares.ts`.
  */
-const PUBLIC_ROUTES = ['/login', '/healthz', '/share', '/manifest.webmanifest'];
+const PUBLIC_ROUTES = ['/login', '/healthz', '/share', '/cast', '/together', '/manifest.webmanifest'];
 
 const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
@@ -32,21 +33,11 @@ function isPublic(pathname: string): boolean {
 /**
  * Applied to every response, including the ones that return before `resolve`.
  * Those early exits — the config 500, the CSRF 403, the 401 — used to ship bare,
- * which is exactly the set an attacker probes first.
- *
- * HSTS is set unconditionally rather than only on https. The app is always
- * behind a TLS-terminating proxy in the deployment it is written for, and the
- * header is ignored by browsers over plain http, so the only thing a condition
- * would add is a way to get it wrong.
+ * which is exactly the set an attacker probes first. The list and the reasons
+ * for it are in `lib/headers.ts`.
  */
 function harden(headers: Headers): void {
-	headers.set('x-content-type-options', 'nosniff');
-	headers.set('referrer-policy', 'same-origin');
-	headers.set('x-frame-options', 'SAMEORIGIN');
-	headers.set('strict-transport-security', 'max-age=31536000; includeSubDomains');
-	headers.set('permissions-policy', 'camera=(), microphone=(), geolocation=(), payment=()');
-	headers.set('cross-origin-opener-policy', 'same-origin');
-	headers.set('cross-origin-resource-policy', 'same-origin');
+	for (const [name, value] of Object.entries(SECURITY_HEADERS)) headers.set(name, value);
 
 	// Every response here is either a signed-in user's own data or an error. The
 	// media routes set their own `private, max-age=...` and keep it; everything
@@ -108,6 +99,7 @@ function announce(): void {
 			data: cfg.dataDir,
 			covers: cfg.coverCacheBytes > 0 ? `${Math.round(cfg.coverCacheBytes / 1024 / 1024)}MB` : 'off',
 			sharing: cfg.sharing ? 'on' : 'off',
+			remoteControl: cfg.remoteControl ? 'on' : 'off',
 			database: cfg.database.kind === 'postgres' ? `postgres=${cfg.database.label}` : 'sqlite',
 			sessionHours: cfg.sessionMaxHours,
 			cookieSecure: String(cfg.cookieSecure),
@@ -276,6 +268,14 @@ const handleRequest: Handle = async ({ event, resolve }) => {
 		}
 	}
 
+	// Every id in a path, before anything is looked up with it. SECURITY.md
+	// holds ids under 256 characters, and only the download route checked:
+	// lyrics, playlists and the album and artist pages sent any length on to
+	// the music server.
+	if (Object.values(event.params).some((value) => value !== undefined && value.length >= 256)) {
+		return sealed('Not found', 404, 'text/plain; charset=utf-8');
+	}
+
 	const session = await resolveSession(event);
 	event.locals.session = session;
 	event.locals.settings = session ? await getSettings(session.account.id) : null;
@@ -315,6 +315,15 @@ const handleRequest: Handle = async ({ event, resolve }) => {
 	});
 
 	harden(response.headers);
+	// A cast address is fetched by the receiver's own page, on another origin
+	// (a Chromecast's receiver app), and without a cookie; see `cast.ts`. The
+	// token in the path is the authority, so this one resource may be loaded
+	// and read cross-origin. Matched by route, not by a path prefix.
+	if (event.route.id === '/cast/[token]' && response.ok) {
+		response.headers.set('cross-origin-resource-policy', 'cross-origin');
+		response.headers.set('access-control-allow-origin', '*');
+		response.headers.set('access-control-expose-headers', 'content-length, content-range, accept-ranges');
+	}
 	return response;
 };
 

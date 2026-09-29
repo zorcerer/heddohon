@@ -6,6 +6,7 @@
  * is a property of the protocol, not a choice — see StoredCredential. The
  * password is therefore held sealed at rest and opened only per request.
  */
+import { log } from '../log';
 import { upstreamFor } from '../config';
 import { subsonicToken, randomSalt } from '../crypto';
 import {
@@ -31,6 +32,8 @@ import type {
 	Artist,
 	ArtistDetail,
 	AudioQuality,
+	Folder,
+	FolderRef,
 	Playlist,
 	PlaylistDetail,
 	LyricLine,
@@ -76,14 +79,21 @@ function endpoint(cred: StoredCredential, method: string, params: UpstreamParams
 	return upstreamUrl(base, `/rest/${method}`, { ...authParams(cred), ...params });
 }
 
-/** Subsonic error codes worth distinguishing: 40 = bad credentials, 70 = not found. */
+/**
+ * Subsonic error codes worth distinguishing: 40 = bad credentials, 70 = not found.
+ *
+ * The server's own text goes to the log, and the error carries a fixed one.
+ * Routes pass an error's message to the browser, and Navidrome's text for an
+ * internal failure can name its database file and path.
+ */
 function throwForSubsonicError(code: number, message: string): never {
+	if (message) log.warn('upstream-error', { code, detail: message });
 	if (code === 40 || code === 41 || code === 42 || code === 43 || code === 44) {
-		throw new UpstreamError(message || 'Invalid username or password', 401, 'auth');
+		throw new UpstreamError('Invalid username or password', 401, 'auth');
 	}
-	if (code === 50) throw new UpstreamError(message || 'Not authorised', 403, 'auth');
-	if (code === 70) throw new UpstreamError(message || 'Not found', 404, 'not_found');
-	throw new UpstreamError(message || `Subsonic error ${code}`, 502, 'protocol');
+	if (code === 50) throw new UpstreamError('Not authorised', 403, 'auth');
+	if (code === 70) throw new UpstreamError('Not found', 404, 'not_found');
+	throw new UpstreamError(`The music server reported error ${code}`, 502, 'protocol');
 }
 
 /** The same encoding as the address takes, repeated keys for a list, as a form body. */
@@ -221,6 +231,15 @@ function starredAt(value: unknown): number | null {
 	return Number.isFinite(parsed) ? parsed : null;
 }
 
+/**
+ * The listener's rating, 0 to 5. Navidrome leaves `userRating` out of an item
+ * that has none, so a missing value is 0 rather than unknown.
+ */
+function ratingOf(value: unknown): number {
+	const rating = numberOrNull(value) ?? 0;
+	return Math.min(5, Math.max(0, Math.round(rating)));
+}
+
 function toSong(raw: Record<string, any>): Song {
 	return {
 		id: String(raw.id),
@@ -239,6 +258,7 @@ function toSong(raw: Record<string, any>): Song {
 		starred: Boolean(raw.starred),
 		starredAt: starredAt(raw.starred),
 		playCount: numberOrNull(raw.playCount),
+		rating: ratingOf(raw.userRating),
 		quality: quality(raw),
 		replayGain: replayGainOf(raw.replayGain)
 	};
@@ -258,6 +278,7 @@ function toAlbum(raw: Record<string, any>): Album {
 		coverArt: raw.coverArt ? String(raw.coverArt) : null,
 		starred: Boolean(raw.starred),
 		starredAt: starredAt(raw.starred),
+		rating: ratingOf(raw.userRating),
 		createdAt: Number.isFinite(created) ? created : null
 	};
 }
@@ -325,6 +346,8 @@ function albumsFromSongs(
 			coverArt: raw.coverArt ? String(raw.coverArt) : null,
 			starred: false,
 			starredAt: null,
+			// The album's own rating is not on its tracks.
+			rating: null,
 			createdAt: null
 		});
 	}
@@ -346,6 +369,53 @@ function toPlaylist(raw: Record<string, any>): Playlist {
 		isPublic: Boolean(raw.public),
 		createdAt: Number.isFinite(created) ? created : null,
 		changedAt: Number.isFinite(changed) ? changed : null
+	};
+}
+
+/**
+ * The top of one library, which `getIndexes` lists by its music folder id
+ * rather than `getMusicDirectory` by a directory id. The prefix keeps the two
+ * kinds of id apart in a folder's address.
+ */
+const LIBRARY_PREFIX = 'library:';
+
+/**
+ * Folders read upward for the trail above a folder. Subsonic names a
+ * directory's parent and nothing above it, so each level is a call of its
+ * own, in series. `Artist/Album/Disc` is three.
+ */
+const MAX_FOLDER_DEPTH = 8;
+
+/** A subfolder: an entry of `getIndexes` (`name`) or a child of a directory (`title`). */
+function toFolderRef(raw: Record<string, any>): FolderRef {
+	return {
+		id: String(raw.id),
+		name: String(raw.title ?? raw.name ?? 'Untitled folder'),
+		coverArt: raw.coverArt ? String(raw.coverArt) : null
+	};
+}
+
+/** What a directory holds: its subfolders, and its tracks without any video. */
+function folderContents(children: Record<string, any>[]): Pick<Folder, 'folders' | 'songs'> {
+	return {
+		folders: children.filter((child) => child.isDir === true).map(toFolderRef),
+		songs: children.filter((child) => child.isDir !== true && child.isVideo !== true).map(toSong)
+	};
+}
+
+async function libraryIndex(cred: StoredCredential, musicFolderId: string | null): Promise<Pick<Folder, 'folders' | 'songs'>> {
+	const body = await call<{ indexes?: Record<string, any> }>(
+		cred,
+		'getIndexes.view',
+		musicFolderId === null ? {} : { musicFolderId }
+	);
+	const indexes = body.indexes ?? {};
+	return {
+		folders: asArray(indexes.index as Record<string, any>[])
+			.flatMap((index) => asArray(index.artist as Record<string, any>[]))
+			.map(toFolderRef),
+		// Files at the top of a library, beside its folders.
+		songs: folderContents(asArray(indexes.child as Record<string, any>[])).songs
 	};
 }
 
@@ -570,6 +640,65 @@ export const subsonicBackend: MediaBackend = {
 		);
 	},
 
+	async getFolder(cred, id): Promise<Folder> {
+		if (id === null) {
+			const body = await call<{ musicFolders?: { musicFolder?: unknown } }>(cred, 'getMusicFolders.view');
+			const libraries = asArray(body.musicFolders?.musicFolder as Record<string, any>[]);
+			// With one library, a level holding only it is a press that goes nowhere.
+			if (libraries.length <= 1) return { id: null, name: 'Folders', parents: [], ...(await libraryIndex(cred, null)) };
+			return {
+				id: null,
+				name: 'Folders',
+				parents: [],
+				folders: libraries.map((library) => ({
+					id: `${LIBRARY_PREFIX}${library.id}`,
+					name: String(library.name ?? `Library ${library.id}`),
+					coverArt: null
+				})),
+				songs: []
+			};
+		}
+
+		if (id.startsWith(LIBRARY_PREFIX)) {
+			const musicFolderId = id.slice(LIBRARY_PREFIX.length);
+			const [body, contents] = await Promise.all([
+				call<{ musicFolders?: { musicFolder?: unknown } }>(cred, 'getMusicFolders.view'),
+				libraryIndex(cred, musicFolderId)
+			]);
+			const library = asArray(body.musicFolders?.musicFolder as Record<string, any>[]).find(
+				(entry) => String(entry.id) === musicFolderId
+			);
+			if (!library) throw new UpstreamError('Folder not found', 404, 'not_found');
+			return { id, name: String(library.name ?? 'Library'), parents: [], ...contents };
+		}
+
+		const body = await call<{ directory?: Record<string, any> }>(cred, 'getMusicDirectory.view', { id });
+		const directory = body.directory;
+		if (!directory) throw new UpstreamError('Folder not found', 404, 'not_found');
+
+		const parents: FolderRef[] = [];
+		const seen = new Set([id]);
+		let parent = directory.parent ? String(directory.parent) : null;
+		while (parent && !seen.has(parent) && parents.length < MAX_FOLDER_DEPTH) {
+			seen.add(parent);
+			// The trail is a convenience: a level that cannot be read ends it
+			// rather than failing the folder the listener asked for.
+			const above = await call<{ directory?: Record<string, any> }>(cred, 'getMusicDirectory.view', {
+				id: parent
+			}).catch(() => null);
+			if (!above?.directory) break;
+			parents.unshift(toFolderRef(above.directory));
+			parent = above.directory.parent ? String(above.directory.parent) : null;
+		}
+
+		return {
+			id,
+			name: String(directory.name ?? 'Untitled folder'),
+			parents,
+			...folderContents(asArray(directory.child as Record<string, any>[]))
+		};
+	},
+
 	async getPlaylists(cred) {
 		const body = await call<{ playlists?: { playlist?: unknown } }>(cred, 'getPlaylists.view');
 		return asArray(body.playlists?.playlist as Record<string, any>[]).map(toPlaylist);
@@ -637,6 +766,11 @@ export const subsonicBackend: MediaBackend = {
 	async setStarred(cred, id, kind: StarKind, starred) {
 		const key = kind === 'album' ? 'albumId' : kind === 'artist' ? 'artistId' : 'id';
 		await call(cred, starred ? 'star.view' : 'unstar.view', { [key]: id });
+	},
+
+	async setRating(cred, id, rating) {
+		// One method for a song, an album or an artist id alike; 0 removes it.
+		await call(cred, 'setRating.view', { id, rating });
 	},
 
 	async getLyrics(cred, song): Promise<Lyrics | null> {
@@ -744,11 +878,33 @@ export const subsonicBackend: MediaBackend = {
 		if (entries.length !== count || entries[from] !== songId || to < 0 || to >= entries.length) {
 			throw new UpstreamError('The playlist changed since it was loaded', 409, 'conflict');
 		}
+		// The rewrite keeps only what the read listed. Navidrome leaves out of
+		// `getPlaylist` an entry whose file is missing, and on 0.58 and later one
+		// from a library the account cannot see, so a move deleted those. Its
+		// `songCount` counts them, and a playlist where the two differ is not
+		// rewritten.
+		const listed = numberOrNull(body.playlist.songCount);
+		if (listed !== null && listed !== entries.length) {
+			throw new UpstreamError(
+				'This playlist holds tracks the music server does not list here; reorder it in the music server',
+				409,
+				'conflict'
+			);
+		}
 		const [moved] = entries.splice(from, 1);
 		entries.splice(to, 0, moved);
 		// 150 ids is about 5KB of address; past that it goes as a form. See `call`.
 		if (entries.length <= 150) await call(cred, 'createPlaylist.view', { playlistId: id, songId: entries });
 		else await call(cred, 'createPlaylist.view', {}, { playlistId: id, songId: entries });
+
+		// An entry added by another client between the read and the write is lost
+		// by the rewrite, and Subsonic has no way to make the two one step. It is
+		// reported rather than left for the listener to find.
+		const after = await call<{ playlist?: Record<string, any> }>(cred, 'getPlaylist.view', { id });
+		const written = asArray(after.playlist?.entry as Record<string, any>[]).map((entry) => String(entry.id));
+		if (written.length !== entries.length || written.some((entry, i) => entry !== entries[i])) {
+			throw new UpstreamError('The playlist changed while it was being saved; reload it', 409, 'conflict');
+		}
 	},
 
 	async deletePlaylist(cred, id) {

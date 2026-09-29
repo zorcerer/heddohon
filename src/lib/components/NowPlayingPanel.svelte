@@ -23,6 +23,7 @@
 	 */
 	import { untrack } from 'svelte';
 	import { SLEEP_MINUTES, player } from '$lib/client/player.svelte';
+	import { audioOutputs } from '$lib/client/output.svelte';
 	import { handOff } from '$lib/client/handoff';
 	import { formatBytes, formatDuration } from '$lib/client/format';
 	import { lyricsWindow } from '$lib/client/lyrics.svelte';
@@ -49,6 +50,9 @@
 	import LyricsView from './LyricsView.svelte';
 	import MixButton from './MixButton.svelte';
 	import QualityBadge from './QualityBadge.svelte';
+	import RatingStars from './RatingStars.svelte';
+	import { remote } from '$lib/client/remote.svelte';
+	import { together } from '$lib/client/together.svelte';
 	import Seekbar from './Seekbar.svelte';
 
 	let { showQualityBadge = true }: { showQualityBadge?: boolean } = $props();
@@ -128,6 +132,8 @@
 		if (player.sheetLayout) untrack(() => (volumeOpen = false));
 	});
 	let sleepOpen = $state(false);
+	/** The list of outputs under the volume row, where the browser has no picker of its own. */
+	let outputOpen = $state(false);
 
 	/*
 	 * The clock the sleep timer's countdown is read against. It ticks only
@@ -427,6 +433,14 @@
 					<h2 class="title">Nothing playing</h2>
 					<p class="album hh-muted">Pick something from your library</p>
 				{/if}
+				<!-- While this browser hosts listening together: who is with it, and
+				     the way back to the link. -->
+				{#if together.party}
+					<button class="live" onclick={() => (together.open = true)} title="Listening together">
+						<span class="dot" aria-hidden="true"></span>
+						Live · {together.listeners === 0 ? 'nobody yet' : `${together.listeners} listening`}
+					</button>
+				{/if}
 			</div>
 
 			{#if song}
@@ -456,6 +470,12 @@
 								<dd class="hh-numeric hh-truncate">{value}</dd>
 							</div>
 						{/each}
+						{#if page.data.ratings}
+							<div class="rating">
+								<dt class="hh-muted">Rating</dt>
+								<dd><RatingStars id={song.id} kind="song" rating={song.rating} size={14} /></dd>
+							</div>
+						{/if}
 					</dl>
 					{#if page.data.downloads}
 						<!-- With the rest of the file's facts, where its format and size
@@ -612,6 +632,96 @@
 							formatValue={(value) => `${Math.round(value * 100)} percent`}
 						/>
 					</span>
+					{#if audioOutputs.supported}
+						<!-- Firefox opens its own picker; elsewhere the choices fold out below. -->
+						<button
+							class="tool"
+							class:on={outputOpen || audioOutputs.current.id !== ''}
+							onclick={() => (audioOutputs.picker ? void audioOutputs.pick() : (outputOpen = !outputOpen))}
+							aria-expanded={audioOutputs.picker ? undefined : outputOpen}
+							aria-label="Audio output: {audioOutputs.current.label}"
+							title="Output: {audioOutputs.current.label}"
+						>
+							<Icon name="output" size={17} />
+						</button>
+					{/if}
+					<!-- A speaker or a TV on the network. Where the browser lists its
+					     outputs, it is the last of them ("Cast…" below); a button of
+					     its own here as well was one control twice. Safari and iOS
+					     list no outputs, so there it is this button. -->
+					{#if (player.castAvailable || player.casting) && (!audioOutputs.supported || audioOutputs.picker)}
+						<button
+							class="tool"
+							class:on={player.casting}
+							onclick={() => void player.cast()}
+							disabled={!song}
+							aria-pressed={player.casting}
+							aria-label={player.casting ? 'Casting; choose where to play' : 'Cast to a speaker or a TV'}
+							title={player.casting ? 'Casting' : 'Cast'}
+						>
+							<Icon name="cast" size={17} />
+						</button>
+					{/if}
+				</div>
+				{#if audioOutputs.problem && (audioOutputs.picker || !outputOpen)}
+					<p class="output-note hh-muted" role="status">{audioOutputs.problem}</p>
+				{/if}
+			</div>
+		</div>
+
+		<div class="fold" class:open={volumeOpen && outputOpen} inert={!(volumeOpen && outputOpen)}>
+			<div>
+				<div class="outputs" role="group" aria-label="Audio output">
+					<div class="sleep">
+						<button
+							class="chip"
+							class:active={audioOutputs.current.id === ''}
+							onclick={() => void audioOutputs.choose({ id: '', label: 'System default' })}
+						>
+							System default
+						</button>
+						{#each audioOutputs.outputs as output (output.id)}
+							<button
+								class="chip"
+								class:active={audioOutputs.current.id === output.id}
+								onclick={() => void audioOutputs.choose(output)}
+							>
+								{output.label}
+							</button>
+						{/each}
+						<!-- A speaker or a TV on the network is somewhere the sound can go
+						     too; the same picker as the cast button beside the volume. -->
+						{#if player.castAvailable || player.casting}
+							<button
+								class="chip cast"
+								class:active={player.casting}
+								onclick={() => void player.cast()}
+								disabled={!song}
+								aria-pressed={player.casting}
+							>
+								<Icon name="cast" size={13} />
+								{player.casting ? 'Casting' : 'Cast…'}
+							</button>
+						{/if}
+					</div>
+					{#if !audioOutputs.named}
+						<p class="output-note hh-muted">
+							This browser names your outputs once Heddohon may use the microphone. Nothing is
+							recorded: the microphone is closed as soon as the list is read.
+						</p>
+						<div>
+							<button
+								class="chip"
+								disabled={audioOutputs.listing}
+								onclick={() => void audioOutputs.nameOutputs()}
+							>
+								{audioOutputs.listing ? 'Listing…' : 'List outputs'}
+							</button>
+						</div>
+					{/if}
+					{#if audioOutputs.problem}
+						<p class="output-note hh-muted" role="status">{audioOutputs.problem}</p>
+					{/if}
 				</div>
 			</div>
 		</div>
@@ -710,6 +820,21 @@
 					<span class="count hh-numeric">{sleepMinutesLeft}</span>
 				{/if}
 			</button>
+
+			<!-- Only while another browser of the account has the player open, so
+			     the row is its usual seven the rest of the time. -->
+			{#if remote.peers.length > 0}
+				<button
+					class="tool"
+					class:on={remote.open}
+					onclick={() => (remote.open = true)}
+					aria-label="Devices ({remote.peers.length} other)"
+					title="Devices"
+				>
+					<Icon name="devices" size={18} />
+					<span class="count hh-numeric">{remote.peers.length}</span>
+				</button>
+			{/if}
 
 			<button
 				class="tool"
@@ -1171,6 +1296,32 @@
 		filter: var(--glow-icon);
 	}
 
+	/* ── Listening together ──────────────────────────────────────────── */
+
+	.live {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.4rem;
+		margin-top: var(--space-2);
+		padding: 0.2rem 0.6rem;
+		border-radius: var(--r-pill);
+		border: 1px solid var(--border-strong);
+		font-size: 0.75rem;
+		font-weight: 600;
+		color: var(--text-strong);
+	}
+
+	.live:hover {
+		color: var(--glow-color);
+	}
+
+	.live .dot {
+		width: 0.45rem;
+		height: 0.45rem;
+		border-radius: 50%;
+		background: var(--danger);
+	}
+
 	/* ── Track details ───────────────────────────────────────────────── */
 
 	.facts {
@@ -1194,6 +1345,15 @@
 
 	.facts dd {
 		color: var(--text-default);
+	}
+
+	/* The stars' own padding would push the row taller than the text rows. */
+	.facts .rating {
+		align-items: center;
+	}
+
+	.facts .rating dd {
+		margin-left: -0.15rem;
 	}
 
 	.more-like {
@@ -1378,6 +1538,24 @@
 	.volume-slider {
 		flex: 1;
 		min-width: 0;
+	}
+
+	.chip.cast {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.35rem;
+	}
+
+	.outputs {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+	}
+
+	.output-note {
+		margin: 0;
+		font-size: 0.75rem;
+		line-height: 1.4;
 	}
 
 	/* The chip look of `SortChips`, as buttons: a timer is not a URL. */

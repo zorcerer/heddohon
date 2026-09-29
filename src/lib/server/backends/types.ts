@@ -5,6 +5,7 @@ import type {
 	Artist,
 	ArtistDetail,
 	BackendKind,
+	Folder,
 	Genre,
 	Playlist,
 	PlaylistDetail,
@@ -215,6 +216,20 @@ export interface MediaBackend {
 	/** Up to `limit` songs from one genre in random order, for playing it. */
 	getGenreSongs(cred: StoredCredential, genreId: string, limit: number): Promise<Song[]>;
 
+	/**
+	 * A folder of the library as it is on disk, or the top with `id` null.
+	 *
+	 * Subsonic: `getMusicFolders` for the libraries, `getIndexes` for the first
+	 * level of one, `getMusicDirectory` below that. Navidrome 0.55 and later
+	 * answer these from the folders on disk; earlier versions make up a tree of
+	 * artists and albums. Jellyfin: the music libraries from `/UserViews`, then
+	 * `/Items?ParentId=`, which lists what a library holds as it is on disk
+	 * (plain folders, and a folder of tracks as its album).
+	 *
+	 * An id that is not a folder is `not_found`.
+	 */
+	getFolder(cred: StoredCredential, id: string | null): Promise<Folder>;
+
 	getPlaylists(cred: StoredCredential): Promise<Playlist[]>;
 	getPlaylist(cred: StoredCredential, id: string): Promise<PlaylistDetail>;
 	getSongs(cred: StoredCredential, ids: string[]): Promise<Song[]>;
@@ -223,6 +238,15 @@ export interface MediaBackend {
 	search(cred: StoredCredential, query: string, limit: number): Promise<SearchResults>;
 
 	setStarred(cred: StoredCredential, id: string, kind: StarKind, starred: boolean): Promise<void>;
+
+	/**
+	 * Sets the listener's rating of a song or an album, 1 to 5, or clears it
+	 * with 0. Present only where the server keeps ratings: Subsonic's
+	 * `setRating`, which Navidrome implements. Jellyfin keeps a like or a
+	 * dislike per item and no scale, so the member is absent there and
+	 * `rating` is null on everything it returns.
+	 */
+	setRating?(cred: StoredCredential, id: string, rating: number): Promise<void>;
 
 	/** Lyrics for one track, or null when the server has none. */
 	getLyrics(cred: StoredCredential, song: Song): Promise<Lyrics | null>;

@@ -17,6 +17,10 @@ services:
     container_name: heddohon-dev
     restart: unless-stopped
     ports:
+      # Every interface, so the quick start opens from another computer. Behind
+      # a reverse proxy, publish it on '127.0.0.1:3000:3000' instead: Docker's
+      # port rules pass ufw, and the plain-http port would otherwise take
+      # requests that skip the proxy's TLS, rate limits and /healthz rule.
       - '3000:3000'
     volumes:
       - heddohon-dev-data:/data

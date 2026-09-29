@@ -15,7 +15,9 @@
 		{ href: '/albums', label: 'Albums', icon: 'album' as const },
 		{ href: '/artists', label: 'Artists', icon: 'artist' as const },
 		{ href: '/playlists', label: 'Playlists', icon: 'playlist' as const },
-		{ href: '/genres', label: 'Genres', icon: 'genre' as const }
+		{ href: '/genres', label: 'Genres', icon: 'genre' as const },
+		{ href: '/folders', label: 'Folders', icon: 'folder' as const },
+		{ href: '/history', label: 'Recently played', icon: 'history' as const }
 	];
 </script>
 
@@ -38,6 +40,20 @@
 			</a>
 		{/each}
 	</nav>
+
+	<a class="settings hh-glass" href="/stats">
+		<Icon name="history" size={19} />
+		<span>Your listening</span>
+		<span class="hh-muted note">What you played, and when</span>
+		<Icon name="chevron-right" size={16} />
+	</a>
+
+	<a class="settings hh-glass" href="/screen">
+		<Icon name="screen" size={19} />
+		<span>Living-room screen</span>
+		<span class="hh-muted note">Now playing, full screen, for a TV</span>
+		<Icon name="chevron-right" size={16} />
+	</a>
 
 	<a class="settings hh-glass" href="/settings">
 		<Icon name="settings" size={19} />
@@ -94,9 +110,9 @@
 	}
 
 	/*
-	 * Four doors, two by two on a phone and four across wider. Each is a pane
-	 * of the same glass as the dock, so the page reads as the dock's tab opened
-	 * out rather than as a list of links.
+	 * Six doors, two across on a phone and three across wider, a lone last one
+	 * taking the width. Each is a pane of the same glass as the dock, so the
+	 * page reads as the dock's tab opened out rather than as a list of links.
 	 */
 	.ways {
 		display: grid;
@@ -104,9 +120,17 @@
 		gap: var(--space-2);
 	}
 
+	.way:last-child:nth-child(odd) {
+		grid-column: 1 / -1;
+	}
+
 	@media (min-width: 48rem) {
 		.ways {
-			grid-template-columns: repeat(4, minmax(0, 1fr));
+			grid-template-columns: repeat(3, minmax(0, 1fr));
+		}
+
+		.way:last-child:nth-child(odd) {
+			grid-column: auto;
 		}
 	}
 

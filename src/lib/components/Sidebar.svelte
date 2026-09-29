@@ -13,6 +13,8 @@
 		{ href: '/artists', label: 'Artists', icon: 'artist' as const, exact: false },
 		{ href: '/genres', label: 'Genres', icon: 'genre' as const, exact: false },
 		{ href: '/playlists', label: 'Playlists', icon: 'playlist' as const, exact: false },
+		{ href: '/folders', label: 'Folders', icon: 'folder' as const, exact: false },
+		{ href: '/history', label: 'Recently played', icon: 'history' as const, exact: false },
 		{ href: '/favourites', label: 'Favourites', icon: 'heart' as const, exact: false },
 		{ href: '/search', label: 'Search', icon: 'search' as const, exact: false }
 	];
@@ -147,6 +149,11 @@
 	</ul>
 
 	<div class="foot">
+		<a class="link" href="/screen" title="Living-room screen">
+			<Icon name="screen" size={19} />
+			<span class="hh-visually-hidden">Living-room screen</span>
+		</a>
+
 		<a
 			class="link"
 			class:active={isActive('/settings', false)}

@@ -4,6 +4,10 @@
 	import { afterNavigate, beforeNavigate, onNavigate, preloadCode } from '$app/navigation';
 	import { navigating, updated } from '$app/state';
 	import { player } from '$lib/client/player.svelte';
+	import { audioOutputs } from '$lib/client/output.svelte';
+	import { remote } from '$lib/client/remote.svelte';
+	import { settleStarred } from '$lib/client/favourites.svelte';
+	import { together } from '$lib/client/together.svelte';
 	import { tintFrom } from '$lib/client/artwork';
 	import { ambience } from '$lib/client/ambience.svelte';
 	import {
@@ -20,6 +24,9 @@
 	import Icon from '$lib/components/Icon.svelte';
 	import NowPlayingPanel from '$lib/components/NowPlayingPanel.svelte';
 	import PhoneDock from '$lib/components/PhoneDock.svelte';
+	import DevicesDialog from '$lib/components/DevicesDialog.svelte';
+	import Reactions from '$lib/components/Reactions.svelte';
+	import TogetherDialog from '$lib/components/TogetherDialog.svelte';
 	import PlaylistPicker from '$lib/components/PlaylistPicker.svelte';
 	import ShareDialog from '$lib/components/ShareDialog.svelte';
 	import Sidebar from '$lib/components/Sidebar.svelte';
@@ -103,8 +110,37 @@
 		const primary = primaryAudio;
 		const secondary = secondaryAudio;
 		untrack(() => player.attach(primary, secondary, data.settings));
+		untrack(() => void audioOutputs.init());
 		void restoreQueue();
 		return () => player.detach();
+	});
+
+	/**
+	 * The stream that makes this browser one of the account's devices, from
+	 * signing in to signing out; see `client/remote.svelte.ts`. Its own effect,
+	 * so nothing it reads can detach the player above.
+	 */
+	$effect(() => {
+		if (!signedIn || !data.remoteControl) return;
+		untrack(() => remote.start());
+		return () => remote.stop();
+	});
+
+	// A listen-together party this browser hosts carries on across a reload.
+	$effect(() => {
+		if (!signedIn || !data.together) return;
+		untrack(() => void together.resume());
+		return () => together.stop();
+	});
+
+	// What this browser plays, for the others: the track, whether it is meant
+	// to be playing (`engaged`, which holds across a track change), and the
+	// volume. The position goes on a timer of its own.
+	$effect(() => {
+		void player.current?.id;
+		void player.engaged;
+		void player.volume;
+		untrack(() => remote.report());
 	});
 
 	/**
@@ -122,6 +158,11 @@
 		'/genres/_',
 		'/playlists',
 		'/playlists/_',
+		'/folders',
+		'/folders/_',
+		'/history',
+		'/screen',
+		'/stats',
 		'/favourites',
 		'/search',
 		'/settings'
@@ -239,7 +280,8 @@
 			const savedIndex = Math.min(Math.max(0, state.index ?? 0), ids.length - 1);
 			const settings = {
 				repeat: state.repeat ?? 'off',
-				shuffle: state.shuffle ?? false
+				shuffle: state.shuffle ?? false,
+				orderIds: Array.isArray(state.orderIds) ? (state.orderIds as string[]) : undefined
 			};
 
 			const [current] = await lookUp([ids[savedIndex]]);
@@ -527,6 +569,12 @@
 	 * the sheet was pulled down by hand. It goes down on its own instead, and
 	 * the page it opened is what is left on screen.
 	 */
+	// Hearts pressed before this page loaded are in its data now; see
+	// `settleStarred`.
+	afterNavigate(({ type }) => {
+		if (type !== 'enter') settleStarred();
+	});
+
 	afterNavigate(({ type }) => {
 		if (type === 'enter' || !player.sheetLayout || !player.panelOpen) return;
 		player.togglePanel();
@@ -545,7 +593,8 @@
 	}
 
 	function onKeydown(event: KeyboardEvent) {
-		if (!signedIn) return;
+		// The living-room screen takes these keys itself, with more of its own.
+		if (!signedIn || data.isScreenPage) return;
 		const target = event.target as HTMLElement | null;
 		// Never steal keys from a field the user is typing into.
 		if (target?.matches('input, textarea, select, [contenteditable="true"]')) return;
@@ -589,7 +638,7 @@
 <audio bind:this={primaryAudio} preload="metadata"></audio>
 <audio bind:this={secondaryAudio} preload="none"></audio>
 
-{#if signedIn && data.account}
+{#if signedIn && data.account && !data.isScreenPage}
 	<div
 		class="app"
 		class:player-open={player.panelOpen}
@@ -663,6 +712,11 @@
 		</div>
 
 		<PlaylistPicker />
+		<DevicesDialog />
+		{#if data.together}
+			<TogetherDialog />
+			<Reactions reactions={together.reactions} />
+		{/if}
 		{#if data.sharing}
 			<ShareDialog />
 		{/if}

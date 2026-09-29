@@ -87,6 +87,11 @@ fails without it, in whichever suite fits.
   Comments say why something is the way it is, particularly where the obvious
   approach was tried and did not work, and keep the measured values when a
   decision was made from a measurement.
+- **Commit titles** follow [Conventional Commits](https://www.conventionalcommits.org/):
+  `feat: …`, `fix(player): …`, `docs: …`, `test: …`, `ci: …`. They are the
+  release notes: a merge into `main` releases a new version when a title since
+  the last release is `feat` (a minor release), `fix` or `perf` (a patch), or
+  carries `!` (a major one), and lists each title under its kind.
 - **Documentation and commit messages** state behaviour and specific values:
   "10 failures per username in 15 minutes" rather than "aggressive rate
   limiting". They do not use em dashes.

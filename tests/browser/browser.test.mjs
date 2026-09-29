@@ -23,8 +23,12 @@ let context;
 before(async () => {
 	subsonic = await startSubsonic({ artistCount: 40 });
 	jellyfin = await startJellyfin();
-	app = await startApp({ subsonicUrl: subsonic.url, jellyfinUrl: jellyfin.url });
-	browser = await chromium.launch();
+	// An open event stream keeps a page from ever reaching `networkidle`, which
+	// most tests here wait for; the remote control has its own app below.
+	app = await startApp({ subsonicUrl: subsonic.url, jellyfinUrl: jellyfin.url, env: { HEDDOHON_REMOTE_CONTROL: 'false' } });
+	// Fake capture devices, so the output control's microphone request (Chrome
+	// names outputs only once it is granted) resolves without a real one.
+	browser = await chromium.launch({ args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'] });
 	context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
 	const signIn = await context.request.post(`${app.url}/login`, {
 		form: { username: 'testuser', password: 'testpass', backend: 'subsonic', next: '/' },
@@ -72,6 +76,11 @@ describe('the policy', () => {
 			'/genres',
 			'/library',
 			'/playlists',
+			'/folders',
+			'/folders/d-al1',
+			'/history',
+			'/screen',
+			'/stats',
 			'/search?q=song',
 			'/settings'
 		];
@@ -594,6 +603,15 @@ describe('resuming a transcode', () => {
 		try {
 			await page.goto(app.url + '/albums', { waitUntil: 'networkidle' });
 			await page.waitForFunction(() => document.querySelector('aside.panel h2.title')?.textContent === 'Song 5a');
+			// The position restored, before anything plays. A page closed by the test
+			// before this one saves its own queue on the way out, and a slow runner
+			// once delivered that after the state above was written; checked here,
+			// such a run fails as a restore rather than as a seek.
+			await page.waitForFunction(
+				() => document.querySelector('aside.panel .times .hh-numeric')?.textContent === '0:25',
+				null,
+				{ timeout: 5000 }
+			);
 			await page.locator('aside.panel button.play').click();
 			await page.waitForFunction(
 				() => [...document.querySelectorAll('audio')].some((a) => !a.paused && a.currentTime > 0),
@@ -1342,7 +1360,10 @@ describe('shelves', () => {
 
 			await on.click();
 			await page.waitForFunction((el) => el.scrollLeft > 200, await track.elementHandle(), { timeout: 3000 });
-			assert.ok(!(await back.isDisabled()), 'back is not offered once it has moved');
+			// The button follows the shelf's scroll event, which can land after the
+			// position above is read. Read at once, it failed CI three times on
+			// 2026-09-28 and 29.
+			await page.waitForFunction((button) => !button.disabled, await back.elementHandle(), { timeout: 3000 });
 		} finally {
 			await page.close();
 		}
@@ -1418,6 +1439,483 @@ describe('the heart in the player', () => {
 			await page.close();
 		}
 		assert.deepEqual(problems, []);
+	});
+});
+
+describe('playback on another browser', () => {
+	/*
+	 * An app of its own with the remote control on, and two browsers signed in
+	 * to it. The pages hold the event stream open, so nothing here waits for
+	 * `networkidle`.
+	 */
+	let remoteApp;
+	const browsers = [];
+
+	before(async () => {
+		remoteApp = await startApp({ subsonicUrl: subsonic.url, jellyfinUrl: jellyfin.url });
+	});
+
+	after(async () => {
+		for (const context of browsers) await context.close();
+		await remoteApp?.stop();
+	});
+
+	async function signedInPage() {
+		const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+		browsers.push(context);
+		const signIn = await context.request.post(`${remoteApp.url}/login`, {
+			form: { username: 'testuser', password: 'testpass', backend: 'subsonic', next: '/' },
+			headers: { origin: remoteApp.url, accept: 'text/html' },
+			maxRedirects: 0
+		});
+		assert.equal(signIn.status(), 303);
+		const page = await context.newPage();
+		const problems = [];
+		page.on('console', (message) => message.type() === 'error' && problems.push(message.text()));
+		page.on('pageerror', (err) => problems.push(err.message));
+		return { page, problems };
+	}
+
+	const titleIs = (page, text) =>
+		page.waitForFunction((want) => document.querySelector('aside.panel h2.title')?.textContent === want, text, {
+			timeout: 5000
+		});
+
+	test('a second browser sees the first, pauses it, and takes its queue with "Play here"', async () => {
+		const { page: desktop, problems: desktopProblems } = await signedInPage();
+		const { page: phone, problems: phoneProblems } = await signedInPage();
+		subsonic.state.audio = { type: 'audio/wav', body: silentWav(30) };
+		try {
+			await desktop.goto(remoteApp.url + '/albums/al7', { waitUntil: 'load' });
+			await desktop.getByRole('button', { name: 'Play Song 7b', exact: true }).click();
+			await titleIs(desktop, 'Song 7b');
+			await desktop.waitForFunction(() => [...document.querySelectorAll('audio')].some((a) => !a.paused), null, { timeout: 5000 });
+
+			await phone.goto(remoteApp.url + '/', { waitUntil: 'load' });
+			const devices = phone.getByRole('button', { name: /^Devices/ });
+			await devices.waitFor({ timeout: 5000 });
+			await devices.click();
+			const dialog = phone.locator('dialog.devices');
+			// The desktop's report follows its play within the 250ms settle.
+			await dialog.getByText('Song 7b').waitFor({ timeout: 5000 });
+			await dialog.getByText('Playing', { exact: true }).waitFor({ timeout: 5000 });
+
+			await dialog.getByRole('button', { name: /^Pause on/ }).click();
+			await desktop.waitForFunction(() => [...document.querySelectorAll('audio')].every((a) => a.paused), null, { timeout: 5000 });
+			await dialog.getByText('Paused', { exact: true }).waitFor({ timeout: 5000 });
+
+			await dialog.getByRole('button', { name: 'Play here' }).click();
+			await titleIs(phone, 'Song 7b');
+			await phone.waitForFunction(() => [...document.querySelectorAll('audio')].some((a) => !a.paused), null, { timeout: 5000 });
+		} finally {
+			subsonic.state.audio = null;
+		}
+		assert.deepEqual([...desktopProblems, ...phoneProblems], []);
+	});
+
+	test('"Play this queue there" moves the queue to the other browser and pauses this one', async () => {
+		const { page: desktop } = await signedInPage();
+		const { page: phone } = await signedInPage();
+		subsonic.state.audio = { type: 'audio/wav', body: silentWav(30) };
+		try {
+			await desktop.goto(remoteApp.url + '/', { waitUntil: 'load' });
+			await phone.goto(remoteApp.url + '/albums/al8', { waitUntil: 'load' });
+			await phone.getByRole('button', { name: 'Play Song 8a', exact: true }).click();
+			await titleIs(phone, 'Song 8a');
+
+			// Every other browser of the account is listed; this one is the newest.
+			await phone.getByRole('button', { name: /^Devices/ }).click();
+			const peer = phone.locator('dialog.devices li.peer').first();
+			await peer.getByRole('button', { name: 'Play this queue there' }).click();
+			await titleIs(desktop, 'Song 8a');
+			await phone.waitForFunction(() => [...document.querySelectorAll('audio')].every((a) => a.paused), null, { timeout: 5000 });
+		} finally {
+			subsonic.state.audio = null;
+		}
+	});
+
+	test('a visitor with no account joins, follows a skip and a pause, and a reaction reaches the host', async () => {
+		const { page: hostPage, problems } = await signedInPage();
+		const guestContext = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+		browsers.push(guestContext);
+		const guest = await guestContext.newPage();
+		const guestAudio = () =>
+			guest.evaluate(() => {
+				const a = document.querySelector('audio.together-audio');
+				return { src: a?.getAttribute('src') ?? '', paused: a?.paused ?? true, time: a?.currentTime ?? 0 };
+			});
+		subsonic.state.audio = { type: 'audio/wav', body: silentWav(60) };
+		try {
+			await hostPage.goto(remoteApp.url + '/albums/al17', { waitUntil: 'load' });
+			await hostPage.getByRole('button', { name: 'Play Song 17a', exact: true }).click();
+			await hostPage.waitForFunction(() => [...document.querySelectorAll('audio')].some((a) => !a.paused), null, { timeout: 5000 });
+
+			await hostPage.getByRole('button', { name: 'Share a link to this song' }).click();
+			await hostPage.getByRole('button', { name: 'Listen together' }).click();
+			const field = hostPage.getByRole('textbox', { name: 'Listen-together link' });
+			await field.waitFor({ timeout: 5000 });
+			const link = await field.inputValue();
+			assert.match(link, /\/together\/[\w-]+$/);
+			await hostPage.locator('dialog.together').getByRole('button', { name: 'Close' }).click();
+
+			await guest.goto(link, { waitUntil: 'load' });
+			await guest.locator('h1', { hasText: 'Song 17a' }).waitFor({ timeout: 5000 });
+			await guest.getByRole('button', { name: 'Join' }).click();
+			await guest.waitForFunction(() => !document.querySelector('audio.together-audio')?.paused, null, { timeout: 5000 });
+			const joined = await guestAudio();
+			assert.match(joined.src, /\?song=s17a$/);
+			const hostTime = await hostPage.evaluate(() => [...document.querySelectorAll('audio')].find((a) => !a.paused)?.currentTime ?? 0);
+			assert.ok(Math.abs(joined.time - hostTime) < 1.5, `the guest is at ${joined.time}, the host at ${hostTime}`);
+			await hostPage.locator('aside.panel .live', { hasText: '1 listening' }).waitFor({ timeout: 5000 });
+
+			await hostPage.locator('aside.panel button.step').nth(1).click();
+			await guest.locator('h1', { hasText: 'Song 17b' }).waitFor({ timeout: 5000 });
+			await guest.waitForFunction(() => /\?song=s17b$/.test(document.querySelector('audio.together-audio')?.getAttribute('src') ?? ''), null, { timeout: 5000 });
+
+			await hostPage.keyboard.press('Space');
+			await guest.waitForFunction(() => document.querySelector('audio.together-audio')?.paused === true, null, { timeout: 5000 });
+
+			await guest.getByRole('button', { name: 'Send 🔥' }).click();
+			await hostPage.locator('.reactions .reaction', { hasText: '🔥' }).waitFor({ timeout: 5000 });
+
+			await hostPage.locator('aside.panel .live').click();
+			await hostPage.getByRole('button', { name: 'End listening together' }).click();
+			await guest.locator('h1', { hasText: 'It has ended' }).waitFor({ timeout: 5000 });
+		} finally {
+			subsonic.state.audio = null;
+		}
+		assert.deepEqual(problems, []);
+	});
+});
+
+describe('casting', () => {
+	/*
+	 * No receiver answers in a headless browser, so the Remote Playback API is
+	 * stood in for: a device is always available, a prompt connects, and
+	 * `__disconnect()` ends it. What is checked is Heddohon's side: the
+	 * addresses the element plays from, and the one element.
+	 */
+	async function castingContext() {
+		const casting = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+		await casting.addInitScript(() => {
+			class FakeRemote extends EventTarget {
+				state = 'disconnected';
+				watchAvailability(callback) {
+					callback(true);
+					return Promise.resolve(1);
+				}
+				cancelWatchAvailability() {
+					return Promise.resolve();
+				}
+				prompt() {
+					this.state = 'connected';
+					setTimeout(() => this.dispatchEvent(new Event('connect')));
+					return Promise.resolve();
+				}
+			}
+			const remotes = new WeakMap();
+			Object.defineProperty(HTMLMediaElement.prototype, 'remote', {
+				configurable: true,
+				get() {
+					if (!remotes.has(this)) remotes.set(this, new FakeRemote());
+					return remotes.get(this);
+				}
+			});
+			window.__disconnect = () => {
+				for (const element of document.querySelectorAll('audio')) {
+					if (element.remote.state !== 'connected') continue;
+					element.remote.state = 'disconnected';
+					element.remote.dispatchEvent(new Event('disconnect'));
+				}
+			};
+		});
+		const signIn = await casting.request.post(`${app.url}/login`, {
+			form: { username: 'testuser', password: 'testpass', backend: 'subsonic', next: '/' },
+			headers: { origin: app.url, accept: 'text/html' },
+			maxRedirects: 0
+		});
+		assert.equal(signIn.status(), 303);
+		return casting;
+	}
+
+	test('is offered in the list of outputs as well, and starts from there', async () => {
+		const casting = await castingContext();
+		const page = await casting.newPage();
+		subsonic.state.audio = { type: 'audio/wav', body: silentWav(30) };
+		try {
+			await page.goto(app.url + '/albums/al11', { waitUntil: 'networkidle' });
+			await page.getByRole('button', { name: 'Play Song 11a', exact: true }).click();
+			await page.getByRole('button', { name: /^Audio output/ }).click();
+			const chip = page.locator('.outputs').getByRole('button', { name: 'Cast…' });
+			await chip.click();
+			await page.locator('.outputs').getByRole('button', { name: 'Casting' }).waitFor({ timeout: 5000 });
+			await page.waitForFunction(() => [...document.querySelectorAll('audio')].some((a) => (a.getAttribute('src') ?? '').startsWith('/cast/')), null, {
+				timeout: 5000
+			});
+		} finally {
+			subsonic.state.audio = null;
+			await casting.close();
+		}
+	});
+
+	test('plays each track from a cast address on one element, and goes back when disconnected', async () => {
+		const casting = await castingContext();
+		const page = await casting.newPage();
+		const problems = [];
+		page.on('pageerror', (err) => problems.push(err.message));
+		const sources = () => page.evaluate(() => [...document.querySelectorAll('audio')].map((a) => a.getAttribute('src') ?? ''));
+		const playingFrom = async (pattern) =>
+			page.waitForFunction((source) => [...document.querySelectorAll('audio')].some((a) => new RegExp(source).test(a.getAttribute('src') ?? '')), pattern.source, {
+				timeout: 5000
+			});
+
+		subsonic.state.audio = { type: 'audio/wav', body: silentWav(15) };
+		subsonic.state.albumSongs = 4;
+		try {
+			await page.goto(app.url + '/albums/al9', { waitUntil: 'networkidle' });
+			await page.getByRole('button', { name: 'Play Song 9a', exact: true }).click();
+			await page.waitForFunction(() => document.querySelector('aside.panel h2.title')?.textContent === 'Song 9a');
+
+			// Chromium lists outputs, so casting is the last of them and has no
+			// button of its own.
+			assert.equal(await page.getByRole('button', { name: 'Cast to a speaker or a TV' }).count(), 0);
+			await page.getByRole('button', { name: /^Audio output/ }).click();
+			await page.locator('.outputs').getByRole('button', { name: 'Cast…' }).click();
+			await page.locator('.outputs').getByRole('button', { name: 'Casting' }).waitFor({ timeout: 5000 });
+			await playingFrom(/^\/cast\//);
+
+			await page.locator('aside.panel button.step').nth(1).click();
+			await page.waitForFunction(() => document.querySelector('aside.panel h2.title')?.textContent === 'Song 9b');
+			await playingFrom(/^\/cast\//);
+			// Nothing buffered into the other element: the receiver follows one.
+			// The track is 15 seconds, inside the 20 before its end where the next
+			// one would be preloaded, which happens on a `timeupdate`.
+			await page.waitForFunction(() => [...document.querySelectorAll('audio')].some((a) => !a.paused && a.currentTime > 1), null, {
+				timeout: 5000
+			});
+			assert.equal((await sources()).filter(Boolean).length, 1, `two sources: ${await sources()}`);
+
+			await page.evaluate(() => window.__disconnect());
+			await page.locator('.outputs').getByRole('button', { name: 'Cast…' }).waitFor({ timeout: 5000 });
+			await page.locator('aside.panel button.step').nth(1).click();
+			await page.waitForFunction(() => document.querySelector('aside.panel h2.title')?.textContent === 'Song 9c');
+			await playingFrom(/^\/api\/stream\//);
+		} finally {
+			subsonic.state.audio = null;
+			subsonic.state.albumSongs = 2;
+			await casting.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+});
+
+describe('your listening', () => {
+	test('draws the hour and the day in this browser\'s time, with the run of days', async () => {
+		const { page, problems } = await watchedPage();
+		try {
+			for (const songId of ['s15a', 's15a', 's16a']) {
+				const response = await context.request.post(`${app.url}/api/playback`, {
+					data: { songId, event: 'stop', position: 100, completed: true },
+					headers: { origin: app.url }
+				});
+				assert.equal(response.status(), 200);
+			}
+			await page.goto(app.url + '/stats', { waitUntil: 'networkidle' });
+			assert.equal(await page.locator('.plot').nth(0).locator('.column').count(), 24);
+			assert.equal(await page.locator('.plot').nth(1).locator('.column').count(), 7);
+			// This test's three plays were in one hour, so the busiest hour holds at
+			// least three. Which hour it is, is not checked: other tests play too,
+			// and an earlier one leaves Playwright's clock on this context.
+			const peak = page.locator('.plot').nth(0).locator('.column.peak');
+			assert.equal(await peak.count(), 1);
+			const label = await peak.getAttribute('aria-label');
+			assert.ok(Number(/: (\d+) plays$/.exec(label ?? '')?.[1] ?? 0) >= 3, `the busiest hour reads "${label}"`);
+			// At least today. A run of the suite that crosses midnight makes it two.
+			const run = page.locator('.figure', { hasText: 'Longest run' }).locator('.number');
+			assert.ok(Number(await run.textContent()) >= 1);
+		} finally {
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+});
+
+describe('the living-room screen', () => {
+	test('shows what plays with its lyrics, keeps playing on the way in, and takes a remote\'s keys', async () => {
+		const { page, problems } = await watchedPage();
+		const title = () => page.locator('.screen h1.title').textContent();
+		subsonic.state.audio = { type: 'audio/wav', body: silentWav(30) };
+		subsonic.state.lyrics.set('s14a', [
+			{ start: 0, value: 'First line on the screen' },
+			{ start: 60_000, value: 'A line a minute in' }
+		]);
+		try {
+			await page.goto(app.url + '/albums/al14', { waitUntil: 'networkidle' });
+			await page.getByRole('button', { name: 'Play Song 14a', exact: true }).click();
+			await page.waitForFunction(() => [...document.querySelectorAll('audio')].some((a) => !a.paused), null, { timeout: 5000 });
+
+			// From the rail, in place: the music does not stop on the way.
+			await page.locator('nav.rail a[href="/screen"]').click();
+			await page.waitForURL(/\/screen$/);
+			await page.waitForFunction(() => document.querySelector('.screen h1.title')?.textContent === 'Song 14a');
+			assert.equal(await page.locator('nav.rail').count(), 0, 'the rail is drawn on the screen');
+			assert.equal(await page.locator('aside.panel').count(), 0, 'the player panel is drawn on the screen');
+			assert.ok(await page.evaluate(() => [...document.querySelectorAll('audio')].some((a) => !a.paused)), 'playback stopped on the way in');
+			await page.locator('.screen .lyrics .now', { hasText: 'First line on the screen' }).waitFor({ timeout: 5000 });
+			assert.equal(await page.locator('.screen .lyrics .next').textContent(), 'A line a minute in');
+			assert.match(await page.locator('.screen .up-next').textContent(), /Song 14b/);
+
+			await page.keyboard.press('ArrowRight');
+			await page.waitForFunction(() => document.querySelector('.screen h1.title')?.textContent === 'Song 14b');
+			await page.keyboard.press('Enter');
+			await page.waitForFunction(() => [...document.querySelectorAll('audio')].every((a) => a.paused), null, { timeout: 5000 });
+			assert.equal(await page.locator('.screen .hh-eyebrow').first().textContent(), 'Paused');
+			await page.keyboard.press('Space');
+			await page.waitForFunction(() => [...document.querySelectorAll('audio')].some((a) => !a.paused), null, { timeout: 5000 });
+			const before = await page.evaluate(() => [...document.querySelectorAll('audio')].find((a) => !a.paused).volume);
+			await page.keyboard.press('ArrowDown');
+			await page.waitForFunction((was) => [...document.querySelectorAll('audio')].find((a) => !a.paused)?.volume < was, before, { timeout: 5000 });
+			assert.equal(await title(), 'Song 14b');
+
+			await page.keyboard.press('Escape');
+			await page.waitForURL((url) => url.pathname === '/');
+			await page.locator('nav.rail').waitFor();
+		} finally {
+			subsonic.state.audio = null;
+			subsonic.state.lyrics.clear();
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+});
+
+describe('folders', () => {
+	test('are opened from the rail down to an album\'s folder, played, and left by the trail', async () => {
+		const { page, problems } = await watchedPage();
+		try {
+			await page.goto(app.url + '/', { waitUntil: 'networkidle' });
+			await page.locator('nav.rail a[href="/folders"]').click();
+			await page.waitForURL(/\/folders$/);
+			await page.locator('ul.folders').getByRole('link', { name: 'Artist 0006' }).click();
+			await page.waitForURL(/\/folders\/d-ar6$/);
+			await page.locator('ul.folders').getByRole('link', { name: 'Album 6' }).click();
+			await page.waitForURL(/\/folders\/d-al6$/);
+			await page.waitForFunction(() => document.querySelector('main h1')?.textContent === 'Album 6');
+
+			await page.getByRole('button', { name: 'Play the tracks in this folder' }).click();
+			await page.waitForFunction(() => document.querySelector('aside.panel h2.title')?.textContent === 'Song 6a');
+
+			await page.locator('nav.trail').getByRole('link', { name: 'Artist 0006' }).click();
+			await page.waitForURL(/\/folders\/d-ar6$/);
+			// The page changed in place: the music is still on the same track.
+			assert.equal(await page.locator('aside.panel h2.title').textContent(), 'Song 6a');
+		} finally {
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+});
+
+describe('star ratings', () => {
+	test('the album and the playing song are rated with a press, and the player\'s stars follow the song', async () => {
+		const { page, problems } = await watchedPage();
+		const rated = () => page.waitForResponse((r) => r.url().endsWith('/api/rating'));
+		const hero = page.locator('header.hero .stars');
+		const panel = page.locator('aside.panel .facts .stars');
+		try {
+			await page.goto(app.url + '/albums/al5', { waitUntil: 'networkidle' });
+			assert.equal(await hero.getAttribute('aria-label'), 'Not rated');
+			let saved = rated();
+			await hero.getByRole('button', { name: 'Rate 3 of 5' }).click();
+			await saved;
+			assert.equal(await hero.getAttribute('aria-label'), 'Rated 3 of 5');
+			assert.equal(subsonic.state.ratings.get('al5'), 3);
+
+			await page.getByRole('button', { name: 'Play Song 5a', exact: true }).click();
+			await page.waitForFunction(() => document.querySelector('aside.panel h2.title')?.textContent === 'Song 5a');
+			await page.getByRole('button', { name: 'Track details' }).click();
+			saved = rated();
+			await panel.getByRole('button', { name: 'Rate 5 of 5' }).click();
+			await saved;
+			assert.equal(subsonic.state.ratings.get('s5a'), 5);
+
+			await page.locator('aside.panel button.step').nth(1).click();
+			await page.waitForFunction(() => document.querySelector('aside.panel h2.title')?.textContent === 'Song 5b');
+			assert.equal(await panel.getAttribute('aria-label'), 'Not rated', 'the next song showed the last song\'s stars');
+			await page.locator('aside.panel button.step').nth(0).click();
+			await page.waitForFunction(() => document.querySelector('aside.panel h2.title')?.textContent === 'Song 5a');
+			assert.equal(await panel.getAttribute('aria-label'), 'Rated 5 of 5');
+
+			// A press on the lit star clears the rating.
+			saved = rated();
+			await hero.getByRole('button', { name: 'Clear the rating' }).click();
+			await saved;
+			assert.equal(await hero.getAttribute('aria-label'), 'Not rated');
+			assert.equal(subsonic.state.ratings.has('al5'), false);
+		} finally {
+			subsonic.state.ratings.clear();
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+});
+
+describe('Jellyfin favourites changed elsewhere', () => {
+	/*
+	 * A heart pressed in a tab was shown as pressed until the tab was
+	 * reloaded, and a tab is kept open for days: taken off in Jellyfin's own
+	 * app, it stayed on here, which read as favourites not syncing.
+	 */
+	test('a page loaded after a press shows what Jellyfin has, and the player keeps the press', async () => {
+		const jf = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+		const signIn = await jf.request.post(`${app.url}/login`, {
+			form: { username: 'jfuser', password: 'jfpass', backend: 'jellyfin', next: '/' },
+			headers: { origin: app.url, accept: 'text/html' },
+			maxRedirects: 0
+		});
+		assert.equal(signIn.status(), 303);
+		const page = await jf.newPage();
+		const rowHeart = (n) => page.locator('main .track').nth(n).locator('.fav');
+		const playerHeart = page.locator('aside.panel .rounds .fav');
+		// In place, as the rail and the cards do: a full load would forget
+		// every press anyway.
+		const openAlbumInPlace = async () => {
+			await page.locator('nav.rail a[href="/albums"]').click();
+			await page.waitForURL(/\/albums$/);
+			await page.locator('main a[href="/albums/b2"]').first().click();
+			await page.waitForURL(/\/albums\/b2$/);
+			await page.waitForFunction(() => document.querySelector('main h1')?.textContent?.includes('Second'));
+		};
+		try {
+			await page.goto(app.url + '/albums/b2', { waitUntil: 'networkidle' });
+			await page.getByRole('button', { name: 'Play Track 1', exact: true }).click();
+			await page.waitForFunction(() => document.querySelector('aside.panel h2.title')?.textContent === 'Track 1');
+
+			const starred = page.waitForResponse((r) => r.url().endsWith('/api/star'));
+			await rowHeart(0).click();
+			await starred;
+			assert.ok(jellyfin.state.favourites.has('t1'), 'Jellyfin was not told');
+
+			await openAlbumInPlace();
+			assert.equal(await rowHeart(0).getAttribute('aria-pressed'), 'true', 'the press did not survive a page change');
+			assert.equal(await playerHeart.getAttribute('aria-pressed'), 'true', 'the player lost the press');
+
+			// Taken off in Jellyfin's app, and put on another track there. A star
+			// made here drops the server's held copies, as waiting out the minute
+			// they are held for would.
+			jellyfin.state.favourites.delete('t1');
+			jellyfin.state.favourites.add('t3');
+			await page.evaluate(() =>
+				fetch('/api/star', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: 'b3', kind: 'album', starred: true }) })
+			);
+
+			await openAlbumInPlace();
+			assert.equal(await rowHeart(0).getAttribute('aria-pressed'), 'false', 'the old press hid the change made in Jellyfin');
+			assert.equal(await rowHeart(2).getAttribute('aria-pressed'), 'true', 'the star made in Jellyfin is not shown');
+		} finally {
+			jellyfin.state.favourites.clear();
+			await jf.close();
+		}
 	});
 });
 
@@ -1829,9 +2327,22 @@ describe('on a phone', () => {
 	 * A tap rather than `click()`. Playwright scrolls a target into view
 	 * before clicking it, and with the dock pinned that moved a scrolled page,
 	 * which a finger on the dock does not do.
+	 *
+	 * Tapped once the target has held still for a frame. After a scroll the
+	 * dock folds its tabs and `#dock-open` slides 56px down over about 200ms
+	 * (measured at 393x641); measured at the start of that and tapped at the
+	 * end, the tap landed above the button and the sheet did not open, which
+	 * failed CI twice on 2026-09-28.
 	 */
 	async function tap(page, locator) {
-		const box = await locator.boundingBox();
+		let box = await locator.boundingBox();
+		for (let frame = 0; frame < 60; frame++) {
+			await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => done())));
+			const next = await locator.boundingBox();
+			const still = box && next && box.x === next.x && box.y === next.y && box.width === next.width && box.height === next.height;
+			box = next;
+			if (still) break;
+		}
 		await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
 	}
 
@@ -1984,16 +2495,21 @@ describe('on a phone', () => {
 
 				await page.evaluate(() => scrollTo(0, 600));
 				await tap(page, page.locator('#dock-open'));
-				await page.waitForTimeout(600);
-				assert.equal(await sheetOpen(page), true, 'the sheet did not open');
+				// Waited for rather than timed: a slow runner took longer than 600ms.
+				await page.waitForFunction(() => document.querySelector('.app').classList.contains('player-open'), null, {
+					timeout: 5000
+				});
+				await page.waitForTimeout(300);
 				await page.mouse.move(200, 400);
 				await page.mouse.wheel(0, 800);
 				await page.waitForTimeout(300);
 				assert.equal(await page.evaluate(() => scrollY), 600, 'the page scrolled under the open sheet');
 
 				await tap(page, page.locator('#player-hide'));
-				await page.waitForTimeout(600);
-				assert.equal(await sheetOpen(page), false, 'the chevron did not close the sheet');
+				await page.waitForFunction(() => !document.querySelector('.app').classList.contains('player-open'), null, {
+					timeout: 5000
+				});
+				await page.waitForTimeout(300);
 				assert.equal(await page.evaluate(() => document.activeElement?.id), 'dock-open', 'focus is not back on the dock');
 				await page.mouse.wheel(0, 800);
 				await page.waitForTimeout(300);
@@ -2284,7 +2800,26 @@ describe('opening an album', () => {
 	 * in the browser, so it stands in until the larger one arrives.
 	 */
 	test('the hero shows the card\'s copy while its own is still coming', async () => {
-		const { page, problems } = await watchedPage();
+		// A context of its own and an empty cover cache. A card hovered in an
+		// earlier test warms the hero's copy, which a slow runner once had in hand
+		// within 900ms of opening the album, so the test checked nothing.
+		const fresh = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+		await fresh.request.post(`${app.url}/login`, {
+			form: { username: 'testuser', password: 'testpass', backend: 'subsonic', next: '/' },
+			headers: { origin: app.url, accept: 'text/html' },
+			maxRedirects: 0
+		});
+		const cleared = await fresh.request.post(`${app.url}/settings?/clearCovers`, {
+			headers: { origin: app.url, 'x-sveltekit-action': 'true', accept: 'application/json' },
+			form: {}
+		});
+		assert.equal(cleared.status(), 200);
+		const page = await fresh.newPage();
+		const problems = [];
+		page.on('console', (message) => {
+			if (message.type() === 'error') problems.push(`${page.url()}: ${message.text()}`);
+		});
+		page.on('pageerror', (err) => problems.push(`${page.url()}: ${err.message}`));
 		try {
 			await page.goto(app.url + '/albums', { waitUntil: 'networkidle' });
 			const card = page.locator('a.card[href="/albums/al9"]');
@@ -2310,7 +2845,7 @@ describe('opening an album', () => {
 			);
 		} finally {
 			subsonic.state.delays.clear();
-			await page.close();
+			await fresh.close();
 		}
 		assert.deepEqual(problems, []);
 	});
@@ -2371,6 +2906,7 @@ describe('linking scrobblers from Settings', () => {
 		});
 		try {
 			await page.goto(app.url + '/settings', { waitUntil: 'networkidle' });
+			await page.getByRole('navigation', { name: 'Settings' }).getByRole('link', { name: 'Account' }).click();
 			const section = page.locator('#scrobbling');
 			await section.waitFor();
 
@@ -2468,6 +3004,11 @@ describe('the offline page', () => {
 			await offline.setOffline(true);
 			const response = await page.goto(`${app.url}/login`);
 			assert.equal(response?.status(), 200, 'the worker answered the failed load');
+			// Shown at a private address, with the headers any page carries.
+			const headers = response?.headers() ?? {};
+			assert.equal(headers['x-frame-options'], 'SAMEORIGIN');
+			assert.match(headers['content-security-policy'] ?? '', /default-src 'none'/);
+			assert.match(headers['permissions-policy'] ?? '', /camera=\(\)/);
 			await page.getByRole('heading', { name: 'Heddohon cannot reach its server' }).waitFor();
 
 			await offline.setOffline(false);
@@ -2528,6 +3069,245 @@ describe('playing from favourites', () => {
 				current,
 				'the row\'s song was started'
 			);
+		} finally {
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+});
+
+describe('the audio output', () => {
+	test('sits right of the volume slider, lists the default, and asks for names only on request', async () => {
+		const { page, problems } = await watchedPage();
+		try {
+			await page.goto(`${app.url}/albums`, { waitUntil: 'networkidle' });
+			const button = page.locator('aside.panel .volume button[aria-label^="Audio output"]');
+			await button.waitFor();
+			const [slider, control] = await Promise.all([
+				page.locator('aside.panel .volume-slider').boundingBox(),
+				button.boundingBox()
+			]);
+			assert.ok(control.x >= slider.x + slider.width, 'the output control is not right of the slider');
+			assert.equal(await button.getAttribute('aria-label'), 'Audio output: System default');
+
+			await button.click();
+			const outputs = page.getByRole('group', { name: 'Audio output' });
+			await outputs.getByRole('button', { name: 'System default' }).waitFor();
+			assert.match(await outputs.getByRole('button', { name: 'System default' }).getAttribute('class'), /active/);
+
+			// Nothing asks for the microphone until the button says it will. With
+			// fake devices Chromium may name the outputs already, and then there is
+			// no button to press.
+			const list = outputs.getByRole('button', { name: 'List outputs' });
+			if (await list.count()) {
+				await list.click();
+				await page.waitForFunction(
+					() => document.querySelector('.outputs [role="status"]') || !document.querySelector('.outputs .output-note'),
+					null,
+					{ timeout: 5000 }
+				);
+			}
+
+			await outputs.getByRole('button', { name: 'System default' }).click();
+			const sinks = await page.evaluate(() => [...document.querySelectorAll('audio')].map((a) => a.sinkId));
+			assert.deepEqual(sinks, ['', '']);
+		} finally {
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+
+	/*
+	 * Chrome refuses the microphone at once, without a prompt, on a computer
+	 * with none connected. One sentence covered every refusal, so pressing
+	 * "List outputs" there looked like nothing happened. The browser's own
+	 * answers are stubbed here: headless Chromium has no outputs to name.
+	 */
+	async function outputPanel(stub, arg) {
+		const { page, problems } = await watchedPage();
+		await page.addInitScript(stub, arg);
+		await page.goto(`${app.url}/albums`, { waitUntil: 'networkidle' });
+		await page.locator('aside.panel .volume button[aria-label^="Audio output"]').click();
+		return { page, problems, outputs: page.getByRole('group', { name: 'Audio output' }) };
+	}
+
+	for (const [error, expected] of [
+		['NotFoundError', /no microphone is connected/],
+		['NotAllowedError', /blocked for this site/]
+	]) {
+		test(`"List outputs" says why when the microphone is refused (${error})`, async () => {
+			const { page, problems, outputs } = await outputPanel((name) => {
+				navigator.mediaDevices.getUserMedia = () => Promise.reject(new DOMException('refused', name));
+				navigator.mediaDevices.enumerateDevices = async () => [{ kind: 'audiooutput', deviceId: '', label: '', groupId: '' }];
+			}, error);
+			try {
+				await outputs.getByRole('button', { name: 'List outputs' }).click();
+				await outputs.getByRole('status').filter({ hasText: expected }).waitFor({ timeout: 3000 });
+				assert.equal(await outputs.getByRole('button', { name: 'List outputs' }).isEnabled(), true);
+			} finally {
+				await page.close();
+			}
+			assert.deepEqual(problems, []);
+		});
+	}
+
+	test('"List outputs" names the outputs once the microphone is granted', async () => {
+		const { page, problems, outputs } = await outputPanel(() => {
+			let granted = false;
+			navigator.mediaDevices.getUserMedia = async () => {
+				granted = true;
+				return new MediaStream();
+			};
+			navigator.mediaDevices.enumerateDevices = async () => [
+				{ kind: 'audiooutput', deviceId: 'default', label: granted ? 'Default' : '', groupId: 'g' },
+				{ kind: 'audiooutput', deviceId: granted ? 'dac' : '', label: granted ? 'USB DAC' : '', groupId: 'g' }
+			];
+		});
+		try {
+			await outputs.getByRole('button', { name: 'List outputs' }).click();
+			await outputs.getByRole('button', { name: 'USB DAC' }).waitFor({ timeout: 3000 });
+			assert.equal(await outputs.getByRole('button', { name: 'List outputs' }).count(), 0);
+			assert.equal(await outputs.getByRole('button', { name: 'Default', exact: true }).count(), 0, 'the default entry is not listed twice');
+		} finally {
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+
+	test('the sign-in page forgets the output saved in this browser', async () => {
+		// Signed out, as a browser is after signing out: a signed-in one is sent
+		// on from the sign-in page before it loads.
+		const signedOut = await browser.newContext();
+		try {
+			const page = await signedOut.newPage();
+			await page.goto(`${app.url}/offline.html`);
+			await page.evaluate(() =>
+				localStorage.setItem('heddohon:audio-output', JSON.stringify({ id: 'headset', label: 'Work headset' }))
+			);
+			await page.goto(`${app.url}/login`, { waitUntil: 'networkidle' });
+			assert.equal(await page.evaluate(() => localStorage.getItem('heddohon:audio-output')), null);
+		} finally {
+			await signedOut.close();
+		}
+	});
+
+	test('an output saved in this browser that is gone leaves the sound on the default', async () => {
+		const { page, problems } = await watchedPage();
+		try {
+			await page.goto(`${app.url}/albums`, { waitUntil: 'networkidle' });
+			await page.evaluate(() =>
+				localStorage.setItem('heddohon:audio-output', JSON.stringify({ id: 'unplugged', label: 'Old headphones' }))
+			);
+			await page.reload({ waitUntil: 'networkidle' });
+			const button = page.locator('aside.panel .volume button[aria-label^="Audio output"]');
+			await button.waitFor();
+			assert.equal(await button.getAttribute('aria-label'), 'Audio output: System default');
+		} finally {
+			await page.evaluate(() => localStorage.removeItem('heddohon:audio-output')).catch(() => undefined);
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+});
+
+describe('shuffle', () => {
+	test('turning shuffle off puts the queue back in its order, around the track playing', async () => {
+		// Album 36, which no other test opens, with ten tracks.
+		subsonic.state.albumSongs = 10;
+		const { page, problems } = await watchedPage();
+		const titles = () => page.locator('aside.panel .queue-list .row-title').allTextContents();
+		try {
+			await page.goto(`${app.url}/albums/al36`, { waitUntil: 'networkidle' });
+			await page.getByRole('button', { name: 'Play Song 36c', exact: true }).click();
+			await page.locator('aside.panel button[aria-label="Queue"]').click();
+			const inOrder = [...'abcdefghij'].map((side) => `Song 36${side}`);
+			await page.waitForFunction((n) => document.querySelectorAll('aside.panel .queue-list .row-title').length === n, 10);
+			assert.deepEqual(await titles(), inOrder);
+
+			const shuffle = page.locator('aside.panel button[aria-label="Shuffle"]');
+			await shuffle.click();
+			const mixed = await titles();
+			assert.equal(mixed[0], 'Song 36c', 'the playing track moved');
+			assert.deepEqual([...mixed].sort(), inOrder);
+
+			await shuffle.click();
+			assert.deepEqual(await titles(), inOrder, 'shuffle off left the queue shuffled');
+			assert.equal(await page.locator('aside.panel h2.title').textContent(), 'Song 36c');
+		} finally {
+			subsonic.state.albumSongs = 2;
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+});
+
+describe('the settings tabs', () => {
+	test('show one group at a time, switch without reloading, and save the fields on other tabs', async () => {
+		await context.request.patch(`${app.url}/api/settings`, {
+			headers: { origin: app.url },
+			data: { theme: 'dark', transcode: true, transcodeBitrateKbps: 256 }
+		});
+		const { page, problems } = await watchedPage();
+		try {
+			await page.goto(app.url + '/settings', { waitUntil: 'networkidle' });
+			const tabs = page.getByRole('navigation', { name: 'Settings' });
+			const heading = (name) => page.getByRole('heading', { name, exact: true });
+			assert.equal(await tabs.getByRole('link', { name: 'Appearance' }).getAttribute('aria-current'), 'page');
+			assert.ok(await heading('Appearance').isVisible());
+			for (const name of ['Playback', 'Transcoding', 'Session & security', 'Cover cache']) {
+				assert.equal(await heading(name).isVisible(), false, `${name} shows on the Appearance tab`);
+			}
+
+			// A switch reads nothing from the server.
+			let fetched = 0;
+			page.on('request', (request) => {
+				if (request.url().includes('/settings') && request.resourceType() !== 'image') {
+					fetched++;
+				}
+			});
+			await tabs.getByRole('link', { name: 'Cover cache' }).click();
+			await heading('Cover cache').waitFor();
+			assert.equal(await heading('Appearance').isVisible(), false);
+			assert.match(page.url(), /\/settings\?tab=storage$/);
+			assert.equal(fetched, 0, 'the tab switch asked the server for the page');
+
+			// Saving from Appearance keeps what the Playback tab holds.
+			await tabs.getByRole('link', { name: 'Appearance' }).click();
+			await page.locator('select[name="theme"]').selectOption('light');
+			await page.getByRole('button', { name: 'Save settings' }).click();
+			await page.getByText('Settings saved.').waitFor();
+			const saved = await (await context.request.get(`${app.url}/api/settings`)).json();
+			assert.equal(saved.theme, 'light');
+			assert.equal(saved.transcode, true);
+			assert.equal(saved.transcodeBitrateKbps, 256);
+
+			// A link to a tab opens on it.
+			await page.goto(app.url + '/settings?tab=account', { waitUntil: 'networkidle' });
+			assert.ok(await heading('Session & security').isVisible());
+			assert.equal(await page.getByRole('button', { name: 'Save settings' }).isVisible(), false);
+		} finally {
+			await context.request.patch(`${app.url}/api/settings`, {
+				headers: { origin: app.url },
+				data: { theme: 'dark', transcode: false, transcodeBitrateKbps: 192 }
+			});
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+});
+
+describe('the Last.fm notice', () => {
+	test('is looked up by its own keys only', async () => {
+		const { page, problems } = await watchedPage();
+		try {
+			for (const key of ['constructor', 'toString', '__proto__']) {
+				await page.goto(`${app.url}/settings?lastfm=${key}`, { waitUntil: 'networkidle' });
+				await page.locator('#scrobbling').waitFor();
+				const text = await page.locator('#scrobbling').innerText();
+				assert.ok(!text.includes('native code') && !text.includes('[object Object]'), key);
+			}
+			await page.goto(`${app.url}/settings?lastfm=linked`, { waitUntil: 'networkidle' });
+			await page.getByText('Last.fm is linked.').waitFor();
 		} finally {
 			await page.close();
 		}

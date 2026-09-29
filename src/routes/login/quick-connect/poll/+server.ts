@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { createSession, rememberDevice, signInWithQuickConnect } from '$lib/server/auth';
+import { createSession, destroySession, rememberDevice, signInWithQuickConnect } from '$lib/server/auth';
 import { backendFor, UpstreamError, type QuickConnectState } from '$lib/server/backends';
 import { safeNext } from '$lib/server/next';
 import { config } from '$lib/server/config';
@@ -92,8 +92,12 @@ export const POST: RequestHandler = async (event) => {
 	}
 
 	clearPending(event);
+	// A browser already signed in replaces its session rather than keeping two.
+	// The old row stayed behind and was listed in Settings as another browser
+	// until it expired.
+	await destroySession(event);
 	await createSession(event, account, event.request.headers.get('user-agent'));
-	rememberDevice(event, pending.backend, account.username);
+	rememberDevice(event, account);
 	log.info('signed-in', {
 		username: account.username,
 		backend: pending.backend,

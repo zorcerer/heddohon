@@ -16,7 +16,7 @@ export const load: PageServerLoad = async (event) => {
 	// from that page asks the music server only for the albums.
 	const [genres, albums] = await library(event, ({ backend, credential, accountId }) =>
 		Promise.all([
-			remembered(accountId, 'genres', () => backend.getGenres(credential)),
+			remembered({ accountId, credential }, 'genres', () => backend.getGenres(credential)),
 			backend.getGenreAlbums(credential, id, PAGE_SIZE + 1, (page - 1) * PAGE_SIZE)
 		])
 	);

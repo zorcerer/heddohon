@@ -2,6 +2,7 @@
 	import { enhance } from '$app/forms';
 	import { goto } from '$app/navigation';
 	import { onMount, untrack } from 'svelte';
+	import { forgetSavedOutput } from '$lib/client/output.svelte';
 	import { page } from '$app/state';
 	import { applyArtworkColor, holdArtworkColor, randomArtworkColor } from '$lib/client/artwork';
 	import { prefersReducedMotion } from '$lib/client/sleeve-transition.svelte';
@@ -73,6 +74,7 @@
 	 * blooms into its colour rather than starting there.
 	 */
 	onMount(() => {
+		forgetSavedOutput();
 		const root = document.documentElement;
 		holdArtworkColor(root, randomArtworkColor());
 		// What was actually written, which is not the hue that was drawn: the

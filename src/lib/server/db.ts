@@ -28,6 +28,8 @@ export interface AccountRow {
 	credential: string;
 	created_at: number;
 	last_login_at: number;
+	/** Bumped when the credential changes hands; see `rememberDevice` in auth.ts. Null reads as 0. */
+	device_epoch: number | null;
 }
 
 export interface SessionRow {
@@ -114,6 +116,24 @@ CREATE TABLE IF NOT EXISTS shares (
 );
 CREATE INDEX IF NOT EXISTS shares_account_idx ON shares(account_id);
 CREATE INDEX IF NOT EXISTS shares_expiry_idx ON shares(expires_at);
+
+-- Tracks an account has played past the scrobble threshold, newest last, for
+-- the history page; see history.ts for how many are kept.
+CREATE TABLE IF NOT EXISTS plays (
+  account_id  TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  song_id     TEXT NOT NULL,
+  played_at   INTEGER NOT NULL,
+  -- The track as it was when played, for the stats page; see history.ts.
+  -- Null in a row from before these were kept.
+  title       TEXT,
+  artist      TEXT,
+  artist_id   TEXT,
+  album       TEXT,
+  album_id    TEXT,
+  cover_art   TEXT,
+  duration    INTEGER
+);
+CREATE INDEX IF NOT EXISTS plays_account_idx ON plays(account_id, played_at);
 `;
 
 /*
@@ -122,7 +142,8 @@ CREATE INDEX IF NOT EXISTS shares_expiry_idx ON shares(expires_at);
  * primary key index does not need and PostgreSQL does.
  */
 const POSTGRES_SCHEMA = `${SQLITE_SCHEMA.replace(/\bINTEGER\b/g, 'BIGINT')}
-CREATE INDEX IF NOT EXISTS accounts_username_idx ON accounts (backend, lower(username));
+DROP INDEX IF EXISTS accounts_username_idx;
+CREATE INDEX IF NOT EXISTS accounts_username_ascii_idx ON accounts (backend, lower(username COLLATE "C"));
 CREATE TABLE IF NOT EXISTS meta (
   key    TEXT PRIMARY KEY,
   value  TEXT NOT NULL
@@ -137,7 +158,15 @@ CREATE TABLE IF NOT EXISTS meta (
  */
 const ADDED_COLUMNS: { table: string; column: string; type: string }[] = [
 	{ table: 'sessions', column: 'device', type: 'TEXT' },
-	{ table: 'shares', column: 'kind', type: 'TEXT' }
+	{ table: 'shares', column: 'kind', type: 'TEXT' },
+	{ table: 'accounts', column: 'device_epoch', type: 'INTEGER' },
+	{ table: 'plays', column: 'title', type: 'TEXT' },
+	{ table: 'plays', column: 'artist', type: 'TEXT' },
+	{ table: 'plays', column: 'artist_id', type: 'TEXT' },
+	{ table: 'plays', column: 'album', type: 'TEXT' },
+	{ table: 'plays', column: 'album_id', type: 'TEXT' },
+	{ table: 'plays', column: 'cover_art', type: 'TEXT' },
+	{ table: 'plays', column: 'duration', type: 'INTEGER' }
 ];
 
 function addColumnsSqlite(instance: Database.Database) {
@@ -392,14 +421,15 @@ async function importFromSqlite(pool: pg.Pool): Promise<void> {
 		accounts: ['id', 'backend', 'username', 'remote_user_id', 'credential', 'created_at', 'last_login_at'],
 		settings: ['account_id', 'data', 'updated_at'],
 		play_state: ['account_id', 'data', 'updated_at'],
-		shares: ['id', 'token_digest', 'account_id', 'backend', 'song_id', 'created_at', 'expires_at', 'kind']
+		shares: ['id', 'token_digest', 'account_id', 'backend', 'song_id', 'created_at', 'expires_at', 'kind'],
+		plays: ['account_id', 'song_id', 'played_at', 'title', 'artist', 'artist_id', 'album', 'album_id', 'cover_art', 'duration']
 	} as const;
 	const counts: Record<string, number> = {};
 
 	const client = await pool.connect();
 	try {
 		await client.query('BEGIN');
-		// Accounts first: the other three refer to them.
+		// Accounts first: the others refer to them.
 		for (const [table, wanted] of Object.entries(tables)) {
 			// Only the columns the file has: one from before a column was added
 			// (`ADDED_COLUMNS`) is copied without it, and the column reads as null.

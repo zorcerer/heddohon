@@ -45,6 +45,8 @@ import type {
 	Artist,
 	ArtistDetail,
 	AudioQuality,
+	Folder,
+	FolderRef,
 	Genre,
 	Playlist,
 	PlaylistDetail,
@@ -69,6 +71,23 @@ const SONG_FIELDS = `${ITEM_FIELDS},MediaSources`;
 function creds(cred: StoredCredential) {
 	if (cred.kind !== 'jellyfin') throw new Error('Wrong credential kind for the Jellyfin backend');
 	return cred;
+}
+
+/**
+ * An item, refused as not found unless it is a `type`.
+ *
+ * Read before anything that lists by it, and on its own. The lists take the
+ * id as `ParentId`, `AlbumArtistIds` or `ArtistIds`, and Jellyfin answers
+ * any id it can resolve: an album link made with a library's id listed every
+ * track in the library, and an id Jellyfin's list binder drops as malformed
+ * leaves the list unfiltered, so `{"source":"artist","id":"x"}` read every
+ * album. Run in parallel, the listing still ran on the server after the item
+ * lookup had failed.
+ */
+async function itemOf(cred: StoredCredential, id: string, type: string): Promise<JellyfinItem> {
+	const item = await call<JellyfinItem>(cred, `/Items/${seg(id)}`, { userId: creds(cred).userId, Fields: ITEM_FIELDS });
+	if (item.Type !== type) throw new UpstreamError('Not found', 404, 'not_found');
+	return item;
 }
 
 /**
@@ -177,6 +196,9 @@ interface JellyfinItem {
 	NormalizationGain?: number;
 	MediaSources?: JellyfinMediaSource[];
 	Type?: string;
+	IsFolder?: boolean;
+	/** On a library from `/UserViews`: `music`, `movies` and so on. */
+	CollectionType?: string;
 	/** Present only on /Playlists/{id}/Items — identifies the entry, not the song. */
 	PlaylistItemId?: string;
 }
@@ -259,6 +281,7 @@ function toSong(item: JellyfinItem): Song {
 		// one, so the favourites page offers no "recently starred" order here.
 		starredAt: null,
 		playCount: item.UserData?.PlayCount ?? null,
+		rating: null,
 		quality: quality(item),
 		// Jellyfin 10.9 and later measure each track against its own loudness
 		// target and report the correction as one number; there is no peak.
@@ -284,6 +307,7 @@ function toAlbum(item: JellyfinItem): Album {
 		coverArt: coverHandle(item),
 		starred: Boolean(item.UserData?.IsFavorite),
 		starredAt: null,
+		rating: null,
 		createdAt: Number.isFinite(created) ? created : null
 	};
 }
@@ -320,6 +344,44 @@ function toPlaylist(item: JellyfinItem): Playlist {
 interface ItemsResponse {
 	Items?: JellyfinItem[];
 	TotalRecordCount?: number;
+}
+
+/**
+ * The server's own folders above every library, which `/Items/{id}/Ancestors`
+ * ends with. They are not the listener's, and the trail stops below them.
+ */
+const SERVER_ROOTS = new Set(['UserRootFolder', 'AggregateFolder']);
+
+/** A folder as a link. Only a folder with a picture of its own has a cover. */
+function toFolderRef(item: JellyfinItem): FolderRef {
+	return {
+		id: item.Id,
+		name: item.Name ?? 'Untitled folder',
+		coverArt: item.ImageTags?.Primary ? coverHandle(item) : null
+	};
+}
+
+/**
+ * What a folder holds, as it is on disk: folders (a folder of tracks is its
+ * album) and tracks. Anything else a mixed library keeps there, a video or a
+ * book, is left out.
+ */
+async function folderContents(cred: StoredCredential, parentId: string): Promise<Pick<Folder, 'folders' | 'songs'>> {
+	const body = await call<ItemsResponse>(cred, '/Items', {
+		userId: creds(cred).userId,
+		ParentId: parentId,
+		Fields: SONG_FIELDS,
+		SortBy: 'ParentIndexNumber,IndexNumber,SortName',
+		SortOrder: 'Ascending'
+	});
+	const items = body.Items ?? [];
+	return {
+		folders: items
+			.filter((item) => item.IsFolder === true)
+			.map(toFolderRef)
+			.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })),
+		songs: items.filter((item) => item.IsFolder !== true && item.Type === 'Audio').map(toSong)
+	};
 }
 
 const SORT_BY: Record<Exclude<AlbumQuery['sort'], PlayedSort>, { sortBy: string; sortOrder: string }> = {
@@ -664,8 +726,9 @@ export const jellyfinBackend: MediaBackend = {
 				Fields: SONG_FIELDS
 			}),
 			kind === 'song'
-				? call<ItemsResponse>(cred, '/Items', { userId, Ids: id, Fields: SONG_FIELDS }).then(
-						(body) => body.Items?.[0] ?? null
+				? call<ItemsResponse>(cred, '/Items', { userId, Ids: id, Limit: 1, Fields: SONG_FIELDS }).then(
+						// The seed is queued first, so it has to be a track.
+						(body) => (body.Items?.[0]?.Type === 'Audio' ? body.Items[0] : null)
 					)
 				: Promise.resolve(null)
 		]);
@@ -677,18 +740,16 @@ export const jellyfinBackend: MediaBackend = {
 
 	async getAlbum(cred, id): Promise<AlbumDetail> {
 		const { userId } = creds(cred);
-		const [album, tracks] = await Promise.all([
-			call<JellyfinItem>(cred, `/Items/${seg(id)}`, { userId, Fields: ITEM_FIELDS }),
-			call<ItemsResponse>(cred, '/Items', {
-				userId,
-				ParentId: id,
-				IncludeItemTypes: 'Audio',
-				Recursive: 'true',
-				Fields: SONG_FIELDS,
-				SortBy: 'ParentIndexNumber,IndexNumber,SortName',
-				SortOrder: 'Ascending'
-			})
-		]);
+		const album = await itemOf(cred, id, 'MusicAlbum');
+		const tracks = await call<ItemsResponse>(cred, '/Items', {
+			userId,
+			ParentId: id,
+			IncludeItemTypes: 'Audio',
+			Recursive: 'true',
+			Fields: SONG_FIELDS,
+			SortBy: 'ParentIndexNumber,IndexNumber,SortName',
+			SortOrder: 'Ascending'
+		});
 		return { ...toAlbum(album), songs: (tracks.Items ?? []).map(toSong) };
 	},
 
@@ -747,8 +808,8 @@ export const jellyfinBackend: MediaBackend = {
 
 	async getArtist(cred, id): Promise<ArtistDetail> {
 		const { userId } = creds(cred);
-		const [artist, albums, top] = await Promise.all([
-			call<JellyfinItem>(cred, `/Items/${seg(id)}`, { userId, Fields: ITEM_FIELDS }),
+		const artist = await itemOf(cred, id, 'MusicArtist');
+		const [albums, top] = await Promise.all([
 			call<ItemsResponse>(cred, '/Items', {
 				userId,
 				AlbumArtistIds: id,
@@ -779,6 +840,7 @@ export const jellyfinBackend: MediaBackend = {
 
 	async getArtistAlbums(cred, artistId): Promise<Album[]> {
 		const { userId } = creds(cred);
+		await itemOf(cred, artistId, 'MusicArtist');
 		const body = await call<ItemsResponse>(cred, '/Items', {
 			userId,
 			AlbumArtistIds: artistId,
@@ -823,6 +885,34 @@ export const jellyfinBackend: MediaBackend = {
 			.filter((album) => artistId === null || album.artistId !== artistId);
 	},
 
+	async getFolder(cred, id): Promise<Folder> {
+		const { userId } = creds(cred);
+		if (id === null) {
+			const views = await call<ItemsResponse>(cred, '/UserViews', { userId });
+			const libraries = (views.Items ?? []).filter((view) => view.CollectionType === 'music');
+			// With one library, a level holding only it is a press that goes nowhere.
+			if (libraries.length === 1) {
+				return { id: null, name: 'Folders', parents: [], ...(await folderContents(cred, libraries[0].Id)) };
+			}
+			return { id: null, name: 'Folders', parents: [], folders: libraries.map(toFolderRef), songs: [] };
+		}
+
+		// Read first and alone, as `itemOf` does: `ParentId` with an id Jellyfin
+		// cannot resolve leaves the listing unfiltered.
+		const folder = await call<JellyfinItem>(cred, `/Items/${seg(id)}`, { userId });
+		if (folder.IsFolder !== true) throw new UpstreamError('Not found', 404, 'not_found');
+		const [contents, ancestors] = await Promise.all([
+			folderContents(cred, id),
+			// Nearest first. The trail is a convenience, and its failure is not the folder's.
+			call<JellyfinItem[]>(cred, `/Items/${seg(id)}/Ancestors`, { userId }).catch(() => [])
+		]);
+		const parents = (Array.isArray(ancestors) ? ancestors : [])
+			.filter((item) => !SERVER_ROOTS.has(item.Type ?? ''))
+			.map(toFolderRef)
+			.reverse();
+		return { id, name: folder.Name ?? 'Untitled folder', parents, ...contents };
+	},
+
 	async getPlaylists(cred) {
 		const { userId } = creds(cred);
 		const body = await call<ItemsResponse>(cred, '/Items', {
@@ -840,7 +930,7 @@ export const jellyfinBackend: MediaBackend = {
 	async getPlaylist(cred, id): Promise<PlaylistDetail> {
 		const { userId } = creds(cred);
 		const [playlist, items] = await Promise.all([
-			call<JellyfinItem>(cred, `/Items/${seg(id)}`, { userId, Fields: ITEM_FIELDS }),
+			itemOf(cred, id, 'Playlist'),
 			call<ItemsResponse>(cred, `/Playlists/${seg(id)}/Items`, {
 				userId,
 				Fields: SONG_FIELDS
@@ -852,12 +942,17 @@ export const jellyfinBackend: MediaBackend = {
 	async getSongs(cred, ids) {
 		if (ids.length === 0) return [];
 		const { userId } = creds(cred);
+		// `Limit` bounds what Jellyfin reads when it drops ids it cannot parse, which
+		// leaves the list unfiltered; only tracks are songs.
 		const body = await call<ItemsResponse>(cred, '/Items', {
 			userId,
 			Ids: ids.join(','),
+			Limit: ids.length,
 			Fields: SONG_FIELDS
 		});
-		const byId = new Map((body.Items ?? []).map((item) => [item.Id, toSong(item)]));
+		const byId = new Map(
+			(body.Items ?? []).filter((item) => item.Type === 'Audio').map((item) => [item.Id, toSong(item)])
+		);
 		// Preserve the caller's ordering — queue restoration depends on it.
 		return ids.map((id) => byId.get(id)).filter((song): song is Song => song !== undefined);
 	},

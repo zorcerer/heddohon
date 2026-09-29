@@ -186,12 +186,40 @@ for the browser, such as "Firefox on Android". The label is the browser's
 family and the platform, taken from the `User-Agent` header at sign-in; the
 header itself is not stored, and versions and device models are not kept. A
 header it does not recognise stores nothing, and the list says "Unknown
-browser". Any other session can be signed out from the list, or all of them but
-the current one. The page names each session by a handle, 16 hex characters of
-a SHA-256 of the stored digest, so it holds neither the token nor the digest,
-and a handle is matched against the signed-in account's own sessions only: one
-from another account, or none at all, ends nothing. Ending a session deletes its
-row, and the next request from that browser goes to the sign-in page.
+browser". A session signed in before the current one can be signed out from
+the list, or all of those at once; a browser that signed in later is signed
+out from that browser. That keeps a stolen session from signing its owner out
+again each time they sign back in, and lets the owner's fresh sign-in end it.
+The page names each session by a handle, 16 hex characters of a SHA-256 of the
+stored digest, so it holds neither the token nor the digest, and a handle is
+matched against the signed-in account's own sessions only: one from another
+account, or none at all, ends nothing. Ending a session deletes its row and
+cuts any audio or download it is receiving, and the next request from that
+browser goes to the sign-in page.
+
+**At most 50 sessions per account.** A sign-in past that ends the account's
+oldest session. A correct password is not throttled, so without it any
+account holder could add rows without limit.
+
+**Usernames are matched on ASCII case only**, as Navidrome compares them, on
+SQLite and PostgreSQL alike. PostgreSQL's `lower()` follows the database
+locale, where a name written with the Kelvin sign (U+212A) matched `kate`, so
+it is compared under the `"C"` collation.
+
+**Controlling another browser reaches the same account only.** With
+`HEDDOHON_REMOTE_CONTROL` on (the default), each signed-in browser with the
+player open holds `/api/remote/events` open, and is told the other browsers of
+its account: a random id per stream, a browser name ("Firefox on Linux"), and
+what each is playing. `POST /api/remote` sends a command (play, pause, skip,
+seek, volume, or a queue of up to 1000 track ids) to one of them; the target
+is looked up among the signing-in account's own streams, so an id from another
+account reaches nothing. `POST /api/remote/state` is taken only from the
+session that opened the stream it names. A stream is tied to its session like
+audio: signing out, being signed out from Settings and the 72-hour expiry end
+it. An account holds at most 20 streams. Anyone signed in to the account can
+already play and change its queue, so this gives a browser no access it lacked;
+it lets one browser of the account start sound on another. The registry is in
+the process's memory.
 
 **One cookie name is read.** Accepting both names would let a sibling subdomain
 plant `heddohon_session` with `Domain=.example.com` and pin a session that
@@ -214,7 +242,7 @@ ends any stream in progress. Rows are kept, and open again once it is `true`.
 | Stored | `HMAC-SHA256(token)` under its own key, the kind (song, album or playlist), its id, the owner and the expiry |
 | Lifetime | 1, 7 or 30 days, chosen when the link is made; anything else is refused |
 | Live links per account | 100 |
-| Withdrawal | The owner, from Settings, one link or all of them; streams in progress through the link are aborted |
+| Withdrawal | The owner, from Settings, one link or all of them; streams in progress through the link are aborted, including one still looking its track up |
 | Routes | `/share/<token>` (page), `/share/<token>/stream[/<n>]`, `/share/<token>/cover[/<n>]` |
 | Tracks served | An album's or playlist's first 500, by position `<n>` from 0 |
 
@@ -232,10 +260,32 @@ check or answers 405. The owner's credential, the upstream address and the
 upstream ids of the item, its tracks, their albums, artists and covers are not
 sent to the browser.
 
-**A playlist link is the playlist as it is when opened.** It is read again on
-every request, so a track the owner adds or removes, or a new order, is what
-the link serves from then on. The share dialog says so. A link without a kind,
-made before albums and playlists could be shared, is a song link.
+**A playlist link is the playlist as its owner has it.** A track the owner adds
+or removes, or a new order, is what the link serves from then on: at once for
+an edit made in Heddohon, and within five minutes for one made elsewhere (see
+below). The share dialog says so. A link without a kind, made before albums
+and playlists could be shared, is a song link.
+
+**What a link is to is held for five minutes.** The album, playlist or song is
+read with the owner's credential when a link is first used and held in memory
+for five minutes per link, so a range request or a track change through the
+link does not read a whole playlist from the music server again. Measured
+before this: 50 parallel requests for one position in a 5000-entry playlist
+made 100 upstream calls and fetched 59.7MB. The token, expiry and withdrawal
+are still checked on every request. A change made outside Heddohon, including
+a library the owner can no longer see, reaches the link within those five
+minutes.
+
+**Only the owner's own playlists.** Navidrome lists another user's public
+playlist to every account; a link made to one would publish that user's
+playlist, as they edit it, where they cannot see or withdraw it. A link to a
+playlist whose owner is someone else is refused with a 403, and one that
+changes hands later stops opening. Jellyfin reports no owner and lists only
+playlists the account may open.
+
+**Of the kind it names.** On Jellyfin, an album link must name an album, a
+playlist link a playlist and a song link a track. An album link made with a
+library's id listed every track in the library.
 
 - **`/share` is a public route.** The session gate does not apply under it. A
   path that leaves `/share` after decoding, such as `/share/%2e%2e/api/...`, is
@@ -256,18 +306,20 @@ made before albums and playlists could be shared, is a song link.
   `private, max-age=300` on covers, so a withdrawn link stops working in the
   browser that played it. Shared covers bypass the cover cache.
 - **Every stream request is checked three ways.** The token is resolved, and
-  the track is looked up in the owner's song, album or playlist with the
-  owner's credential, on each request, so a track the owner can no longer see
-  stops playing even where the upstream's audio endpoint does not apply
-  library permissions. A stream in progress is
-  registered against its link and aborted when the link is withdrawn, and the
-  expiry is checked on each chunk. A browser plays a track as one open-ended
+  the track is looked up in the owner's song, album or playlist as the owner's
+  credential returned it at most five minutes before, so a track the owner can
+  no longer see stops playing within that time even where the upstream's audio
+  endpoint does not apply library permissions. A stream is registered against
+  its link before its track is looked up and aborted when the link is
+  withdrawn, and the expiry is checked on each chunk. A browser plays a track as one open-ended
   range, so a check at the start of the request alone let a withdrawn link
   deliver the whole file.
 - **Signing out does not withdraw links.** A link plays through the stored
   credential, not a session. Settings has "Withdraw all".
 - **Library text is capped at 300 characters** on the page, since it is
-  written by whoever can edit the library and served to anyone with a link.
+  written by whoever can edit the library and served to anyone with a link. It
+  is turned into text first, whatever type the music server sent, and the
+  audio format is capped at 16.
 - **A rejected owner credential reads as unavailable.** The link answers 404 on
   its media and a fixed message on its page. Requests through a link do not
   destroy the owner's sessions; the owner's own next request does that, as
@@ -290,7 +342,8 @@ made before albums and playlists could be shared, is a song link.
   the owner's account together, and another account's id answers 404, the same
   as an unknown one. Creating and withdrawing sit behind the origin check below.
 - **Kept out of logs.** Every string field of every log line passes through a
-  filter that replaces the segment after `/share/` with `-`. It removes
+  filter that replaces the segment after `/share/` with `-`, after any extra
+  slashes, spaces, quotes or percent signs. It removes
   percent-encoding layer by layer until the text stops changing, and a
   malformed escape does not stop it, so double encoding and a stray `%E0` in
   the same query do not carry a token past it. Error stacks are filtered the
@@ -312,6 +365,66 @@ account streams.
 
 A link works for whoever it is forwarded to, for as long as it is live. The
 share dialog asks the owner to share only music they have the right to share.
+
+## Cast addresses
+
+A Chromecast or an AirPlay receiver fetches the audio itself and carries no
+session cookie. While a browser casts, each track is played from a cast
+address, `/cast/<token>`, a public route. What it is limited to:
+
+- **A token names one track, one account and one session.** It is the
+  account id, the session's handle, the track id and an expiry, signed with
+  HMAC-SHA256 under a key derived for this purpose alone. Changing any part
+  fails the signature. Nothing is stored.
+- **It lasts 6 hours**, and never past the session's own expiry. The browser
+  asks for new ones after 5.
+- **It ends with the session.** Each request looks the session up by its
+  handle; signing out, being signed out from Settings and the 72-hour expiry
+  make every address the session was given answer 404, and a stream in
+  progress is cut as the browser's own are.
+- **Every refusal is the same 404**: malformed, forged, expired, a session
+  that has ended, or a track the account cannot play.
+- **It is kept out of the log**, as share tokens are (`redact` in `log.ts`).
+- **It may be read cross-origin.** The receiver plays it from a page of its
+  own on another origin, so a successful answer on this route alone carries
+  `Cross-Origin-Resource-Policy: cross-origin` and
+  `Access-Control-Allow-Origin: *`. It is sent without credentials, and the
+  token in the path is the whole of the authority. Every other response keeps
+  `same-origin`.
+- **Anyone who holds the address can play that track until it expires or the
+  session ends**, the receiver and anything on the network path included. Over
+  plain http the address is visible on the network, as the session cookie is.
+
+`POST /api/cast` issues addresses for up to 1000 track ids to a signed-in
+browser. It makes no upstream call; an id the account cannot play gets an
+address that answers 404.
+
+## Listening together
+
+A signed-in browser can start a live session and hand out its link,
+`/together/<token>`, a public route. Anyone with the link hears what the host
+plays, as it plays, without an account. What it is limited to:
+
+- **It needs `HEDDOHON_SHARING` and `HEDDOHON_REMOTE_CONTROL` on.** With either
+  off, every `/together` route answers 404.
+- **The token is 24 random bytes.** Sessions are looked up by an HMAC digest
+  of it. The token is held in the process's memory with the session, so the
+  host can show the link again, and nothing is written to disk.
+- **A listener plays only the track the session is on.** The audio and cover
+  routes take `?song=`, and answer 404 for any id but the one the host last
+  reported, through the host's account. The file is sent as it is stored.
+- **It ends** when the host ends it, after 12 hours, or when the host's session
+  ends (signing out, being signed out from Settings, the 72-hour expiry). A
+  stream in progress is cut with the host's session.
+- **Listeners send reactions only.** One of five emoji, from a listener whose
+  event stream is open, at most one a second. There are no names or messages.
+- **Bounds:** 50 listeners a session, 200 sessions in the process, one per
+  host session. The host's reports carry text for the listeners' page
+  (title, artist, album, 300 characters each), shown as text.
+- **The token is kept out of the log,** as share tokens are.
+
+What a listener learns is what plays and when: title, artist, album, cover
+and position, for as long as they hold the link.
 
 ## Cross-origin writes
 
@@ -348,7 +461,9 @@ before the upstream is called.
   sign-in to one clears nothing for the other.
 - **Known devices.** A successful sign-in leaves a `heddohon_device` cookie
   (`__Host-` where Secure, `HttpOnly`, 180 days): a random id and an HMAC over
-  the id, the music server kind and the username. A browser carrying a valid
+  the id, the music server kind, the username and a generation that moves when
+  a sign-in stores a new password or a new Jellyfin user under the name, so a
+  cookie earned by a previous holder stops counting as known. A browser carrying a valid
   one for the server and username it is signing in as is counted against that
   device alone. Guesses from
   elsewhere run up the username and address counters, which that browser does
@@ -362,6 +477,8 @@ before the upstream is called.
   which is what a proxy on the same host or Docker network looks like. Counting
   there would put every visitor in one bucket. A line is logged when this happens.
 - Failures give the same response for an unknown user and a wrong password.
+- **Username keys are folded as Jellyfin folds them**, upper case then lower,
+  so letters it treats as one (σ, ς and Σ) share one counter.
 
 ## Proxied media
 
@@ -472,8 +589,18 @@ Covers are cached under `$HEDDOHON_DATA_DIR/covers` (see
 | Share link lifetime | 1, 7 or 30 days |
 | Page size | 100 |
 | Sign-in username / password | 256 / 1024 characters |
-| Any id in a JSON body | under 256 characters |
+| Any id in a JSON body or a path | under 256 characters |
+| Albums read for one play of an artist | 200 |
+| Sessions per account | 50; the oldest ends |
 | Playlist positions per removal | 1000, deduplicated |
+| Star rating | a whole number from 0 to 5 |
+| Remote control streams per account | 20 |
+| Remote command | one of nine types; a seek from 0 to 86400 s, a volume from 0 to 1, a queue of 1 to 1000 ids |
+| Remote state text (title, artist) | 300 characters, cut |
+| Cast addresses per request | 1 to 1000 track ids |
+| Cast address lifetime | 6 hours, never past the session |
+| Listen-together session | 12 hours, never past the host's session; 50 listeners; 200 sessions a process |
+| Listen-together reaction | one of five emoji, one a second per listener |
 | Genre id in a path | 200 characters; on Jellyfin a GUID, since `GenreIds` takes a list |
 | Cover size | one of ten, 64 to 1536 |
 | Transcode codec | `mp3`, `opus`, `aac` |
@@ -484,21 +611,39 @@ Covers are cached under `$HEDDOHON_DATA_DIR/covers` (see
 
 ## Response headers
 
-Sent on every response, including early 401, 403 and 500 responses:
+Sent on every response, including early 401, 403 and 500 responses, the files
+served from disk (`/_app/*`, `/service-worker.js`, `static/`) and SvelteKit's
+own trailing-slash redirects:
 
 ```
 x-content-type-options: nosniff
 referrer-policy: same-origin
 x-frame-options: SAMEORIGIN
 strict-transport-security: max-age=31536000; includeSubDomains
-permissions-policy: camera=(), microphone=(), geolocation=(), payment=()
+permissions-policy: camera=(), microphone=(self), geolocation=(), payment=()
 cross-origin-opener-policy: same-origin
 cross-origin-resource-policy: same-origin
 ```
 
+adapter-node answers files from disk before any SvelteKit hook runs, so the
+build puts a middleware ahead of it that sets the same list
+(`hardenedAdapter` in `vite.config.ts`; the values are in
+`lib/headers.ts`). `offline.html`, the one HTML file in `static/`,
+also gets `default-src 'none'` with its script and its inline stylesheet
+allowed from this origin.
+
+`microphone=(self)` lets this origin ask for the microphone, and no frame
+from another origin; the app's pages admit no frames at all (`frame-src 'none'`).
+Chrome and Edge list audio outputs by name only once a page holds that
+permission, and the output control asks for it only when "List outputs" is
+pressed. The stream it opens is stopped as soon as it is granted and read by
+nothing (`lib/client/output.svelte.ts`).
+
 Authenticated pages and private JSON get `Cache-Control: private, no-store` and
 `Vary: Cookie`. Unexpected errors return a fixed message and the detail is
-logged server-side.
+logged server-side. The music server's own error text and the network error
+behind an unreachable server (which names its host and port) are logged and
+replaced with a fixed message.
 
 App pages carry a Content-Security-Policy, configured in `vite.config.ts` so
 that SvelteKit can nonce or hash its own inline bootstrap script:
@@ -517,10 +662,12 @@ fetches to `/api/*`. The source carries no external origin, no `data:` or
 `blob:` URL.
 
 The one worker is the service worker in `src/service-worker.ts`. It answers a
-page load that fails, or that a reverse proxy answers with 502 to 504 while
-`/healthz` does not answer, with a static offline page. It passes every other
-request to the network without reading it, and caches only the offline page
-and its script, so no account's data is stored by it.
+page load that fails, or a 502 to 504 without the `x-heddohon` header every
+Heddohon response carries (a reverse proxy's page for a stopped Heddohon),
+with a static offline page, sent with the same headers as any other page. It
+passes every other request to the network without reading it, and caches only
+the offline page and its script, so no account's data is stored by it. The
+audio output saved in the browser is forgotten on the sign-in page.
 
 `style-src-attr` is listed separately because a directive carrying a nonce or a
 hash ignores `unsafe-inline`, and SvelteKit adds one to `style-src`. Attributes
@@ -570,9 +717,6 @@ session token and any `u`, `t`, `s` or `p` query parameter.
   are admitted unconditionally. Script execution is not affected. Removing it
   means moving those values out of markup and into the stylesheet.
 
-- **SvelteKit's trailing-slash redirects** (`/share/x/` to `/share/x`) are
-  answered before the hooks run and lack the hardening headers. The session
-  gate's own redirects carry them.
 - **Revocation on upstream rejection** covers page loads and media. Twelve JSON
   handlers are still missing it: songs, lyrics, playback, tracks, star, the
   playlist routes and the song lookup before a download. They answer 401 or 502
@@ -603,6 +747,15 @@ session token and any `u`, `t`, `s` or `p` query parameter.
   account and gets one song with the owner's library permissions. That is the
   purpose of a link; see [Shared links](#shared-links) for what it is limited to.
 - **Shared Subsonic cover cache** assumes one library per Navidrome server.
+- **Suggestion shelves are held for 30 days.** "You might like" on album and
+  artist pages is kept per account for 30 days (an hour when empty), so an
+  item in a library the account has since lost can stay on a shelf, as a name
+  and a cover, until then. Opening it asks the music server, which refuses.
+- **A Subsonic playlist is moved by rewriting it.** Subsonic has no move, so
+  the playlist is written back whole. A move is refused when the server counts
+  more entries than it lists (a missing file, or a library the account cannot
+  see, which the rewrite would drop), and one that lost an entry added
+  elsewhere in the meantime is reported as a conflict rather than hidden.
 - **Per-IP rate limiting belongs at the proxy.** Behind one, set limits there or
   configure adapter-node's `ADDRESS_HEADER` and `XFF_DEPTH`, and only if the
   proxy overwrites that header.
@@ -636,9 +789,12 @@ session token and any `u`, `t`, `s` or `p` query parameter.
    With PostgreSQL the same applies to the database and its backups, and the
    connection should use `HEDDOHON_DATABASE_SSL=verify-full` (or `require` on a
    trusted network) when the server is not on the same host.
-6. **Rate limit and restrict `/healthz`** at the proxy.
+6. **Rate limit and restrict `/healthz`** at the proxy. The offline page does
+   not depend on it.
 7. **Rebuild to update.** Dependencies are pinned by range and the base image is
    a floating tag.
+8. **Publish the port on loopback behind a proxy** (`127.0.0.1:3000:3000`).
+   Docker's port rules pass host firewalls such as ufw.
 
 ## Audit history
 
@@ -808,3 +964,37 @@ history was searched for committed secrets (none).
 The Last.fm return was checked against a session from another account, a
 changed `state` and no session (refused, redirected to sign-in), and its
 query against the log at `debug` (redacted); the suites cover each.
+
+### 28 September 2026
+
+Source review and request-level testing of everything added since the review
+of 25 September: links to albums and playlists, the signed-in browsers list,
+the album, artist and suggestion caches, instant mix, playlist reordering,
+the favourites orders, the offline page, the audio output and its microphone
+permission, the settings tabs, and the `:dev` and prune workflows. Five
+reviews ran in parallel against a production build with mock Subsonic and
+Jellyfin servers, one of them black-box. The PostgreSQL finding was
+reproduced on `postgres:16-alpine`. Each fix has a check that failed before it.
+
+| Severity | Finding | Fix |
+| --- | --- | --- |
+| Medium | Every request through a link read the whole album or playlist from the music server: 50 anonymous requests for one position in a 5000-entry playlist made 100 upstream calls and fetched 59.7MB | What a link is to is held for 5 minutes per link |
+| Medium | On PostgreSQL, `lower()` follows the locale, so a user named with a Kelvin sign signed in to `kate`'s account row and took over its settings, queue and links | Names are compared under the `"C"` collation, and the index rebuilt |
+| Medium | A Jellyfin artist id the server could not parse left `AlbumArtistIds` empty, so one play of "artist x" read every album and made 4001 upstream calls | Albums, artists and playlists are looked up by id and checked for their type before anything is listed by them |
+| Low | On Jellyfin, a link's kind was not checked against the item, so an "album" link to a library published the whole library | The same type checks; `Ids` lookups limited to the ids asked for and to tracks |
+| Low | A link withdrawn while its track was being looked up still delivered the file | The stream is registered before the lookup |
+| Low | A link could be made to another user's public Navidrome playlist, which then followed that user's edits | Refused unless the account owns the playlist |
+| Low | Playing an artist read every album, with no cap, and went on after the browser left; one request could empty every account's details cache | 200 albums, stopped on abort, read past the cache; each cache holds at most a quarter of its bound for one account and sweeps expired entries |
+| Low | A request that resolved its session just before a new Jellyfin user took over the name could store the old user's answers for the new one | Cache keys carry the upstream user |
+| Low | A Subsonic reorder rewrote the playlist from a list that leaves out missing and hidden entries, deleting them, and lost an entry added in between | Refused when the counts differ; a lost entry is reported |
+| Low | The music server's error text, and the network error naming its host and port, reached the browser | Logged, replaced by a fixed message |
+| Low | Any account holder could open sessions without limit (300 in 1.5s) | 50 per account, the oldest ending |
+| Low | Signing out on a plain-http deployment sent a `Secure` deletion, which the browser ignores | Deleted as it was set |
+| Low | A known-device cookie outlived a password change and a reused Jellyfin name | Signed over a generation that moves with them |
+| Low | Letters Jellyfin folds together (σ, ς, Σ) split the username throttle | Keys folded as Jellyfin folds them |
+| Low | A stolen session could sign its owner out again each time they signed back in | A session ends only sessions that began before it |
+| Low | Files served from disk, SvelteKit's trailing-slash redirects and the offline page carried none of the hardening headers | Set ahead of the static file server at build time, and on the offline page by the worker |
+| Low | A skipped `:dev` run joined the workflow's concurrency group and cancelled the build in progress; a fork can name its branch `dev` | Concurrency on the job; the head repository is checked |
+| Low | The Docker Hub token with delete rights went to every image workflow, whose actions were pinned by tag | Actions pinned by commit; the prune workflow reads its own `DOCKERHUB_PRUNE_TOKEN` |
+| Low | The prune workflow went on when a kept image could not be read | The run stops |
+| Info | Remote sign-out did not stop a stream in progress; a Quick Connect sign-in left the old session listed; a share token after a stray character reached a debug log; the stored `client_pseudonym` was a User-Agent fingerprint; ids in paths had no length cap; the release workflow did not wait for the suites; `?lastfm=` read the prototype chain; the offline page read `/healthz`, which the checklist advises restricting; the saved audio output outlived signing out; yarn was left in the image | Each fixed as described in the sections above |
