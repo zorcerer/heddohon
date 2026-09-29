@@ -282,7 +282,12 @@ describe('crossfade where the volume cannot be set', () => {
 		subsonic.state.audio = { type: 'audio/wav', body: silentWav(6) };
 		const settings = (patch) =>
 			context.request.patch(`${app.url}/api/settings`, { data: patch, headers: { origin: app.url } });
-		assert.equal((await settings({ transition: 'crossfade', crossfadeSeconds: 4 })).status(), 200);
+		// Within the album as well: Songs 1a and 1b follow each other on album 1,
+		// which otherwise gets the tight handoff whatever the volume does.
+		assert.equal(
+			(await settings({ transition: 'crossfade', crossfadeSeconds: 4, crossfadeWithinAlbum: true })).status(),
+			200
+		);
 		const { page, problems } = await watchedPage();
 		try {
 			await page.addInitScript(() => {
@@ -311,8 +316,116 @@ describe('crossfade where the volume cannot be set', () => {
 			await page.waitForTimeout(500);
 			assert.equal(await page.evaluate(() => window.__together), 1, 'two tracks played at once');
 		} finally {
-			await settings({ transition: 'gapless' });
+			await settings({ transition: 'gapless', crossfadeWithinAlbum: false });
 			subsonic.state.audio = null;
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+});
+
+/**
+ * The most tracks heard at once from `/api/stream/`, sampled every 50ms from
+ * the moment it is called.
+ */
+async function countOverlap(page) {
+	await page.evaluate(() => {
+		window.__together = 0;
+		setInterval(() => {
+			const playing = [...document.querySelectorAll('audio')].filter(
+				(a) => !a.paused && a.currentTime > 0 && a.currentSrc.includes('/api/stream/')
+			);
+			window.__together = Math.max(window.__together, playing.length);
+		}, 50);
+	});
+}
+
+describe('crossfade and the album', () => {
+	const settings = (patch) =>
+		context.request.patch(`${app.url}/api/settings`, { data: patch, headers: { origin: app.url } });
+
+	/** Plays Song 1a into Song 1b, the next track on the same album, and returns how many played at once. */
+	async function overlapOnAlbum(setup) {
+		subsonic.state.audio = { type: 'audio/wav', body: silentWav(6) };
+		const { page, problems } = await watchedPage();
+		try {
+			if (setup) await setup(page);
+			await page.goto(app.url + '/albums/al1', { waitUntil: 'networkidle' });
+			await countOverlap(page);
+			await page.getByRole('button', { name: 'Play Song 1a', exact: true }).click();
+			await page.waitForFunction(() => document.querySelector('aside.panel h2.title')?.textContent === 'Song 1b', null, {
+				timeout: 12_000
+			});
+			await page.waitForTimeout(500);
+			assert.deepEqual(problems, []);
+			return await page.evaluate(() => window.__together);
+		} finally {
+			subsonic.state.audio = null;
+			// The context's storage outlives the page; later tests expect processing off.
+			await page.evaluate(() => localStorage.removeItem('heddohon:audio-processing')).catch(() => undefined);
+			await page.close();
+		}
+	}
+
+	test('the next track on the same album gets the handoff, unless the fade is asked for there', async () => {
+		try {
+			await settings({ transition: 'crossfade', crossfadeSeconds: 3, crossfadeWithinAlbum: false });
+			assert.equal(await overlapOnAlbum(), 1, 'faded into the next track on the album');
+			await settings({ crossfadeWithinAlbum: true });
+			assert.equal(await overlapOnAlbum(), 2, 'no crossfade with it asked for within the album');
+		} finally {
+			await settings({ transition: 'gapless', crossfadeWithinAlbum: false });
+		}
+	});
+
+	/*
+	 * With audio processing on, the ramps are gains in a Web Audio graph, which
+	 * iOS applies although it ignores `volume`. Here `volume` is made to behave
+	 * as it does on iOS, and the crossfade happens all the same.
+	 */
+	test('with audio processing on, a crossfade happens where `volume` is ignored', async () => {
+		try {
+			await settings({ transition: 'crossfade', crossfadeSeconds: 3, crossfadeWithinAlbum: true });
+			const together = await overlapOnAlbum(async (page) => {
+				await page.addInitScript(() => {
+					localStorage.setItem('heddohon:audio-processing', JSON.stringify({ enabled: true, gains: [3, 0, 0, 0, 0, 0, 0, 0, 0, -3] }));
+					Object.defineProperty(HTMLMediaElement.prototype, 'volume', { configurable: true, get: () => 1, set: () => {} });
+				});
+			});
+			assert.equal(together, 2);
+		} finally {
+			await settings({ transition: 'gapless', crossfadeWithinAlbum: false });
+		}
+	});
+});
+
+describe('the equaliser', () => {
+	test('is off until switched on, then kept in this browser with its bands', async () => {
+		const { page, problems } = await watchedPage();
+		try {
+			await page.goto(app.url + '/settings?tab=playback', { waitUntil: 'networkidle' });
+			const toggle = page.getByRole('checkbox', { name: /Process audio in this browser/ });
+			assert.equal(await toggle.isChecked(), false);
+			assert.equal(await page.getByRole('group', { name: 'Equaliser bands' }).count(), 0);
+
+			await toggle.check();
+			await page.getByRole('combobox', { name: 'Preset' }).selectOption('bass');
+			const band = page.getByRole('slider', { name: '31Hz, in dB' });
+			assert.equal(await band.inputValue(), '6');
+			await band.fill('-4');
+			assert.equal(await page.getByRole('combobox', { name: 'Preset' }).inputValue(), '', 'bands set by hand read as Custom');
+			const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('heddohon:audio-processing')));
+			assert.deepEqual(saved, { enabled: true, gains: [-4, 5, 4, 2, 0, 0, 0, 0, 0, 0] });
+
+			await page.reload({ waitUntil: 'networkidle' });
+			assert.equal(await page.getByRole('slider', { name: '31Hz, in dB' }).inputValue(), '-4');
+
+			await page.getByRole('checkbox', { name: /Process audio in this browser/ }).uncheck();
+			const off = await page.evaluate(() => JSON.parse(localStorage.getItem('heddohon:audio-processing')));
+			assert.equal(off.enabled, false);
+			assert.deepEqual(off.gains, [-4, 5, 4, 2, 0, 0, 0, 0, 0, 0], 'the bands are kept for the next time');
+		} finally {
+			await page.evaluate(() => localStorage.removeItem('heddohon:audio-processing')).catch(() => undefined);
 			await page.close();
 		}
 		assert.deepEqual(problems, []);

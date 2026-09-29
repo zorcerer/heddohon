@@ -15,10 +15,10 @@
  *  - Safari and iOS have neither, and every browser withholds both on a page
  *    that is not https or localhost. The control is not shown there.
  *
- * The choice is kept in this browser's `localStorage`, the one thing Heddohon
- * keeps there. The rest of the settings follow the account (`settings.ts`), but
- * an output id is minted per browser and per site, so on another computer it
- * names nothing.
+ * The choice is kept in this browser's `localStorage`, as is the equaliser
+ * (`processing.svelte.ts`). The rest of the settings follow the account
+ * (`settings.ts`), but an output id is minted per browser and per site, so on
+ * another computer it names nothing.
  */
 import { browser } from '$app/environment';
 import { player } from './player.svelte';

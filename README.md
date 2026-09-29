@@ -28,6 +28,7 @@ only ever talks to Heddohon and your upstream credentials stay on the server.
 - **Links to songs, albums and playlists** anyone can play without an account, for 1, 7 or 30 days. Or listen together: a live link that plays what you play, as you play it, with reactions.
 - **On a phone,** the navigation and the player share one panel at the foot of the screen, and the full player pulls down to close. A living-room screen shows what plays full screen, with the synced lyrics, for a TV across the room.
 - **Follows you around:** the queue and settings sync across devices, and it installs as an app on phones and desktops. One browser can pause, skip or seek another signed in to the same account, and move the queue between them. Settings lists each browser signed in to your account and signs out any of them.
+- **Crossfade and an equaliser,** both off until switched on. The crossfade gives two tracks that follow each other on an album the tight handoff instead. The 10-band equaliser is kept per browser, for the headphones or speakers it plays through.
 - **Scrobbling** to Last.fm and ListenBrainz through Navidrome, ReplayGain volume normalisation, and a sleep timer. Recently played lists every track played in the last 90 days (or a year), and Your listening sums it up: top artists, albums and tracks, hours, the time of day and the longest run of days, kept on your own server.
 - **SQLite or PostgreSQL**, with a one-time import from SQLite.
 

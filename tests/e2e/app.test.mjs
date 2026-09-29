@@ -158,6 +158,16 @@ describe('settings', () => {
 		assert.ok(!html.includes('<script>alert(1)'));
 	});
 
+	test('crossfading within an album is off until it is asked for, and takes only a boolean', async () => {
+		const before = await (await user.json('/api/settings', 'PATCH', {})).json();
+		assert.equal(before.crossfadeWithinAlbum, false);
+		const on = await (await user.json('/api/settings', 'PATCH', { crossfadeWithinAlbum: true })).json();
+		assert.equal(on.crossfadeWithinAlbum, true);
+		const bogus = await (await user.json('/api/settings', 'PATCH', { crossfadeWithinAlbum: 'yes' })).json();
+		assert.equal(bogus.crossfadeWithinAlbum, true, 'a value that is not a boolean keeps the one stored');
+		await user.json('/api/settings', 'PATCH', { crossfadeWithinAlbum: false });
+	});
+
 	test('a saved theme is in the first byte of HTML', async () => {
 		await user.json('/api/settings', 'PATCH', { theme: 'light' });
 		const { html } = await user.page('/albums');
