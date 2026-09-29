@@ -5,6 +5,8 @@
 	import FeaturedRelease from '$lib/components/FeaturedRelease.svelte';
 	import MediaCard from '$lib/components/MediaCard.svelte';
 	import MediaShelf from '$lib/components/MediaShelf.svelte';
+	import OnThisDayShelf from '$lib/components/OnThisDayShelf.svelte';
+	import RediscoverShelf from '$lib/components/RediscoverShelf.svelte';
 	import SectionHeader from '$lib/components/SectionHeader.svelte';
 	import TrackList from '$lib/components/TrackList.svelte';
 	import Icon from '$lib/components/Icon.svelte';
@@ -31,10 +33,8 @@
 
 	const shelves = $derived(
 		[
-			{ title: 'Recently added', eyebrow: null, albums: restOfRecent, href: '/albums?sort=recentlyAdded' },
-			{ title: 'On repeat', eyebrow: null, albums: data.mostPlayed, href: '/albums?sort=mostPlayed' },
-			// From the history on this server; see forgottenAlbums.
-			{ title: 'Rediscover', eyebrow: 'Played often, not in the last six months', albums: data.rediscover, href: null }
+			{ title: 'Recently added', albums: restOfRecent, href: '/albums?sort=recentlyAdded' },
+			{ title: 'On repeat', albums: data.mostPlayed, href: '/albums?sort=mostPlayed' }
 		].filter((shelf) => shelf.albums.length > 0)
 	);
 
@@ -44,7 +44,7 @@
 	 * is asked for once the page is in the browser. It is not needed for the
 	 * first paint.
 	 */
-	let onThisDay = $state<{ date: string; albums: RememberedAlbum[] }>({ date: '', albums: [] });
+	let onThisDay = $state<{ today: Date; albums: RememberedAlbum[] } | null>(null);
 
 	onMount(() => {
 		const today = new Date();
@@ -55,15 +55,18 @@
 		fetch(`/api/on-this-day?date=${date}&offset=${offset}`, { signal: controller.signal })
 			.then((response) => (response.ok ? response.json() : null))
 			.then((body: { albums: RememberedAlbum[] } | null) => {
-				if (body) onThisDay = { date: today.toLocaleDateString(undefined, { day: 'numeric', month: 'long' }), albums: body.albums };
+				if (body) onThisDay = { today, albums: body.albums };
 			})
 			// The shelf is left out when it cannot be read.
 			.catch(() => {});
 		return () => controller.abort();
 	});
 
+	const rediscovering = $derived(data.rediscover.length > 0);
+	const remembering = $derived((onThisDay?.albums.length ?? 0) > 0);
+
 	// The numbered sections above Favourites.
-	const albumShelves = $derived(shelves.length + (onThisDay.albums.length > 0 ? 1 : 0));
+	const albumShelves = $derived(shelves.length + Number(rediscovering) + Number(remembering));
 </script>
 
 <svelte:head>
@@ -117,7 +120,7 @@
 	{/if}
 
 	{#each shelves as shelf, index (shelf.title)}
-		<MediaShelf title={shelf.title} eyebrow={shelf.eyebrow} href={shelf.href} index={index + 1}>
+		<MediaShelf title={shelf.title} href={shelf.href} index={index + 1}>
 			{#each shelf.albums as album (album.id)}
 				<MediaCard
 					href="/albums/{album.id}"
@@ -131,19 +134,13 @@
 		</MediaShelf>
 	{/each}
 
-	{#if onThisDay.albums.length > 0}
-		<MediaShelf title="On this day" eyebrow={onThisDay.date} index={shelves.length + 1}>
-			{#each onThisDay.albums as album (album.id)}
-				<MediaCard
-					href="/albums/{album.id}"
-					title={album.name}
-					subtitle={album.artist ? `${album.artist} · ${album.year}` : String(album.year)}
-					coverArt={album.coverArt}
-					transitionId={album.id}
-					onplay={() => playContainer('album', album.id)}
-				/>
-			{/each}
-		</MediaShelf>
+	<!-- From the history on this server; see forgottenAlbums and onThisDay. -->
+	{#if rediscovering}
+		<RediscoverShelf albums={data.rediscover} index={shelves.length + 1} />
+	{/if}
+
+	{#if onThisDay && remembering}
+		<OnThisDayShelf albums={onThisDay.albums} today={onThisDay.today} index={shelves.length + Number(rediscovering) + 1} />
 	{/if}
 
 	<!-- Streamed: the page does not wait for the favourites. See the loader. -->

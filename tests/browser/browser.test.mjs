@@ -3501,7 +3501,9 @@ describe('On this day', () => {
 			await shelf.waitFor();
 			const albums = await shelf.locator('a[href^="/albums/"]').evaluateAll((links) => [...new Set(links.map((a) => a.getAttribute('href')))]);
 			assert.deepEqual(albums, ['/albums/al1']);
-			assert.match(await shelf.innerText(), new RegExp(`Artist 0001 · ${local.getUTCFullYear() - 1}`));
+			const text = await shelf.innerText();
+			assert.match(text, new RegExp(`${local.getUTCFullYear() - 1}\\s+A year ago`, 'i'), 'the year is not marked');
+			assert.equal(await shelf.locator('time').getAttribute('datetime'), local.toISOString().slice(0, 10), 'the calendar leaf is not the browser\'s date');
 		} finally {
 			subsonic.state.played.clear();
 			await action('clearHistory');

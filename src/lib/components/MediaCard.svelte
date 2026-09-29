@@ -1,4 +1,5 @@
 <script lang="ts">
+	import type { Snippet } from 'svelte';
 	import { goto } from '$app/navigation';
 	import Cover from './Cover.svelte';
 	import Icon from './Icon.svelte';
@@ -15,11 +16,14 @@
 		/** Artists are people, not records: they get a plain round portrait. */
 		rounded = false,
 		transitionId = null,
-		onplay = null
+		onplay = null,
+		detail
 	}: {
 		href: string;
 		title: string;
 		subtitle?: string | null;
+		/** Under the title and subtitle, for what a shelf of its own says of each album. */
+		detail?: Snippet;
 		coverArt: string | null | undefined;
 		rounded?: boolean;
 		/** Album id, if this card should carry its sleeve into the next page. */
@@ -148,6 +152,7 @@
 		{#if subtitle}
 			<span class="subtitle hh-truncate hh-muted">{subtitle}</span>
 		{/if}
+		{@render detail?.()}
 	</div>
 </a>
 
