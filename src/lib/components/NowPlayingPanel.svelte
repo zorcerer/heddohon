@@ -52,6 +52,7 @@
 	import QualityBadge from './QualityBadge.svelte';
 	import RatingStars from './RatingStars.svelte';
 	import { remote } from '$lib/client/remote.svelte';
+	import { together } from '$lib/client/together.svelte';
 	import Seekbar from './Seekbar.svelte';
 
 	let { showQualityBadge = true }: { showQualityBadge?: boolean } = $props();
@@ -431,6 +432,14 @@
 				{:else}
 					<h2 class="title">Nothing playing</h2>
 					<p class="album hh-muted">Pick something from your library</p>
+				{/if}
+				<!-- While this browser hosts listening together: who is with it, and
+				     the way back to the link. -->
+				{#if together.party}
+					<button class="live" onclick={() => (together.open = true)} title="Listening together">
+						<span class="dot" aria-hidden="true"></span>
+						Live · {together.listeners === 0 ? 'nobody yet' : `${together.listeners} listening`}
+					</button>
 				{/if}
 			</div>
 
@@ -1285,6 +1294,32 @@
 	.round :global(button:hover) {
 		color: var(--glow-color);
 		filter: var(--glow-icon);
+	}
+
+	/* ── Listening together ──────────────────────────────────────────── */
+
+	.live {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.4rem;
+		margin-top: var(--space-2);
+		padding: 0.2rem 0.6rem;
+		border-radius: var(--r-pill);
+		border: 1px solid var(--border-strong);
+		font-size: 0.75rem;
+		font-weight: 600;
+		color: var(--text-strong);
+	}
+
+	.live:hover {
+		color: var(--glow-color);
+	}
+
+	.live .dot {
+		width: 0.45rem;
+		height: 0.45rem;
+		border-radius: 50%;
+		background: var(--danger);
 	}
 
 	/* ── Track details ───────────────────────────────────────────────── */

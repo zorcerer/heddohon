@@ -9,7 +9,9 @@
 	 * the accent fills when chosen, one primary button, and the same sweep along
 	 * its bottom edge while the server answers.
 	 */
+	import { page } from '$app/state';
 	import { shareComposer, SHARE_LIFETIMES } from '$lib/client/share.svelte';
+	import { together } from '$lib/client/together.svelte';
 	import Cover from './Cover.svelte';
 	import Icon from './Icon.svelte';
 
@@ -120,6 +122,31 @@
 						{shareComposer.busy ? 'Making the link…' : 'Create link'}
 					</button>
 				</form>
+
+				{#if page.data.together}
+					<!-- Live rather than a thing to keep: what this browser plays, as it
+					     plays it, for as long as the party lasts. -->
+					<div class="together">
+						<p class="hh-muted note">
+							<strong>Or listen together.</strong> A live link: whoever opens it hears what you play, as you
+							play it.
+						</p>
+						<button
+							class="hh-button"
+							type="button"
+							disabled={together.busy}
+							onclick={async () => {
+								shareComposer.close();
+								if (together.party) together.open = true;
+								else await together.start();
+							}}
+						>
+							<Icon name="radio" size={16} />
+							{together.party ? 'Show the listen-together link' : 'Listen together'}
+						</button>
+						{#if together.error}<p class="alert" role="alert">{together.error}</p>{/if}
+					</div>
+				{/if}
 			{:else}
 				<div class="made">
 					<label class="field">
@@ -416,6 +443,28 @@
 
 	.submit {
 		padding: 0.7rem 1rem;
+		border-radius: var(--r-md);
+		gap: var(--space-2);
+	}
+
+	.together {
+		display: grid;
+		gap: var(--space-2);
+		padding-top: var(--space-4);
+		border-top: 1px solid var(--border-hairline);
+	}
+
+	.together .note {
+		margin: 0;
+	}
+
+	.together .note strong {
+		color: var(--text-strong);
+	}
+
+	.together .hh-button {
+		justify-self: start;
+		padding: 0.55rem 1rem;
 		border-radius: var(--r-md);
 		gap: var(--space-2);
 	}
