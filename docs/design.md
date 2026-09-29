@@ -251,6 +251,17 @@ Pages are laid out like a printed catalogue rather than a dashboard.
   the window's; on a phone it is 15rem tall, where the earlier cover-beside-
   text panel stacked to 470px of an iPhone's 844. The artist page uses the
   same panel for its latest release, beside its most played tracks.
+- **The two shelves from the listening history have a form of their own**,
+  so they do not read as two more lines of albums. "On this day" is an
+  almanac: a page of a day-to-a-page calendar, the size of a cover, with the
+  day at poster scale, then a timeline ruled along the top of the line with a
+  mark for each earlier year ("2025 · A year ago") over that year's albums.
+  Only the mark for today takes the accent. "Rediscover" is the stacks of a
+  library: the covers faded (85 percent grey with a little sepia) as if left
+  on a shelf in the sun, back in colour as the sleeve lifts under the
+  pointer, and under each a date-due slip with when it was last played and
+  how many plays. The fade is a filter on the cover, which holds no glass;
+  on a touch screen, where nothing lifts, it is 45 percent.
 - **The artists page is an A to Z**: each initial set large in the margin
   beside its group, held there while the group scrolls. A leading article is
   skipped for the initial, as the music servers skip it when sorting. The

@@ -334,3 +334,144 @@ export async function listeningStats(accountId: string, from: number): Promise<L
 		hours: hours.map((row) => [Math.floor(Number(row.hour)), Number(row.plays)])
 	};
 }
+
+/** An album played on this date in an earlier year, for the home page. */
+export interface RememberedAlbum {
+	id: string;
+	name: string;
+	artist: string | null;
+	coverArt: string | null;
+	/** The latest earlier year it was played on this date. */
+	year: number;
+	/** Its plays on this date, over every earlier year. */
+	plays: number;
+}
+
+/** A calendar date: the month from 0, as `Date` numbers it. */
+export interface CalendarDate {
+	year: number;
+	month: number;
+	day: number;
+}
+
+/**
+ * Albums played on `date` in the years before it, the most recent year first
+ * and within a year the most played, for the "On this day" shelf.
+ *
+ * The date is the listener's, and `offsetMinutes` is their time zone's
+ * distance ahead of UTC, both from the browser; the server knows neither. The
+ * offset of today stands for the offset on this date in each earlier year,
+ * which is the same wherever the daylight saving rules have not changed since.
+ * A year in which the date does not fall (29 February) is skipped.
+ *
+ * One range read of the account's index a year. Measured with SQLite on
+ * 250,000 plays over five years (about 140 a day): 1ms for the five, where
+ * one query with the five ranges joined by OR read the account's plays in
+ * order and took 23ms.
+ */
+export async function onThisDay(accountId: string, date: CalendarDate, offsetMinutes: number, limit: number): Promise<RememberedAlbum[]> {
+	const database = await store();
+	const first = await database.get<{ at: number | null }>('SELECT MIN(played_at) AS at FROM plays WHERE account_id = ?', accountId);
+	if (first?.at == null) return [];
+	const years: number[] = [];
+	// From the year before the first play's in UTC, where it is still the
+	// year before in a time zone behind UTC.
+	for (let year = new Date(Number(first.at)).getUTCFullYear() - 1; year < date.year; year++) {
+		if (new Date(Date.UTC(year, date.month, date.day)).getUTCDate() === date.day) years.push(year);
+	}
+	const byYear = await Promise.all(
+		years.map((year) => {
+			const midnight = Date.UTC(year, date.month, date.day) - offsetMinutes * 60 * 1000;
+			return database.all<{ id: string; name: string | null; artist: string | null; cover: string | null; plays: number }>(
+				`SELECT album_id AS id, MAX(album) AS name, MAX(artist) AS artist, MAX(cover_art) AS cover, COUNT(*) AS plays
+				 FROM plays WHERE account_id = ? AND played_at >= ? AND played_at < ? AND album_id IS NOT NULL
+				 GROUP BY album_id`,
+				accountId,
+				midnight,
+				midnight + DAY_MS
+			);
+		})
+	);
+	const albums = new Map<string, RememberedAlbum>();
+	byYear.forEach((rows, i) => {
+		for (const row of rows) {
+			const album = albums.get(row.id);
+			// Years are read oldest first, so a later one replaces the year.
+			if (album) {
+				album.year = years[i];
+				album.plays += Number(row.plays);
+			} else {
+				albums.set(row.id, {
+					id: row.id,
+					name: row.name ?? 'Unknown album',
+					artist: row.artist,
+					coverArt: row.cover,
+					year: years[i],
+					plays: Number(row.plays)
+				});
+			}
+		}
+	});
+	return [...albums.values()].sort((a, b) => b.year - a.year || b.plays - a.plays).slice(0, limit);
+}
+
+export interface ForgottenAlbum {
+	id: string;
+	name: string;
+	artist: string | null;
+	coverArt: string | null;
+	plays: number;
+	/** Epoch millis of the album's latest play. */
+	lastPlayed: number;
+}
+
+/** How long an album has gone unplayed before "Rediscover" offers it. */
+export const REDISCOVER_AFTER_DAYS = 180;
+
+/**
+ * Plays an album needs to count as played often. An imported history has one
+ * play per track, so this is also three tracks of an album played once each.
+ */
+const REDISCOVER_MIN_PLAYS = 3;
+
+/**
+ * Albums the account played often and has not played for
+ * `REDISCOVER_AFTER_DAYS`, most played first, for the "Rediscover" shelf.
+ * An account that keeps 90 days of history has none.
+ *
+ * In two steps: the albums from `plays_album_idx` alone, then the name, artist
+ * and cover of each from its latest play. Measured with SQLite on 250,000
+ * plays of 3000 albums: 22ms, where one query that grouped the rows
+ * themselves took 330ms, and better-sqlite3 holds the event loop for that
+ * long on every load of the home page.
+ */
+export async function forgottenAlbums(accountId: string, limit: number, now = Date.now()): Promise<ForgottenAlbum[]> {
+	const database = await store();
+	const albums = await database.all<{ id: string; plays: number; last: number }>(
+		`SELECT album_id AS id, COUNT(*) AS plays, MAX(played_at) AS last
+		 FROM plays WHERE account_id = ? AND album_id IS NOT NULL
+		 GROUP BY album_id HAVING MAX(played_at) < ? AND COUNT(*) >= ${REDISCOVER_MIN_PLAYS}
+		 ORDER BY COUNT(*) DESC, album_id LIMIT ?`,
+		accountId,
+		now - REDISCOVER_AFTER_DAYS * DAY_MS,
+		limit
+	);
+	return Promise.all(
+		albums.map(async (album) => {
+			const latest = await database.get<{ name: string | null; artist: string | null; cover: string | null }>(
+				`SELECT album AS name, artist, cover_art AS cover FROM plays
+				 WHERE account_id = ? AND album_id = ? ORDER BY played_at DESC LIMIT 1`,
+				accountId,
+				album.id
+			);
+			return {
+				id: album.id,
+				name: latest?.name ?? 'Unknown album',
+				artist: latest?.artist ?? null,
+				coverArt: latest?.cover ?? null,
+				plays: Number(album.plays),
+				lastPlayed: Number(album.last)
+			};
+		})
+	);
+}

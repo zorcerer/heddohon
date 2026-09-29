@@ -603,6 +603,7 @@ Covers are cached under `$HEDDOHON_DATA_DIR/covers` (see
 | Listen-together reaction | one of five emoji, one a second per listener |
 | Genre id in a path | 200 characters; on Jellyfin a GUID, since `GenreIds` takes a list |
 | Cover size | one of ten, 64 to 1536 |
+| "On this day" date and time zone | a real `YYYY-MM-DD` within a year of the server's; an offset of -720 to 840 minutes |
 | Transcode codec | `mp3`, `opus`, `aac` |
 | Transcode bitrate | 96, 128, 192, 256, 320 kbps |
 | ListenBrainz token | 1 to 128 of `A-Z a-z 0-9 -` (ListenBrainz issues 36) |
