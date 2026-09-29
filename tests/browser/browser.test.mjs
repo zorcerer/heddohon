@@ -1360,7 +1360,10 @@ describe('shelves', () => {
 
 			await on.click();
 			await page.waitForFunction((el) => el.scrollLeft > 200, await track.elementHandle(), { timeout: 3000 });
-			assert.ok(!(await back.isDisabled()), 'back is not offered once it has moved');
+			// The button follows the shelf's scroll event, which can land after the
+			// position above is read. Read at once, it failed CI three times on
+			// 2026-09-28 and 29.
+			await page.waitForFunction((button) => !button.disabled, await back.elementHandle(), { timeout: 3000 });
 		} finally {
 			await page.close();
 		}
