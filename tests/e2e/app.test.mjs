@@ -211,6 +211,10 @@ describe('settings', () => {
 		// Saving reads every field, so the hidden groups' fields are still sent.
 		assert.match(storage, /name="transcodeBitrateKbps"/);
 
+		const history = (await user.page('/settings?tab=history')).html;
+		assert.doesNotMatch(section(history, 'Listening history'), /hidden/);
+		assert.match(section(history, 'Cover cache'), /hidden/);
+
 		const back = (await user.page('/settings?lastfm=linked')).html;
 		assert.doesNotMatch(section(back, 'Session &amp; security'), /hidden/, 'the way back from last.fm opens on Account');
 		assert.match(section(back, 'Appearance'), /hidden/);
@@ -1025,6 +1029,68 @@ describe('listening history', () => {
 		await client.signIn({ username: 'jfuser', password: 'jfpass', backend: 'jellyfin' });
 		await play(client, 't2');
 		assert.deepEqual(titles((await client.page('/history')).html), ['Track 2']);
+	});
+
+	/** Runs the import as the enhanced form does, and returns what the action answered. */
+	async function importHistory(client) {
+		const response = await client.request('/settings?/importHistory', {
+			method: 'POST',
+			headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json', 'x-sveltekit-action': 'true' },
+			body: ''
+		});
+		const result = await response.json();
+		// Serialised with devalue: the first entry maps each key to its value's index.
+		const data = JSON.parse(result.data);
+		const imported = data[data[0].historyImported];
+		return { type: result.type, found: data[imported.found], imported: data[imported.imported] };
+	}
+	const daysAgo = (days) => new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+
+	test('the last play of each song comes in from Navidrome once, beside the plays already here', async () => {
+		await asFreshAccount('importer', async (client) => {
+			await client.json('/api/settings', 'PATCH', { reportPlayback: false });
+			await play(client, 's3a');
+			// s3a's date is the play above, as Navidrome records the scrobble.
+			subsonic.state.played.set('s3a', new Date().toISOString());
+			subsonic.state.played.set('s4b', daysAgo(30));
+			subsonic.state.played.set('s5a', daysAgo(400));
+			try {
+				const first = await importHistory(client);
+				assert.equal(first.type, 'success', explain('the import failed'));
+				assert.deepEqual([first.found, first.imported], [3, 2]);
+				assert.equal(subsonic.calls.get('search3'), 2, 'the library was not read to its end, 500 songs a page');
+				assert.deepEqual(titles((await client.page('/history')).html), ['Song 3a', 'Song 4b', 'Song 5a']);
+				assert.match((await client.page('/stats?period=all')).html, /Artist 0005/, 'the stats did not count an imported play');
+
+				const again = await importHistory(client);
+				assert.deepEqual([again.found, again.imported], [3, 0], 'a second import added plays again');
+
+				// Kept for 90 days, a play older than that is not brought in.
+				await client.json('/api/settings', 'PATCH', { historyDays: 90 });
+				await client.request('/settings?/clearHistory', {
+					method: 'POST',
+					headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json', 'x-sveltekit-action': 'true' },
+					body: ''
+				});
+				assert.equal((await importHistory(client)).imported, 2);
+				assert.deepEqual(titles((await client.page('/history')).html), ['Song 3a', 'Song 4b']);
+			} finally {
+				subsonic.state.played.clear();
+			}
+		});
+	});
+
+	test('the last play of each song comes in from Jellyfin', async () => {
+		jellyfin.state.played = [{ Id: 't3', AlbumId: 'b2', PlayCount: 2, LastPlayedDate: daysAgo(3).replace('Z', '0000Z') }];
+		try {
+			const client = new Client(app.url);
+			await client.signIn({ username: 'jfuser', password: 'jfpass', backend: 'jellyfin' });
+			const result = await importHistory(client);
+			assert.deepEqual([result.found, result.imported], [1, 1]);
+			assert.equal(titles((await client.page('/history')).html).at(-1), 'Track 3');
+		} finally {
+			jellyfin.state.played = [];
+		}
 	});
 });
 

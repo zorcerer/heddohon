@@ -402,6 +402,9 @@ type PlayedSort = 'recentlyPlayed' | 'mostPlayed';
  */
 const PLAYED_SONGS_READ = 2000;
 
+/** Songs a page of `getPlayedSongs` reads. */
+const PLAYED_PAGE = 1000;
+
 /**
  * Album ids in order of the latest play of any of their songs, or of the plays
  * of all their songs added up, most first.
@@ -1197,6 +1200,31 @@ export const jellyfinBackend: MediaBackend = {
 					? '/Sessions/Playing/Progress'
 					: '/Sessions/Playing/Stopped';
 		await post(cred, path, payload);
+	},
+
+	async getPlayedSongs(cred) {
+		const { userId } = creds(cred);
+		const played: { song: Song; playedAt: number }[] = [];
+		// A page at a time, to the end: the whole set is what the import wants.
+		for (let start = 0; ; start += PLAYED_PAGE) {
+			const body = await call<ItemsResponse>(cred, '/Items', {
+				userId,
+				IncludeItemTypes: 'Audio',
+				Recursive: 'true',
+				Filters: 'IsPlayed',
+				SortBy: 'DatePlayed',
+				SortOrder: 'Descending',
+				Fields: SONG_FIELDS,
+				StartIndex: start,
+				Limit: PLAYED_PAGE
+			});
+			const items = body.Items ?? [];
+			for (const item of items) {
+				const at = Date.parse(item.UserData?.LastPlayedDate ?? '');
+				if (item.Type === 'Audio' && Number.isFinite(at)) played.push({ song: toSong(item), playedAt: at });
+			}
+			if (items.length < PLAYED_PAGE) return played;
+		}
 	},
 
 	async openStream(cred, songId, req: StreamRequest, transcode): Promise<UpstreamResponse> {

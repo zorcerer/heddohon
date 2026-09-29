@@ -8,7 +8,7 @@ import { backendFor, UpstreamError, type ScrobblerService } from '$lib/server/ba
 import { linkStateDigest } from '$lib/server/crypto';
 import { log, reason } from '$lib/server/log';
 import { describeShares, revokeAllShares, revokeShare } from '$lib/server/shares';
-import { clearHistory, recentPlays } from '$lib/server/history';
+import { clearHistory, importPlays, recentPlays } from '$lib/server/history';
 
 /**
  * A ListenBrainz user token as ListenBrainz issues it: a UUID, 36 characters.
@@ -259,5 +259,31 @@ export const actions: Actions = {
 		if (!locals.session) return fail(401, { error: 'Not signed in' });
 		await clearHistory(locals.session.account.id);
 		return { historyCleared: true };
+	},
+
+	/**
+	 * Brings the music server's last play of each song into the history, once.
+	 * See `importPlays` for what is skipped. The read walks the whole library
+	 * on Navidrome, 500 songs a request.
+	 */
+	importHistory: async ({ locals }) => {
+		const session = locals.session;
+		if (!session) return fail(401, { error: 'Not signed in' });
+		const backend = backendFor(session.account.backend);
+		const { historyDays } = await getSettings(session.account.id);
+		let result;
+		try {
+			result = await importPlays(session.account.id, () => backend.getPlayedSongs(session.credential), historyDays);
+		} catch (err) {
+			if (err instanceof UpstreamError && err.kind === 'auth') {
+				await destroyAllSessions(session.account.id);
+				return fail(401, { historyImportError: 'Your music server credentials are no longer valid. Sign in again.' });
+			}
+			log.warn('history-import-failed', { detail: reason(err) });
+			return fail(502, { historyImportError: 'The music server did not answer. Try again.' });
+		}
+		if (!result) return fail(409, { historyImportError: 'An import is already running for this account.' });
+		log.info('history-imported', { found: result.found, imported: result.imported });
+		return { historyImported: result };
 	}
 };
