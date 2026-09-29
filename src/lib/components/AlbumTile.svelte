@@ -78,15 +78,30 @@
 	}
 
 	.thumb {
+		position: relative;
 		display: block;
-		transition:
-			translate var(--dur-state) var(--ease-spring),
-			filter var(--dur-state) var(--ease-out);
+		transition: translate var(--dur-state) var(--ease-spring);
+	}
+
+	/* The glow under the lifted cover, faded by opacity: a `drop-shadow` filter
+	   transitioned from `none` snapped on in Chromium (see MediaCard). */
+	.thumb::before {
+		content: '';
+		position: absolute;
+		inset: 0;
+		border-radius: var(--r-sm);
+		box-shadow: 0 0.4rem 0.8rem color-mix(in srgb, var(--accent) 38%, transparent);
+		opacity: 0;
+		transition: opacity var(--dur-state) var(--ease-out);
+		pointer-events: none;
 	}
 
 	.tile:hover .thumb {
 		translate: 0 -2px;
-		filter: drop-shadow(0 0.4rem 0.8rem color-mix(in srgb, var(--accent) 38%, transparent));
+	}
+
+	.tile:hover .thumb::before {
+		opacity: 1;
 	}
 
 	.text {

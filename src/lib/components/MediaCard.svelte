@@ -174,8 +174,38 @@
 		position: relative;
 		transition:
 			transform var(--dur-state) var(--ease-spring),
-			scale var(--dur-state) var(--ease-spring),
-			filter var(--dur-state) var(--ease-out);
+			scale var(--dur-state) var(--ease-spring);
+	}
+
+	/*
+	 * The glow under a lifted cover: a shadow of its own, faded in and out by
+	 * opacity, under the cover, which is positioned and comes after it.
+	 *
+	 * It was a `drop-shadow` filter on `.art`, transitioned from `none`. Measured
+	 * in Chromium on 29 September 2026, that drew no shadow for the length of
+	 * the 340ms transition and then all of it (brightness under the cover 42,
+	 * then 65 in one frame), so the glow snapped on as the lift ended. The same
+	 * filter at zero at rest did fade, but settled at 81 where the shadow drawn
+	 * without a transition is 65. The filter also shaded the sleeve's own drop
+	 * below it; 57% here, against its 38%, settles at 64.
+	 */
+	.art::before {
+		content: '';
+		position: absolute;
+		inset: 0;
+		border-radius: var(--r-md);
+		box-shadow: 0 0.75rem 1.5rem color-mix(in srgb, var(--accent) 57%, transparent);
+		opacity: 0;
+		transition: opacity var(--dur-state) var(--ease-out);
+		pointer-events: none;
+	}
+
+	.portrait .art::before {
+		border-radius: 50%;
+	}
+
+	.card:hover .art::before {
+		opacity: 1;
 	}
 
 	/* Pressed, the sleeve gives a little under the pointer before the launch
@@ -196,7 +226,6 @@
 	.card:hover .art {
 		transform: perspective(40rem) rotateY(calc(var(--tilt-x, 0) * 1deg)) rotateX(calc(var(--tilt-y, 0) * 1deg))
 			translateY(-0.25rem);
-		filter: drop-shadow(0 0.75rem 1.5rem color-mix(in srgb, var(--accent) 38%, transparent));
 	}
 
 	/*
@@ -204,8 +233,8 @@
 	 * a shade in the page's grey below it, in place of the coloured glow, which
 	 * on a pale ground read as a stain. See "Sleek finish" in app.css.
 	 */
-	:global([data-theme='light']) .card:hover .art {
-		filter: drop-shadow(0 0.6rem 0.9rem rgb(54 64 80 / 0.2));
+	:global([data-theme='light']) .art::before {
+		box-shadow: 0 0.6rem 0.9rem rgb(54 64 80 / 0.2);
 	}
 
 	:global([data-theme='light']) .card:hover .art :global(.cover) {

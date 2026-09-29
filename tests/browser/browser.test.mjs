@@ -1370,7 +1370,12 @@ describe('presses, cards and arriving at an album', () => {
 			await page.goto(app.url + '/albums', { waitUntil: 'networkidle' });
 			const card = page.locator('a.card:has(button.play)').first();
 			await card.hover();
-			await page.waitForTimeout(450);
+			// Part of the way in: the glow fades, where a `drop-shadow` transitioned
+			// from `none` drew nothing until it ended and then all of it.
+			await page.waitForTimeout(100);
+			const early = Number(await card.evaluate((el) => getComputedStyle(el.querySelector('.art'), '::before').opacity));
+			assert.ok(early > 0 && early < 1, `glow at ${early} after 100ms`);
+			await page.waitForTimeout(350);
 			const state = await card.evaluate((el) => {
 				const play = el.querySelector('button.play');
 				const shine = getComputedStyle(el.querySelector('.cover'), '::after');
@@ -1378,13 +1383,13 @@ describe('presses, cards and arriving at an album', () => {
 					play: getComputedStyle(play).opacity,
 					clicks: getComputedStyle(play).pointerEvents,
 					shine: shine.translate,
-					glow: getComputedStyle(el.querySelector('.art')).filter
+					glow: getComputedStyle(el.querySelector('.art'), '::before').opacity
 				};
 			});
 			assert.equal(state.play, '0', 'the play button showed on hover');
 			assert.equal(state.clicks, 'none');
 			assert.notEqual(state.shine, '-130% 0px', 'the light did not cross the cover');
-			assert.match(state.glow, /drop-shadow/);
+			assert.equal(state.glow, '1');
 		} finally {
 			await page.close();
 		}
