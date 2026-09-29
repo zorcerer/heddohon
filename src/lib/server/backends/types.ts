@@ -172,6 +172,14 @@ export interface MediaBackend {
 	getArtistAlbums(cred: StoredCredential, artistId: string): Promise<Album[]>;
 
 	/**
+	 * Albums the artist is on without being credited for them: a guest on one
+	 * track, a song on a compilation. May include albums of the artist's own,
+	 * which the caller leaves out (`details.ts`); a plain Subsonic server does
+	 * not say who an album is by from its tracks.
+	 */
+	getAppearsOn(cred: StoredCredential, artistId: string, artistName: string): Promise<Album[]>;
+
+	/**
 	 * Artists the music server suggests alongside this one.
 	 *
 	 * Both servers answer this from their own metadata and neither computes it
@@ -274,6 +282,20 @@ export interface MediaBackend {
 	movePlaylistEntry(cred: StoredCredential, id: string, move: PlaylistMove): Promise<void>;
 	deletePlaylist(cred: StoredCredential, id: string): Promise<void>;
 	reportPlayback(cred: StoredCredential, report: PlaybackReport): Promise<void>;
+
+	/**
+	 * Every song the account has played, each with the time of its last play,
+	 * for a one-time import into the history (`history.ts`).
+	 *
+	 * Neither server keeps a log of plays: each keeps a count and the last
+	 * date per song, so earlier plays have no time to import. Jellyfin: songs
+	 * with `Filters=IsPlayed` and `UserData.LastPlayedDate`, a page at a time.
+	 * Subsonic: every song through `search3` with an empty query, which
+	 * Navidrome answers with the whole library for syncing clients, keeping
+	 * those with OpenSubsonic's `played`. A server that answers the empty
+	 * query with nothing, or leaves `played` out, returns an empty list.
+	 */
+	getPlayedSongs(cred: StoredCredential): Promise<{ song: Song; playedAt: number }[]>;
 
 	/** Byte-exact original file. Never transcoded. */
 	openStream(

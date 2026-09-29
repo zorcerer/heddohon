@@ -113,10 +113,17 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 		ratings: new Map(),
 		/** Synced lyrics by song id, as `[{ start, value }]` in milliseconds, for `getLyricsBySongId`. */
 		lyrics: new Map(),
+		/**
+		 * Last plays by song id, as ISO dates, which `search3` with an empty query
+		 * reports in OpenSubsonic's `played`, as Navidrome does.
+		 */
+		played: new Map(),
 		/** Song and album ids that answer `getSong` or `getAlbum` with error 70, as a deleted one does. */
 		missing: new Set(),
 		/** Milliseconds to hold an endpoint's answer, by method name. */
 		delays: new Map(),
+		/** Methods answered with headers and the start of a body that never ends. */
+		stalled: new Set(),
 		/**
 		 * What `stream` answers with, as `{ type, body }`. The default is 1000
 		 * bytes no browser can decode, which is all the HTTP suite needs.
@@ -328,6 +335,37 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 				const songs = Array.from({ length: state.similarAlbums }, (_, k) => song((from + k + 1) % artistCount, 'a'));
 				return send(ok({ similarSongs2: songs.length > 0 ? { song: songs } : {} }));
 			}
+			// A search for an artist's name: their own track, a track of theirs on
+			// the next artist's album as a guest (OpenSubsonic `artists`), and a track
+			// that matched on its title alone. Anything else finds nothing.
+			case 'search3': {
+				// The whole library, a page at a time, as Navidrome answers syncing
+				// clients, with `played` on the songs `state.played` holds.
+				if (p.get('query') === '') {
+					const all = Array.from({ length: artistCount * 2 }, (_, k) => song(k >> 1, k % 2 ? 'b' : 'a'));
+					const offset = Number(p.get('songOffset') ?? 0);
+					const page = all
+						.slice(offset, offset + Number(p.get('songCount') ?? 20))
+						.map((entry) => (state.played.has(entry.id) ? { ...entry, played: state.played.get(entry.id) } : entry));
+					return send(ok({ searchResult3: page.length > 0 ? { song: page } : {} }));
+				}
+				const match = /^Artist (\d{4})$/.exec(p.get('query') ?? '');
+				if (!match) return send(ok({}));
+				const i = Number(match[1]);
+				const host = (i + 1) % artistCount;
+				const guest = {
+					...song(host, 'b'),
+					artists: [
+						{ id: `ar${host}`, name: name(host) },
+						{ id: `ar${i}`, name: name(i) }
+					],
+					albumArtists: [{ id: `ar${host}`, name: name(host) }],
+					displayAlbumArtist: name(host),
+					year: 2020
+				};
+				const own = { ...song(i, 'a'), albumArtists: [{ id: `ar${i}`, name: name(i) }] };
+				return send(ok({ searchResult3: { song: [own, guest, song((i + 2) % artistCount, 'a')] } }));
+			}
 			case 'getTopSongs':
 				if (p.get('artist') !== name(0)) return send(ok({ topSongs: {} }));
 				return send(ok({ topSongs: { song: [song(0, 'a'), song(0, 'b'), song(1, 'a'), song(2, 'a')] } }));
@@ -484,6 +522,11 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 		let form = '';
 		req.on('data', (chunk) => (form += chunk));
 		req.on('end', () => {
+			if (state.stalled.has(method)) {
+				res.writeHead(200, { 'content-type': 'application/json' });
+				res.write('{"subsonic-response":');
+				return;
+			}
 			const delay = state.delays.get(method) ?? 0;
 			if (delay > 0) setTimeout(() => respond(req, res, form), delay);
 			else respond(req, res, form);
@@ -594,6 +637,10 @@ export async function startJellyfin() {
 			const pool = { Audio: tracks, MusicAlbum: albums, MusicArtist: artists }[types] ?? [];
 			return send({ Items: pool.filter((entry) => state.favourites.has(entry.Id)) });
 		}
+		// The tracks an artist is on: Guest Singer sings on one of Artist B's.
+		if (url.pathname === '/Items' && types === 'Audio' && url.searchParams.get('ArtistIds') === 'g1') {
+			return send({ Items: [{ ...tracks[1], ArtistItems: [...tracks[1].ArtistItems, { Id: 'g1', Name: 'Guest Singer' }] }] });
+		}
 		// An album's tracks, as the album page asks for them.
 		if (url.pathname === '/Items' && types === 'Audio' && url.searchParams.get('ParentId')) {
 			return send({ Items: tracks.filter((track) => track.AlbumId === url.searchParams.get('ParentId')) });
@@ -615,7 +662,13 @@ export async function startJellyfin() {
 		if (url.pathname === '/Items' && types === 'Audio' && url.searchParams.get('Filters') === 'IsPlayed') {
 			const key = url.searchParams.get('SortBy') === 'PlayCount' ? 'PlayCount' : 'LastPlayedDate';
 			const items = state.played
-				.map(({ Id, AlbumId, PlayCount, LastPlayedDate }) => ({ Id, Type: 'Audio', AlbumId, UserData: { PlayCount, LastPlayedDate, Played: true } }))
+				.map(({ Id, AlbumId, PlayCount, LastPlayedDate }) => ({
+					...tracks.find((track) => track.Id === Id),
+					Id,
+					Type: 'Audio',
+					AlbumId,
+					UserData: { PlayCount, LastPlayedDate, Played: true }
+				}))
 				.sort((a, b) => (a.UserData[key] < b.UserData[key] ? 1 : a.UserData[key] > b.UserData[key] ? -1 : 0));
 			return send({ Items: items });
 		}

@@ -42,6 +42,18 @@ export function albumsByArtist({ backend, credential, accountId }: LibraryContex
 }
 
 /**
+ * Albums by others that the artist is on, newest first, without the artist's
+ * own releases. Held like the rest, so Back to the artist does not search again.
+ */
+export function appearsOn({ backend, credential, accountId }: LibraryContext, artist: ArtistDetail): Promise<Album[]> {
+	return details.get({ accountId, credential }, `appears\u0000${artist.id}`, async () => {
+		const own = new Set(artist.albums.map((album) => album.id));
+		const albums = await backend.getAppearsOn(credential, artist.id, artist.name);
+		return albums.filter((album) => !own.has(album.id)).sort((a, b) => (b.year ?? 0) - (a.year ?? 0));
+	});
+}
+
+/**
  * A folder and what is in it, the top as `null`. Held so that "Play" on a
  * folder page, and Back to a folder, do not read it again; on Subsonic a folder
  * is a call for each level above it as well as its own.

@@ -158,6 +158,16 @@ describe('settings', () => {
 		assert.ok(!html.includes('<script>alert(1)'));
 	});
 
+	test('crossfading within an album is off until it is asked for, and takes only a boolean', async () => {
+		const before = await (await user.json('/api/settings', 'PATCH', {})).json();
+		assert.equal(before.crossfadeWithinAlbum, false);
+		const on = await (await user.json('/api/settings', 'PATCH', { crossfadeWithinAlbum: true })).json();
+		assert.equal(on.crossfadeWithinAlbum, true);
+		const bogus = await (await user.json('/api/settings', 'PATCH', { crossfadeWithinAlbum: 'yes' })).json();
+		assert.equal(bogus.crossfadeWithinAlbum, true, 'a value that is not a boolean keeps the one stored');
+		await user.json('/api/settings', 'PATCH', { crossfadeWithinAlbum: false });
+	});
+
 	test('a saved theme is in the first byte of HTML', async () => {
 		await user.json('/api/settings', 'PATCH', { theme: 'light' });
 		const { html } = await user.page('/albums');
@@ -200,6 +210,10 @@ describe('settings', () => {
 		assert.match(section(storage, 'Appearance'), /hidden/);
 		// Saving reads every field, so the hidden groups' fields are still sent.
 		assert.match(storage, /name="transcodeBitrateKbps"/);
+
+		const history = (await user.page('/settings?tab=history')).html;
+		assert.doesNotMatch(section(history, 'Listening history'), /hidden/);
+		assert.match(section(history, 'Cover cache'), /hidden/);
 
 		const back = (await user.page('/settings?lastfm=linked')).html;
 		assert.doesNotMatch(section(back, 'Session &amp; security'), /hidden/, 'the way back from last.fm opens on Account');
@@ -253,6 +267,20 @@ describe('artists', () => {
 		assert.equal(subsonic.calls.get('getArtists'), 1);
 		subsonic.state.username = 'testuser';
 		subsonic.state.password = 'testpass';
+	});
+});
+
+describe('the home page', () => {
+	// As an account of its own: the home page reads the starred set, which the
+	// favourites tests count the reads of for the shared one.
+	test('the latest addition names the album without its year', async () => {
+		await asFreshAccount('home', async (client) => {
+			const { html } = await client.page('/');
+			const featured = /<section class="featured[^"]*">[\s\S]*?<\/section>/.exec(html)?.[0] ?? '';
+			assert.match(featured, /Album 0/, explain('the latest addition is missing'));
+			// Album 0 is from 2000 in the mock.
+			assert.doesNotMatch(featured, /2000/);
+		});
 	});
 });
 
@@ -457,6 +485,24 @@ describe('held album details and suggestions', () => {
 		} finally {
 			subsonic.state.similarAlbums = 0;
 		}
+	});
+});
+
+describe('appears on', () => {
+	test('an artist page lists the albums of others the artist sings on, and nothing matched by title alone', async () => {
+		await asFreshAccount('guestlist', async (client) => {
+			const { html } = await client.page('/artists/ar1');
+			// Streamed, so the albums arrive as data rather than markup.
+			assert.match(html, /Album 2\b/, explain('the album Artist 0001 is a guest on is missing'));
+			assert.doesNotMatch(html, /Album 3\b/, 'an album found by a title match was listed');
+		});
+	});
+
+	test('on Jellyfin, from the tracks the artist is on', async () => {
+		const client = new Client(app.url);
+		await client.signIn({ username: 'jfuser', password: 'jfpass', backend: 'jellyfin' });
+		const { html } = await client.page('/artists/g1');
+		assert.match(html, /"Second"/, explain('Artist B\'s album with the guest track is missing'));
 	});
 });
 
@@ -964,9 +1010,10 @@ describe('listening history', () => {
 		});
 	});
 
-	test('an account keeps at most 5000 plays, the oldest dropped', async () => {
+	test('with 90 days chosen, an account keeps at most 5000 plays, the oldest dropped', async () => {
 		await asFreshAccount('heavy', async (client) => {
-			await client.json('/api/settings', 'PATCH', { reportPlayback: false });
+			// Kept for good by default, which has no limit.
+			await client.json('/api/settings', 'PATCH', { reportPlayback: false, historyDays: 90 });
 			// s0a first, then 5000 more: s0a is the one past the limit.
 			await play(client, 's0a');
 			for (let batch = 0; batch < 100; batch++) {
@@ -978,11 +1025,86 @@ describe('listening history', () => {
 		});
 	});
 
+	test('kept for good, the default, an account keeps plays past 5000', async () => {
+		await asFreshAccount('hoarder', async (client) => {
+			await client.json('/api/settings', 'PATCH', { reportPlayback: false });
+			await play(client, 's0a');
+			for (let batch = 0; batch < 101; batch++) {
+				await Promise.all(Array.from({ length: 50 }, (_, i) => play(client, `s${1 + ((batch * 50 + i) % 30)}b`)));
+			}
+			const last = await client.page('/history?page=51');
+			assert.match(last.html, /5,051 plays/, explain('plays past 5000 were dropped'));
+			assert.ok(titles(last.html).includes('Song 0a'), 'the oldest play was dropped');
+		});
+	});
+
 	test('Jellyfin plays are noted too', async () => {
 		const client = new Client(app.url);
 		await client.signIn({ username: 'jfuser', password: 'jfpass', backend: 'jellyfin' });
 		await play(client, 't2');
 		assert.deepEqual(titles((await client.page('/history')).html), ['Track 2']);
+	});
+
+	/** Runs the import as the enhanced form does, and returns what the action answered. */
+	async function importHistory(client) {
+		const response = await client.request('/settings?/importHistory', {
+			method: 'POST',
+			headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json', 'x-sveltekit-action': 'true' },
+			body: ''
+		});
+		const result = await response.json();
+		// Serialised with devalue: the first entry maps each key to its value's index.
+		const data = JSON.parse(result.data);
+		const imported = data[data[0].historyImported];
+		return { type: result.type, found: data[imported.found], imported: data[imported.imported] };
+	}
+	const daysAgo = (days) => new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+
+	test('the last play of each song comes in from Navidrome once, beside the plays already here', async () => {
+		await asFreshAccount('importer', async (client) => {
+			await client.json('/api/settings', 'PATCH', { reportPlayback: false });
+			await play(client, 's3a');
+			// s3a's date is the play above, as Navidrome records the scrobble.
+			subsonic.state.played.set('s3a', new Date().toISOString());
+			subsonic.state.played.set('s4b', daysAgo(30));
+			subsonic.state.played.set('s5a', daysAgo(400));
+			try {
+				const first = await importHistory(client);
+				assert.equal(first.type, 'success', explain('the import failed'));
+				assert.deepEqual([first.found, first.imported], [3, 2]);
+				assert.equal(subsonic.calls.get('search3'), 2, 'the library was not read to its end, 500 songs a page');
+				assert.deepEqual(titles((await client.page('/history')).html), ['Song 3a', 'Song 4b', 'Song 5a']);
+				assert.match((await client.page('/stats?period=all')).html, /Artist 0005/, 'the stats did not count an imported play');
+
+				const again = await importHistory(client);
+				assert.deepEqual([again.found, again.imported], [3, 0], 'a second import added plays again');
+
+				// Kept for 90 days, a play older than that is not brought in.
+				await client.json('/api/settings', 'PATCH', { historyDays: 90 });
+				await client.request('/settings?/clearHistory', {
+					method: 'POST',
+					headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json', 'x-sveltekit-action': 'true' },
+					body: ''
+				});
+				assert.equal((await importHistory(client)).imported, 2);
+				assert.deepEqual(titles((await client.page('/history')).html), ['Song 3a', 'Song 4b']);
+			} finally {
+				subsonic.state.played.clear();
+			}
+		});
+	});
+
+	test('the last play of each song comes in from Jellyfin', async () => {
+		jellyfin.state.played = [{ Id: 't3', AlbumId: 'b2', PlayCount: 2, LastPlayedDate: daysAgo(3).replace('Z', '0000Z') }];
+		try {
+			const client = new Client(app.url);
+			await client.signIn({ username: 'jfuser', password: 'jfpass', backend: 'jellyfin' });
+			const result = await importHistory(client);
+			assert.deepEqual([result.found, result.imported], [1, 1]);
+			assert.equal(titles((await client.page('/history')).html).at(-1), 'Track 3');
+		} finally {
+			jellyfin.state.played = [];
+		}
 	});
 });
 
@@ -1050,12 +1172,15 @@ describe('your listening', () => {
 		});
 	});
 
-	test('the history is kept 90 days or a year, and nothing else', async () => {
+	test('the history is kept for good unless 90 days or a year is chosen, and nothing else', async () => {
 		await asFreshAccount('keeper', async (client) => {
+			assert.equal((await (await client.json('/api/settings', 'PATCH', {})).json()).historyDays, 0, 'kept for good by default');
+			assert.doesNotMatch((await client.page('/history')).html, /in the last/);
 			assert.equal((await (await client.json('/api/settings', 'PATCH', { historyDays: 365 })).json()).historyDays, 365);
 			assert.equal((await (await client.json('/api/settings', 'PATCH', { historyDays: 100 })).json()).historyDays, 365);
 			assert.equal((await (await client.json('/api/settings', 'PATCH', { historyDays: '90' })).json()).historyDays, 365);
 			assert.match((await client.page('/history')).html, /in the last year/);
+			assert.equal((await (await client.json('/api/settings', 'PATCH', { historyDays: 0 })).json()).historyDays, 0);
 		});
 	});
 
@@ -2144,5 +2269,59 @@ describe('the security review of 2026-09-28', () => {
 			subsonic.state.ignoreRange = false;
 			subsonic.state.streamSlowMs = 0;
 		}
+	});
+});
+
+describe('the security review of 2026-09-29', () => {
+	test('a music server that stalls mid-answer is given up on', async () => {
+		const bounded = await startApp({
+			subsonicUrl: subsonic.url,
+			jellyfinUrl: jellyfin.url,
+			env: { HEDDOHON_UPSTREAM_TIMEOUT_MS: '1000' }
+		});
+		const client = new Client(bounded.url);
+		await client.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' });
+		subsonic.state.stalled.add('getAlbum');
+		try {
+			const started = Date.now();
+			const response = await client.json('/api/tracks', 'POST', { source: 'album', id: 'al1' });
+			assert.equal(response.status, 502, bounded.output());
+			assert.ok(Date.now() - started < 5000, `answered after ${Date.now() - started}ms`);
+		} finally {
+			subsonic.state.stalled.clear();
+			await bounded.stop();
+		}
+	});
+
+	test('sign-in attempts from one IPv6 /64 share one address counter', async () => {
+		const proxied = await startApp({
+			subsonicUrl: subsonic.url,
+			jellyfinUrl: jellyfin.url,
+			env: { ADDRESS_HEADER: 'x-real-ip' }
+		});
+		const attempt = (address, i) =>
+			new Client(proxied.url).request('/login', {
+				method: 'POST',
+				headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'text/html', 'x-real-ip': address },
+				body: new URLSearchParams({ username: `spray${i}`, password: 'wrong', backend: 'subsonic', next: '/' }).toString()
+			});
+		try {
+			for (let i = 0; i < 60; i++) {
+				const response = await attempt(`2001:db8:1:2::${(i + 1).toString(16)}`, i);
+				assert.notEqual(response.status, 429, `attempt ${i + 1} was throttled`);
+			}
+			assert.equal((await attempt('2001:db8:1:2:ffff::1', 60)).status, 429, proxied.output());
+			assert.notEqual((await attempt('2001:db8:1:3::1', 61)).status, 429, 'the next /64 was throttled');
+		} finally {
+			await proxied.stop();
+		}
+	});
+
+	test("SvelteKit's own error page carries a policy", async () => {
+		assert.equal((await user.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' })).status, 303);
+		const response = await user.request('/api/lyrics/zzz', { headers: { accept: 'text/html' } });
+		assert.equal(response.status, 404);
+		assert.match(response.headers.get('content-type') ?? '', /^text\/html/);
+		assert.match(response.headers.get('content-security-policy') ?? '', /default-src 'none'/);
 	});
 });

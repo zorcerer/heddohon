@@ -13,6 +13,7 @@ import {
 	UpstreamError,
 	forwardRequestHeaders,
 	mapLimited,
+	readJson,
 	upstreamFetch,
 	upstreamUrl,
 	type UpstreamParams
@@ -138,8 +139,9 @@ async function call<T extends Record<string, unknown>>(
 
 	let payload: SubsonicEnvelope<T>;
 	try {
-		payload = (await response.json()) as SubsonicEnvelope<T>;
-	} catch {
+		payload = (await readJson(response)) as SubsonicEnvelope<T>;
+	} catch (err) {
+		if (err instanceof UpstreamError) throw err;
 		throw new UpstreamError('Music server returned a response that was not JSON', 502, 'protocol');
 	}
 
@@ -419,6 +421,9 @@ async function libraryIndex(cred: StoredCredential, musicFolderId: string | null
 	};
 }
 
+/** Songs a page of `getPlayedSongs` reads. */
+const PLAYED_PAGE = 500;
+
 const SORT_TO_LIST_TYPE: Record<AlbumQuery['sort'], string> = {
 	recentlyAdded: 'newest',
 	recentlyPlayed: 'recent',
@@ -596,6 +601,53 @@ export const subsonicBackend: MediaBackend = {
 			id: artistId
 		});
 		return asArray(body.artist?.album as Record<string, any>[]).map(toAlbum);
+	},
+
+	/**
+	 * Subsonic has no call for this, so it is a search for the artist's name,
+	 * kept to the songs the artist is on: by `artistId`, or by OpenSubsonic's
+	 * `artists`, which Navidrome fills with every artist of a track ("A feat.
+	 * B"). Each song's album is one entry. `albumArtists`, where the server
+	 * sends it, leaves out the artist's own albums here; elsewhere `details.ts`
+	 * does, from the artist's album list.
+	 *
+	 * The search matches titles as well, and returns at most 500 songs, so an
+	 * artist on more than 500 tracks can be missing an album here.
+	 */
+	async getAppearsOn(cred, artistId, artistName): Promise<Album[]> {
+		const body = await call<{ searchResult3?: Record<string, any> }>(cred, 'search3.view', {
+			query: artistName,
+			songCount: 500,
+			albumCount: 0,
+			artistCount: 0
+		});
+		const albums = new Map<string, Album>();
+		for (const raw of asArray(body.searchResult3?.song as Record<string, any>[])) {
+			const on =
+				String(raw.artistId ?? '') === artistId ||
+				asArray(raw.artists as Record<string, any>[]).some((entry) => String(entry?.id) === artistId);
+			if (!on || !raw.albumId) continue;
+			const albumArtists = asArray(raw.albumArtists as Record<string, any>[]);
+			if (albumArtists.some((entry) => String(entry?.id) === artistId)) continue;
+			const id = String(raw.albumId);
+			if (albums.has(id)) continue;
+			albums.set(id, {
+				id,
+				name: raw.album ?? 'Unknown album',
+				artistId: albumArtists[0]?.id ? String(albumArtists[0].id) : null,
+				artist: raw.displayAlbumArtist ?? albumArtists[0]?.name ?? null,
+				year: yearOf(raw),
+				genre: null,
+				songCount: null,
+				duration: null,
+				coverArt: raw.coverArt ? String(raw.coverArt) : null,
+				starred: false,
+				starredAt: null,
+				rating: null,
+				createdAt: null
+			});
+		}
+		return [...albums.values()];
 	},
 
 	async getSimilarArtists(cred, artistId, limit): Promise<Artist[]> {
@@ -920,6 +972,27 @@ export const subsonicBackend: MediaBackend = {
 			id: report.songId,
 			submission: report.event === 'stop' ? 'true' : 'false'
 		});
+	},
+
+	async getPlayedSongs(cred) {
+		const played: { song: Song; playedAt: number }[] = [];
+		// The whole library a page at a time, since no call lists played songs
+		// alone. 500 is the most Navidrome returns in one page.
+		for (let offset = 0; ; offset += PLAYED_PAGE) {
+			const body = await call<{ searchResult3?: Record<string, any> }>(cred, 'search3.view', {
+				query: '',
+				songCount: PLAYED_PAGE,
+				songOffset: offset,
+				albumCount: 0,
+				artistCount: 0
+			});
+			const songs = asArray(body.searchResult3?.song as Record<string, any>[]);
+			for (const raw of songs) {
+				const at = typeof raw.played === 'string' ? Date.parse(raw.played) : NaN;
+				if (Number.isFinite(at)) played.push({ song: toSong(raw), playedAt: at });
+			}
+			if (songs.length < PLAYED_PAGE) return played;
+		}
 	},
 
 	async openStream(cred, songId, req: StreamRequest, transcode): Promise<UpstreamResponse> {

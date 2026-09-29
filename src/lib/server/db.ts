@@ -365,7 +365,9 @@ async function open(): Promise<Store> {
 		application_name: 'heddohon'
 	});
 	// An idle client the server drops (a restart, a proxy timeout) is reported
-	// here; unhandled, it would+31g.warn('database-connection-lost', { detail: reason(err) }));
+	// here. Without a listener, Node throws an 'error' event nobody handles and
+	// the process exits. The pool opens a new client on the next query.
+	pool.on('error', (err) => log.warn('database-connection-lost', { detail: reason(err) }));
 
 	await pool.query(`CREATE SCHEMA IF NOT EXISTS ${SCHEMA}`);
 	await pool.query(POSTGRES_SCHEMA);

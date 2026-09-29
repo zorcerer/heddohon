@@ -45,15 +45,21 @@ export interface UserSettings {
 	transition: CrossfadeMode;
 	/** Overlap length, 1–12s. Only read when `transition` is `crossfade`. */
 	crossfadeSeconds: number;
+	/**
+	 * Whether a crossfade also overlaps two tracks that follow each other on the
+	 * same album. Off by default: those get the tight handoff, since a live
+	 * album or a mix is written to run from one track into the next.
+	 */
+	crossfadeWithinAlbum: boolean;
 	/** Level each track by its ReplayGain data. Off by default: it changes how loud a record plays. */
 	normalizeVolume: boolean;
 	/** Send now-playing / scrobble events upstream. */
 	reportPlayback: boolean;
 	/**
-	 * How long the listening history is kept, in days: 90, or 365 for a year's
-	 * summary on the stats page. See `history.ts`.
+	 * How long the listening history is kept, in days: 90, 365, or 0 for as
+	 * long as the account exists, the default. See `history.ts`.
 	 */
-	historyDays: 90 | 365;
+	historyDays: 0 | 90 | 365;
 	/**
 	 * The aurora behind the glass: drifting, held still, or not drawn. Moving,
 	 * it is a layer under every glass surface that changes three times a
@@ -103,9 +109,10 @@ export const DEFAULT_SETTINGS: UserSettings = {
 	volume: 0.85,
 	transition: 'gapless',
 	crossfadeSeconds: 4,
+	crossfadeWithinAlbum: false,
 	normalizeVolume: false,
 	reportPlayback: true,
-	historyDays: 90,
+	historyDays: 0,
 	aurora: 'off',
 	showQualityBadge: true,
 	gridSize: 'comfortable',
@@ -157,10 +164,13 @@ export function sanitizeSettings(input: unknown, base: UserSettings = DEFAULT_SE
 		volume: clamp(Number(raw.volume ?? base.volume), 0, 1, base.volume),
 		transition: pick('transition', ['off', 'gapless', 'crossfade'] as const, base.transition),
 		crossfadeSeconds: clamp(Number(raw.crossfadeSeconds ?? base.crossfadeSeconds), 1, 12, base.crossfadeSeconds),
+		crossfadeWithinAlbum:
+			typeof raw.crossfadeWithinAlbum === 'boolean' ? raw.crossfadeWithinAlbum : base.crossfadeWithinAlbum,
 		normalizeVolume: typeof raw.normalizeVolume === 'boolean' ? raw.normalizeVolume : base.normalizeVolume,
 		aurora: pick('aurora', ['moving', 'still', 'off'] as const, base.aurora),
 		reportPlayback: typeof raw.reportPlayback === 'boolean' ? raw.reportPlayback : base.reportPlayback,
-		historyDays: raw.historyDays === 90 || raw.historyDays === 365 ? raw.historyDays : base.historyDays,
+		historyDays:
+			raw.historyDays === 0 || raw.historyDays === 90 || raw.historyDays === 365 ? raw.historyDays : base.historyDays,
 		showQualityBadge:
 			typeof raw.showQualityBadge === 'boolean' ? raw.showQualityBadge : base.showQualityBadge,
 		gridSize: pick('gridSize', ['compact', 'comfortable', 'roomy'] as const, base.gridSize),

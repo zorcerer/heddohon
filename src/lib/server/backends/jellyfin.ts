@@ -10,6 +10,7 @@ import {
 	UpstreamError,
 	assertSafeId,
 	forwardRequestHeaders,
+	readJson,
 	upstreamFetch,
 	upstreamUrl
 } from './http';
@@ -144,8 +145,9 @@ async function call<T>(
 	if (!response.ok) throw new UpstreamError(`Jellyfin returned HTTP ${response.status}`, 502);
 	if (response.status === 204) return undefined as T;
 	try {
-		return (await response.json()) as T;
-	} catch {
+		return (await readJson(response)) as T;
+	} catch (err) {
+		if (err instanceof UpstreamError) throw err;
 		throw new UpstreamError('Jellyfin returned a response that was not JSON', 502, 'protocol');
 	}
 }
@@ -402,6 +404,9 @@ type PlayedSort = 'recentlyPlayed' | 'mostPlayed';
  */
 const PLAYED_SONGS_READ = 2000;
 
+/** Songs a page of `getPlayedSongs` reads. */
+const PLAYED_PAGE = 1000;
+
 /**
  * Album ids in order of the latest play of any of their songs, or of the plays
  * of all their songs added up, most first.
@@ -449,7 +454,7 @@ async function loginResult(
 	deviceId: string,
 	fallbackUsername: string
 ): Promise<{ credential: StoredCredential; remoteUserId: string }> {
-	const payload = (await response.json().catch(() => null)) as {
+	const payload = (await readJson(response).catch(() => null)) as {
 		AccessToken?: string;
 		User?: { Id?: string; Name?: string };
 	} | null;
@@ -495,7 +500,7 @@ async function probeQuickConnect(): Promise<boolean> {
 			headers: { accept: 'application/json' },
 			signal: AbortSignal.timeout(QUICK_CONNECT_PROBE_MS)
 		});
-		enabled = response.ok && (await response.json().catch(() => false)) === true;
+		enabled = response.ok && (await readJson(response).catch(() => false)) === true;
 	} catch {
 		// An unreachable server offers nothing. The failure is cached with the
 		// rest so that a server that is down is not asked again on every render.
@@ -537,7 +542,7 @@ const quickConnect: QuickConnect = {
 		}
 		if (!response.ok) throw new UpstreamError(`Jellyfin returned HTTP ${response.status}`, 502);
 
-		const payload = (await response.json().catch(() => null)) as {
+		const payload = (await readJson(response).catch(() => null)) as {
 			Secret?: string;
 			Code?: string;
 		} | null;
@@ -556,7 +561,7 @@ const quickConnect: QuickConnect = {
 		if (response.status === 404 || response.status === 401) return 'expired';
 		if (!response.ok) throw new UpstreamError(`Jellyfin returned HTTP ${response.status}`, 502);
 
-		const payload = (await response.json().catch(() => null)) as { Authenticated?: boolean } | null;
+		const payload = (await readJson(response).catch(() => null)) as { Authenticated?: boolean } | null;
 		if (!payload) {
 			throw new UpstreamError('Jellyfin returned a response that was not JSON', 502, 'protocol');
 		}
@@ -838,6 +843,36 @@ export const jellyfinBackend: MediaBackend = {
 		};
 	},
 
+	/**
+	 * The albums of the tracks the artist is on (`ArtistIds` on `Audio` names
+	 * every artist of a track), less those the artist is an album artist of,
+	 * read in one more request by id. Up to 1000 tracks.
+	 */
+	async getAppearsOn(cred, artistId): Promise<Album[]> {
+		const { userId } = creds(cred);
+		const tracks = await call<ItemsResponse>(cred, '/Items', {
+			userId,
+			ArtistIds: artistId,
+			IncludeItemTypes: 'Audio',
+			Recursive: 'true',
+			Fields: 'AlbumId',
+			EnableImages: 'false',
+			EnableUserData: 'false',
+			Limit: 1000
+		});
+		const ids = [...new Set((tracks.Items ?? []).map((track) => track.AlbumId).filter((id): id is string => Boolean(id)))];
+		if (ids.length === 0) return [];
+		// A hundred ids to a request, which keeps the address under 4KB.
+		const chunks = Array.from({ length: Math.ceil(ids.length / 100) }, (_, i) => ids.slice(i * 100, i * 100 + 100));
+		const pages = await Promise.all(
+			chunks.map((chunk) => call<ItemsResponse>(cred, '/Items', { userId, Ids: chunk.join(','), Fields: ITEM_FIELDS }))
+		);
+		return pages
+			.flatMap((page) => page.Items ?? [])
+			.filter((album) => album.Type === 'MusicAlbum' && !album.AlbumArtists?.some((artist) => artist.Id === artistId))
+			.map(toAlbum);
+	},
+
 	async getArtistAlbums(cred, artistId): Promise<Album[]> {
 		const { userId } = creds(cred);
 		await itemOf(cred, artistId, 'MusicArtist');
@@ -1070,7 +1105,7 @@ export const jellyfinBackend: MediaBackend = {
 			body: JSON.stringify({ Name: name, Ids: songIds, UserId: userId, MediaType: 'Audio' })
 		});
 		if (!response.ok) throw new UpstreamError(`Jellyfin returned HTTP ${response.status}`, 502);
-		const payload = (await response.json().catch(() => null)) as { Id?: string } | null;
+		const payload = (await readJson(response).catch(() => null)) as { Id?: string } | null;
 		if (!payload?.Id) {
 			throw new UpstreamError('Jellyfin did not return the new playlist', 502, 'protocol');
 		}
@@ -1167,6 +1202,31 @@ export const jellyfinBackend: MediaBackend = {
 					? '/Sessions/Playing/Progress'
 					: '/Sessions/Playing/Stopped';
 		await post(cred, path, payload);
+	},
+
+	async getPlayedSongs(cred) {
+		const { userId } = creds(cred);
+		const played: { song: Song; playedAt: number }[] = [];
+		// A page at a time, to the end: the whole set is what the import wants.
+		for (let start = 0; ; start += PLAYED_PAGE) {
+			const body = await call<ItemsResponse>(cred, '/Items', {
+				userId,
+				IncludeItemTypes: 'Audio',
+				Recursive: 'true',
+				Filters: 'IsPlayed',
+				SortBy: 'DatePlayed',
+				SortOrder: 'Descending',
+				Fields: SONG_FIELDS,
+				StartIndex: start,
+				Limit: PLAYED_PAGE
+			});
+			const items = body.Items ?? [];
+			for (const item of items) {
+				const at = Date.parse(item.UserData?.LastPlayedDate ?? '');
+				if (item.Type === 'Audio' && Number.isFinite(at)) played.push({ song: toSong(item), playedAt: at });
+			}
+			if (items.length < PLAYED_PAGE) return played;
+		}
 	},
 
 	async openStream(cred, songId, req: StreamRequest, transcode): Promise<UpstreamResponse> {

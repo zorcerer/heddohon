@@ -599,15 +599,31 @@
 	}
 
 	.thumb {
-		transition:
-			scale var(--dur-state) var(--ease-spring),
-			filter var(--dur-state) var(--ease-out);
+		position: relative;
+		transition: scale var(--dur-state) var(--ease-spring);
+	}
+
+	/* The glow, faded by opacity: a `drop-shadow` filter transitioned from
+	   `none` snapped on in Chromium (see MediaCard). */
+	.thumb::before {
+		content: '';
+		position: absolute;
+		inset: 0;
+		border-radius: var(--r-sm);
+		box-shadow: 0 0 8px color-mix(in srgb, var(--accent) 55%, transparent);
+		opacity: 0;
+		transition: opacity var(--dur-state) var(--ease-out);
+		pointer-events: none;
 	}
 
 	.track:hover .thumb,
 	.lead:has(.play-overlay:focus-visible) .thumb {
 		scale: 1.08;
-		filter: drop-shadow(0 0 8px color-mix(in srgb, var(--accent) 55%, transparent));
+	}
+
+	.track:hover .thumb::before,
+	.lead:has(.play-overlay:focus-visible) .thumb::before {
+		opacity: 1;
 	}
 
 	/* The title and artist step a little to the right under the pointer. */

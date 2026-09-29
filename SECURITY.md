@@ -448,7 +448,7 @@ before the upstream is called.
 | Key | Limit | Window |
 | --- | --- | --- |
 | Username on one music server, from a browser not known for it | 10 attempts | 15 minutes |
-| Source address, from a browser not known for it | 60 attempts | 15 minutes |
+| Source address (an IPv6 address by its /64), from a browser not known for it | 60 attempts | 15 minutes |
 | Known device, at the account it is known for | 10 attempts | 15 minutes |
 
 - An attempt is counted before the upstream call and refunded if the call gives
@@ -607,7 +607,8 @@ Covers are cached under `$HEDDOHON_DATA_DIR/covers` (see
 | Transcode bitrate | 96, 128, 192, 256, 320 kbps |
 | ListenBrainz token | 1 to 128 of `A-Z a-z 0-9 -` (ListenBrainz issues 36) |
 | Last.fm callback `uid` / `token` / `state` | 2048 / 256 / 64 characters |
-| Upstream timeout | 20 s (`HEDDOHON_UPSTREAM_TIMEOUT_MS`) |
+| Upstream timeout | 20 s to headers, and 20 s more for a JSON body (`HEDDOHON_UPSTREAM_TIMEOUT_MS`) |
+| Upstream JSON answer | 64 MB, refused while it arrives |
 
 ## Response headers
 
@@ -998,3 +999,17 @@ reproduced on `postgres:16-alpine`. Each fix has a check that failed before it.
 | Low | The Docker Hub token with delete rights went to every image workflow, whose actions were pinned by tag | Actions pinned by commit; the prune workflow reads its own `DOCKERHUB_PRUNE_TOKEN` |
 | Low | The prune workflow went on when a kept image could not be read | The run stops |
 | Info | Remote sign-out did not stop a stream in progress; a Quick Connect sign-in left the old session listed; a share token after a stray character reached a debug log; the stored `client_pseudonym` was a User-Agent fingerprint; ids in paths had no length cap; the release workflow did not wait for the suites; `?lastfm=` read the prototype chain; the offline page read `/healthz`, which the checklist advises restricting; the saved audio output outlived signing out; yarn was left in the image | Each fixed as described in the sections above |
+
+### 29 September 2026
+
+Independent source review at `5d92332`: 54 route handlers, five parallel
+sweeps, each finding re-verified. Nothing above Low. The PostgreSQL finding was
+shown from the source and pg-pool's documented behaviour; no server was run.
+The other three have a check that failed before the fix.
+
+| Severity | Finding | Fix |
+| --- | --- | --- |
+| Low | The PostgreSQL pool had no `'error'` listener (the line had been damaged into a comment), so an idle connection the server dropped ended the process | The listener logs `database-connection-lost` and the pool reconnects on the next query |
+| Low | The upstream timeout stopped when headers arrived, so a JSON answer that stalled or never ended was read with no deadline and no size limit | JSON bodies are read under a second `HEDDOHON_UPSTREAM_TIMEOUT_MS` and refused past 64 MB; streams keep no limit after their headers |
+| Low | The sign-in address counter was keyed on the full IPv6 address: 300 attempts from one /64 with a new address each were all allowed | IPv6 addresses are counted by their /64, for sign-in and Quick Connect |
+| Info | The error page SvelteKit builds when an endpoint fails went out without a Content-Security-Policy; its text is fixed and it has no script | HTML without a policy is given `default-src 'none'` with inline styles only |

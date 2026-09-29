@@ -95,6 +95,63 @@ export async function upstreamFetch(url: string, init: RequestInit = {}): Promis
 	}
 }
 
+/** Largest JSON answer read from the music server. */
+const MAX_JSON_BYTES = 64 * 1024 * 1024;
+
+/**
+ * A JSON body from the music server, read under a deadline and a size cap.
+ *
+ * `upstreamFetch` stops its timer once the headers arrive, so a stream is not
+ * cut off, and `response.json()` after that had neither: a server that sent
+ * headers and then trickled or never ended its body held the request open and
+ * grew its buffer without limit. The body gets its own `upstreamTimeoutMs`,
+ * and is refused past 64MB while it is still arriving. The cap is set well
+ * above the answers that are not paged: a whole artist index, a whole playlist.
+ */
+export async function readJson(response: Response): Promise<unknown> {
+	const timeout = config().upstreamTimeoutMs;
+	const path = response.url ? new URL(response.url).pathname : '?';
+	const tooLarge = () => {
+		log.warn('upstream-oversized', { path, limit: MAX_JSON_BYTES });
+		return new UpstreamError('Music server sent a response over the size cap', 502, 'protocol');
+	};
+	const declared = Number(response.headers.get('content-length'));
+	if (Number.isFinite(declared) && declared > MAX_JSON_BYTES) {
+		await response.body?.cancel().catch(() => undefined);
+		throw tooLarge();
+	}
+	if (!response.body) return JSON.parse('');
+
+	const reader = response.body.getReader();
+	let timedOut = false;
+	// Cancelling settles a pending read as done, which the loop checks for.
+	const timer = setTimeout(() => {
+		timedOut = true;
+		reader.cancel().catch(() => undefined);
+	}, timeout);
+	const chunks: Uint8Array[] = [];
+	let total = 0;
+	try {
+		for (;;) {
+			const { done, value } = await reader.read();
+			if (timedOut) {
+				log.warn('upstream-timeout', { path, phase: 'body', limit: timeout });
+				throw new UpstreamError(`Music server did not finish answering within ${timeout}ms`, 504);
+			}
+			if (done) break;
+			total += value.byteLength;
+			if (total > MAX_JSON_BYTES) {
+				await reader.cancel().catch(() => undefined);
+				throw tooLarge();
+			}
+			chunks.push(value);
+		}
+	} finally {
+		clearTimeout(timer);
+	}
+	return JSON.parse(new TextDecoder().decode(Buffer.concat(chunks)));
+}
+
 /** Redirects one upstream call may follow before it is treated as a failure. */
 const MAX_REDIRECTS = 5;
 

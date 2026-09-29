@@ -82,6 +82,29 @@ function perVisitorAddress(address: string): boolean {
 	return true;
 }
 
+/**
+ * The bucket an address is counted in: an IPv4 address as it is, an IPv6
+ * address by its /64.
+ *
+ * A /64 is the smallest block an ISP or host routes to one customer, and every
+ * address in it is the same visitor's to pick. Keyed on the full address, 300
+ * attempts from one /64 with a new address each were all allowed where the
+ * same 300 from one IPv4 address stopped at 60.
+ */
+function addressBucket(address: string): string {
+	const plain = (address.startsWith('::ffff:') ? address.slice(7) : address).split('%')[0];
+	if (!plain.includes(':')) return plain;
+	const [head, tail] = plain.split('::');
+	const left = head ? head.split(':') : [];
+	const right = tail ? tail.split(':') : [];
+	const groups =
+		tail === undefined ? left : [...left, ...Array<string>(Math.max(0, 8 - left.length - right.length)).fill('0'), ...right];
+	return `${groups
+		.slice(0, 4)
+		.map((group) => parseInt(group, 16).toString(16))
+		.join(':')}::/64`;
+}
+
 let warnedSharedAddress = false;
 
 /**
@@ -115,7 +138,7 @@ export function loginKeys(
 	];
 
 	if (perVisitorAddress(address)) {
-		keys.push([`addr:${address}`, MAX_PER_ADDRESS]);
+		keys.push([`addr:${addressBucket(address)}`, MAX_PER_ADDRESS]);
 	} else if (!warnedSharedAddress) {
 		warnedSharedAddress = true;
 		// Printed once. It is the line that explains why the address backstop is
@@ -154,7 +177,7 @@ const MAX_QUICK_CONNECT_TOTAL = 100;
  */
 export function quickConnectKeys(address: string): Array<[string, number]> {
 	const keys: Array<[string, number]> = [['qc:all', MAX_QUICK_CONNECT_TOTAL]];
-	if (perVisitorAddress(address)) keys.push([`qc:${address}`, MAX_QUICK_CONNECT_PER_ADDRESS]);
+	if (perVisitorAddress(address)) keys.push([`qc:${addressBucket(address)}`, MAX_QUICK_CONNECT_PER_ADDRESS]);
 	return keys;
 }
 
