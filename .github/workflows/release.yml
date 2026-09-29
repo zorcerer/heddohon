@@ -1,42 +1,100 @@
 name: Release
 
+# A release is made from `main`. Every push there works out the next version
+# from the commit titles since the last `v*` tag (`.github/scripts/release-plan.mjs`:
+# `feat` a minor release, `fix` and `perf` a patch, `!` a major one, anything
+# else none). When there is one, the suites run, the image is published as that
+# version and `latest`, and the tag and a GitHub release are created, with the
+# notes from the titles and both compose files attached.
+#
+# A `v*` tag pushed by hand is released as that version, as before. The tag
+# this workflow creates does not start it again: a push made with the
+# workflow's own token starts no workflow.
 on:
   push:
+    branches: [main]
     tags: ['v*']
 
 permissions:
   contents: read
-  packages: write
+
+# One release at a time, and none dropped: a second merge into `main` waits.
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 env:
   GHCR: ghcr.io/zorcerer/heddohon
   HUB: zorcererd/heddohon
 
 jobs:
-  # The suites, on the tagged commit, before anything is published. v0.3.0
-  # was published as `latest` while its tag's browser suite failed: this ran
-  # beside `check`, not after it.
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      release: ${{ steps.plan.outputs.release }}
+      version: ${{ steps.plan.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # Every commit and tag since the last release, for the titles.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Work out the version and the notes
+        id: plan
+        run: |
+          if [[ "$GITHUB_REF_TYPE" == tag ]]; then
+            node .github/scripts/release-plan.mjs --tag "$GITHUB_REF_NAME"
+          else
+            node .github/scripts/release-plan.mjs
+          fi
+
+      - name: Say what will be released
+        run: |
+          if [[ "${{ steps.plan.outputs.release }}" == true ]]; then
+            echo "### v${{ steps.plan.outputs.version }}" >> "$GITHUB_STEP_SUMMARY"
+            cat release-notes.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Nothing to release: no feat, fix or perf commit since the last tag." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        if: steps.plan.outputs.release == 'true'
+        with:
+          name: release-notes
+          path: release-notes.md
+
+  # The suites, on the commit being released, before anything is published.
+  # v0.3.0 was published as `latest` while its tag's browser suite failed:
+  # this ran beside `check`, not after it.
   check:
+    needs: plan
+    if: needs.plan.outputs.release == 'true'
     uses: ./.github/workflows/check.yml
 
   image:
-    needs: check
+    needs: [plan, check]
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      VERSION: ${{ needs.plan.outputs.version }}
     steps:
       - uses: actions/checkout@v5
         with:
           # The token has `packages: write`; nothing after this step needs git.
           persist-credentials: false
 
-      - name: Check tag matches package.json
-        id: version
+      # The version the app reports (`APP_VERSION`) is read from package.json
+      # at build time. The release's version is written there for the build
+      # only; the repository is not changed.
+      - name: Set the version in package.json
         run: |
-          version=$(jq -r .version package.json)
-          if [[ "v$version" != "$GITHUB_REF_NAME" ]]; then
-            echo "Tag $GITHUB_REF_NAME does not match package.json version $version." >&2
-            exit 1
-          fi
-          echo "version=$version" >> "$GITHUB_OUTPUT"
+          for file in package.json package-lock.json; do
+            jq --arg v "$VERSION" '.version = $v | if .packages then .packages[""].version = $v else . end' "$file" > "$file.tmp"
+            mv "$file.tmp" "$file"
+          done
 
       # The runtime stage runs as the target, which is arm64 half the time;
       # the build stage does not (see the Dockerfile).
@@ -58,11 +116,9 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Refuse to overwrite a published version
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
         run: |
           if docker buildx imagetools inspect "$GHCR:$VERSION" >/dev/null 2>&1; then
-            echo "$GHCR:$VERSION is already published. Bump the version first." >&2
+            echo "$GHCR:$VERSION is already published." >&2
             exit 1
           fi
 
@@ -72,12 +128,12 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
-            ${{ env.GHCR }}:${{ steps.version.outputs.version }}
+            ${{ env.GHCR }}:${{ env.VERSION }}
             ${{ env.GHCR }}:latest
-            ${{ env.HUB }}:${{ steps.version.outputs.version }}
+            ${{ env.HUB }}:${{ env.VERSION }}
             ${{ env.HUB }}:latest
           labels: |
-            org.opencontainers.image.version=${{ steps.version.outputs.version }}
+            org.opencontainers.image.version=${{ env.VERSION }}
             org.opencontainers.image.revision=${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -86,8 +142,35 @@ jobs:
       # the same emulation, so an image that cannot load its native module is
       # reported here rather than by the first person to start it on a Pi.
       - name: Open a database in the arm64 image
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
         run: |
           docker run --rm --platform linux/arm64 -w /app "$GHCR:$VERSION" \
             node -e "new (require('better-sqlite3'))(':memory:').prepare('select 1').get(); console.log(process.arch, 'ok')"
+
+  # After the image, so a release on GitHub always has one to pull.
+  publish:
+    needs: [plan, image]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.plan.outputs.version }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-notes
+
+      # For a tag pushed by hand the tag is there already and `--target` is
+      # not used; otherwise this creates it on the released commit.
+      - name: Create the release
+        run: |
+          gh release create "v$VERSION" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "v$VERSION" \
+            --notes-file release-notes.md \
+            docker-compose.yml docker-compose.dev.yml
