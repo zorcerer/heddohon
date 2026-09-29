@@ -152,6 +152,7 @@
 		'/folders/_',
 		'/history',
 		'/screen',
+		'/stats',
 		'/favourites',
 		'/search',
 		'/settings'

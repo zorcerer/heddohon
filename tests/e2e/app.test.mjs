@@ -940,6 +940,68 @@ describe('Jellyfin favourites', () => {
 	});
 });
 
+describe('your listening', () => {
+	const play = (client, songId) => client.json('/api/playback', 'POST', { songId, event: 'stop', position: 100, completed: true });
+	/** The figure under a label in the row of figures. */
+	const figure = (html, label) => new RegExp(`class="label[^"]*">${label}</span>\\s*<span class="number[^"]*">([^<]+)<`).exec(html)?.[1];
+	/** The names of a ranked list, in order. */
+	const ranked = (html, title) => {
+		const section = html.split(`>${title}<`)[1]?.split('</ol>')[0] ?? '';
+		return [...section.matchAll(/class="name[^"]*">(?:\s|<!--[^>]*-->)*(?:<a [^>]*>)?([^<]+)</g)].map((m) => m[1].trim());
+	};
+
+	test('sums up the plays of the period from the tracks as they were played', async () => {
+		await asFreshAccount('summary', async (client) => {
+			await client.json('/api/settings', 'PATCH', { reportPlayback: false });
+			for (const id of ['s1a', 's1a', 's1a', 's1b', 's2a', 's2a']) await play(client, id);
+			const { response, html } = await client.page('/stats');
+			assert.equal(response.status, 200, explain('the stats page failed'));
+			assert.equal(figure(html, 'Plays'), '6');
+			// Six plays of 180 seconds.
+			assert.equal(figure(html, 'Hours listened'), '0.3');
+			assert.equal(figure(html, 'Artists'), '2');
+			assert.equal(figure(html, 'Tracks'), '3');
+			assert.deepEqual(ranked(html, 'Top artists'), ['Artist 0001', 'Artist 0002']);
+			assert.deepEqual(ranked(html, 'Top tracks').slice(0, 2), ['Song 1a', 'Song 2a']);
+			assert.match(html, /4 plays/);
+			assert.match(html, /href="\/albums\/al1"/);
+			// Both artists were first played in the period.
+			assert.match(html.split('New to you')[1] ?? '', /Artist 0001[\s\S]*Artist 0002/);
+		});
+	});
+
+	test('another account sees none of it, and an unknown period is the last 30 days', async () => {
+		await asFreshAccount('elsewhere', async (client) => {
+			const { html } = await client.page('/stats?period=decade');
+			assert.match(html, /Nothing played since/);
+			assert.match(html, /aria-current="page"[^>]*href="\/stats\?period=month"/);
+		});
+	});
+
+	test('the history is kept 90 days or a year, and nothing else', async () => {
+		await asFreshAccount('keeper', async (client) => {
+			assert.equal((await (await client.json('/api/settings', 'PATCH', { historyDays: 365 })).json()).historyDays, 365);
+			assert.equal((await (await client.json('/api/settings', 'PATCH', { historyDays: 100 })).json()).historyDays, 365);
+			assert.equal((await (await client.json('/api/settings', 'PATCH', { historyDays: '90' })).json()).historyDays, 365);
+			assert.match((await client.page('/history')).html, /in the last year/);
+		});
+	});
+
+	test('Jellyfin plays are summed up too', async () => {
+		const client = new Client(app.url);
+		await client.signIn({ username: 'jfuser', password: 'jfpass', backend: 'jellyfin' });
+		await client.request('/settings?/clearHistory', {
+			method: 'POST',
+			headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json', 'x-sveltekit-action': 'true' },
+			body: ''
+		});
+		await play(client, 't3');
+		const { html } = await client.page('/stats?period=all');
+		assert.equal(figure(html, 'Plays'), '1');
+		assert.deepEqual(ranked(html, 'Top tracks'), ['Track 3']);
+	});
+});
+
 describe('the offline page', () => {
 	test('the worker, the page and its script are served without a session', async () => {
 		const anonymous = new Client(app.url);
