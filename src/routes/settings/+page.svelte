@@ -434,7 +434,7 @@
 					<span class="hint hh-muted">
 						Plays through Web Audio at the output device's rate, which the equaliser needs. Volume
 						normalisation can then raise quiet tracks as well as lower loud ones, and a crossfade works on
-						an iPhone or iPad. Not yet tested on an iPhone or iPad with the screen locked, or while casting.
+						an iPhone or iPad.
 						{#if player.processing && !processing.enabled}
 							Switched off; this page keeps processing until it is loaded again.
 						{/if}
