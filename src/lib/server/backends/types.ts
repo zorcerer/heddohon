@@ -172,6 +172,14 @@ export interface MediaBackend {
 	getArtistAlbums(cred: StoredCredential, artistId: string): Promise<Album[]>;
 
 	/**
+	 * Albums the artist is on without being credited for them: a guest on one
+	 * track, a song on a compilation. May include albums of the artist's own,
+	 * which the caller leaves out (`details.ts`); a plain Subsonic server does
+	 * not say who an album is by from its tracks.
+	 */
+	getAppearsOn(cred: StoredCredential, artistId: string, artistName: string): Promise<Album[]>;
+
+	/**
 	 * Artists the music server suggests alongside this one.
 	 *
 	 * Both servers answer this from their own metadata and neither computes it

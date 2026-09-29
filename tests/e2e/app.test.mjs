@@ -470,6 +470,24 @@ describe('held album details and suggestions', () => {
 	});
 });
 
+describe('appears on', () => {
+	test('an artist page lists the albums of others the artist sings on, and nothing matched by title alone', async () => {
+		await asFreshAccount('guestlist', async (client) => {
+			const { html } = await client.page('/artists/ar1');
+			// Streamed, so the albums arrive as data rather than markup.
+			assert.match(html, /Album 2\b/, explain('the album Artist 0001 is a guest on is missing'));
+			assert.doesNotMatch(html, /Album 3\b/, 'an album found by a title match was listed');
+		});
+	});
+
+	test('on Jellyfin, from the tracks the artist is on', async () => {
+		const client = new Client(app.url);
+		await client.signIn({ username: 'jfuser', password: 'jfpass', backend: 'jellyfin' });
+		const { html } = await client.page('/artists/g1');
+		assert.match(html, /"Second"/, explain('Artist B\'s album with the guest track is missing'));
+	});
+});
+
 describe('star ratings', () => {
 	test('a rating reaches the music server and shows on the next load of the album', async () => {
 		await asFreshAccount('rater', async (client) => {

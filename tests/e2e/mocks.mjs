@@ -328,6 +328,27 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 				const songs = Array.from({ length: state.similarAlbums }, (_, k) => song((from + k + 1) % artistCount, 'a'));
 				return send(ok({ similarSongs2: songs.length > 0 ? { song: songs } : {} }));
 			}
+			// A search for an artist's name: their own track, a track of theirs on
+			// the next artist's album as a guest (OpenSubsonic `artists`), and a track
+			// that matched on its title alone. Anything else finds nothing.
+			case 'search3': {
+				const match = /^Artist (\d{4})$/.exec(p.get('query') ?? '');
+				if (!match) return send(ok({}));
+				const i = Number(match[1]);
+				const host = (i + 1) % artistCount;
+				const guest = {
+					...song(host, 'b'),
+					artists: [
+						{ id: `ar${host}`, name: name(host) },
+						{ id: `ar${i}`, name: name(i) }
+					],
+					albumArtists: [{ id: `ar${host}`, name: name(host) }],
+					displayAlbumArtist: name(host),
+					year: 2020
+				};
+				const own = { ...song(i, 'a'), albumArtists: [{ id: `ar${i}`, name: name(i) }] };
+				return send(ok({ searchResult3: { song: [own, guest, song((i + 2) % artistCount, 'a')] } }));
+			}
 			case 'getTopSongs':
 				if (p.get('artist') !== name(0)) return send(ok({ topSongs: {} }));
 				return send(ok({ topSongs: { song: [song(0, 'a'), song(0, 'b'), song(1, 'a'), song(2, 'a')] } }));
@@ -593,6 +614,10 @@ export async function startJellyfin() {
 		if (url.pathname === '/Items' && url.searchParams.get('Filters') === 'IsFavorite') {
 			const pool = { Audio: tracks, MusicAlbum: albums, MusicArtist: artists }[types] ?? [];
 			return send({ Items: pool.filter((entry) => state.favourites.has(entry.Id)) });
+		}
+		// The tracks an artist is on: Guest Singer sings on one of Artist B's.
+		if (url.pathname === '/Items' && types === 'Audio' && url.searchParams.get('ArtistIds') === 'g1') {
+			return send({ Items: [{ ...tracks[1], ArtistItems: [...tracks[1].ArtistItems, { Id: 'g1', Name: 'Guest Singer' }] }] });
 		}
 		// An album's tracks, as the album page asks for them.
 		if (url.pathname === '/Items' && types === 'Audio' && url.searchParams.get('ParentId')) {

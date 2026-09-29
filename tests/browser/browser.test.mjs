@@ -2335,6 +2335,28 @@ describe('moving between pages', () => {
 	});
 });
 
+describe('appears on', () => {
+	test('an artist page shows the albums of others the artist is on, after its own', async () => {
+		const { page, problems } = await watchedPage();
+		try {
+			await page.goto(app.url + '/artists/ar1', { waitUntil: 'networkidle' });
+			await page.waitForFunction(() => [...document.querySelectorAll('h2')].some((h) => h.textContent === 'Appears on'));
+			const shelf = await page.evaluate(() => {
+				const headings = [...document.querySelectorAll('h2')].map((h) => h.textContent);
+				const heading = [...document.querySelectorAll('h2')].find((h) => h.textContent === 'Appears on');
+				const cards = [...(heading?.closest('section')?.querySelectorAll('a.card') ?? [])];
+				return { headings, links: [...new Set(cards.map((card) => card.getAttribute('href')))], text: cards.map((card) => card.textContent) };
+			});
+			assert.deepEqual(shelf.links, ['/albums/al2']);
+			assert.match(shelf.text.join(' '), /Artist 0002/, 'the album\'s own artist is named on the card');
+			assert.ok(shelf.headings.indexOf('Releases') < shelf.headings.indexOf('Appears on'), `sections: ${shelf.headings}`);
+		} finally {
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+});
+
 describe('a capped section of albums', () => {
 	/*
 	 * "You might like" asks for eight. Rows of three on a phone left two cards

@@ -12,6 +12,7 @@
 	import TrackList from '$lib/components/TrackList.svelte';
 	import { playContainer } from '$lib/client/actions';
 	import { heroSweep } from '$lib/client/motion';
+	import type { Album } from '$lib/types';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -43,6 +44,24 @@
 	 */
 	const latest = $derived(albums.length > 1 && artist.topSongs.length > 0 ? albums[0] : null);
 	const popular = $derived(artist.topSongs.slice(0, 5));
+
+	/*
+	 * Albums by others the artist is on, once the loader's search has answered.
+	 * Held here rather than awaited in the markup so the shelf after it can be
+	 * numbered by whether this one is there.
+	 */
+	let appearing = $state<Album[]>([]);
+	$effect(() => {
+		let live = true;
+		appearing = [];
+		void data.appearsOn.then((albums) => {
+			if (live) appearing = albums;
+		});
+		return () => {
+			live = false;
+		};
+	});
+	const releasesIndex = $derived((popular.length > 0 ? 1 : 0) + (albums.length > 0 ? 1 : 0));
 </script>
 
 <svelte:head>
@@ -115,6 +134,20 @@
 		</section>
 	{/if}
 
+	{#if appearing.length > 0}
+		<MediaShelf title="Appears on" eyebrow="Other artists' albums" index={releasesIndex + 1} density="compact">
+			{#each appearing as album (album.id)}
+				<MediaCard
+					href="/albums/{album.id}"
+					title={album.name}
+					subtitle={[album.artist, album.year].filter(Boolean).join(' · ') || null}
+					coverArt={album.coverArt}
+					onplay={() => playContainer('album', album.id)}
+				/>
+			{/each}
+		</MediaShelf>
+	{/if}
+
 	<!-- Awaited here rather than in the loader; see the album page. -->
 	{#await data.similar then similar}
 		{#if similar.length > 0}
@@ -122,7 +155,7 @@
 			<MediaShelf
 				title="You might like"
 				eyebrow="Related artists"
-				index={(popular.length > 0 ? 1 : 0) + (albums.length > 0 ? 1 : 0) + 1}
+				index={releasesIndex + (appearing.length > 0 ? 1 : 0) + 1}
 				density="compact"
 			>
 				{#each similar as suggestion (suggestion.id)}
