@@ -271,9 +271,18 @@
 	 * the queue follows. On Subsonic every id is its own upstream call, eight at
 	 * a time, so a queue of 1000 tracks held the player empty until the last of
 	 * 1000 calls had answered.
+	 *
+	 * A queue the listener starts while the lookups are out wins. The saved one
+	 * is put in only if the player still holds what it held at the start: a
+	 * track played before the current track's lookup answered was replaced by
+	 * the saved queue, and the next save wrote the saved queue back.
 	 */
 	async function restoreQueue() {
 		try {
+			// Untracked: this runs inside the effect that attaches the player, and a
+			// read here would make every queue change re-run it.
+			const untouched = untrack(() => player.queue);
+			const replaced = () => player.queue !== untouched;
 			const response = await fetch('/api/play-state', { headers: { accept: 'application/json' } });
 			if (!response.ok) return;
 			const state = await response.json();
@@ -287,6 +296,7 @@
 			};
 
 			const [current] = await lookUp([ids[savedIndex]]);
+			if (replaced()) return;
 			if (current && ids.length > 1) {
 				await player.restore(
 					[current],
@@ -306,6 +316,7 @@
 			// after it, and the queue resumes at the same position from the start
 			// of the track now there.
 			const songs = await lookUp(ids);
+			if (replaced()) return;
 			await player.restore(songs, { index: savedIndex, position: 0, ...settings });
 		} catch {
 			// A missing queue is not worth an error message.
