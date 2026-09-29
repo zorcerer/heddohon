@@ -220,12 +220,12 @@
 				<span class="label">
 					Theme
 					<span class="hint hh-muted">
-						Liquid is dark glass lit by the artwork. Sleek is light, in soft greys.
+						Liquid is dark glass lit by the artwork. Paper is parchment and ink, tinted by it.
 					</span>
 				</span>
 				<select class="hh-input control" name="theme" bind:value={settings.theme}>
 					<option value="dark">Liquid</option>
-					<option value="light">Sleek</option>
+					<option value="light">Paper</option>
 				</select>
 			</label>
 

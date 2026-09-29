@@ -234,12 +234,12 @@
 	}
 
 	/*
-	 * Sleek (the light theme): a ring of the pale accent around the cover and
-	 * a shade in the page's grey below it, in place of the coloured glow, which
-	 * on a pale ground read as a stain. See "Sleek finish" in app.css.
+	 * Paper (the light theme): a ring of the pale accent around the cover and
+	 * a shade in the brown of the ink below it, in place of the coloured glow,
+	 * which on a pale ground read as a stain. See "Paper finish" in app.css.
 	 */
 	:global([data-theme='light']) .art::before {
-		box-shadow: 0 0.6rem 0.9rem rgb(54 64 80 / 0.2);
+		box-shadow: 0 0.6rem 0.9rem rgb(74 52 30 / 0.22);
 	}
 
 	:global([data-theme='light']) .card:hover .art :global(.cover) {
