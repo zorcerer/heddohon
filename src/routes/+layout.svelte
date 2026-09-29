@@ -5,6 +5,7 @@
 	import { navigating, updated } from '$app/state';
 	import { player } from '$lib/client/player.svelte';
 	import { audioOutputs } from '$lib/client/output.svelte';
+	import { processing } from '$lib/client/processing.svelte';
 	import { remote } from '$lib/client/remote.svelte';
 	import { settleStarred } from '$lib/client/favourites.svelte';
 	import { together } from '$lib/client/together.svelte';
@@ -110,6 +111,7 @@
 		const primary = primaryAudio;
 		const secondary = secondaryAudio;
 		untrack(() => player.attach(primary, secondary, data.settings));
+		untrack(() => processing.init());
 		untrack(() => void audioOutputs.init());
 		void restoreQueue();
 		return () => player.detach();

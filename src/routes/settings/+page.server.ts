@@ -102,6 +102,7 @@ export const actions: Actions = {
 			theme: form.get('theme'),
 			transition: form.get('transition'),
 			crossfadeSeconds: Number(form.get('crossfadeSeconds')),
+			crossfadeWithinAlbum: bool('crossfadeWithinAlbum'),
 			gridSize: form.get('gridSize'),
 			uiScale: form.get('uiScale'),
 			font: form.get('font'),

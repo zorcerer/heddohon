@@ -14,11 +14,15 @@
  *    one is still playing, which is what makes the handoff gapless-ish. See the
  *    honest caveat in the README: HTMLAudioElement cannot do sample-accurate
  *    gapless, so this is a tight handoff, not true gapless decoding.
+ *  - The exception is audio processing, off unless a browser switches it on
+ *    (`processing.svelte.ts`): the equaliser routes both elements through a
+ *    graph at the output device's rate (`audiochain.ts`).
  */
 import { browser } from '$app/environment';
 import { untrack } from 'svelte';
 import type { Song } from '$lib/types';
 import type { UserSettings } from '$lib/server/settings';
+import { AudioChain } from './audiochain';
 import { coverUrl, streamUrl } from './format';
 
 export type RepeatMode = 'off' | 'all' | 'one';
@@ -90,6 +94,18 @@ const SLEEP_FADE_SECONDS = 12;
  * Transient, like `queueOpen`: a reload drops it.
  */
 export type SleepTimer = { kind: 'at'; at: number; minutes: number } | { kind: 'track' };
+
+/**
+ * Whether `next` comes straight after `current` on the same album: the next
+ * track on the same disc, or the first track of the next disc. A file without
+ * a disc number is on disc 1.
+ */
+export function followsOnAlbum(current: Song, next: Song): boolean {
+	if (!current.albumId || current.albumId !== next.albumId || current.track === null || next.track === null) return false;
+	const disc = current.disc ?? 1;
+	const nextDisc = next.disc ?? 1;
+	return (nextDisc === disc && next.track === current.track + 1) || (nextDisc === disc + 1 && next.track === 1);
+}
 
 /** Fisher-Yates, in place on a copy. */
 function shuffled<T>(items: T[]): T[] {
@@ -257,6 +273,17 @@ export class Player {
 	#fadeTimer: ReturnType<typeof setInterval> | null = null;
 	#fadeStartedAt = 0;
 	#fadeSeconds = 0;
+	/**
+	 * The graph both elements play through while audio processing is on, and
+	 * whether a crossfade is scheduled on it. Its ramps run on the audio
+	 * thread, so there is no timer to hold while one runs.
+	 */
+	#chain: AudioChain | null = null;
+	#chainFading = false;
+	/** Whether this page plays through the graph. */
+	processing = $state(false);
+	/** The output last chosen, for a graph opened after the choice. */
+	#outputId = '';
 
 	/**
 	 * Whether this browser applies a `volume` set from script.
@@ -439,8 +466,39 @@ export class Player {
 	 * browser refuses the device; `client/output.svelte.ts` handles that.
 	 */
 	async setOutput(deviceId: string): Promise<void> {
-		const elements = [this.#primary, this.#secondary].filter((el): el is HTMLAudioElement => el !== null);
-		await Promise.all(elements.map((el) => el.setSinkId(deviceId)));
+		if (this.#chain) await this.#chain.setOutput(deviceId);
+		else {
+			const elements = [this.#primary, this.#secondary].filter((el): el is HTMLAudioElement => el !== null);
+			await Promise.all(elements.map((el) => el.setSinkId(deviceId)));
+		}
+		this.#outputId = deviceId;
+	}
+
+	/**
+	 * Routes both elements through the graph (`audiochain.ts`), with the
+	 * equaliser at `gains`. Once per page: an element cannot leave a graph, so
+	 * turning processing off applies at the next load. A browser that refuses
+	 * a context leaves playback as it was.
+	 */
+	enableProcessing(gains: readonly number[]) {
+		if (!browser || !this.#primary || !this.#secondary) return;
+		if (!this.#chain) {
+			try {
+				this.#chain = new AudioChain([this.#primary, this.#secondary]);
+			} catch {
+				return;
+			}
+			this.processing = true;
+			if (this.#outputId) void this.#chain.setOutput(this.#outputId).catch(() => undefined);
+			if (this.engaged) this.#chain.resume();
+		}
+		this.#chain.setEqualiser(gains);
+		this.#abandonCrossfade();
+		this.#applyVolume();
+	}
+
+	setEqualiser(gains: readonly number[]) {
+		this.#chain?.setEqualiser(gains);
 	}
 
 	detach() {
@@ -610,6 +668,7 @@ export class Player {
 		// here — which is the only moment the browser will grant the second
 		// element an activation.
 		this.#primeSecondary();
+		this.#chain?.resume();
 		this.engaged = true;
 		// A timer that ran out while paused would pause again on the first
 		// `timeupdate`. Pressing play after it is a decision to keep listening.
@@ -679,6 +738,7 @@ export class Player {
 		this.engaged = false;
 		this.#abandonCrossfade();
 		this.#primary?.pause();
+		this.#chain?.suspendSoon();
 		this.#persist();
 	}
 
@@ -958,13 +1018,14 @@ export class Player {
 	 * unattended queue does its crossfading.
 	 */
 	#maybeCrossfade() {
-		if (this.#fadeTimer !== null) return;
+		if (this.#fadeTimer !== null || this.#chainFading) return;
 		const settings = this.settings;
 		if (!settings || settings.transition !== 'crossfade') return;
 		if (this.#castUrls) return;
 		// Without a ramp this would be two tracks at full level. The `ended`
 		// handler makes the tight handoff instead, from the buffered element.
-		if (!this.rampsVolume) return;
+		// The graph's gains are applied where `volume` is not, as on iOS.
+		if (!this.rampsVolume && !this.#chain) return;
 		// Repeating one track would have to fade an element into itself.
 		if (this.repeat === 'one') return;
 		// The next track would start before the `ended` handler could stop there.
@@ -976,6 +1037,9 @@ export class Player {
 
 		const next = this.upNext ?? (this.repeat === 'all' ? this.queue[0] : null);
 		if (!next || this.#preloadedFor !== next.id) return;
+		// Two tracks written to run into each other (a live album, a mix) get the
+		// tight handoff, unless the account asks for a fade there too.
+		if (!settings.crossfadeWithinAlbum && this.current && followsOnAlbum(this.current, next)) return;
 		// Not buffered far enough to start without a stall; the `ended` handler
 		// will make an ordinary cut instead.
 		if (incoming.readyState < HTMLMediaElement.HAVE_FUTURE_DATA) return;
@@ -990,6 +1054,18 @@ export class Player {
 		this.#fadeSeconds = remaining;
 		this.#fadeStartedAt = Date.now();
 		incoming.currentTime = 0;
+
+		const chain = this.#chain;
+		if (chain) {
+			// The whole ramp at once, on the audio thread. The elements stay at
+			// full `volume`; the level is the graph's.
+			this.#chainFading = true;
+			chain.holdSide(incoming, 0);
+			chain.crossfade(outgoing, incoming, this.#gainFor(this.current), this.#gainFor(this.#preloadedSong()), remaining);
+			void incoming.play().catch(() => this.#abandonCrossfade());
+			return;
+		}
+
 		incoming.volume = 0;
 		void incoming.play().catch(() => this.#abandonCrossfade());
 
@@ -1026,6 +1102,7 @@ export class Player {
 	 */
 	#endCrossfade() {
 		this.#clearFadeTimer();
+		this.#chainFading = false;
 	}
 
 	/**
@@ -1035,8 +1112,10 @@ export class Player {
 	 * from wherever the ramp had reached.
 	 */
 	#abandonCrossfade() {
-		if (this.#fadeTimer === null) return;
+		if (this.#fadeTimer === null && !this.#chainFading) return;
 		this.#clearFadeTimer();
+		// `#applyVolume` below cancels the scheduled ramps and puts both sides back.
+		this.#chainFading = false;
 		const incoming = this.#secondary;
 		if (incoming) {
 			incoming.pause();
@@ -1219,6 +1298,8 @@ export class Player {
 		});
 
 		on('play', () => {
+			// A play from the lock screen or a retry, not only from `play()`.
+			this.#chain?.resume();
 			this.playing = true;
 			this.loading = false;
 			this.#reportStart();
@@ -1284,6 +1365,19 @@ export class Player {
 		// teardown detached the player: every page change stopped the music.
 		untrack(() => {
 			const value = (this.muted ? 0 : this.volume) * this.#sleepGain();
+			const chain = this.#chain;
+			if (chain) {
+				// Through the graph the elements play at full `volume`, and the level
+				// and each track's gain are the graph's. A crossfade in progress owns
+				// the two sides until it ends.
+				chain.setLevel(value);
+				for (const element of [this.#primary, this.#secondary]) if (element) element.volume = 1;
+				if (!this.#chainFading) {
+					if (this.#primary) chain.setSide(this.#primary, this.#gainFor(this.current));
+					if (this.#secondary) chain.setSide(this.#secondary, this.#gainFor(this.#preloadedSong()));
+				}
+				return;
+			}
 			if (this.#primary) this.#primary.volume = value * this.#gainFor(this.current);
 			if (this.#secondary) this.#secondary.volume = value * this.#gainFor(this.#preloadedSong());
 		});
@@ -1302,9 +1396,9 @@ export class Player {
 	 * so a correction can lower a track and cannot raise one. Most commercial
 	 * releases carry a negative track gain (about -6 to -10 dB against the
 	 * 89 dB reference), so in practice loud records come down to meet quiet
-	 * ones. Raising a quiet track would need Web Audio between the element and
-	 * the speakers, which changes the whole playback path, including the
-	 * background playback iOS allows a plain `<audio>` element.
+	 * ones. With audio processing on, the correction is a gain in the graph
+	 * instead (`audiochain.ts`), and a quiet track is raised as far as its peak
+	 * allows. A track without a peak value is not raised.
 	 *
 	 * Track gain is used, with album gain as the fallback. The peak caps the
 	 * factor so a correction cannot push the loudest sample past full scale. A
@@ -1318,6 +1412,7 @@ export class Player {
 		let factor = 10 ** (gain / 20);
 		const peak = trackGain !== null ? trackPeak : albumPeak;
 		if (peak !== null && peak > 0) factor = Math.min(factor, 1 / peak);
+		if (this.#chain && peak !== null && peak > 0) return Math.max(0, factor);
 		return Math.min(1, Math.max(0, factor));
 	}
 

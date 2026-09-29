@@ -7,6 +7,11 @@
 	import Cover from '$lib/components/Cover.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import { player } from '$lib/client/player.svelte';
+	import { EQ_FREQUENCIES, EQ_RANGE_DB } from '$lib/client/audiochain';
+	import { EQ_PRESETS, processing } from '$lib/client/processing.svelte';
+
+	/** A band's centre as it is printed under its slider: 31, 1k, 16k. */
+	const bandLabel = (hz: number) => (hz >= 1000 ? `${hz / 1000}k` : String(hz));
 	import type { ActionData, PageData } from './$types';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -343,7 +348,7 @@
 				<label class="row">
 					<span class="label">
 						Crossfade length
-						{#if !player.rampsVolume}
+						{#if !player.rampsVolume && !processing.enabled}
 							<span class="hint hh-muted">
 								On this device only its buttons set the volume, as on an iPhone or iPad, so tracks
 								change with a tight handoff instead.
@@ -362,8 +367,22 @@
 						<span class="hh-numeric">{settings.crossfadeSeconds}s</span>
 					</span>
 				</label>
+
+				<label class="row switch">
+					<span class="label">
+						Crossfade within an album
+						<span class="hint hh-muted">
+							Off, a track followed by the next one on its album gets the tight handoff, so a live
+							album or a mix runs on as it was recorded.
+						</span>
+					</span>
+					<input type="checkbox" name="crossfadeWithinAlbum" bind:checked={settings.crossfadeWithinAlbum} />
+				</label>
 			{:else}
 				<input type="hidden" name="crossfadeSeconds" value={settings.crossfadeSeconds} />
+				{#if settings.crossfadeWithinAlbum}
+					<input type="hidden" name="crossfadeWithinAlbum" value="on" />
+				{/if}
 			{/if}
 
 			<label class="row switch">
@@ -462,6 +481,77 @@
 			</button>
 		</div>
 	</form>
+
+	<!--
+		Outside the save form: these are kept in this browser, not on the account,
+		and apply as they are changed.
+	-->
+	<section class="hh-card hh-glass group" hidden={shown !== 'playback'} aria-labelledby="eq-heading">
+		<div class="group-head">
+			<h2 id="eq-heading">Equaliser</h2>
+			<p class="hh-muted">
+				Kept in this browser only, for the headphones or speakers it plays through. Applied as you
+				change it.
+			</p>
+		</div>
+
+		<label class="row switch">
+			<span class="label">
+				Process audio in this browser
+				<span class="hint hh-muted">
+					Plays through Web Audio at the output device's rate, which the equaliser needs. Volume
+					normalisation can then raise quiet tracks as well as lower loud ones, and a crossfade works on
+					an iPhone or iPad. Not yet tested on an iPhone or iPad with the screen locked, or while casting.
+					{#if player.processing && !processing.enabled}
+						Switched off; this page keeps processing until it is loaded again.
+					{/if}
+				</span>
+			</span>
+			<input
+				type="checkbox"
+				name="audioProcessing"
+				checked={processing.enabled}
+				onchange={(event) => processing.setEnabled(event.currentTarget.checked)}
+			/>
+		</label>
+
+		{#if processing.enabled}
+			<label class="row">
+				<span class="label">Preset</span>
+				<select
+					class="hh-input control"
+					name="eqPreset"
+					value={processing.preset ?? ''}
+					onchange={(event) => processing.applyPreset(event.currentTarget.value)}
+				>
+					{#if processing.preset === null}
+						<option value="">Custom</option>
+					{/if}
+					{#each Object.entries(EQ_PRESETS) as [key, preset] (key)}
+						<option value={key}>{preset.label}</option>
+					{/each}
+				</select>
+			</label>
+
+			<div class="eq" role="group" aria-label="Equaliser bands">
+				{#each EQ_FREQUENCIES as frequency, band (frequency)}
+					<label class="band">
+						<span class="gain hh-numeric">{processing.gains[band] > 0 ? '+' : ''}{processing.gains[band]}</span>
+						<input
+							type="range"
+							min={-EQ_RANGE_DB}
+							max={EQ_RANGE_DB}
+							step="1"
+							value={processing.gains[band]}
+							aria-label="{bandLabel(frequency)}Hz, in dB"
+							oninput={(event) => processing.setGain(band, Number(event.currentTarget.value))}
+						/>
+						<span class="hz hh-numeric">{bandLabel(frequency)}</span>
+					</label>
+				{/each}
+			</div>
+		{/if}
+	</section>
 
 	<section class="hh-card hh-glass group" hidden={shown !== 'account'}>
 		<div class="group-head">
@@ -1091,6 +1181,33 @@
 	.range input[type='range'] {
 		flex: 1;
 		accent-color: var(--accent);
+	}
+
+	/* Ten upright sliders, the way an equaliser is read: low bands on the left. */
+	.eq {
+		display: grid;
+		grid-template-columns: repeat(10, minmax(0, 1fr));
+		gap: var(--space-1);
+	}
+
+	.band {
+		display: grid;
+		justify-items: center;
+		gap: var(--space-1);
+		font-size: 0.75rem;
+		color: var(--text-muted);
+	}
+
+	.band input[type='range'] {
+		writing-mode: vertical-lr;
+		direction: rtl;
+		height: 8rem;
+		width: 1.5rem;
+		accent-color: var(--accent);
+	}
+
+	.band .gain {
+		color: var(--text-strong);
 	}
 
 	input[type='checkbox'] {
