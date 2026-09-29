@@ -113,7 +113,7 @@ npm run build && npm start   # production
 | `HEDDOHON_DATABASE_SSL` | no | from the URL | `off`, `require` (encrypted, certificate not checked) or `verify-full`. Unset, the URL's `sslmode` applies. |
 | `HEDDOHON_DATABASE_IMPORT` | no | `true` | Copy an existing SQLite database into an empty PostgreSQL one on first start. |
 | `HEDDOHON_COOKIE_SECURE` | no | `auto` | `auto` sets Secure when the request arrives over https, when `NODE_ENV=production`, or when the host is not loopback. The Docker image sets `NODE_ENV=production`, so there `auto` is always Secure and a deployment reached over plain http needs `false`. The cookie is named `__Host-heddohon_session` wherever it is Secure. |
-| `HEDDOHON_UPSTREAM_TIMEOUT_MS` | no | `20000` | Give-up time for music-server calls. |
+| `HEDDOHON_UPSTREAM_TIMEOUT_MS` | no | `20000` | Give-up time for music-server calls: the wait for headers, then again for a JSON body. A stream has no limit once its headers arrive. |
 | `HEDDOHON_COVER_CACHE_MB` | no | `512` | Disk budget for cached cover art, in megabytes. `0` switches the cache off. |
 | `HEDDOHON_SHARING` | no | `true` | Song links. `false` hides the share buttons, refuses new links, and stops existing links from opening. Read at startup, so a change takes a restart. Links are kept, and open again if it is set back to `true`. |
 | `HEDDOHON_DOWNLOADS` | no | `true` | The "Download original" link in the player's track details, and the route behind it. `false` removes both. Signed-in browsers are sent the same files to play them, so this is not copy protection. |
@@ -264,7 +264,7 @@ The events at each level, by name:
 | Level | Events |
 | --- | --- |
 | `error` | `request` at 5xx or thrown, `unhandled` with a stack, `config-invalid`, `sign-in-failed`, `quick-connect-failed` on a fault in this server |
-| `warn` | `request-slow`, `cross-origin-blocked`, `sign-in-rejected`, `sign-in-throttled`, `quick-connect-throttled`, `quick-connect-failed`, `sessions-destroyed`, `upstream-timeout`, `upstream-unreachable`, `section-failed`, `cover-write-failed`, `history-write-failed`, `history-import-failed`, `transcode-read-failed`, `scrobbler-failed` (with the `step`: status, a link, an unlink, or a refused Last.fm return) |
+| `warn` | `request-slow`, `cross-origin-blocked`, `sign-in-rejected`, `sign-in-throttled`, `quick-connect-throttled`, `quick-connect-failed`, `sessions-destroyed`, `upstream-timeout` (with the `phase` when it was the body), `upstream-oversized`, `upstream-unreachable`, `database-connection-lost`, `section-failed`, `cover-write-failed`, `history-write-failed`, `history-import-failed`, `transcode-read-failed`, `scrobbler-failed` (with the `step`: status, a link, an unlink, or a refused Last.fm return) |
 | `info` | `started`, `signed-in` (with `method=quick-connect` for a Quick Connect sign-in), `quick-connect-started`, `scrobbler-linked`, `scrobbler-unlinked`, `cover-cache-cleared`, `cover-cache-swept`, `history-imported` (with how many songs the music server had played and how many plays were added) |
 | `debug` | `request` (one per request, with its path, status and duration), `upstream` (one per music-server call, with its time), `cover-hit`, `cover-miss`, `cover-stored`, `unauthenticated` |
 

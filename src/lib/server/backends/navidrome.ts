@@ -19,7 +19,7 @@
  */
 import { upstreamFor } from '../config';
 import { tokenDigest } from '../crypto';
-import { UpstreamError, upstreamFetch, upstreamUrl } from './http';
+import { UpstreamError, readJson, upstreamFetch, upstreamUrl } from './http';
 import type { StoredCredential } from './types';
 
 export type ScrobblerService = 'lastfm' | 'listenbrainz';
@@ -95,7 +95,7 @@ async function login(username: string, password: string): Promise<string | null>
 	if (response.status === 429) {
 		throw new UpstreamError('The music server is limiting sign-ins; try again shortly', 429);
 	}
-	const body = (await response.json().catch(() => null)) as { token?: unknown } | null;
+	const body = (await readJson(response).catch(() => null)) as { token?: unknown } | null;
 	if (!response.ok || typeof body?.token !== 'string' || body.token === '') return null;
 	return body.token;
 }
@@ -129,7 +129,7 @@ async function nativeCall(
 }
 
 async function jsonOf(response: Response): Promise<Record<string, unknown>> {
-	const body = await response.json().catch(() => null);
+	const body = await readJson(response).catch(() => null);
 	return body && typeof body === 'object' ? (body as Record<string, unknown>) : {};
 }
 

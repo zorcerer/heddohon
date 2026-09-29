@@ -46,3 +46,12 @@ export const SECURITY_HEADERS: Record<string, string> = {
 export const STATIC_HTML_CSP =
 	"default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; " +
 	"font-src 'self'; connect-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'";
+
+/**
+ * The policy for HTML SvelteKit answers without one: the error page it builds
+ * itself when an endpoint throws, which does not go through the page renderer
+ * that attaches the configured policy. That page is fixed text with an inline
+ * stylesheet and no script.
+ */
+export const FALLBACK_HTML_CSP =
+	"default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'";

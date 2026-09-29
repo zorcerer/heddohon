@@ -13,6 +13,7 @@ import {
 	UpstreamError,
 	forwardRequestHeaders,
 	mapLimited,
+	readJson,
 	upstreamFetch,
 	upstreamUrl,
 	type UpstreamParams
@@ -138,8 +139,9 @@ async function call<T extends Record<string, unknown>>(
 
 	let payload: SubsonicEnvelope<T>;
 	try {
-		payload = (await response.json()) as SubsonicEnvelope<T>;
-	} catch {
+		payload = (await readJson(response)) as SubsonicEnvelope<T>;
+	} catch (err) {
+		if (err instanceof UpstreamError) throw err;
 		throw new UpstreamError('Music server returned a response that was not JSON', 502, 'protocol');
 	}
 

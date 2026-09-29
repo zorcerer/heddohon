@@ -2271,3 +2271,57 @@ describe('the security review of 2026-09-28', () => {
 		}
 	});
 });
+
+describe('the security review of 2026-09-29', () => {
+	test('a music server that stalls mid-answer is given up on', async () => {
+		const bounded = await startApp({
+			subsonicUrl: subsonic.url,
+			jellyfinUrl: jellyfin.url,
+			env: { HEDDOHON_UPSTREAM_TIMEOUT_MS: '1000' }
+		});
+		const client = new Client(bounded.url);
+		await client.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' });
+		subsonic.state.stalled.add('getAlbum');
+		try {
+			const started = Date.now();
+			const response = await client.json('/api/tracks', 'POST', { source: 'album', id: 'al1' });
+			assert.equal(response.status, 502, bounded.output());
+			assert.ok(Date.now() - started < 5000, `answered after ${Date.now() - started}ms`);
+		} finally {
+			subsonic.state.stalled.clear();
+			await bounded.stop();
+		}
+	});
+
+	test('sign-in attempts from one IPv6 /64 share one address counter', async () => {
+		const proxied = await startApp({
+			subsonicUrl: subsonic.url,
+			jellyfinUrl: jellyfin.url,
+			env: { ADDRESS_HEADER: 'x-real-ip' }
+		});
+		const attempt = (address, i) =>
+			new Client(proxied.url).request('/login', {
+				method: 'POST',
+				headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'text/html', 'x-real-ip': address },
+				body: new URLSearchParams({ username: `spray${i}`, password: 'wrong', backend: 'subsonic', next: '/' }).toString()
+			});
+		try {
+			for (let i = 0; i < 60; i++) {
+				const response = await attempt(`2001:db8:1:2::${(i + 1).toString(16)}`, i);
+				assert.notEqual(response.status, 429, `attempt ${i + 1} was throttled`);
+			}
+			assert.equal((await attempt('2001:db8:1:2:ffff::1', 60)).status, 429, proxied.output());
+			assert.notEqual((await attempt('2001:db8:1:3::1', 61)).status, 429, 'the next /64 was throttled');
+		} finally {
+			await proxied.stop();
+		}
+	});
+
+	test("SvelteKit's own error page carries a policy", async () => {
+		assert.equal((await user.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' })).status, 303);
+		const response = await user.request('/api/lyrics/zzz', { headers: { accept: 'text/html' } });
+		assert.equal(response.status, 404);
+		assert.match(response.headers.get('content-type') ?? '', /^text\/html/);
+		assert.match(response.headers.get('content-security-policy') ?? '', /default-src 'none'/);
+	});
+});

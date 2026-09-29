@@ -10,6 +10,7 @@ import {
 	UpstreamError,
 	assertSafeId,
 	forwardRequestHeaders,
+	readJson,
 	upstreamFetch,
 	upstreamUrl
 } from './http';
@@ -144,8 +145,9 @@ async function call<T>(
 	if (!response.ok) throw new UpstreamError(`Jellyfin returned HTTP ${response.status}`, 502);
 	if (response.status === 204) return undefined as T;
 	try {
-		return (await response.json()) as T;
-	} catch {
+		return (await readJson(response)) as T;
+	} catch (err) {
+		if (err instanceof UpstreamError) throw err;
 		throw new UpstreamError('Jellyfin returned a response that was not JSON', 502, 'protocol');
 	}
 }
@@ -452,7 +454,7 @@ async function loginResult(
 	deviceId: string,
 	fallbackUsername: string
 ): Promise<{ credential: StoredCredential; remoteUserId: string }> {
-	const payload = (await response.json().catch(() => null)) as {
+	const payload = (await readJson(response).catch(() => null)) as {
 		AccessToken?: string;
 		User?: { Id?: string; Name?: string };
 	} | null;
@@ -498,7 +500,7 @@ async function probeQuickConnect(): Promise<boolean> {
 			headers: { accept: 'application/json' },
 			signal: AbortSignal.timeout(QUICK_CONNECT_PROBE_MS)
 		});
-		enabled = response.ok && (await response.json().catch(() => false)) === true;
+		enabled = response.ok && (await readJson(response).catch(() => false)) === true;
 	} catch {
 		// An unreachable server offers nothing. The failure is cached with the
 		// rest so that a server that is down is not asked again on every render.
@@ -540,7 +542,7 @@ const quickConnect: QuickConnect = {
 		}
 		if (!response.ok) throw new UpstreamError(`Jellyfin returned HTTP ${response.status}`, 502);
 
-		const payload = (await response.json().catch(() => null)) as {
+		const payload = (await readJson(response).catch(() => null)) as {
 			Secret?: string;
 			Code?: string;
 		} | null;
@@ -559,7 +561,7 @@ const quickConnect: QuickConnect = {
 		if (response.status === 404 || response.status === 401) return 'expired';
 		if (!response.ok) throw new UpstreamError(`Jellyfin returned HTTP ${response.status}`, 502);
 
-		const payload = (await response.json().catch(() => null)) as { Authenticated?: boolean } | null;
+		const payload = (await readJson(response).catch(() => null)) as { Authenticated?: boolean } | null;
 		if (!payload) {
 			throw new UpstreamError('Jellyfin returned a response that was not JSON', 502, 'protocol');
 		}
@@ -1103,7 +1105,7 @@ export const jellyfinBackend: MediaBackend = {
 			body: JSON.stringify({ Name: name, Ids: songIds, UserId: userId, MediaType: 'Audio' })
 		});
 		if (!response.ok) throw new UpstreamError(`Jellyfin returned HTTP ${response.status}`, 502);
-		const payload = (await response.json().catch(() => null)) as { Id?: string } | null;
+		const payload = (await readJson(response).catch(() => null)) as { Id?: string } | null;
 		if (!payload?.Id) {
 			throw new UpstreamError('Jellyfin did not return the new playlist', 502, 'protocol');
 		}
