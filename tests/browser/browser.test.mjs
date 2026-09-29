@@ -1727,9 +1727,9 @@ describe('your listening', () => {
 			assert.equal(await peak.count(), 1);
 			const label = await peak.getAttribute('aria-label');
 			assert.ok(Number(/: (\d+) plays$/.exec(label ?? '')?.[1] ?? 0) >= 3, `the busiest hour reads "${label}"`);
-			// Every play in the suite is today, so the run is one day.
+			// At least today. A run of the suite that crosses midnight makes it two.
 			const run = page.locator('.figure', { hasText: 'Longest run' }).locator('.number');
-			assert.equal(await run.textContent(), '1');
+			assert.ok(Number(await run.textContent()) >= 1);
 		} finally {
 			await page.close();
 		}
