@@ -14,11 +14,19 @@
 	let value = $state(untrack(() => data.query));
 	let input = $state<HTMLInputElement | null>(null);
 	let timer: ReturnType<typeof setTimeout> | null = null;
+	/** The query this field last sent; its results arriving must not rewrite the field. */
+	let sent = untrack(() => data.query);
 
-	// Back/forward navigation changes the query without touching the field.
+	// Back/forward navigation or a link changes the query without touching the
+	// field. Results for what was typed here leave it alone: the field may have
+	// moved on while they loaded, and writing the older query back would drop
+	// whatever was typed in between.
 	$effect(() => {
-		value = data.query;
+		if (data.query !== sent) value = sent = data.query;
 	});
+
+	/** Typed but not yet answered: the results on screen are for an older query. */
+	const searching = $derived(value.trim().length >= 2 && value.trim() !== data.query);
 
 	$effect(() => {
 		input?.focus();
@@ -32,9 +40,10 @@
 		if (timer) clearTimeout(timer);
 		const next = value;
 		timer = setTimeout(() => {
-			const target = next.trim() ? `/search?q=${encodeURIComponent(next.trim())}` : '/search';
+			sent = next.trim();
+			const target = sent ? `/search?q=${encodeURIComponent(sent)}` : '/search';
 			void goto(target, { keepFocus: true, replaceState: true, noScroll: true });
-		}, 280);
+		}, 1000);
 	}
 
 	const { songs, albums, artists } = $derived(data.results);
@@ -60,6 +69,9 @@
 			autocomplete="off"
 			spellcheck="false"
 		/>
+		{#if searching}
+			<span class="spinner" role="status" aria-label="Searching"></span>
+		{/if}
 	</div>
 
 	{#if !data.searched}
@@ -175,6 +187,29 @@
 	/* Chrome draws its own clear button; it clashes with the field's chrome. */
 	.searchbox input::-webkit-search-cancel-button {
 		appearance: none;
+	}
+
+	/* The same ring the play button turns while a track buffers. */
+	.spinner {
+		flex: none;
+		width: 1.1rem;
+		height: 1.1rem;
+		border-radius: 50%;
+		border: 2px solid color-mix(in srgb, var(--accent) 30%, transparent);
+		border-top-color: var(--accent);
+		animation: spin 0.7s linear infinite;
+	}
+
+	@keyframes spin {
+		to {
+			transform: rotate(360deg);
+		}
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.spinner {
+			animation-duration: 2.4s;
+		}
 	}
 
 	/*
