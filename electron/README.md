@@ -106,7 +106,8 @@ remote desktop, some driver and compositor pairs) the app's GPU process fails
 as it starts. The terminal shows lines such as
 `CommandBufferHelper::AllocateRingBuffer() failed`. The second failure in a
 run switches the app to software rendering and starts it again, and it stays
-that way. **View, Software rendering** switches it by hand. For one run:
+that way. **Heddohon, Software rendering** in the menu bar (Alt shows it)
+switches it by hand. For one run:
 
 ```
 ./heddohon-<version>-x86_64.AppImage --disable-gpu

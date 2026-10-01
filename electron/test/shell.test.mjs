@@ -585,11 +585,11 @@ describe('a server behind a proxy that asks who you are', () => {
 });
 
 describe('a graphics driver Chromium cannot use', () => {
-	test('the second failure of the GPU process switches to software rendering and starts again, and View has the switch', async () => {
+	test('the second failure of the GPU process switches to software rendering and starts again, and the menu has the switch', async () => {
 		const data = mkdtempSync(join(tmpdir(), 'heddohon-desktop-'));
 		const menuItem = (app) =>
 			app.evaluate(({ Menu }) => {
-				const item = Menu.getApplicationMenu().items.find((menu) => menu.label === 'View').submenu.items.find((entry) => entry.label === 'Software rendering');
+				const item = Menu.getApplicationMenu().items.find((menu) => menu.label === 'Heddohon').submenu.items.find((entry) => entry.label === 'Software rendering');
 				return { checked: item.checked };
 			});
 		const { app, page } = await launch(data);

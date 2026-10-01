@@ -72,7 +72,7 @@ let config = {};
  * There the GPU process fails as it starts (`AllocateRingBuffer() failed` is
  * one way it says so) and takes the window with it. The second failure in a
  * run switches hardware acceleration off for good and starts the app again;
- * View, Software rendering switches it by hand, and
+ * Software rendering in the Heddohon menu switches it by hand, and
  * `HEDDOHON_DESKTOP_NO_GPU=1` or `--disable-gpu` does it for one run. It has
  * to be decided before the app is ready, so the profile is read here.
  */
@@ -358,6 +358,19 @@ function buildMenu(update = null) {
 					: []),
 				{ label: `Version ${app.getVersion()}`, enabled: false },
 				{ label: 'Check for updates…', click: () => void checkForUpdate(true) },
+				{ type: 'separator' },
+				{
+					label: 'Software rendering',
+					type: 'checkbox',
+					checked: Boolean(config.softwareRendering),
+					// Decided before the app is ready, so a change starts it again.
+					click: () => {
+						config.softwareRendering = !config.softwareRendering;
+						saveConfig();
+						restart();
+					}
+				},
+				{ type: 'separator' },
 				{ role: 'quit' }
 			]
 		},
@@ -373,19 +386,7 @@ function buildMenu(update = null) {
 				{ role: 'zoomIn' },
 				{ role: 'zoomOut' },
 				{ type: 'separator' },
-				{ role: 'togglefullscreen' },
-				{ type: 'separator' },
-				{
-					label: 'Software rendering',
-					type: 'checkbox',
-					checked: Boolean(config.softwareRendering),
-					// Decided before the app is ready, so a change starts it again.
-					click: () => {
-						config.softwareRendering = !config.softwareRendering;
-						saveConfig();
-						restart();
-					}
-				}
+				{ role: 'togglefullscreen' }
 			]
 		}
 	];
