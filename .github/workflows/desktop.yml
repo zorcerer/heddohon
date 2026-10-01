@@ -1,0 +1,105 @@
+# The Linux desktop app in `electron/`: a window around a server someone runs.
+#
+# On a pull request that touches it, the shell's suite runs (against the built
+# server and the mock music servers, with a virtual display and a D-Bus
+# session for the media controls), and the packages are built and kept as an
+# artifact of the run. Called from `release.yml` with a version, it builds
+# the same packages as that version and attaches them to the release: an
+# AppImage and a .deb, each for x64 and arm64.
+name: desktop
+
+on:
+  pull_request:
+    paths:
+      - 'electron/**'
+      - '.github/workflows/desktop.yml'
+  workflow_call:
+    inputs:
+      version:
+        description: The version the packages carry, without the v.
+        required: true
+        type: string
+      upload:
+        description: Attach the packages to the GitHub release of that version.
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-${{ github.event.pull_request.number || github.ref }}-${{ inputs.version || 'pr' }}
+  cancel-in-progress: true
+
+jobs:
+  desktop:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      VERSION: ${{ inputs.version || '0.0.0' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            electron/package-lock.json
+
+      # The server the shell is tested against, and the Playwright that drives it.
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build
+
+      - run: npm ci --no-audit --no-fund
+        working-directory: electron
+
+      # The libraries Chromium needs are the ones Electron needs.
+      - run: npx playwright install-deps chromium
+
+      - name: Run the shell's suite
+        working-directory: electron
+        run: dbus-run-session -- xvfb-run -a npm test
+
+      - name: Build the packages
+        working-directory: electron
+        run: |
+          npm version "$VERSION" --no-git-tag-version --allow-same-version
+          npm run dist
+
+      - name: Run the suite against the packaged app
+        working-directory: electron
+        env:
+          HEDDOHON_DESKTOP_BINARY: ${{ github.workspace }}/electron/dist/linux-unpacked/heddohon
+        run: dbus-run-session -- xvfb-run -a npm test
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: heddohon-desktop-${{ env.VERSION }}
+          path: |
+            electron/dist/*.AppImage
+            electron/dist/*.deb
+          if-no-files-found: error
+          retention-days: 14
+
+  # Its own job, so that only this step holds a token that can write.
+  attach:
+    if: inputs.upload
+    needs: desktop
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ inputs.version }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: heddohon-desktop-${{ inputs.version }}
+          path: packages
+
+      - name: Attach to the release
+        run: gh release upload "v$VERSION" packages/*.AppImage packages/*.deb --repo "$GITHUB_REPOSITORY" --clobber

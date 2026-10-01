@@ -182,6 +182,17 @@ jobs:
             --notes-file release-notes.md \
             docker-compose.yml docker-compose.dev.yml
 
+  # The Linux desktop app, as this version, attached to the release once it
+  # exists. A failure here leaves the release and its image as they are.
+  desktop:
+    needs: [plan, publish]
+    permissions:
+      contents: write
+    uses: ./.github/workflows/desktop.yml
+    with:
+      version: ${{ needs.plan.outputs.version }}
+      upload: true
+
   # The repository's package.json follows the releases, so a `:dev` build,
   # which reports that version with `-dev.<short sha>`, counts on from the last
   # one. The commit goes to `dev` and reaches `main` with the next release. A

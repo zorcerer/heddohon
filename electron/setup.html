@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self'" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>Heddohon</title>
+		<link rel="stylesheet" href="setup.css" />
+	</head>
+	<body>
+		<main>
+			<img src="build/icon.png" width="72" height="72" alt="" />
+			<h1>Heddohon</h1>
+			<p class="lede">The address of your Heddohon server, as you open it in a browser.</p>
+			<form id="form">
+				<label for="address">Server address</label>
+				<input id="address" name="address" type="text" inputmode="url" autocomplete="off" spellcheck="false" placeholder="https://music.example.com" required />
+				<p id="problem" role="alert" hidden></p>
+				<button id="connect" type="submit">Connect</button>
+			</form>
+			<p class="small">
+				The app is a window onto that server: your music, your account and your settings stay on it. Change the
+				address later from the menu (press Alt), under Heddohon.
+			</p>
+		</main>
+		<script src="setup.js"></script>
+	</body>
+</html>

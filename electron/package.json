@@ -1,0 +1,59 @@
+{
+	"name": "heddohon-desktop",
+	"productName": "Heddohon",
+	"desktopName": "heddohon.desktop",
+	"version": "0.0.0",
+	"description": "Heddohon in a window of its own, for a server you run.",
+	"private": true,
+	"license": "MIT",
+	"author": {
+		"name": "zorcerer",
+		"email": "zorcerer@users.noreply.github.com"
+	},
+	"homepage": "https://github.com/zorcerer/heddohon",
+	"main": "main.js",
+	"scripts": {
+		"start": "electron .",
+		"dist": "electron-builder --linux AppImage deb --x64 --arm64 --publish never",
+		"test": "node --test 'test/*.test.mjs'"
+	},
+	"devDependencies": {
+		"electron": "^44.5.1",
+		"electron-builder": "^26.15.3"
+	},
+	"build": {
+		"appId": "app.heddohon.desktop",
+		"productName": "Heddohon",
+		"files": [
+			"main.js",
+			"lib.js",
+			"preload.js",
+			"setup.html",
+			"setup.css",
+			"setup.js",
+			"build/icon.png"
+		],
+		"directories": {
+			"output": "dist"
+		},
+		"artifactName": "heddohon-${version}-${arch}.${ext}",
+		"linux": {
+			"target": [
+				"AppImage",
+				"deb"
+			],
+			"category": "AudioVideo",
+			"icon": "build/icon.png",
+			"executableName": "heddohon",
+			"syncDesktopName": true,
+			"synopsis": "Music player for your own Navidrome or Jellyfin library",
+			"desktop": {
+				"entry": {
+					"Name": "Heddohon",
+					"Categories": "AudioVideo;Audio;Player;",
+					"StartupWMClass": "Heddohon"
+				}
+			}
+		}
+	}
+}
