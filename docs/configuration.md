@@ -36,7 +36,12 @@ docker run -d --name heddohon \
 
 ### Unraid
 
-A Community Applications template is in this repository at
+Heddohon is listed in Community Applications:
+[ca.unraid.net/apps/heddohon-0bp7lm80vkr69w](https://ca.unraid.net/apps/heddohon-0bp7lm80vkr69w).
+Search for Heddohon on the Apps tab of the Unraid server and install it from
+there; the form that opens holds the settings below.
+
+The template behind the listing is in this repository at
 `templates/heddohon.xml`, with the repository profile CA reads beside it at
 `ca_profile.xml`. Both point at raw URLs on this repository, which have to
 resolve without a login for CA to render the icon and the readme.
