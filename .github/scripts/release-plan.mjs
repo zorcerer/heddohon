@@ -159,6 +159,8 @@ if (release) {
 		'',
 		`\`ghcr.io/zorcerer/heddohon:${text}\` and \`zorcererd/heddohon:${text}\`, also tagged \`latest\`.`,
 		'`docker-compose.yml` (this release as `latest`) and `docker-compose.dev.yml` (the development build) are attached below.',
+		'',
+		`The apps are attached below too, a few minutes after the release is published: for Linux \`heddohon-${text}-x86_64.AppImage\` and \`heddohon-${text}-arm64.AppImage\`, for Windows \`heddohon-${text}-setup.exe\` and \`heddohon-${text}-portable.exe\` (not signed), and for Android \`heddohon-${text}.apk\` (experimental). Each opens the server you run: https://github.com/${repo}/wiki/Apps`,
 		''
 	);
 	if (previous) lines.push(`**Changes:** https://github.com/${repo}/compare/${previous}...v${text}`, '');
