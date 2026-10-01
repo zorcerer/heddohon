@@ -7,12 +7,13 @@
  * to the output, as `player.svelte.ts` describes.
  *
  *   element A ─ side gain ─┐
- *                          ├─ preamp ─ 10 peaking bands ─ level ─ duck ─ output
+ *                          ├─ preamp ─ correction ─ 10 peaking bands ─ level ─ duck ─ output
  *   element B ─ side gain ─┘
  *
  * The side gains carry each track's ReplayGain and the crossfade; the level
  * carries the volume, mute and the sleep timer's fade; the duck goes to
- * silence and back around a pause, a skip and a seek.
+ * silence and back around a pause, a skip and a seek. The correction is the
+ * headphone's own filters (`$lib/autoeq`), none unless one is chosen.
  *
  * Measured in Chromium, Firefox and WebKit on 29 September 2026 (issue #32):
  *
@@ -27,6 +28,7 @@
  *  - `AudioContext.setSinkId` exists in Chromium only. Firefox sends the graph
  *    to a chosen output through a stream played by an element of its own.
  */
+import type { Correction } from '$lib/autoeq';
 
 /** Band centres in Hz, the ISO octaves from 31 Hz to 16 kHz. */
 export const EQ_FREQUENCIES = [31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000] as const;
@@ -51,6 +53,11 @@ export class AudioChain {
 	readonly context: SinkContext;
 	#sides = new Map<HTMLMediaElement, GainNode>();
 	#preamp: GainNode;
+	/** The headphone correction's filters, between the preamp and the bands. */
+	#correction: BiquadFilterNode[] = [];
+	/** dB the preamp is lowered by for the bands' largest boost, and moved by for the correction. */
+	#bandBoost = 0;
+	#correctionPreamp = 0;
 	#bands: BiquadFilterNode[];
 	#level: GainNode;
 	#duck: GainNode;
@@ -96,8 +103,41 @@ export class AudioChain {
 	setEqualiser(gains: readonly number[]) {
 		const now = this.context.currentTime;
 		this.#bands.forEach((band, i) => band.gain.setTargetAtTime(gains[i] ?? 0, now, LEVEL_SMOOTHING_S));
-		const boost = Math.max(0, ...gains);
-		this.#preamp.gain.setTargetAtTime(10 ** (-boost / 20), now, LEVEL_SMOOTHING_S);
+		this.#bandBoost = Math.max(0, ...gains);
+		this.#setPreamp();
+	}
+
+	/**
+	 * Puts a headphone correction ahead of the bands, or takes it out for null:
+	 * one biquad per filter, and its preamp added to the graph's. AutoEq works
+	 * the preamp out so that the filters cannot take a full-scale track past
+	 * full scale. A shelf has the slope `BiquadFilterNode` gives every shelf,
+	 * which is the Q of 0.71 AutoEq writes; its `Q` is not read.
+	 */
+	setCorrection(correction: Correction | null) {
+		this.#preamp.disconnect();
+		for (const filter of this.#correction) filter.disconnect();
+		this.#correction = (correction?.filters ?? []).map((spec) => {
+			const filter = this.context.createBiquadFilter();
+			filter.type = spec.type;
+			filter.frequency.value = spec.frequency;
+			filter.gain.value = spec.gain;
+			filter.Q.value = spec.q;
+			return filter;
+		});
+		let node: AudioNode = this.#preamp;
+		for (const filter of this.#correction) {
+			node.connect(filter);
+			node = filter;
+		}
+		node.connect(this.#bands[0]);
+		this.#correctionPreamp = correction?.preamp ?? 0;
+		this.#setPreamp();
+	}
+
+	#setPreamp() {
+		const db = this.#correctionPreamp - this.#bandBoost;
+		this.#preamp.gain.setTargetAtTime(10 ** (db / 20), this.context.currentTime, LEVEL_SMOOTHING_S);
 	}
 
 	/** The volume, mute and the sleep timer's fade, as one factor. */

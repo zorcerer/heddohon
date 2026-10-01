@@ -21,6 +21,7 @@
 import { browser } from '$app/environment';
 import { untrack } from 'svelte';
 import type { Song } from '$lib/types';
+import type { Correction } from '$lib/autoeq';
 import type { UserSettings } from '$lib/server/settings';
 import { AudioChain } from './audiochain';
 import { coverUrl, streamUrl } from './format';
@@ -512,6 +513,11 @@ export class Player {
 
 	setEqualiser(gains: readonly number[]) {
 		this.#chain?.setEqualiser(gains);
+	}
+
+	/** The headphone correction ahead of the bands, or none for null; see `audiochain.ts`. */
+	setCorrection(correction: Correction | null) {
+		this.#chain?.setCorrection(correction);
 	}
 
 	detach() {
