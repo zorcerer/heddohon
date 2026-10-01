@@ -27,6 +27,19 @@ on:
         required: false
         type: boolean
         default: false
+  # By hand, for a release whose packages did not get attached: builds them
+  # again from the branch the run is started on and attaches them to it.
+  workflow_dispatch:
+    inputs:
+      version:
+        description: The version of an existing release, without the v.
+        required: true
+        type: string
+      upload:
+        description: Attach the packages to the GitHub release of that version.
+        required: false
+        type: boolean
+        default: true
 
 permissions:
   contents: read
