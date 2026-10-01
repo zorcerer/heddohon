@@ -221,6 +221,21 @@
 		.account:active {
 			scale: 0.92;
 		}
+
+		/*
+		 * The title takes the whole row, short of the corner the account button
+		 * is in, and Shuffle something goes under it. Side by side, the button
+		 * sat at the foot of the row and the account button at its head, 44px
+		 * tall in a row of 70px: they overlapped by 14px at 393px wide.
+		 */
+		.masthead > div {
+			flex: 1 1 100%;
+			padding-right: 3.5rem;
+		}
+
+		.masthead {
+			gap: var(--space-3);
+		}
 	}
 
 	.shuffle {

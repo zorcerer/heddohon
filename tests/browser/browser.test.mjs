@@ -543,6 +543,7 @@ describe('the equaliser', () => {
 describe('the install card', () => {
 	const settings = (patch) => context.request.patch(`${app.url}/api/settings`, { data: patch, headers: { origin: app.url } });
 	const card = (page) => page.locator('aside[aria-label="Install the app"]');
+	const RELEASES = 'https://github.com/zorcerer/heddohon/releases/latest';
 	/** Chrome's `beforeinstallprompt`, which headless Chromium does not fire by itself. */
 	const offerInstall = (page) =>
 		page.evaluate(() => {
@@ -580,37 +581,39 @@ describe('the install card', () => {
 		await settings({ installCardDismissed: true });
 	});
 
-	test('waits for something to play, installs from the button, and stays away once dismissed', async () => {
+	// The suite's own browser is Chromium on Linux, which is pointed at the AppImage.
+	test('on Linux, waits for something to play, points at the release and not at the browser\'s install, and stays away once dismissed', async () => {
 		const { page, problems } = await watchedPage();
 		try {
 			await page.goto(app.url + '/albums/al1', { waitUntil: 'networkidle' });
-			await offerInstall(page);
 			await page.waitForTimeout(300);
 			assert.equal(await card(page).count(), 0, 'not before anything plays');
 
 			await play(page);
 			await card(page).waitFor();
-			await card(page).getByRole('button', { name: 'Install', exact: true }).click();
-			await page.waitForFunction(() => window.__prompted === 1);
-			await card(page).waitFor({ state: 'detached' });
-
-			// Chrome offers again while the app is still not installed.
+			assert.match(await card(page).innerText(), /Heddohon for Linux: an AppImage, with the latest release\./);
+			const link = card(page).getByRole('link', { name: 'Get the app' });
+			assert.deepEqual(
+				await link.evaluate((a) => [a.href, a.target, a.rel]),
+				[RELEASES, '_blank', 'noopener noreferrer']
+			);
+			// The browser offering to install the page changes nothing here.
 			await offerInstall(page);
+			await page.waitForTimeout(200);
+			assert.equal(await card(page).getByRole('button', { name: 'Install', exact: true }).count(), 0);
+
 			await card(page).getByRole('button', { name: 'Not now' }).click();
 			await card(page).waitFor({ state: 'detached' });
 			await page.waitForFunction(async () => (await (await fetch('/api/settings')).json()).installCardDismissed === true);
 
 			await page.reload({ waitUntil: 'networkidle' });
-			await offerInstall(page);
 			await play(page);
 			await page.waitForTimeout(300);
 			assert.equal(await card(page).count(), 0, 'dismissed on the account');
 
-			// Settings still offers it.
+			// Settings still has it.
 			await page.goto(app.url + '/settings?tab=appearance', { waitUntil: 'networkidle' });
-			await offerInstall(page);
-			await page.getByRole('button', { name: 'Install Heddohon' }).click();
-			await page.waitForFunction(() => window.__prompted === 1);
+			assert.equal(await page.locator('#install').getByRole('link', { name: 'Get the app' }).getAttribute('href'), RELEASES);
 		} finally {
 			await settings({ installCardDismissed: false });
 			await page.close();
@@ -637,7 +640,6 @@ describe('the install card', () => {
 						query === `(display-mode: ${mode})` ? { ...real(query), matches: true, media: query } : real(query);
 				}, mode);
 				await page.goto(app.url + '/albums/al1', { waitUntil: 'networkidle' });
-				await offerInstall(page);
 				await play(page);
 				await page.waitForTimeout(300);
 				assert.equal(await card(page).count(), 0, mode);
@@ -659,7 +661,6 @@ describe('the install card', () => {
 			try {
 				await setup(page);
 				await page.goto(app.url + '/albums/al1', { waitUntil: 'networkidle' });
-				await offerInstall(page);
 				await play(page);
 				await page.waitForTimeout(300);
 				assert.equal(await card(page).count(), 0, name);
@@ -667,8 +668,7 @@ describe('the install card', () => {
 				assert.equal(await dismissedOnAccount(), false, `${name}: a tab does not put the card away on the account`);
 
 				await page.goto(app.url + '/settings?tab=appearance', { waitUntil: 'networkidle' });
-				await offerInstall(page);
-				await page.getByRole('button', { name: 'Install Heddohon' }).waitFor();
+				await page.locator('#install').getByRole('link', { name: 'Get the app' }).waitFor();
 			} finally {
 				await page.close();
 				// A page of its own for the clean-up: the first one sets the mark again on every load.
@@ -681,38 +681,50 @@ describe('the install card', () => {
 		}
 	});
 
-	test('tells Safari and Edge how, and shows nothing in Firefox', async () => {
-		const agents = {
-			mac: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15',
-			oldMac: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Safari/605.1.15',
-			iphone: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1',
-			chromeOnIphone: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/128.0.6613.98 Mobile/15E148 Safari/604.1',
-			edge: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36 Edg/140.0.0.0',
-			edgeOnAndroid: 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36 EdgA/140.0.0.0',
-			firefox: 'Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0'
+	test('each system is offered its own way: our app on Windows, Linux and Android, the browser\'s install on a Mac, an iPhone and an iPad', async () => {
+		const CHROME = 'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36';
+		const SAFARI = (version) => `AppleWebKit/605.1.15 (KHTML, like Gecko) Version/${version} Safari/605.1.15`;
+		/** [user agent, the browser offers its own install, what the card should hold] */
+		const cases = {
+			'Chrome on Windows': [`Mozilla/5.0 (Windows NT 10.0; Win64; x64) ${CHROME}`, true, { text: /for Windows: an installer or a portable \.exe/, link: 'Get the app', install: false }],
+			'Firefox on Windows': ['Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0', false, { text: /for Windows/, link: 'Get the app', install: false }],
+			'Firefox on Linux': ['Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0', false, { text: /for Linux: an AppImage/, link: 'Get the app', install: false }],
+			'Chrome on Android': [`Mozilla/5.0 (Linux; Android 14; Pixel 8) ${CHROME.replace('Safari', 'Mobile Safari')}`, false, { text: /for Android: an APK to install/, link: 'Get the APK', install: false }],
+			'Chrome on Android, offering to install': [`Mozilla/5.0 (Linux; Android 14; Pixel 8) ${CHROME.replace('Safari', 'Mobile Safari')}`, true, { text: /for Android/, link: 'Get the APK', install: true }],
+			'Chrome on a Mac, offering to install': [`Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) ${CHROME}`, true, { text: /Install Heddohon as an app/, link: null, install: true }],
+			'Chrome on a Mac, not offering': [`Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) ${CHROME}`, false, null],
+			'Edge on a Mac, not offering': [`Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) ${CHROME} Edg/140.0.0.0`, false, { text: /choose Apps, then Install this site as an app/, link: null, install: false }],
+			'Safari 18 on a Mac': [`Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) ${SAFARI('18.0')}`, false, { text: /File, then Add to Dock/, link: null, install: false }],
+			'Safari 16 on a Mac': [`Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) ${SAFARI('16.6')}`, false, null],
+			'Firefox on a Mac': ['Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:140.0) Gecko/20100101 Firefox/140.0', false, null],
+			'Safari on an iPhone': ['Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1', false, { text: /Share, then Add to Home Screen/, link: null, install: false }],
+			'Chrome on an iPhone': ['Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/128.0.6613.98 Mobile/15E148 Safari/604.1', false, null],
+			'ChromeOS, offering to install': [`Mozilla/5.0 (X11; CrOS x86_64 14541.0.0) ${CHROME}`, true, { text: /Install Heddohon as an app/, link: null, install: true }],
+			// Inside our own desktop app, which names itself.
+			'the desktop app': [`Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) heddohon-desktop/0.5.0 Chrome/140.0.0.0 Electron/44.5.1 Safari/537.36`, false, null]
 		};
-		const seen = {};
-		for (const [name, userAgent] of Object.entries(agents)) {
+		for (const [name, [userAgent, offering, expected]] of Object.entries(cases)) {
 			const view = await signedIn(userAgent);
 			const page = await view.newPage();
 			try {
 				await page.goto(app.url + '/albums/al1', { waitUntil: 'networkidle' });
+				if (offering) await offerInstall(page);
 				await play(page);
 				await page.waitForTimeout(300);
-				seen[name] = (await card(page).count()) ? await card(page).innerText() : null;
-				if (seen[name]) assert.equal(await card(page).getByRole('button', { name: 'Install', exact: true }).count(), 0);
+				if (expected === null) {
+					assert.equal(await card(page).count(), 0, name);
+					continue;
+				}
+				assert.match(await card(page).innerText(), expected.text, name);
+				const links = card(page).getByRole('link');
+				assert.deepEqual(await links.evaluateAll((all) => all.map((a) => [a.textContent.trim(), a.href])), expected.link ? [[expected.link, RELEASES]] : [], name);
+				assert.equal(await card(page).getByRole('button', { name: 'Install', exact: true }).count(), expected.install ? 1 : 0, name);
 			} finally {
 				await view.close();
+				// The desktop app marks the account as using the app; the next system starts as the first did.
+				await settings({ installCardDismissed: false });
 			}
 		}
-		assert.match(seen.mac ?? '', /File, then Add to Dock/);
-		assert.equal(seen.oldMac, null, 'Add to Dock arrived in Safari 17');
-		assert.match(seen.iphone ?? '', /Share, then Add to Home Screen/);
-		assert.equal(seen.chromeOnIphone, null);
-		// Edge where `beforeinstallprompt` has not come: a site on plain http, or a prompt already declined.
-		assert.match(seen.edge ?? '', /choose Apps, then Install this site as an app/);
-		assert.equal(seen.edgeOnAndroid, null);
-		assert.equal(seen.firefox, null);
 	});
 });
 
@@ -1014,6 +1026,40 @@ describe('internet radio', () => {
 });
 
 describe('the bars a phone paints around the page', () => {
+	test('on the home page, the account button and Shuffle something do not overlap', async () => {
+		for (const viewport of [
+			{ width: 393, height: 852 },
+			{ width: 360, height: 780 },
+			{ width: 820, height: 1180 }
+		]) {
+			const phone = await browser.newContext({ viewport, isMobile: true, hasTouch: true });
+			const signIn = await phone.request.post(`${app.url}/login`, {
+				form: { username: 'testuser', password: 'testpass', backend: 'subsonic', next: '/' },
+				headers: { origin: app.url, accept: 'text/html' },
+				maxRedirects: 0
+			});
+			assert.equal(signIn.status(), 303);
+			const page = await phone.newPage();
+			try {
+				await page.goto(app.url + '/', { waitUntil: 'networkidle' });
+				const boxes = await page.evaluate(() => {
+					const box = (selector) => {
+						const rect = document.querySelector(selector).getBoundingClientRect();
+						return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom };
+					};
+					return { account: box('.masthead .account'), shuffle: box('.masthead .shuffle'), title: box('.masthead h1'), width: innerWidth };
+				});
+				const apart = (a, b) => a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top;
+				const at = `${viewport.width}px`;
+				assert.ok(apart(boxes.account, boxes.shuffle), `${at}: ${JSON.stringify(boxes)}`);
+				assert.ok(apart(boxes.account, boxes.title), `${at}: the title runs under the account button`);
+				assert.ok(boxes.shuffle.right <= boxes.width, `${at}: Shuffle something runs off the screen`);
+			} finally {
+				await phone.close();
+			}
+		}
+	});
+
 	test('under the status bar of an installed app on iOS, the strip the clock is read against is dark in both themes', async () => {
 		const settings = (patch) => context.request.patch(`${app.url}/api/settings`, { data: patch, headers: { origin: app.url } });
 		const phone = await browser.newContext({ viewport: { width: 393, height: 852 }, isMobile: true, hasTouch: true });
