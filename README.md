@@ -48,7 +48,24 @@ only ever talks to Heddohon and your upstream credentials stay on the server.
   <tr>
     <td colspan="2" align="center">A shared song, for anyone with the link</td>
   </tr>
+  <tr>
+    <td colspan="2" align="center">
+      <img src="docs/assets/phone-album.jpg" width="280" alt="An album page on a phone, with what is playing and four tabs in one panel at the foot of the screen">
+      &nbsp;
+      <img src="docs/assets/phone-player.jpg" width="280" alt="The full player on a phone, with the cover filling the top of the screen">
+    </td>
+  </tr>
+  <tr>
+    <td colspan="2" align="center">On a phone: the player and the tabs in one panel, and the full player pulled up from it</td>
+  </tr>
 </table>
+
+<sub>Music in the screenshots: songs and cover art by Josh Woodward
+([joshwoodward.com](https://www.joshwoodward.com/)), including "The Nest",
+"Insomnia", "Only Whispering" and "California Lullabye", under
+[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/); J.S. Bach, The Art of
+the Fugue, played by Kimiko Ishizaka, dedicated to the public domain
+([CC0](https://creativecommons.org/publicdomain/zero/1.0/)).</sub>
 
 ## Quick start
 
