@@ -2944,7 +2944,8 @@ describe('appears on', () => {
 			});
 			assert.deepEqual(shelf.links, ['/albums/al2']);
 			assert.match(shelf.text.join(' '), /Artist 0002/, 'the album\'s own artist is named on the card');
-			assert.ok(shelf.headings.indexOf('Releases') < shelf.headings.indexOf('Appears on'), `sections: ${shelf.headings}`);
+			// The mock's albums are two tracks and six minutes, with no type from the server: singles.
+			assert.ok(shelf.headings.includes('Singles') && shelf.headings.indexOf('Singles') < shelf.headings.indexOf('Appears on'), `sections: ${shelf.headings}`);
 		} finally {
 			await page.close();
 		}

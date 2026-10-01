@@ -137,6 +137,10 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 		ignoreRange: false,
 		/** Milliseconds between the first and second half of a `stream` body, to keep a read in progress. */
 		streamSlowMs: 0,
+		/** OpenSubsonic `releaseTypes` by album id, such as `['EP']`. An album without an entry sends none. */
+		releaseTypes: new Map(),
+		/** Fields to put over an album's own, by id: `{ songCount, duration, isCompilation }`. */
+		albumShapes: new Map(),
 		/** Internet radio stations, as `{ id, name, streamUrl, homePageUrl }`. None unless a test adds them. */
 		radio: [],
 		/** Cover ids answered with a solid colour, as `[r, g, b]`, instead of the 1px PNG. */
@@ -210,6 +214,8 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 		duration: 360,
 		year: 2000 + (i % 20),
 		userRating: state.ratings.get(id),
+		...(state.releaseTypes.has(id) ? { releaseTypes: state.releaseTypes.get(id) } : {}),
+		...(state.albumShapes.get(id) ?? {}),
 		// A 2009 edition of a record from 1979, and a date with no year (Navidrome
 		// sends 0), which leaves the edition's year.
 		...(i === 29 ? { originalReleaseDate: { year: 1979, month: 5, day: 1 } } : {}),

@@ -2776,3 +2776,50 @@ describe('internet radio', () => {
 		assert.equal((await stream('1', jf)).status, 404);
 	});
 });
+
+describe('an artist\'s releases by kind', () => {
+	/** The headings of the release sections on an artist page, in order, each with its albums. */
+	async function sections(client, artistId) {
+		const { response, html } = await client.page(`/artists/${artistId}`);
+		assert.equal(response.status, 200);
+		const found = [];
+		for (const part of html.split('<section').slice(1)) {
+			const title = /<h2[^>]*>([^<]+)<\/h2>/.exec(part)?.[1];
+			const albums = [...part.matchAll(/href="\/albums\/([^"]+)"/g)].map((match) => match[1]);
+			if (title && ['Albums', 'EPs', 'Singles', 'Live', 'Compilations'].includes(title)) found.push([title, [...new Set(albums)]]);
+		}
+		return found;
+	}
+
+	test('what the server calls a release decides, and its size where the server does not say', async () => {
+		// An account of its own: an artist read in the last minute is held per account.
+		await asFreshAccount('releases', async (client) => {
+		try {
+			subsonic.state.releaseTypes.set('al0', ['Album']);
+			subsonic.state.releaseTypes.set('al5', ['EP']);
+			subsonic.state.releaseTypes.set('al6', ['Album', 'Live']);
+			subsonic.state.releaseTypes.set('al7', ['Single', 'Compilation']);
+			subsonic.state.albumShapes.set('al8', { songCount: 12, duration: 45 * 60 });
+			subsonic.state.albumShapes.set('al9', { songCount: 5, duration: 20 * 60 });
+			subsonic.state.albumShapes.set('al10', { songCount: 3, duration: 60 * 60 });
+			subsonic.state.albumShapes.set('al11', { isCompilation: true });
+
+			// Artist 0 has two records: one the server calls an album, one it says nothing about (two tracks, six minutes).
+			assert.deepEqual(await sections(client, 'ar0'), [
+				['Albums', ['al0']],
+				['Singles', ['al0x']]
+			]);
+			assert.deepEqual(await sections(client, 'ar5'), [['EPs', ['al5']]]);
+			assert.deepEqual(await sections(client, 'ar6'), [['Live', ['al6']]], 'a live album is listed as live');
+			assert.deepEqual(await sections(client, 'ar7'), [['Compilations', ['al7']]]);
+			assert.deepEqual(await sections(client, 'ar8'), [['Albums', ['al8']]], '12 tracks, 45 minutes');
+			assert.deepEqual(await sections(client, 'ar9'), [['EPs', ['al9']]], '5 tracks, 20 minutes');
+			assert.deepEqual(await sections(client, 'ar10'), [['Albums', ['al10']]], '3 tracks of 20 minutes are not a single');
+			assert.deepEqual(await sections(client, 'ar11'), [['Compilations', ['al11']]], 'isCompilation');
+		} finally {
+			subsonic.state.releaseTypes.clear();
+			subsonic.state.albumShapes.clear();
+		}
+		});
+	});
+});
