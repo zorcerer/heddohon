@@ -725,7 +725,11 @@ build toolchain out of the runtime layer. Secrets are supplied at run time, and
 
 ## Logging
 
-Logs go to stdout and stderr (see [Configuration](https://github.com/zorcerer/heddohon/wiki/Configuration#logging)).
+Logs go to stdout and stderr, and the same lines to a file a day in
+`HEDDOHON_DATA_DIR/logs`, kept for `HEDDOHON_LOG_KEEP_DAYS` days (7 unless set;
+`0` writes none). See [Configuration](https://github.com/zorcerer/heddohon/wiki/Configuration#logging).
+The files are created with mode 0640 and hold what the level set below puts
+in the log, so whoever can read the data directory can read them.
 
 - **Default:** failures only.
 - **`info`:** adds username and client address on sign-in attempts, for fail2ban.

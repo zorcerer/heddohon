@@ -14,6 +14,7 @@ import {
 	redact,
 	withRequest
 } from '$lib/server/log';
+import { logKeepDays } from '$lib/server/logfile';
 
 /**
  * Routes reachable without a session. Everything else requires one.
@@ -100,6 +101,7 @@ function announce(): void {
 			build: version,
 			node: process.versions.node,
 			logLevel: logLevel(),
+			logFiles: logKeepDays() > 0 ? `${logKeepDays()}d` : 'off',
 			data: cfg.dataDir,
 			covers: cfg.coverCacheBytes > 0 ? `${Math.round(cfg.coverCacheBytes / 1024 / 1024)}MB` : 'off',
 			sharing: cfg.sharing ? 'on' : 'off',
