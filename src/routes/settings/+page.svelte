@@ -99,6 +99,12 @@
 			body: JSON.stringify({ historyDays: days })
 		}).catch(() => undefined);
 	}
+	/** The session lifetime in days where it is a whole number of them, and in hours otherwise. */
+	const sessionLifetime = $derived(
+		data.sessionMaxHours % 24 === 0
+			? `${data.sessionMaxHours / 24} day${data.sessionMaxHours === 24 ? '' : 's'}`
+			: `${data.sessionMaxHours} hour${data.sessionMaxHours === 1 ? '' : 's'}`
+	);
 	let withdrawing = $state<string | null>(null);
 	let ending = $state<string | null>(null);
 
@@ -798,8 +804,8 @@
 		</ul>
 
 		<p class="hh-muted note">
-			Sessions have a hard ceiling of {data.sessionMaxHours} hours and are never extended by
-			activity: when the clock runs out, you sign in again. Your music server password is held
+			A sign-in lasts {sessionLifetime} and is not extended by activity: when the time is up,
+			you sign in again. Your music server password is held
 			encrypted on the server and is never sent to this browser. Signing out does not withdraw
 			shared links; see below.
 		</p>

@@ -58,6 +58,36 @@ async function asFreshAccount(username, run) {
 	}
 }
 
+describe('how long a sign-in lasts', () => {
+	/** The session cookie's `Max-Age` from a sign-in, in seconds. */
+	async function lifetime(url) {
+		const response = await fetch(`${url}/login`, {
+			method: 'POST',
+			redirect: 'manual',
+			headers: { origin: url, accept: 'text/html', 'content-type': 'application/x-www-form-urlencoded' },
+			body: new URLSearchParams({ username: 'testuser', password: 'testpass', backend: 'subsonic', next: '/' })
+		});
+		assert.equal(response.status, 303);
+		const cookie = response.headers.getSetCookie().find((c) => /heddohon_session=/.test(c) && !/max-age=0/i.test(c));
+		return Number(/max-age=(\d+)/i.exec(cookie ?? '')?.[1]);
+	}
+
+	test('30 days unless set', async () => {
+		assert.equal(await lifetime(app.url), 30 * 24 * 60 * 60);
+	});
+
+	test('whatever HEDDOHON_SESSION_HOURS says, above 30 days as well as below', async () => {
+		for (const hours of [2000, 12]) {
+			const set = await startApp({ subsonicUrl: subsonic.url, jellyfinUrl: jellyfin.url, env: { HEDDOHON_SESSION_HOURS: String(hours) } });
+			try {
+				assert.equal(await lifetime(set.url), hours * 60 * 60);
+			} finally {
+				await set.stop();
+			}
+		}
+	});
+});
+
 describe('the gate', () => {
 	test('/healthz answers without a session and names no upstream URL', async () => {
 		const response = await fetch(`${app.url}/healthz`);

@@ -187,11 +187,14 @@ only `HMAC-SHA256(token)`, so reading the database yields no usable cookie.
 | --- | --- |
 | Name | `__Host-heddohon_session` when `Secure`, `heddohon_session` otherwise |
 | Flags | `HttpOnly`, `SameSite=Lax`, `Path=/`, host-only, `Secure` (see below) |
-| Lifetime | `HEDDOHON_SESSION_HOURS`, default and hard ceiling **72 hours** |
+| Lifetime | `HEDDOHON_SESSION_HOURS`, **30 days** (720 hours) unless set |
 | Extension | Activity updates `last_seen_at` only; `expires_at` is fixed at creation |
 
 Expiry is checked on every request, and an expired row is deleted when
-presented. Signing out deletes the server-side record. When the upstream rejects
+presented. A session token copied from a browser works until that expiry, so
+the lifetime is also how long a copied token is good for; Settings lists the
+account's sessions and ends any of them, and a deployment that wants a shorter
+window sets `HEDDOHON_SESSION_HOURS`. Signing out deletes the server-side record. When the upstream rejects
 a stored credential, every session for that account is destroyed.
 
 **A reused Jellyfin user name starts a new account.** Accounts are matched by
@@ -245,7 +248,7 @@ seek, volume, or a queue of up to 1000 track ids) to one of them; the target
 is looked up among the signing-in account's own streams, so an id from another
 account reaches nothing. `POST /api/remote/state` is taken only from the
 session that opened the stream it names. A stream is tied to its session like
-audio: signing out, being signed out from Settings and the 72-hour expiry end
+audio: signing out, being signed out from Settings and the session expiring end
 it. An account holds at most 20 streams. Anyone signed in to the account can
 already play and change its queue, so this gives a browser no access it lacked;
 it lets one browser of the account start sound on another. The registry is in
@@ -409,7 +412,7 @@ address, `/cast/<token>`, a public route. What it is limited to:
 - **It lasts 6 hours**, and never past the session's own expiry. The browser
   asks for new ones after 5.
 - **It ends with the session.** Each request looks the session up by its
-  handle; signing out, being signed out from Settings and the 72-hour expiry
+  handle; signing out, being signed out from Settings and the session expiring
   make every address the session was given answer 404, and a stream in
   progress is cut as the browser's own are.
 - **Every refusal is the same 404**: malformed, forged, expired, a session
@@ -444,7 +447,7 @@ plays, as it plays, without an account. What it is limited to:
   routes take `?song=`, and answer 404 for any id but the one the host last
   reported, through the host's account. The file is sent as it is stored.
 - **It ends** when the host ends it, after 12 hours, or when the host's session
-  ends (signing out, being signed out from Settings, the 72-hour expiry). A
+  ends (signing out, being signed out from Settings, the session expiring). A
   stream in progress is cut with the host's session.
 - **Listeners send reactions only.** One of five emoji, from a listener whose
   event stream is open, at most one a second. There are no names or messages.
@@ -874,7 +877,7 @@ suite.
 | Medium | `?next=` accepted `/\example.tld` and `/<TAB>/example.tld` | Parsed and held to this origin |
 | Low | Account rows matched case-sensitively | `COLLATE NOCASE` |
 
-Also examined: token entropy, HMAC lookup timing, the 72 hour ceiling against a
+Also examined: token entropy, HMAC lookup timing, the session lifetime against a
 client-set `Max-Age`, IV uniqueness, behaviour on an unset, short or changed
 secret, the build-time placeholder secret, credential exposure in load returns
 and the bundle, all 31 logging call sites, the header allowlist, route gate
