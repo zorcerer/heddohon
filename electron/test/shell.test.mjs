@@ -8,7 +8,7 @@
  */
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { lstatSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -25,7 +25,17 @@ const { originOf, compareVersions } = require('../lib.js');
 /** Under Node the `electron` package is the path of its binary. Playwright looks for it beside itself, which is the repository root. */
 const executablePath = require('electron');
 /** The packaged app instead, when the suite is pointed at one: `dist/linux-unpacked/heddohon`. */
-const packaged = process.env.HEDDOHON_DESKTOP_BINARY;
+const packaged = process.env.HEDDOHON_DESKTOP_BINARY || null;
+
+/** Whether an instance still holds the profile: `SingletonLock` is a symbolic link while one does. */
+function lockHeld(data) {
+	try {
+		lstatSync(join(data, 'SingletonLock'));
+		return true;
+	} catch {
+		return false;
+	}
+}
 
 let subsonic;
 let jellyfin;
@@ -34,11 +44,17 @@ let profile;
 
 /** Starts the shell on a profile, with the default browser replaced by a list of what it was asked to open. */
 async function launch(data = profile) {
+	// One instance per profile: a start while the last one is still on its way
+	// out finds its lock and quits. Chromium's lock is a link in the profile.
+	for (let i = 0; i < 100 && lockHeld(data); i++) await new Promise((done) => setTimeout(done, 100));
 	const app = await electron.launch({
 		executablePath: packaged ?? executablePath,
 		// No sandbox: the suite runs in a container without user namespaces.
 		args: packaged ? ['--no-sandbox'] : [shell, '--no-sandbox'],
-		env: { ...process.env, HEDDOHON_DESKTOP_DATA: data, HEDDOHON_DESKTOP_NO_UPDATE_CHECK: '1' }
+		env: { ...process.env, HEDDOHON_DESKTOP_DATA: data, HEDDOHON_DESKTOP_NO_UPDATE_CHECK: '1' },
+		// A start that is going to work has a window within seconds. The default,
+		// 3 minutes, is how long a start that quit at once took to be reported.
+		timeout: 30_000
 	});
 	await app.evaluate(({ shell }) => {
 		globalThis.__opened = [];
