@@ -39,6 +39,8 @@ const LOGIN = path.join(__dirname, 'login.html');
 const ALLOWED_PERMISSIONS = new Set(['media', 'speaker-selection', 'fullscreen', 'clipboard-sanitized-write', 'screen-wake-lock']);
 const CHECK_TIMEOUT_MS = 8000;
 const UPDATE_CHECK_DELAY_MS = 5000;
+/** The word that the app switched to software rendering waits for the window too, and comes before the update. */
+const SWITCH_NOTICE_DELAY_MS = 2000;
 /** `/healthz` is a few dozen bytes. Nothing longer is read. */
 const MAX_CHECK_BYTES = 64 * 1024;
 
@@ -71,7 +73,9 @@ let config = {};
  * use: a virtual machine, a remote desktop, some driver and compositor pairs.
  * There the GPU process fails as it starts (`AllocateRingBuffer() failed` is
  * one way it says so) and takes the window with it. The second failure in a
- * run switches hardware acceleration off for good and starts the app again;
+ * run switches hardware acceleration off for good and starts the app again,
+ * and that start says so in a dialog, once: software rendering is slower, and
+ * a switch nobody was told of leaves a slow window with no stated cause.
  * Software rendering in the Heddohon menu switches it by hand, and
  * `HEDDOHON_DESKTOP_NO_GPU=1` or `--disable-gpu` does it for one run. It has
  * to be decided before the app is ready, so the profile is read here.
@@ -91,6 +95,7 @@ app.on('child-process-gone', (_event, details) => {
 	gpuFailures++;
 	if (gpuFailures < 2 || config.softwareRendering) return;
 	config.softwareRendering = true;
+	config.softwareRenderingSwitched = true;
 	saveConfig();
 	restart();
 });
@@ -366,6 +371,7 @@ function buildMenu(update = null) {
 					// Decided before the app is ready, so a change starts it again.
 					click: () => {
 						config.softwareRendering = !config.softwareRendering;
+						delete config.softwareRenderingSwitched;
 						saveConfig();
 						restart();
 					}
@@ -391,6 +397,29 @@ function buildMenu(update = null) {
 		}
 	];
 	Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
+
+/**
+ * Says that the app switched itself to software rendering, at the start that
+ * follows the switch and once. Use the graphics card again undoes it, for a
+ * failure that was the driver being replaced and not the machine.
+ */
+async function saySwitched() {
+	if (!config.softwareRendering || !config.softwareRenderingSwitched || !win || win.isDestroyed()) return;
+	const { response: choice } = await dialog.showMessageBox(win, {
+		type: 'info',
+		title: 'Heddohon',
+		message: 'Heddohon switched to software rendering',
+		detail:
+			'The graphics driver failed twice as the app started, so the app now draws without the graphics card. Scrolling and animation can be slower. It stays this way until Software rendering is unticked in the menu (press Alt, then Heddohon).',
+		buttons: ['OK', 'Use the graphics card again'],
+		defaultId: 0,
+		cancelId: 0
+	});
+	delete config.softwareRenderingSwitched;
+	if (choice === 1) config.softwareRendering = false;
+	saveConfig();
+	if (choice === 1) restart();
 }
 
 /**
@@ -574,6 +603,7 @@ if (!app.requestSingleInstanceLock()) {
 
 		buildMenu();
 		createWindow();
+		setTimeout(() => void saySwitched(), SWITCH_NOTICE_DELAY_MS);
 		// After the window has had time to show the server: the dialog is not the first thing seen.
 		setTimeout(() => void checkForUpdate(), UPDATE_CHECK_DELAY_MS);
 	});
