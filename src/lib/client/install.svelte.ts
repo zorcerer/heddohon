@@ -26,9 +26,11 @@
  *
  * Whether the app is already in use is known several ways, none of them
  * complete. The page is running inside one of ours: the desktop app names
- * itself in its user agent, and the Android app is the page's referrer when
- * it opens. The page is running as an installed web app (its display mode).
- * The browser says the web app is installed (`getInstalledRelatedApps`, with
+ * itself in its user agent, and the Android app opens the server with
+ * `?app=android` and is the referrer of the page it opens. A reverse proxy's
+ * sign-in page in between replaces the referrer, so both are read, and what
+ * they say is kept in `sessionStorage` for the pages the tab loads afterwards.
+ * The page is running as an installed web app (its display mode). The browser says the web app is installed (`getInstalledRelatedApps`, with
  * the manifest naming itself under `related_applications`; Chrome and Edge
  * only). Or this browser profile has done any of those before, which is kept
  * in `localStorage`: an installed web app and a tab of the same browser share
@@ -66,8 +68,23 @@ export const APP_KINDS: Record<'app-windows' | 'app-linux' | 'app-android', { sy
 export const APP_RELEASES = 'https://github.com/zorcerer/heddohon/releases/latest';
 
 const INSTALLED_KEY = 'heddohon:installed';
+/** Set in the tab one of our apps opened, for the pages it loads after the first. */
+const IN_APP_KEY = 'heddohon:in-app';
 /** The Android app, as the referrer of the page it opens. */
 const ANDROID_APP = 'android-app://app.heddohon.android';
+
+/** Whether the page is inside the desktop app or the Android app. */
+function inOurApp(): boolean {
+	if (/\bElectron\//.test(navigator.userAgent)) return true;
+	const opened = document.referrer.startsWith(ANDROID_APP) || new URLSearchParams(location.search).get('app') === 'android';
+	try {
+		if (opened) sessionStorage.setItem(IN_APP_KEY, '1');
+		return opened || sessionStorage.getItem(IN_APP_KEY) === '1';
+	} catch {
+		// Storage refused: known for this page only.
+		return opened;
+	}
+}
 
 /** The display modes an installed app runs in. A browser tab is `browser`. */
 const APP_DISPLAY_MODES = ['standalone', 'window-controls-overlay', 'minimal-ui', 'fullscreen'];
@@ -114,9 +131,7 @@ class Installer {
 
 	listen() {
 		this.installed =
-			// The desktop app, and the Android app on the page it opens.
-			/\bElectron\//.test(navigator.userAgent) ||
-			document.referrer.startsWith(ANDROID_APP) ||
+			inOurApp() ||
 			APP_DISPLAY_MODES.some((mode) => matchMedia(`(display-mode: ${mode})`).matches) ||
 			(navigator as Navigator & { standalone?: boolean }).standalone === true;
 		this.#app = appRoute();

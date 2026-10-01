@@ -604,7 +604,7 @@ describe('the install card', () => {
 
 			await card(page).getByRole('button', { name: 'Not now' }).click();
 			await card(page).waitFor({ state: 'detached' });
-			await page.waitForFunction(async () => (await (await fetch('/api/settings')).json()).installCardDismissed === true);
+			await putAway();
 
 			await page.reload({ waitUntil: 'networkidle' });
 			await play(page);
@@ -623,6 +623,14 @@ describe('the install card', () => {
 
 	const installedMark = (page) => page.evaluate(() => localStorage.getItem('heddohon:installed'));
 	const dismissedOnAccount = async () => (await (await context.request.get(`${app.url}/api/settings`)).json()).installCardDismissed;
+	/** Waits for the card to be put away on the account. Asked from here: `waitForFunction` takes the promise of an async predicate as true at once. */
+	async function putAway() {
+		for (let i = 0; i < 100; i++) {
+			if (await dismissedOnAccount()) return;
+			await new Promise((resolve) => setTimeout(resolve, 100));
+		}
+		assert.fail('the card was not put away on the account');
+	}
 	/** Puts back what a test of an installed app leaves: the mark in this browser, and the account's setting. */
 	async function forget(page) {
 		await page.evaluate(() => localStorage.removeItem('heddohon:installed')).catch(() => undefined);
@@ -678,6 +686,39 @@ describe('the install card', () => {
 				await tidy.close();
 			}
 			assert.deepEqual(problems, []);
+		}
+	});
+
+	test('is not shown in the Android app: opened with its query or as the referrer, and on the pages the tab loads afterwards', async () => {
+		const ANDROID = 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36';
+		const opens = {
+			'with the query': (page) => page.goto(app.url + '/?app=android', { waitUntil: 'networkidle' }),
+			// Chromium keeps an `android-app:` referrer on Android only, so the first page is told it here.
+			'as the referrer': async (page) => {
+				await page.addInitScript(() => {
+					if (location.pathname === '/') Object.defineProperty(document, 'referrer', { get: () => 'android-app://app.heddohon.android/' });
+				});
+				await page.goto(app.url + '/', { waitUntil: 'networkidle' });
+			}
+		};
+		for (const [name, open] of Object.entries(opens)) {
+			const view = await signedIn(ANDROID);
+			const page = await view.newPage();
+			try {
+				await open(page);
+				await putAway();
+				// A whole page load later, with neither the query nor the referrer.
+				await page.goto(app.url + '/albums/al1', { waitUntil: 'networkidle' });
+				await play(page);
+				await page.waitForTimeout(300);
+				assert.equal(await card(page).count(), 0, `${name}: the card`);
+				await page.goto(app.url + '/settings?tab=appearance', { waitUntil: 'networkidle' });
+				await page.locator('#install').getByText('You are using the app.').waitFor();
+				assert.equal(await page.locator('#install').getByRole('link').count(), 0, `${name}: the link in Settings`);
+			} finally {
+				await view.close();
+				await settings({ installCardDismissed: false });
+			}
 		}
 	});
 

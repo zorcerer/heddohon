@@ -53,8 +53,11 @@ public class MainActivity extends Activity {
 		int ground = getColor(R.color.ground);
 		CustomTabColorSchemeParams colours =
 				new CustomTabColorSchemeParams.Builder().setToolbarColor(ground).setNavigationBarColor(ground).build();
-		TrustedWebActivityIntentBuilder builder =
-				new TrustedWebActivityIntentBuilder(Uri.parse(server)).setDefaultColorSchemeParams(colours);
+		// The query tells the page it is inside this app, so it does not offer the
+		// app. The referrer says the same, and is replaced where a reverse proxy's
+		// sign-in page comes first.
+		Uri start = Uri.parse(server).buildUpon().path("/").appendQueryParameter("app", "android").build();
+		TrustedWebActivityIntentBuilder builder = new TrustedWebActivityIntentBuilder(start).setDefaultColorSchemeParams(colours);
 		try {
 			launcher = new TwaLauncher(this);
 			// Once the browser has it, this activity has nothing left to show.
