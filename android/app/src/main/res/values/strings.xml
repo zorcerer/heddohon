@@ -10,6 +10,8 @@
 	<string name="setup_not_address">That is not an address. It looks like https://music.example.com.</string>
 	<string name="setup_needs_https">The address has to start with https://. The app opens the server in a secure window, which a plain http address cannot be.</string>
 	<string name="setup_unreachable">%1$s could not be reached. Check the address, and that this phone can open it in a browser.</string>
+	<string name="setup_sign_in">%1$s asks for a sign-in before it answers, so the app cannot tell whether a Heddohon is behind it. If it is yours, open it: you sign in in the browser, which remembers it.</string>
+	<string name="setup_open_anyway">Open it anyway</string>
 	<string name="setup_not_heddohon">%1$s answered, but not as a Heddohon server.</string>
 	<string name="shortcut_change_short">Change server</string>
 	<string name="shortcut_change_long">Change the server address</string>

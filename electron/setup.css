@@ -109,3 +109,55 @@ button:disabled {
 	background: color-mix(in srgb, var(--danger) 12%, transparent);
 	font-size: 0.875rem;
 }
+
+details {
+	width: 100%;
+	display: grid;
+	gap: 0.5rem;
+}
+
+summary {
+	cursor: pointer;
+	color: var(--muted);
+	font-size: 0.8125rem;
+}
+
+details[open] summary {
+	margin-bottom: 0.5rem;
+}
+
+details label {
+	display: block;
+	margin: 0.6rem 0 0.4rem;
+}
+
+textarea {
+	width: 100%;
+	padding: 0.6rem 0.8rem;
+	border: 1px solid var(--edge);
+	border-radius: 10px;
+	background: var(--ground);
+	color: var(--text);
+	font: 13px/1.5 ui-monospace, monospace;
+	resize: vertical;
+}
+
+textarea:focus {
+	outline: 2px solid var(--accent);
+	outline-offset: 1px;
+}
+
+.row {
+	display: flex;
+	gap: 0.5rem;
+}
+
+.row button {
+	flex: 1;
+}
+
+button.quiet {
+	background: transparent;
+	color: var(--text);
+	border: 1px solid var(--edge);
+}
