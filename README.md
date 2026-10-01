@@ -18,6 +18,8 @@ only ever talks to Heddohon and your upstream credentials stay on the server.
  browser ──► Heddohon ──► Navidrome / Jellyfin
 ```
 
+The website, with screenshots and the install steps, is
+[heddohon.app](https://heddohon.app).
 
 ## Features
 
