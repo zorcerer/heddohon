@@ -1,11 +1,14 @@
-# The Linux desktop app in `electron/`: a window around a server someone runs.
+# The desktop app in `electron/`: a window around a server someone runs, for
+# Linux and for Windows.
 #
-# On a pull request that touches it, the shell's suite runs (against the built
-# server and the mock music servers, with a virtual display and a D-Bus
-# session for the media controls), and the packages are built and kept as an
-# artifact of the run. Called from `release.yml` with a version, it builds
-# the same packages as that version and attaches them to the release: an
-# AppImage and a .deb, each for x64 and arm64.
+# On a pull request that touches it, the shell's suite runs on each system
+# (against the built server and the mock music servers; on Linux with a
+# virtual display and a D-Bus session for the media controls), the packages
+# are built, the suite runs again against the packaged app, and the packages
+# are kept as artifacts of the run. Called from `release.yml` with a version,
+# it builds the same packages as that version and attaches them to the
+# release: an AppImage for x64 and arm64, and for Windows on x64 an installer
+# and a portable .exe. The Windows ones are not signed.
 name: desktop
 
 on:
@@ -78,16 +81,63 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: heddohon-desktop-${{ env.VERSION }}
-          path: |
-            electron/dist/*.AppImage
-            electron/dist/*.deb
+          path: electron/dist/*.AppImage
+          if-no-files-found: error
+          retention-days: 14
+
+  # The same shell on Windows. Built there, since an installer made on Linux
+  # needs Wine, and run there, since nothing else here is Windows. The suite
+  # runs against a stand-in for the server (`electron/test/standin.mjs`): the
+  # real one needs `better-sqlite3` compiled, and node-gyp does not accept the
+  # runner's Visual Studio. So only `electron/` is installed.
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      VERSION: ${{ inputs.version || '0.0.0' }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: electron/package-lock.json
+
+      - run: npm ci --no-audit --no-fund
+        working-directory: electron
+
+      # The MPRIS test and the offline page are Linux's; the rest is the same suite.
+      - name: Run the shell's suite
+        working-directory: electron
+        run: npm test
+
+      - name: Build the packages
+        working-directory: electron
+        run: |
+          npm version "$VERSION" --no-git-tag-version --allow-same-version
+          npm run dist:win
+
+      - name: Run the suite against the packaged app
+        working-directory: electron
+        env:
+          HEDDOHON_DESKTOP_BINARY: ${{ github.workspace }}\electron\dist\win-unpacked\Heddohon.exe
+        run: npm test
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: heddohon-windows-${{ env.VERSION }}
+          path: electron/dist/*.exe
           if-no-files-found: error
           retention-days: 14
 
   # Its own job, so that only this step holds a token that can write.
   attach:
     if: inputs.upload
-    needs: desktop
+    needs: [desktop, windows]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -101,5 +151,10 @@ jobs:
           name: heddohon-desktop-${{ inputs.version }}
           path: packages
 
+      - uses: actions/download-artifact@v4
+        with:
+          name: heddohon-windows-${{ inputs.version }}
+          path: packages
+
       - name: Attach to the release
-        run: gh release upload "v$VERSION" packages/*.AppImage packages/*.deb --repo "$GITHUB_REPOSITORY" --clobber
+        run: gh release upload "v$VERSION" packages/*.AppImage packages/*.exe --repo "$GITHUB_REPOSITORY" --clobber

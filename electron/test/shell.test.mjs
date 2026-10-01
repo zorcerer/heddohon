@@ -14,10 +14,11 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { after, before, describe, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { _electron as electron } from 'playwright';
+import { _electron as electron } from 'playwright-core';
 import { startApp } from '../../tests/e2e/harness.mjs';
 import { startJellyfin, startSubsonic } from '../../tests/e2e/mocks.mjs';
 import { startFront } from './front.mjs';
+import { startStandIn } from './standin.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const shell = join(here, '..');
@@ -37,6 +38,14 @@ function lockHeld(data) {
 		return false;
 	}
 }
+
+/**
+ * Windows runs the suite against a stand-in for the server (`standin.mjs`):
+ * the real one needs `better-sqlite3` compiled, which the Windows runner
+ * cannot do. `HEDDOHON_DESKTOP_STAND_IN=1` does the same anywhere.
+ */
+const standIn = process.platform === 'win32' || process.env.HEDDOHON_DESKTOP_STAND_IN === '1';
+const startServer = (options) => (standIn ? startStandIn() : startApp(options));
 
 let subsonic;
 let jellyfin;
@@ -87,7 +96,7 @@ const opened = (app) => app.evaluate(() => globalThis.__opened);
 before(async () => {
 	subsonic = await startSubsonic({ artistCount: 5 });
 	jellyfin = await startJellyfin();
-	server = await startApp({ subsonicUrl: subsonic.url, jellyfinUrl: jellyfin.url, env: { HEDDOHON_REMOTE_CONTROL: 'false' } });
+	server = await startServer({ subsonicUrl: subsonic.url, jellyfinUrl: jellyfin.url, env: { HEDDOHON_REMOTE_CONTROL: 'false' } });
 	profile = mkdtempSync(join(tmpdir(), 'heddohon-desktop-'));
 });
 
@@ -193,12 +202,15 @@ describe('the shell', () => {
 		await server.stop();
 
 		// The profile that has had the server open holds its service worker, which answers with the offline page.
-		const known = await launch();
-		try {
-			await known.page.getByRole('heading', { name: /cannot reach its server/ }).waitFor();
-			assert.equal(new URL(known.page.url()).origin, server.url);
-		} finally {
-			await known.app.close();
+		// The stand-in has no service worker, so there is no offline page to show.
+		if (!standIn) {
+			const known = await launch();
+			try {
+				await known.page.getByRole('heading', { name: /cannot reach its server/ }).waitFor();
+				assert.equal(new URL(known.page.url()).origin, server.url);
+			} finally {
+				await known.app.close();
+			}
 		}
 
 		// A profile that only has the address: back to the address screen, with the address kept.
@@ -238,7 +250,7 @@ function silentWav(seconds) {
 describe('the desktop media controls', () => {
 	const dbus = (...args) => execFileSync('dbus-send', ['--session', '--print-reply', ...args], { encoding: 'utf8' });
 
-	test('a playing track is on MPRIS, and its PlayPause pauses it', { skip: !process.env.DBUS_SESSION_BUS_ADDRESS && 'no D-Bus session' }, async () => {
+	test('a playing track is on MPRIS, and its PlayPause pauses it', { skip: (standIn && 'the stand-in server plays nothing') || (!process.env.DBUS_SESSION_BUS_ADDRESS && 'no D-Bus session') }, async () => {
 		const backend = await startSubsonic({ artistCount: 3 });
 		backend.state.audio = { type: 'audio/wav', body: silentWav(60) };
 		const up = await startApp({ subsonicUrl: backend.url, jellyfinUrl: jellyfin.url, env: { HEDDOHON_REMOTE_CONTROL: 'false' } });
@@ -286,14 +298,14 @@ describe('a newer release', () => {
 			response.end(JSON.stringify({ tag_name: tag }));
 		});
 		await new Promise((done) => mock.listen(0, '127.0.0.1', done));
-		return { url: `http://127.0.0.1:${mock.address().port}/latest`, hits, close: () => new Promise((done) => mock.close(done)) };
+		return { url: `http://127.0.0.1:${mock.address().port}/latest`, hits, close: () => new Promise((done) => (mock.close(() => done()), mock.closeAllConnections())) };
 	}
 
-	async function start(data, url) {
+	async function start(data, url, env = {}) {
 		const app = await startShell({
 			executablePath: packaged ?? executablePath,
 			args: packaged ? ['--no-sandbox'] : [shell, '--no-sandbox'],
-			env: { ...process.env, HEDDOHON_DESKTOP_DATA: data, HEDDOHON_DESKTOP_RELEASES: url },
+			env: { ...process.env, HEDDOHON_DESKTOP_DATA: data, HEDDOHON_DESKTOP_RELEASES: url, ...env },
 			timeout: 30_000
 		});
 		// In place before the check, which waits 5 seconds after the start.
@@ -361,6 +373,50 @@ describe('a newer release', () => {
 			}
 		}
 	});
+
+	test('Check for updates in the menu asks when it is chosen, and says what it found each time', async () => {
+		const choose = (app) =>
+			app.evaluate(({ Menu }) => Menu.getApplicationMenu().items[0].submenu.items.find((item) => item.label === 'Check for updates…').click());
+		const asked = (app) => app.evaluate(() => globalThis.__asked);
+
+		// A newer release: said every time it is asked for, and Get it opens its page.
+		const newer = await releases('v99.1.0');
+		const data = mkdtempSync(join(tmpdir(), 'heddohon-desktop-'));
+		const app = await start(data, newer.url, { HEDDOHON_DESKTOP_NO_UPDATE_CHECK: '1' });
+		try {
+			await app.firstWindow();
+			assert.equal(newer.hits.count, 0, 'nothing asked at the start with the check switched off');
+			await choose(app);
+			await waitFor(async () => (await asked(app)).length === 1);
+			await choose(app);
+			await waitFor(async () => (await asked(app)).length === 2);
+			assert.deepEqual(await asked(app), ['Heddohon 99.1.0 is available', 'Heddohon 99.1.0 is available']);
+			assert.deepEqual(await app.evaluate(() => globalThis.__opened), Array(2).fill('https://github.com/zorcerer/heddohon/releases/tag/v99.1.0'));
+		} finally {
+			await app.close();
+			await newer.close();
+			rmSync(data, { recursive: true, force: true });
+		}
+
+		// The latest already, and GitHub out of reach: each says so.
+		const same = await releases('v0.0.0');
+		const other = mkdtempSync(join(tmpdir(), 'heddohon-desktop-'));
+		const second = await start(other, same.url, { HEDDOHON_DESKTOP_NO_UPDATE_CHECK: '1' });
+		try {
+			await second.firstWindow();
+			await choose(second);
+			await waitFor(async () => (await asked(second)).length === 1);
+			await same.close();
+			await choose(second);
+			await waitFor(async () => (await asked(second)).length === 2);
+			assert.deepEqual(await asked(second), ['This is the latest release', 'GitHub could not be reached']);
+			assert.deepEqual(await second.evaluate(() => globalThis.__opened), []);
+		} finally {
+			await second.close();
+			await same.close().catch(() => undefined);
+			rmSync(other, { recursive: true, force: true });
+		}
+	});
 });
 
 /** Waits up to 15 seconds for `condition` to hold. */
@@ -378,7 +434,7 @@ describe('a server behind a proxy that asks who you are', () => {
 
 	before(async () => {
 		backend = await startSubsonic({ artistCount: 3 });
-		upstream = await startApp({ subsonicUrl: backend.url, jellyfinUrl: jellyfin.url, env: { HEDDOHON_REMOTE_CONTROL: 'false' } });
+		upstream = await startServer({ subsonicUrl: backend.url, jellyfinUrl: jellyfin.url, env: { HEDDOHON_REMOTE_CONTROL: 'false' } });
 	});
 
 	/** Every proxy a test started, closed at the end whatever the test did: one left listening holds the run open. */
@@ -392,6 +448,14 @@ describe('a server behind a proxy that asks who you are', () => {
 
 	const fresh = () => mkdtempSync(join(tmpdir(), 'heddohon-desktop-'));
 	const saved = (data) => JSON.parse(readFileSync(join(data, 'config.json'), 'utf8'));
+	/** The same for a loop that waits on it: the file is not there until the app has first saved. */
+	const savedServer = (data) => {
+		try {
+			return saved(data).server;
+		} catch {
+			return undefined;
+		}
+	};
 	const connect = async (page, address) => {
 		await page.getByLabel('Server address').fill(address);
 		// Pressed from the page: a click through Playwright waits for the navigation it
@@ -429,7 +493,7 @@ describe('a server behind a proxy that asks who you are', () => {
 
 			await page.getByRole('button', { name: 'Sign in to the front' }).click();
 			await page.waitForURL(`${front.url}/login**`);
-			await waitFor(() => saved(data).server === front.url);
+			await waitFor(() => savedServer(data) === front.url);
 			assert.deepEqual(await opened(app), [], 'nothing was sent to the default browser');
 			assert.equal(app.windows().length, 1);
 		} finally {
@@ -468,11 +532,13 @@ describe('a server behind a proxy that asks who you are', () => {
 			await page.waitForURL(`${front.url}/login**`);
 			assert.equal(saved(data).server, front.url);
 			// Every request the page made carried it, its scripts and styles included.
-			assert.ok(front.seen.passed > 5 && front.seen.headers.every((headers) => headers['x-front-token'] === 'letmein'));
+			// The stand-in's page is one request; the real one's is its scripts and styles as well.
+			assert.ok(front.seen.passed > (standIn ? 0 : 5) && front.seen.headers.every((headers) => headers['x-front-token'] === 'letmein'));
 			// At rest: sealed where the desktop has a keyring, and in a file of the owner's alone where it has none.
 			const config = saved(data);
 			assert.ok(config.headersSealed || config.headersPlain === 'X-Front-Token: letmein');
-			assert.equal(statSync(join(data, 'config.json')).mode & 0o077, 0, 'the profile file is the owner\'s alone');
+			// File modes are Linux's; on Windows the profile is under the user's own AppData.
+			if (process.platform !== 'win32') assert.equal(statSync(join(data, 'config.json')).mode & 0o077, 0, 'the profile file is the owner\'s alone');
 		} finally {
 			await app.close();
 		}
@@ -509,7 +575,7 @@ describe('a server behind a proxy that asks who you are', () => {
 			await again.getByLabel('Password').fill('lovelace');
 			await again.locator('button[type="submit"]').evaluate((button) => button.click()).catch(() => undefined);
 			await page.waitForURL(`${front.url}/login**`);
-			await waitFor(() => saved(data).server === front.url);
+			await waitFor(() => savedServer(data) === front.url);
 			assert.ok(!readFileSync(join(data, 'config.json'), 'utf8').includes('lovelace'), 'the password is not kept');
 		} finally {
 			await app.close();

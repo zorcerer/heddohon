@@ -14,12 +14,14 @@
 	"main": "main.js",
 	"scripts": {
 		"start": "electron .",
-		"dist": "electron-builder --linux AppImage deb --x64 --arm64 --publish never",
-		"test": "node --test 'test/*.test.mjs'"
+		"dist": "electron-builder --linux AppImage --x64 --arm64 --publish never",
+		"dist:win": "electron-builder --win nsis portable --x64 --publish never",
+		"test": "node --test \"test/*.test.mjs\""
 	},
 	"devDependencies": {
 		"electron": "^44.5.1",
-		"electron-builder": "^26.15.3"
+		"electron-builder": "^26.15.3",
+		"playwright-core": "1.63.0"
 	},
 	"build": {
 		"appId": "app.heddohon.desktop",
@@ -39,10 +41,24 @@
 			"output": "dist"
 		},
 		"artifactName": "heddohon-${version}-${arch}.${ext}",
+		"win": {
+			"target": [
+				"nsis",
+				"portable"
+			],
+			"icon": "build/icon.png"
+		},
+		"nsis": {
+			"oneClick": true,
+			"perMachine": false,
+			"artifactName": "heddohon-${version}-setup.${ext}"
+		},
+		"portable": {
+			"artifactName": "heddohon-${version}-portable.${ext}"
+		},
 		"linux": {
 			"target": [
-				"AppImage",
-				"deb"
+				"AppImage"
 			],
 			"category": "AudioVideo",
 			"icon": "build/icon.png",
