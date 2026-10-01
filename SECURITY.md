@@ -142,13 +142,24 @@ route.
 - **Public addresses only.** A station on a loopback, private, link-local,
   carrier-grade NAT or multicast address is refused, by address and by name:
   every address the host resolves to is checked inside the connection's own
-  lookup, so the address checked is the address dialled. This is what keeps a
-  station from being used to read a service on the server's own network.
-  `HEDDOHON_RADIO_PRIVATE=true` allows them, for a stream served on the local
-  network.
+  lookup, and each request dials a connection of its own, so the address
+  checked is the address dialled. The IPv6 ranges that carry an IPv4 address
+  inside them (IPv4-mapped and IPv4-compatible, NAT64, 6to4, Teredo) are
+  refused with them. This is what keeps a station from being used to read a
+  service on the server's own network. `HEDDOHON_RADIO_PRIVATE=true` allows
+  them, for a stream served on the local network.
 - **Redirects** are followed up to three times, each hop held to the same
   rules. An `.m3u` or `.pls` playlist counts as one: up to 64 KB of it is
   read for its first address.
+- **Where a hop leads is written by whoever answered it**, not by the music
+  server's administrator. With `HEDDOHON_RADIO_PRIVATE=true`, a hop served
+  from a public address still leads only to public ones, so a station on the
+  internet cannot redirect this server to the network it sits on. Only a hop
+  that was itself on a private address may lead to another. Until 0.5.0 the
+  setting applied to every hop. CodeQL reports this fetch as server-side
+  request forgery (`js/request-forgery`): following a station's redirect is
+  a request whose address a remote host chose, which is what the feature
+  does, within these rules.
 - **Audio only.** A response whose type is not `audio/*` or `application/ogg`
   is dropped unread and answered 502. An HLS playlist is not played.
 - **Bounded.** 10 seconds to the first byte, cut after 30 seconds without
