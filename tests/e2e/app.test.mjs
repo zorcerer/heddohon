@@ -8,7 +8,7 @@
  * state (settings, credentials) says so and puts it back.
  */
 import assert from 'node:assert/strict';
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, describe, test } from 'node:test';
@@ -2598,3 +2598,76 @@ describe('headphone corrections from AutoEq', () => {
 	});
 });
 
+
+describe('log files', () => {
+	const day = (daysAgo) => new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+	/** A data directory with log files of these ages, in days, and a file that is not a log. */
+	function seeded(ages) {
+		const dataDir = mkdtempSync(join(tmpdir(), 'heddohon-e2e-'));
+		mkdirSync(join(dataDir, 'logs'));
+		for (const age of ages) writeFileSync(join(dataDir, 'logs', `heddohon-${day(age)}.log`), 'old\n');
+		writeFileSync(join(dataDir, 'logs', 'notes.txt'), 'kept\n');
+		return dataDir;
+	}
+	const start = (dataDir, env) =>
+		startApp({ subsonicUrl: subsonic.url, jellyfinUrl: jellyfin.url, dataDir, env: { HEDDOHON_LOG_LEVEL: 'info', ...env } });
+
+	test('one file a day under the data directory, and files more than 7 days old are deleted', async () => {
+		const dataDir = seeded([3, 7, 8, 400]);
+		const logged = await start(dataDir, {});
+		try {
+			const client = new Client(logged.url);
+			await client.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' });
+			assert.deepEqual(
+				readdirSync(join(dataDir, 'logs')).sort(),
+				[`heddohon-${day(0)}.log`, `heddohon-${day(3)}.log`, `heddohon-${day(7)}.log`, 'notes.txt'].sort()
+			);
+			const today = readFileSync(join(dataDir, 'logs', `heddohon-${day(0)}.log`), 'utf8');
+			assert.match(today, / info  started .*logFiles=7d/);
+			assert.match(today, / info  signed-in username=testuser /);
+			// What the file holds is what the logger sent to stdout and stderr
+			// (the line the Node adapter prints as it starts to listen is not its own).
+			const printed = logged.output().trim().split('\n').filter((line) => /^\d{4}-\d{2}-\d{2}T/.test(line));
+			assert.deepEqual(today.trim().split('\n'), printed);
+			assert.ok(!today.includes('testpass'));
+		} finally {
+			await logged.stop();
+		}
+	});
+
+	test('HEDDOHON_LOG_KEEP_DAYS sets how many days are kept, and 0 writes no files', async () => {
+		const longer = seeded([8, 29, 31]);
+		const kept = await start(longer, { HEDDOHON_LOG_KEEP_DAYS: '30' });
+		try {
+			assert.deepEqual(
+				readdirSync(join(longer, 'logs')).sort(),
+				[`heddohon-${day(0)}.log`, `heddohon-${day(8)}.log`, `heddohon-${day(29)}.log`, 'notes.txt'].sort()
+			);
+		} finally {
+			await kept.stop();
+		}
+
+		const none = seeded([400]);
+		const off = await start(none, { HEDDOHON_LOG_KEEP_DAYS: '0' });
+		try {
+			assert.deepEqual(readdirSync(join(none, 'logs')).sort(), [`heddohon-${day(400)}.log`, 'notes.txt'].sort(), 'nothing written, nothing deleted');
+			assert.match(off.output(), /started .*logFiles=off/);
+		} finally {
+			await off.stop();
+		}
+	});
+
+	test('a logs directory that cannot be written is reported once, and the server runs', async () => {
+		const dataDir = mkdtempSync(join(tmpdir(), 'heddohon-e2e-'));
+		// A file where the directory should be.
+		writeFileSync(join(dataDir, 'logs'), '');
+		const blocked = await start(dataDir, {});
+		try {
+			assert.equal((await fetch(`${blocked.url}/healthz`)).status, 200);
+			assert.equal(blocked.output().split('\n').filter((line) => line.includes('log-file-failed')).length, 1);
+			assert.match(blocked.output(), / info  started /);
+		} finally {
+			await blocked.stop();
+		}
+	});
+});
