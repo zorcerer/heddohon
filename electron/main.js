@@ -71,8 +71,13 @@ function saveConfig() {
 		fs.mkdirSync(path.dirname(configPath()), { recursive: true });
 		// Readable by its owner only: it can hold the headers below. On Windows the
 		// mode means nothing, and the profile is under the user's own AppData.
-		fs.writeFileSync(configPath(), JSON.stringify(config, null, '\t'), { mode: 0o600 });
-		fs.chmodSync(configPath(), 0o600);
+		// Written beside and renamed over, so the file is never seen half written:
+		// the window's size is saved as it is dragged, and a read in the middle of a
+		// write found an empty file.
+		const beside = `${configPath()}.tmp`;
+		fs.writeFileSync(beside, JSON.stringify(config, null, '\t'), { mode: 0o600 });
+		fs.chmodSync(beside, 0o600);
+		fs.renameSync(beside, configPath());
 	} catch {
 		// A profile that cannot be written: the address is asked for again next time.
 	}

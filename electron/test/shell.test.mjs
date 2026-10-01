@@ -14,10 +14,11 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { after, before, describe, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { _electron as electron } from 'playwright';
+import { _electron as electron } from 'playwright-core';
 import { startApp } from '../../tests/e2e/harness.mjs';
 import { startJellyfin, startSubsonic } from '../../tests/e2e/mocks.mjs';
 import { startFront } from './front.mjs';
+import { startStandIn } from './standin.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const shell = join(here, '..');
@@ -37,6 +38,14 @@ function lockHeld(data) {
 		return false;
 	}
 }
+
+/**
+ * Windows runs the suite against a stand-in for the server (`standin.mjs`):
+ * the real one needs `better-sqlite3` compiled, which the Windows runner
+ * cannot do. `HEDDOHON_DESKTOP_STAND_IN=1` does the same anywhere.
+ */
+const standIn = process.platform === 'win32' || process.env.HEDDOHON_DESKTOP_STAND_IN === '1';
+const startServer = (options) => (standIn ? startStandIn() : startApp(options));
 
 let subsonic;
 let jellyfin;
@@ -87,7 +96,7 @@ const opened = (app) => app.evaluate(() => globalThis.__opened);
 before(async () => {
 	subsonic = await startSubsonic({ artistCount: 5 });
 	jellyfin = await startJellyfin();
-	server = await startApp({ subsonicUrl: subsonic.url, jellyfinUrl: jellyfin.url, env: { HEDDOHON_REMOTE_CONTROL: 'false' } });
+	server = await startServer({ subsonicUrl: subsonic.url, jellyfinUrl: jellyfin.url, env: { HEDDOHON_REMOTE_CONTROL: 'false' } });
 	profile = mkdtempSync(join(tmpdir(), 'heddohon-desktop-'));
 });
 
@@ -193,12 +202,15 @@ describe('the shell', () => {
 		await server.stop();
 
 		// The profile that has had the server open holds its service worker, which answers with the offline page.
-		const known = await launch();
-		try {
-			await known.page.getByRole('heading', { name: /cannot reach its server/ }).waitFor();
-			assert.equal(new URL(known.page.url()).origin, server.url);
-		} finally {
-			await known.app.close();
+		// The stand-in has no service worker, so there is no offline page to show.
+		if (!standIn) {
+			const known = await launch();
+			try {
+				await known.page.getByRole('heading', { name: /cannot reach its server/ }).waitFor();
+				assert.equal(new URL(known.page.url()).origin, server.url);
+			} finally {
+				await known.app.close();
+			}
 		}
 
 		// A profile that only has the address: back to the address screen, with the address kept.
@@ -238,7 +250,7 @@ function silentWav(seconds) {
 describe('the desktop media controls', () => {
 	const dbus = (...args) => execFileSync('dbus-send', ['--session', '--print-reply', ...args], { encoding: 'utf8' });
 
-	test('a playing track is on MPRIS, and its PlayPause pauses it', { skip: !process.env.DBUS_SESSION_BUS_ADDRESS && 'no D-Bus session' }, async () => {
+	test('a playing track is on MPRIS, and its PlayPause pauses it', { skip: (standIn && 'the stand-in server plays nothing') || (!process.env.DBUS_SESSION_BUS_ADDRESS && 'no D-Bus session') }, async () => {
 		const backend = await startSubsonic({ artistCount: 3 });
 		backend.state.audio = { type: 'audio/wav', body: silentWav(60) };
 		const up = await startApp({ subsonicUrl: backend.url, jellyfinUrl: jellyfin.url, env: { HEDDOHON_REMOTE_CONTROL: 'false' } });
@@ -422,7 +434,7 @@ describe('a server behind a proxy that asks who you are', () => {
 
 	before(async () => {
 		backend = await startSubsonic({ artistCount: 3 });
-		upstream = await startApp({ subsonicUrl: backend.url, jellyfinUrl: jellyfin.url, env: { HEDDOHON_REMOTE_CONTROL: 'false' } });
+		upstream = await startServer({ subsonicUrl: backend.url, jellyfinUrl: jellyfin.url, env: { HEDDOHON_REMOTE_CONTROL: 'false' } });
 	});
 
 	/** Every proxy a test started, closed at the end whatever the test did: one left listening holds the run open. */
@@ -436,6 +448,14 @@ describe('a server behind a proxy that asks who you are', () => {
 
 	const fresh = () => mkdtempSync(join(tmpdir(), 'heddohon-desktop-'));
 	const saved = (data) => JSON.parse(readFileSync(join(data, 'config.json'), 'utf8'));
+	/** The same for a loop that waits on it: the file is not there until the app has first saved. */
+	const savedServer = (data) => {
+		try {
+			return saved(data).server;
+		} catch {
+			return undefined;
+		}
+	};
 	const connect = async (page, address) => {
 		await page.getByLabel('Server address').fill(address);
 		// Pressed from the page: a click through Playwright waits for the navigation it
@@ -473,7 +493,7 @@ describe('a server behind a proxy that asks who you are', () => {
 
 			await page.getByRole('button', { name: 'Sign in to the front' }).click();
 			await page.waitForURL(`${front.url}/login**`);
-			await waitFor(() => saved(data).server === front.url);
+			await waitFor(() => savedServer(data) === front.url);
 			assert.deepEqual(await opened(app), [], 'nothing was sent to the default browser');
 			assert.equal(app.windows().length, 1);
 		} finally {
@@ -512,7 +532,8 @@ describe('a server behind a proxy that asks who you are', () => {
 			await page.waitForURL(`${front.url}/login**`);
 			assert.equal(saved(data).server, front.url);
 			// Every request the page made carried it, its scripts and styles included.
-			assert.ok(front.seen.passed > 5 && front.seen.headers.every((headers) => headers['x-front-token'] === 'letmein'));
+			// The stand-in's page is one request; the real one's is its scripts and styles as well.
+			assert.ok(front.seen.passed > (standIn ? 0 : 5) && front.seen.headers.every((headers) => headers['x-front-token'] === 'letmein'));
 			// At rest: sealed where the desktop has a keyring, and in a file of the owner's alone where it has none.
 			const config = saved(data);
 			assert.ok(config.headersSealed || config.headersPlain === 'X-Front-Token: letmein');
@@ -554,7 +575,7 @@ describe('a server behind a proxy that asks who you are', () => {
 			await again.getByLabel('Password').fill('lovelace');
 			await again.locator('button[type="submit"]').evaluate((button) => button.click()).catch(() => undefined);
 			await page.waitForURL(`${front.url}/login**`);
-			await waitFor(() => saved(data).server === front.url);
+			await waitFor(() => savedServer(data) === front.url);
 			assert.ok(!readFileSync(join(data, 'config.json'), 'utf8').includes('lovelace'), 'the password is not kept');
 		} finally {
 			await app.close();

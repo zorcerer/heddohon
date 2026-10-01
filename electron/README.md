@@ -53,7 +53,9 @@ npm install
 dbus-run-session -- xvfb-run -a npm test
 ```
 
-On Windows it is `npm test`, with nothing in front of it.
+On Windows it is `npm test`, with nothing in front of it, and against a
+stand-in for the server (`test/standin.mjs`), which answers what the shell
+asks of one. `HEDDOHON_DESKTOP_STAND_IN=1` does the same on Linux.
 
 `HEDDOHON_DESKTOP_BINARY=dist/linux-unpacked/heddohon` runs the same suite
 against the packaged app, after `npm run dist`. On Windows that is

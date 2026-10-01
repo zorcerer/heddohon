@@ -86,7 +86,10 @@ jobs:
           retention-days: 14
 
   # The same shell on Windows. Built there, since an installer made on Linux
-  # needs Wine, and run there, since nothing else here is Windows.
+  # needs Wine, and run there, since nothing else here is Windows. The suite
+  # runs against a stand-in for the server (`electron/test/standin.mjs`): the
+  # real one needs `better-sqlite3` compiled, and node-gyp does not accept the
+  # runner's Visual Studio. So only `electron/` is installed.
   windows:
     runs-on: windows-latest
     timeout-minutes: 30
@@ -102,17 +105,12 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: |
-            package-lock.json
-            electron/package-lock.json
-
-      - run: npm ci --no-audit --no-fund
-      - run: npm run build
+          cache-dependency-path: electron/package-lock.json
 
       - run: npm ci --no-audit --no-fund
         working-directory: electron
 
-      # No D-Bus here, so the MPRIS test is skipped; the rest is the same suite.
+      # The MPRIS test and the offline page are Linux's; the rest is the same suite.
       - name: Run the shell's suite
         working-directory: electron
         run: npm test
