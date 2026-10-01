@@ -497,7 +497,9 @@ describe('a server behind a proxy that asks who you are', () => {
 			await connect(page, front.url);
 			const prompt = await prompted;
 			await prompt.getByText(/asks for a name and password \(front\)/).waitFor();
-			await prompt.getByRole('button', { name: 'Cancel' }).click();
+			// Pressed from the prompt's own page, which closes under the press: a click
+			// through Playwright waits on a window that is gone, and in CI ran to its timeout.
+			await prompt.locator('#cancel').evaluate((button) => button.click()).catch(() => undefined);
 			await page.getByRole('alert').filter({ hasText: 'asks for a sign-in this app could not complete' }).waitFor();
 
 			const second = app.waitForEvent('window');
@@ -505,7 +507,7 @@ describe('a server behind a proxy that asks who you are', () => {
 			const again = await second;
 			await again.getByLabel('User name').fill('ada');
 			await again.getByLabel('Password').fill('lovelace');
-			await again.getByRole('button', { name: 'Sign in' }).click();
+			await again.locator('button[type="submit"]').evaluate((button) => button.click()).catch(() => undefined);
 			await page.waitForURL(`${front.url}/login**`);
 			await waitFor(() => saved(data).server === front.url);
 			assert.ok(!readFileSync(join(data, 'config.json'), 'utf8').includes('lovelace'), 'the password is not kept');
