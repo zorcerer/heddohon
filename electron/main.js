@@ -30,13 +30,14 @@
 const { app, BrowserWindow, Menu, dialog, ipcMain, net, safeStorage, session, shell } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
+const { fileURLToPath } = require('node:url');
 const { originOf, compareVersions, parseHeaders, formatHeaders, classify } = require('./lib');
 
 const REPOSITORY = 'zorcerer/heddohon';
 const SETUP = path.join(__dirname, 'setup.html');
 const LOGIN = path.join(__dirname, 'login.html');
-/** What the page may ask the desktop for. The audio output list needs `media` to name its devices. */
-const ALLOWED_PERMISSIONS = new Set(['media', 'speaker-selection', 'fullscreen', 'clipboard-sanitized-write', 'screen-wake-lock']);
+/** What the server's page may ask the desktop for. `media` is not among them; see where the handlers are set. */
+const ALLOWED_PERMISSIONS = new Set(['speaker-selection', 'fullscreen', 'clipboard-sanitized-write', 'screen-wake-lock']);
 const CHECK_TIMEOUT_MS = 8000;
 const UPDATE_CHECK_DELAY_MS = 5000;
 /** The word that the app switched to software rendering waits for the window too, and comes before the update. */
@@ -184,6 +185,23 @@ function isSavedServer(url) {
 	return origin !== null && origin === config.server;
 }
 
+/**
+ * Whether `url` is this file of the package: the address screen or the
+ * prompt, and not another file on the disk that carries its name. The page
+ * that passes gets the calls in `preload.js`, the saved headers among them.
+ */
+function isOwnFile(url, file) {
+	try {
+		const parsed = new URL(url);
+		if (parsed.protocol !== 'file:') return false;
+		const [at, own] = [path.normalize(fileURLToPath(parsed)), path.normalize(file)];
+		// Windows spells one file several ways: the drive letter in either case.
+		return process.platform === 'win32' ? at.toLowerCase() === own.toLowerCase() : at === own;
+	} catch {
+		return false;
+	}
+}
+
 function openOutside(url) {
 	try {
 		const { protocol } = new URL(url);
@@ -268,6 +286,36 @@ async function verifyPending(contents) {
 	saveConfig();
 }
 
+/*
+ * A window stays on the server and on the sign-in pages in front of it.
+ * From a sign-in page it may go on to another (a proxy's page hands over to
+ * an identity provider's with a form or a script, not always a redirect),
+ * and that one becomes a sign-in origin too. From one of the server's own
+ * pages, anywhere else is the default browser's.
+ *
+ * Every window, not the first alone: a page on the server may open another
+ * (`window.open` to its own origin), and that one is held to the same.
+ */
+function confine(contents) {
+	contents.on('will-navigate', (event, url) => {
+		if (isServer(url) || isOwnFile(url, SETUP)) return;
+		const to = originOrNull(url);
+		const from = originOrNull(contents.getURL());
+		if (to && to !== 'null' && (signInOrigins.has(to) || (from && signInOrigins.has(from)))) {
+			signInOrigins.add(to);
+			return;
+		}
+		event.preventDefault();
+		openOutside(url);
+	});
+	contents.setWindowOpenHandler(({ url }) => {
+		if (isServer(url)) return { action: 'allow' };
+		openOutside(url);
+		return { action: 'deny' };
+	});
+}
+app.on('web-contents-created', (_event, contents) => confine(contents));
+
 function createWindow() {
 	const bounds = config.window ?? {};
 	win = new BrowserWindow({
@@ -310,29 +358,6 @@ function createWindow() {
 	});
 
 	const contents = win.webContents;
-	/*
-	 * The window stays on the server and on the sign-in pages in front of it.
-	 * From a sign-in page it may go on to another (a proxy's page hands over to
-	 * an identity provider's with a form or a script, not always a redirect),
-	 * and that one becomes a sign-in origin too. From one of the server's own
-	 * pages, anywhere else is the default browser's.
-	 */
-	contents.on('will-navigate', (event, url) => {
-		if (isServer(url) || url.startsWith('file:')) return;
-		const to = originOrNull(url);
-		const from = originOrNull(contents.getURL());
-		if (to && (signInOrigins.has(to) || (from && signInOrigins.has(from)))) {
-			signInOrigins.add(to);
-			return;
-		}
-		event.preventDefault();
-		openOutside(url);
-	});
-	contents.setWindowOpenHandler(({ url }) => {
-		if (isServer(url)) return { action: 'allow' };
-		openOutside(url);
-		return { action: 'deny' };
-	});
 	// The server not answering when the app starts: back to the address screen, with the address kept.
 	contents.on('did-fail-load', (_event, code, _description, url, isMainFrame) => {
 		// -3 is a load that was replaced by another, not a failure.
@@ -474,21 +499,14 @@ async function checkForUpdate(asked = false) {
 }
 
 /** Only the app's own screens, files in this package, may call these. */
-const fromOwnPage = (event, file) => {
-	try {
-		const url = new URL(event.senderFrame?.url ?? '');
-		return url.protocol === 'file:' && path.basename(url.pathname) === file;
-	} catch {
-		return false;
-	}
-};
+const fromOwnPage = (event, file) => isOwnFile(event.senderFrame?.url ?? '', file);
 
 ipcMain.handle('setup:state', (event) =>
-	fromOwnPage(event, 'setup.html') ? { server: config.server ?? '', notice, headers: formatHeaders(headers) } : null
+	fromOwnPage(event, SETUP) ? { server: config.server ?? '', notice, headers: formatHeaders(headers) } : null
 );
 
 ipcMain.handle('setup:connect', async (event, raw, headerText) => {
-	if (!fromOwnPage(event, 'setup.html')) return { error: 'Not allowed.' };
+	if (!fromOwnPage(event, SETUP)) return { error: 'Not allowed.' };
 	const origin = originOf(raw);
 	if (!origin) return { error: 'That is not an address. It looks like https://music.example.com.' };
 	const parsed = parseHeaders(headerText);
@@ -553,9 +571,9 @@ function askCredentials(host, realm) {
 	return asking;
 }
 
-ipcMain.handle('login:state', (event) => (fromOwnPage(event, 'login.html') && answerLogin ? { host: answerLogin.host, realm: answerLogin.realm } : null));
+ipcMain.handle('login:state', (event) => (fromOwnPage(event, LOGIN) && answerLogin ? { host: answerLogin.host, realm: answerLogin.realm } : null));
 ipcMain.handle('login:submit', (event, username, password) => {
-	if (!fromOwnPage(event, 'login.html') || !answerLogin) return;
+	if (!fromOwnPage(event, LOGIN) || !answerLogin) return;
 	answerLogin.submit(username === null ? null : { username: String(username), password: String(password ?? '') });
 });
 
@@ -584,9 +602,20 @@ if (!app.requestSingleInstanceLock()) {
 		if (config.server && originOf(config.server) !== config.server) delete config.server;
 		headers = loadHeaders();
 
-		const allowed = (contents, permission) => ALLOWED_PERMISSIONS.has(permission) && isSavedServer(contents?.getURL() ?? '');
-		session.defaultSession.setPermissionRequestHandler((contents, permission, callback) => callback(allowed(contents, permission)));
-		session.defaultSession.setPermissionCheckHandler((contents, permission) => allowed(contents, permission));
+		/*
+		 * Electron has no prompt of its own: what is granted here is granted
+		 * without a word. `media` is two things. Asked for, it is the microphone
+		 * and the camera (`getUserMedia`), which the player never uses, so it is
+		 * refused: until 0.5.0 a page on the server could record from either.
+		 * Checked, it is whether the page may read the names of the audio
+		 * devices, which the list of outputs in the player shows, so that is
+		 * answered yes.
+		 */
+		const onServer = (contents) => isSavedServer(contents?.getURL() ?? '');
+		session.defaultSession.setPermissionRequestHandler((contents, permission, callback) => callback(ALLOWED_PERMISSIONS.has(permission) && onServer(contents)));
+		session.defaultSession.setPermissionCheckHandler(
+			(contents, permission) => (permission === 'media' || ALLOWED_PERMISSIONS.has(permission)) && onServer(contents)
+		);
 
 		// The headers go to the server's origin and nowhere else: not to a sign-in page, and not to a site a page loads from.
 		session.defaultSession.webRequest.onBeforeSendHeaders((details, callback) => {

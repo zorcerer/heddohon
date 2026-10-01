@@ -72,14 +72,14 @@ async function startShell(options) {
 	}
 }
 
-async function launch(data = profile) {
+async function launch(data = profile, flags = []) {
 	// One instance per profile: a start while the last one is still on its way
 	// out finds its lock and quits. Chromium's lock is a link in the profile.
 	for (let i = 0; i < 100 && lockHeld(data); i++) await new Promise((done) => setTimeout(done, 100));
 	const app = await startShell({
 		executablePath: packaged ?? executablePath,
 		// No sandbox: the suite runs in a container without user namespaces.
-		args: packaged ? ['--no-sandbox'] : [shell, '--no-sandbox'],
+		args: [...(packaged ? [] : [shell]), '--no-sandbox', ...flags],
 		env: { ...process.env, HEDDOHON_DESKTOP_DATA: data, HEDDOHON_DESKTOP_NO_UPDATE_CHECK: '1' },
 		// A start that is going to work has a window within seconds. The default,
 		// 3 minutes, is how long a start that quit at once took to be reported.
@@ -195,6 +195,64 @@ describe('the shell', () => {
 			assert.equal(await page.evaluate(() => typeof window.heddohonDesktop), 'undefined');
 		} finally {
 			await app.close();
+		}
+	});
+
+	test('the server\'s page may name the audio outputs, and is refused the microphone and the camera', async () => {
+		// Chromium's stand-in devices: a container has none, and a capture with none fails before anything is asked.
+		const { app, page } = await launch(profile, ['--use-fake-device-for-media-stream']);
+		try {
+			await page.waitForURL((url) => url.origin === server.url);
+			const capture = (constraints) =>
+				page.evaluate(
+					(constraints) =>
+						navigator.mediaDevices.getUserMedia(constraints).then(
+							(stream) => (stream.getTracks().forEach((track) => track.stop()), 'granted'),
+							(err) => err.name
+						),
+					constraints
+				);
+			assert.equal(await capture({ audio: true }), 'NotAllowedError');
+			assert.equal(await capture({ video: true }), 'NotAllowedError');
+			assert.equal(await capture({ audio: true, video: true }), 'NotAllowedError');
+			// The outputs keep their names, which the output list in the player shows.
+			const outputs = await page.evaluate(async () =>
+				(await navigator.mediaDevices.enumerateDevices()).filter((device) => device.kind === 'audiooutput').map((device) => device.label)
+			);
+			assert.ok(outputs.length > 0 && outputs.every((label) => label !== ''), JSON.stringify(outputs));
+		} finally {
+			await app.close();
+		}
+	});
+
+	test('a window the server\'s page opens is held to the server too, and another file named setup.html gets nothing', async () => {
+		const elsewhere = mkdtempSync(join(tmpdir(), 'heddohon-desktop-'));
+		const { app, page } = await launch();
+		try {
+			await page.waitForURL((url) => url.origin === server.url);
+			const [second] = await Promise.all([app.waitForEvent('window'), page.evaluate(() => void window.open(`${location.origin}/login`))]);
+			await second.waitForURL((url) => url.origin === server.url);
+			const before = (await opened(app)).length;
+			await second.evaluate(() => {
+				const link = document.createElement('a');
+				link.href = 'https://example.com/from-the-second-window';
+				document.body.append(link);
+				link.click();
+			});
+			await second.waitForTimeout(500);
+			assert.deepEqual((await opened(app)).slice(before), ['https://example.com/from-the-second-window']);
+			assert.equal(new URL(second.url()).origin, server.url);
+			await second.close();
+
+			// The address screen's calls answer the package's own file only: the saved headers are among them.
+			writeFileSync(join(elsewhere, 'setup.html'), '<!doctype html><title>Not the app</title>');
+			await app.evaluate(({ BrowserWindow }, file) => BrowserWindow.getAllWindows()[0].loadFile(file), join(elsewhere, 'setup.html'));
+			await page.waitForURL((url) => url.protocol === 'file:');
+			assert.equal(await page.evaluate(() => window.heddohonDesktop.state()), null);
+			assert.deepEqual(await page.evaluate(() => window.heddohonDesktop.connect('https://example.com', '')), { error: 'Not allowed.' });
+		} finally {
+			await app.close();
+			rmSync(elsewhere, { recursive: true, force: true });
 		}
 	});
 

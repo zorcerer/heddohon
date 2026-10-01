@@ -47,7 +47,7 @@ const ALLOWED_PREFIX: Record<MediaKind, string> = {
  * anything. It costs nothing for an `<img>` or an `<audio>`, which do not
  * execute the response either way.
  */
-const MEDIA_CSP = "default-src 'none'; sandbox";
+export const MEDIA_CSP = "default-src 'none'; sandbox";
 
 /** One media type, with nothing after it: no parameters, no second type. */
 const MEDIA_ESSENCE = /^(audio|image)\/[a-z0-9][a-z0-9.+-]{0,62}$/;

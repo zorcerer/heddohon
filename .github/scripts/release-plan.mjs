@@ -10,7 +10,10 @@
  * a minor one, `fix` and `perf` a patch. Titles of any other type go in the
  * notes but release nothing on their own. A version set higher by hand in
  * `package.json` wins over the computed one. With `--tag`, the version is the
- * tag's, for a release tagged by hand.
+ * tag's, for a release tagged by hand. Such a tag may carry a suffix
+ * (`v0.5.0-hotfix1`), for a release between two numbered ones: the image, the
+ * apps and the GitHub release carry it whole, and the next computed version
+ * still counts from the last tag without one.
  *
  * Each entry names its pull request, and its author unless that is the
  * repository's owner, as GitHub's own notes do; the people credited are
@@ -37,6 +40,12 @@ const SECTIONS = [
 function parseVersion(text) {
 	const match = /^v?(\d+)\.(\d+)\.(\d+)$/.exec(text ?? '');
 	return match ? match.slice(1).map(Number) : null;
+}
+
+/** A tag pushed by hand: three numbers, and a suffix of letters, digits and dots if it has one. */
+function parseTag(text) {
+	const match = /^v?(\d+\.\d+\.\d+)(-[0-9A-Za-z][0-9A-Za-z.]*)?$/.exec(text ?? '');
+	return match ? { numbers: parseVersion(match[1]), text: match[1] + (match[2] ?? '') } : null;
 }
 
 const compare = (a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2];
@@ -86,16 +95,20 @@ const tagged = git('tag', '--list', 'v[0-9]*').split('\n').map(parseVersion).fil
 const base = tagged.at(-1) ?? parseVersion(previous) ?? [0, 0, 0];
 const fromPackage = parseVersion(JSON.parse(readFileSync('package.json', 'utf8')).version);
 let version = null;
+/** The version as a hand-pushed tag spells it, suffix and all. */
+let tagText = null;
 if (givenTag) {
-	version = parseVersion(givenTag);
-	if (!version) throw new Error(`${givenTag} is not a version tag`);
+	const given = parseTag(givenTag);
+	if (!given) throw new Error(`${givenTag} is not a version tag`);
+	version = given.numbers;
+	tagText = given.text;
 } else if (level) {
 	version = bump(base, level);
 	if (fromPackage && compare(fromPackage, version) > 0) version = fromPackage;
 }
 
 const release = version !== null && commits.length > 0;
-const text = version ? version.join('.') : '';
+const text = version ? (tagText ?? version.join('.')) : '';
 
 const repo = process.env.GITHUB_REPOSITORY ?? 'zorcerer/heddohon';
 const owner = process.env.GITHUB_REPOSITORY_OWNER ?? repo.split('/')[0];

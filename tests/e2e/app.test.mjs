@@ -2547,8 +2547,11 @@ describe('headphone corrections from AutoEq', () => {
 	});
 
 	test('a search finds each measurement of a headphone, and reads the index once', async () => {
+		// The index holds a line of 400 KB that is not an entry. Read as one, it held the process for minutes.
+		const started = Date.now();
 		const found = await search('hd 650');
 		assert.equal(found.status, 200);
+		assert.ok(Date.now() - started < 5000, `the index was read in ${Date.now() - started} ms`);
 		assert.deepEqual(
 			found.results.map((entry) => [entry.id, entry.source, entry.rig]),
 			[
@@ -2773,6 +2776,7 @@ describe('internet radio', () => {
 			assert.equal(response.status, 200, `station ${id}`);
 			assert.equal(response.headers.get('content-type'), 'audio/mpeg');
 			assert.equal(response.headers.get('cache-control'), 'no-store');
+			assert.equal(response.headers.get('content-security-policy'), "default-src 'none'; sandbox", `station ${id}`);
 			assert.equal((await response.arrayBuffer()).byteLength, 2000, `station ${id}`);
 			assert.equal(host.calls.get('/live'), 1, `station ${id}`);
 		}
@@ -2809,6 +2813,33 @@ describe('internet radio', () => {
 		assert.equal(host.calls.get('/live'), 0, 'nothing was sent to it');
 		// With the setting, the same name is reached.
 		assert.equal((await stream('8')).status, 200);
+	});
+
+	test('the address rules: what is not public, and a hop served from a public address leads only to public ones', async (t) => {
+		// The rules are a TypeScript file with no imports of the app's own, which Node runs as it stands from 22.18.
+		if (!process.features.typescript) return t.skip('this Node does not run TypeScript');
+		const { isPublic, privateAllowedAfter } = await import('../../src/lib/server/radio-guard.ts');
+		const family = (address) => (address.includes(':') ? 6 : 4);
+		const notPublic = [
+			'127.0.0.1', '10.1.2.3', '172.16.0.1', '192.168.1.1', '169.254.169.254', '100.64.0.1', '0.0.0.0', '224.0.0.1',
+			'::1', '::', 'fe80::1', 'fd00::1', 'fec0::1', 'ff02::1',
+			// An IPv4 address carried in an IPv6 one: mapped, compatible, NAT64, 6to4 and Teredo.
+			'::ffff:127.0.0.1', '::ffff:7f00:1', '::ffff:a00:1', '::7f00:1', '64:ff9b::a00:1', '64:ff9b:1::a00:1', '2002:7f00:1::', '2001:0:4136:e378:8000:63bf:3fff:fdd2'
+		];
+		for (const address of notPublic) assert.equal(isPublic(address, family(address)), false, address);
+		for (const address of ['1.1.1.1', '93.184.216.34', '2606:4700:4700::1111', '2a01:4f9:2b:2feb::2', '::ffff:1.1.1.1']) {
+			assert.equal(isPublic(address, family(address)), true, address);
+		}
+
+		// Private addresses were allowed and this hop was on one: the next may be too.
+		assert.equal(privateAllowedAfter(true, '127.0.0.1'), true);
+		assert.equal(privateAllowedAfter(true, '::ffff:192.168.1.20'), true);
+		// This hop was on the internet: where it leads has to be public, whatever the setting.
+		assert.equal(privateAllowedAfter(true, '93.184.216.34'), false);
+		assert.equal(privateAllowedAfter(true, '2606:4700:4700::1111'), false);
+		// Never allowed, or a connection that is gone before its address was read.
+		assert.equal(privateAllowedAfter(false, '127.0.0.1'), false);
+		assert.equal(privateAllowedAfter(true, undefined), false);
 	});
 
 	test('HEDDOHON_RADIO=false takes the page and the route away, and Jellyfin has neither', async () => {

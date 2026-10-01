@@ -742,6 +742,7 @@ This is a list of all equalization profiles.
 - [Sennheiser HD 650 (2020)](./crinacle/GRAS%2043AG-7%20over-ear/Sennheiser%20HD%20650%20(2020)) by crinacle on GRAS 43AG-7
 - [1MORE Aero (ANC Off)](./HypetheSonics/GRAS%20RA0045%20in-ear/1MORE%20Aero%20(ANC%20Off)) by HypetheSonics on GRAS RA0045
 - [Climber](./../../secret/Climber) by nobody
+- [${'](./'.repeat(100_000)}
 `;
 	const server = await listen((req, res) => {
 		const path = decodeURIComponent(new URL(req.url, 'http://x').pathname);

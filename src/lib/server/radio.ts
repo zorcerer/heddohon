@@ -16,10 +16,16 @@
  *    `HEDDOHON_RADIO_PRIVATE=true`. A station set to a host on the local
  *    network, or one that resolves there, would otherwise read whatever
  *    answers on that network back out as "audio". The check is made in the
- *    connection's own lookup, so the address checked is the address dialled.
+ *    connection's own lookup, and each request dials a connection of its own,
+ *    so the address checked is the address dialled.
  *  - A redirect is followed up to three times, each hop held to the same
  *    rules. A playlist file (.m3u, .pls), which many station addresses are,
  *    counts as one: its first address is where the stream is.
+ *  - Where a hop leads is written by whoever answered it, not by the music
+ *    server's administrator. So with `HEDDOHON_RADIO_PRIVATE=true` a hop
+ *    served from a public address still leads only to public ones: a station
+ *    on the internet cannot send this server to the network it sits on. Only
+ *    a hop that was itself on a private address may lead to another.
  *  - What comes back has to say it is audio. Anything else is dropped unread.
  *    An HLS playlist is a list of segments, not a stream, and is not played.
  *
@@ -29,7 +35,7 @@
 import { lookup as dnsLookup } from 'node:dns';
 import http from 'node:http';
 import https from 'node:https';
-import { BlockList, isIP, type LookupFunction } from 'node:net';
+import { isIP, type LookupFunction } from 'node:net';
 import { Readable } from 'node:stream';
 import type { RadioStation } from '$lib/types';
 import type { AuthenticatedSession } from './auth';
@@ -37,6 +43,8 @@ import { backendFor } from './backends';
 import type { RadioStationSource } from './backends/types';
 import { config } from './config';
 import { log, reason } from './log';
+import { MEDIA_CSP } from './proxy';
+import { isPublic, privateAllowedAfter } from './radio-guard';
 import { APP_VERSION } from './version';
 
 /** To the first byte of the answer. A live stream has no time limit after that, only the stall below. */
@@ -49,39 +57,6 @@ const MAX_STREAMS_PER_ACCOUNT = 4;
 /** The types a playlist file is served as, and the most of one that is read. */
 const PLAYLIST_TYPES = new Set(['audio/x-mpegurl', 'audio/mpegurl', 'audio/x-scpls', 'application/pls+xml']);
 const MAX_PLAYLIST_BYTES = 64 * 1024;
-
-/** Loopback, private, link-local, carrier-grade NAT, multicast and the unspecified addresses. */
-const NOT_PUBLIC = new BlockList();
-for (const [network, prefix] of [
-	['0.0.0.0', 8],
-	['10.0.0.0', 8],
-	['100.64.0.0', 10],
-	['127.0.0.0', 8],
-	['169.254.0.0', 16],
-	['172.16.0.0', 12],
-	['192.0.0.0', 24],
-	['192.168.0.0', 16],
-	['198.18.0.0', 15],
-	['224.0.0.0', 3]
-] as const) {
-	NOT_PUBLIC.addSubnet(network, prefix, 'ipv4');
-}
-for (const [network, prefix] of [
-	['::', 127],
-	['64:ff9b::', 96],
-	['fc00::', 7],
-	['fe80::', 10],
-	['ff00::', 8]
-] as const) {
-	NOT_PUBLIC.addSubnet(network, prefix, 'ipv6');
-}
-
-function isPublic(address: string, family: number): boolean {
-	// An IPv4 address written as IPv6 is the IPv4 address.
-	const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(address);
-	if (mapped) return !NOT_PUBLIC.check(mapped[1], 'ipv4');
-	return !NOT_PUBLIC.check(address, family === 6 ? 'ipv6' : 'ipv4');
-}
 
 export class RadioError extends Error {
 	constructor(
@@ -119,8 +94,8 @@ export async function radioStations(session: AuthenticatedSession): Promise<Radi
 	return (await sources(session)).map((station) => ({ id: station.id, name: station.name, homePage: homePage(station.homePageUrl) }));
 }
 
-/** The address as a URL this server will fetch, or a refusal. */
-function allowed(raw: string): URL {
+/** The address as a URL this server will fetch, or a refusal. `mayBePrivate` is whether this hop may be on a private address. */
+function allowed(raw: string, mayBePrivate: boolean): URL {
 	let url: URL;
 	try {
 		url = new URL(raw);
@@ -132,17 +107,17 @@ function allowed(raw: string): URL {
 	const host = url.hostname.replace(/^\[|\]$/g, '');
 	// A literal address is never looked up, so it is checked here.
 	const family = isIP(host);
-	if (family !== 0 && !config().radioPrivate && !isPublic(host, family)) {
+	if (family !== 0 && !mayBePrivate && !isPublic(host, family)) {
 		throw new RadioError('The station is on a private address', 'refused');
 	}
 	return url;
 }
 
-/** DNS for the connection, refusing a name with any address that is not public. */
-const guardedLookup: LookupFunction = (hostname, options, callback) => {
+/** DNS for the connection, refusing a name with any address that is not public unless this hop may be on one. */
+const guardedLookup = (mayBePrivate: boolean): LookupFunction => (hostname, options, callback) => {
 	dnsLookup(hostname, { ...options, all: true }, (err, addresses) => {
 		if (err) return callback(err, '', 0);
-		if (!config().radioPrivate && addresses.some((entry) => !isPublic(entry.address, entry.family))) {
+		if (!mayBePrivate && addresses.some((entry) => !isPublic(entry.address, entry.family))) {
 			return callback(Object.assign(new Error('The station resolves to a private address'), { code: 'EPRIVATE' }), '', 0);
 		}
 		// Node asks for every address when it races families, and for one otherwise.
@@ -151,12 +126,14 @@ const guardedLookup: LookupFunction = (hostname, options, callback) => {
 	});
 };
 
-function request(url: URL, signal: AbortSignal): Promise<http.IncomingMessage> {
+function request(url: URL, signal: AbortSignal, mayBePrivate: boolean): Promise<http.IncomingMessage> {
 	return new Promise((resolve, reject) => {
 		const outgoing = (url.protocol === 'https:' ? https : http).request(url, {
 			method: 'GET',
 			headers: { accept: 'audio/*', 'user-agent': `Heddohon/${APP_VERSION} (https://github.com/zorcerer/heddohon)` },
-			lookup: guardedLookup,
+			lookup: guardedLookup(mayBePrivate),
+			// A connection of its own: one kept from an earlier request was looked up under that request's rule.
+			agent: false,
 			signal
 		});
 		const timer = setTimeout(() => outgoing.destroy(new Error('The station did not answer in time')), CONNECT_TIMEOUT_MS);
@@ -223,20 +200,23 @@ export async function openStation(session: AuthenticatedSession, id: string, cli
 	client.addEventListener('abort', stop, { once: true });
 
 	try {
-		let url = allowed(station.streamUrl);
+		// The station's own address is the administrator's; see the top of the file for the hops after it.
+		let mayBePrivate = config().radioPrivate;
+		let url = allowed(station.streamUrl, mayBePrivate);
 		let response: http.IncomingMessage | null = null;
 		for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
-			const answer = await request(url, controller.signal).catch((err) => {
+			const answer = await request(url, controller.signal, mayBePrivate).catch((err) => {
 				if (err instanceof RadioError) throw err;
 				throw new RadioError(
 					(err as NodeJS.ErrnoException).code === 'EPRIVATE' ? 'The station resolves to a private address' : `The station could not be reached: ${reason(err)}`,
 					(err as NodeJS.ErrnoException).code === 'EPRIVATE' ? 'refused' : 'unreachable'
 				);
 			});
+			mayBePrivate = privateAllowedAfter(mayBePrivate, answer.socket.remoteAddress);
 			const status = answer.statusCode ?? 0;
 			if (status >= 300 && status < 400 && answer.headers.location) {
 				answer.destroy();
-				url = allowed(new URL(answer.headers.location, url).href);
+				url = allowed(new URL(answer.headers.location, url).href, mayBePrivate);
 				continue;
 			}
 			if (status !== 200) {
@@ -246,7 +226,7 @@ export async function openStation(session: AuthenticatedSession, id: string, cli
 			if (PLAYLIST_TYPES.has((answer.headers['content-type'] ?? '').split(';')[0].trim().toLowerCase())) {
 				const listed = await firstInPlaylist(answer);
 				if (!listed) throw new RadioError('The station is a playlist with no stream this server can pass on', 'not_audio');
-				url = allowed(new URL(listed, url).href);
+				url = allowed(new URL(listed, url).href, mayBePrivate);
 				continue;
 			}
 			response = answer;
@@ -270,6 +250,8 @@ export async function openStation(session: AuthenticatedSession, id: string, cli
 		return new Response(Readable.toWeb(upstream) as ReadableStream<Uint8Array>, {
 			headers: {
 				'content-type': type,
+				// As on the music server's own media: inert if it is opened as a page. See `MEDIA_CSP`.
+				'content-security-policy': MEDIA_CSP,
 				// Live: nothing to cache, and a proxy in front must not hold it back.
 				'cache-control': 'no-store',
 				'x-accel-buffering': 'no'
