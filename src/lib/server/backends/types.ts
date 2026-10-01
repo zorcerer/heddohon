@@ -58,6 +58,14 @@ export interface UpstreamResponse {
 }
 
 /** One entry of a playlist moved, and what the caller saw before moving it. */
+/** A station as the music server lists it. `streamUrl` is whatever its administrator typed. */
+export interface RadioStationSource {
+	id: string;
+	name: string;
+	streamUrl: string;
+	homePageUrl: string | null;
+}
+
 export interface PlaylistMove {
 	from: number;
 	to: number;
@@ -255,6 +263,14 @@ export interface MediaBackend {
 	 * `rating` is null on everything it returns.
 	 */
 	setRating?(cred: StoredCredential, id: string, rating: number): Promise<void>;
+
+	/**
+	 * The internet radio stations the server keeps, each with the address of
+	 * its stream. Present only where the server has such a list: Subsonic's
+	 * `getInternetRadioStations`. Jellyfin has none, so the member is absent
+	 * there and the Radio page is not offered.
+	 */
+	getRadioStations?(cred: StoredCredential): Promise<RadioStationSource[]>;
 
 	/** Lyrics for one track, or null when the server has none. */
 	getLyrics(cred: StoredCredential, song: Song): Promise<Lyrics | null>;

@@ -162,6 +162,7 @@
 		'/artists',
 		'/artists/_',
 		'/genres',
+		'/radio',
 		'/genres/_',
 		'/playlists',
 		'/playlists/_',

@@ -36,9 +36,12 @@ a request to the music server. The one host you expose is Heddohon.
 Heddohon also contacts a PostgreSQL server when `HEDDOHON_DATABASE_URL` names
 one (see [PostgreSQL](#postgresql)). The other hosts it contacts are LRCLIB, only with
 `HEDDOHON_LYRICS_LRCLIB=true`, and the AutoEq results on GitHub, only with
-`HEDDOHON_AUTOEQ=true`. Both are off by default. See [Lyrics from
-LRCLIB](#lyrics-from-lrclib) and [Headphone corrections from
-AutoEq](#headphone-corrections-from-autoeq).
+`HEDDOHON_AUTOEQ=true`; both are off by default. And the hosts of the internet
+radio stations the music server lists, when a listener plays one; that is on
+unless `HEDDOHON_RADIO=false`. See [Lyrics from
+LRCLIB](#lyrics-from-lrclib), [Headphone corrections from
+AutoEq](#headphone-corrections-from-autoeq) and [Internet
+radio](#internet-radio).
 
 ## PostgreSQL
 
@@ -121,6 +124,46 @@ No account name, credential or upstream detail is sent.
   hours, a failure for 5 minutes.
 - Both routes need a session. Search matches in memory and makes no request
   upstream once the index is held.
+
+## Internet radio
+
+Navidrome keeps a list of internet radio stations, set by its administrators:
+a name and the address of a stream on another host. Jellyfin has no such list.
+The browser's policy allows media from this origin only, so a station is
+played through Heddohon: `GET /api/radio/<id>/stream` fetches the stream and
+passes the bytes on. This is the one place the server fetches an address it
+was not configured with. `HEDDOHON_RADIO=false` removes the page and the
+route.
+
+- **Only a listed station.** The id is looked up in the music server's list
+  for the signed-in account. Nothing a request carries is fetched, and the
+  stream address is not sent to the browser.
+- **http or https only**, without a user name or password in the address.
+- **Public addresses only.** A station on a loopback, private, link-local,
+  carrier-grade NAT or multicast address is refused, by address and by name:
+  every address the host resolves to is checked inside the connection's own
+  lookup, so the address checked is the address dialled. This is what keeps a
+  station from being used to read a service on the server's own network.
+  `HEDDOHON_RADIO_PRIVATE=true` allows them, for a stream served on the local
+  network.
+- **Redirects** are followed up to three times, each hop held to the same
+  rules. An `.m3u` or `.pls` playlist counts as one: up to 64 KB of it is
+  read for its first address.
+- **Audio only.** A response whose type is not `audio/*` or `application/ogg`
+  is dropped unread and answered 502. An HLS playlist is not played.
+- **Bounded.** 10 seconds to the first byte, cut after 30 seconds without
+  data, 4 streams per account at once. The stream ends with the listener's
+  request and with their session.
+- **What the station's host learns** is this server's address, not the
+  listener's. The request carries no cookie and no account detail.
+- **What reaches the browser** is the station's bytes under the type it sent,
+  with `X-Content-Type-Options: nosniff` as on every response. A station's own
+  page is linked only if it is an http or https address, in a new tab with
+  `rel="noopener noreferrer"`.
+- Failures are logged as `radio-failed` with the station's id and the reason;
+  the browser is told only that the station could not be played.
+- Nothing is reported to the music server for a station, it is not added to
+  the listening history, and a queue holding one is not saved.
 
 ## Linking Last.fm and ListenBrainz
 

@@ -25,6 +25,7 @@ import type { Correction } from '$lib/autoeq';
 import type { UserSettings } from '$lib/server/settings';
 import { AudioChain } from './audiochain';
 import { coverUrl, streamUrl } from './format';
+import { radioStreamUrl } from './radio';
 
 export type RepeatMode = 'off' | 'all' | 'one';
 
@@ -453,7 +454,7 @@ export class Player {
 			this.#castUrlsAt = Date.now();
 		}
 		const held = this.#castUrls;
-		const ids = [...new Set(this.queue.slice(this.index, this.index + 1000).map((song) => song.id))].filter(
+		const ids = [...new Set(this.queue.slice(this.index, this.index + 1000).filter((song) => !song.live).map((song) => song.id))].filter(
 			(id) => !held.has(id)
 		);
 		if (ids.length === 0) return true;
@@ -470,6 +471,7 @@ export class Player {
 
 	/** Where the element fetches a track from: its cast address while casting. */
 	#srcOf(song: Song): string {
+		if (song.live) return radioStreamUrl(song.id);
 		return this.#castUrls?.get(song.id) ?? streamUrl(song.id, this.deliveryMode);
 	}
 
@@ -849,7 +851,7 @@ export class Player {
 	}
 
 	seek(seconds: number) {
-		if (!this.#primary || !Number.isFinite(seconds)) return;
+		if (!this.#primary || !Number.isFinite(seconds) || this.current?.live) return;
 		this.#abandonCrossfade();
 		const target = Math.min(Math.max(0, seconds), this.duration || seconds);
 		const element = this.#primary;
@@ -1094,7 +1096,7 @@ export class Player {
 			this.loading = true;
 			// A track that has come into the queue since casting began needs an
 			// address of its own first.
-			if (this.#castUrls && !this.#castUrls.has(song.id)) {
+			if (this.#castUrls && !song.live && !this.#castUrls.has(song.id)) {
 				await this.#ensureCastUrls();
 				if (this.current !== song || !this.#primary) return;
 			}
@@ -1134,7 +1136,7 @@ export class Player {
 	 * unattended queue does its crossfading.
 	 */
 	#maybeCrossfade() {
-		if (this.#fadeTimer !== null || this.#chainFading) return;
+		if (this.#fadeTimer !== null || this.#chainFading || this.current?.live) return;
 		const settings = this.settings;
 		if (!settings || settings.transition !== 'crossfade') return;
 		if (this.#castUrls) return;
@@ -1344,7 +1346,7 @@ export class Player {
 	#warmNext() {
 		if (!browser || !this.settings?.transcode) return;
 		const next = this.upNext ?? (this.repeat === 'all' ? this.queue[0] : null);
-		if (!next || next.id === this.current?.id) return;
+		if (!next || next.id === this.current?.id || next.live) return;
 		void fetch(streamUrl(next.id, this.deliveryMode), { method: 'HEAD' }).catch(() => undefined);
 	}
 
@@ -1354,7 +1356,7 @@ export class Player {
 		// Casting follows one element; see `#beginCast`.
 		if (this.#castUrls) return;
 		const next = this.upNext ?? (this.repeat === 'all' ? this.queue[0] : null);
-		if (!next || !this.#secondary) return;
+		if (!next || !this.#secondary || next.live || this.current?.live) return;
 		if (this.#preloadedFor === next.id) return;
 		// Only worth doing once we are actually close to the end.
 		if (this.duration > 0 && this.duration - this.currentTime > 20) return;
@@ -1692,7 +1694,7 @@ export class Player {
 	}
 
 	#report(event: 'start' | 'progress' | 'stop', position: number, completed = false) {
-		if (!browser || !this.current || this.settings?.reportPlayback === false) return;
+		if (!browser || !this.current || this.settings?.reportPlayback === false || this.current.live) return;
 		const body = JSON.stringify({ songId: this.current.id, event, position, completed });
 		// `keepalive` so a report fired during unload still leaves the browser.
 		void fetch('/api/playback', {
@@ -1723,6 +1725,9 @@ export class Player {
 		if (!browser) return;
 		if (this.#persistTimer) clearTimeout(this.#persistTimer);
 		this.#persistTimer = null;
+		// A station is not a track the music server can give back by its id, so a
+		// queue holding one is not saved: the queue saved before it stays.
+		if (this.queue.some((song) => song.live)) return;
 		// While a restore holds only the current track, a write carries the queue
 		// it stands in for. Written as it stands, a play pressed before the rest
 		// arrived saved a queue of one track over the saved one.

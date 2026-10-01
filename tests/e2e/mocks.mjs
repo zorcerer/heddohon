@@ -137,6 +137,8 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 		ignoreRange: false,
 		/** Milliseconds between the first and second half of a `stream` body, to keep a read in progress. */
 		streamSlowMs: 0,
+		/** Internet radio stations, as `{ id, name, streamUrl, homePageUrl }`. None unless a test adds them. */
+		radio: [],
 		/** Cover ids answered with a solid colour, as `[r, g, b]`, instead of the 1px PNG. */
 		coverColors: new Map(),
 		/** Songs on each album from `getAlbum`, up to 26: `s1a`, `s1b`, `s1c` and on. */
@@ -443,6 +445,8 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 			}
 			case 'getAlbumList2':
 				return send(ok({ albumList2: { album: Array.from({ length: Math.min(12, artistCount) }, (_, i) => album(i)) } }));
+			case 'getInternetRadioStations':
+				return send(ok({ internetRadioStations: { internetRadioStation: state.radio } }));
 			case 'getGenres':
 				return send(ok({ genres: { genre: GENRES } }));
 			case 'getPlaylists':
@@ -759,4 +763,51 @@ This is a list of all equalization profiles.
 		res.end('404: Not Found');
 	});
 	return { ...server, url: `${server.url}/results`, calls, state };
+}
+
+/**
+ * A host that radio stations live on. `/live` is an audio stream (`state.audio`,
+ * as `{ type, body }`, 2000 bytes of `audio/mpeg` unless set), `/moved` redirects
+ * to it, `/list.m3u` and `/list.pls` are playlists that name it, `/hls.m3u8` is
+ * an HLS playlist, `/page` is a web page, and `/loop` redirects to itself.
+ * `calls` counts each path.
+ */
+export async function startStationHost() {
+	const calls = counter();
+	const state = { audio: null };
+	const server = await listen((req, res) => {
+		const { pathname } = new URL(req.url, 'http://x');
+		calls.hit(pathname);
+		const live = `http://${req.headers.host}/live`;
+		switch (pathname) {
+			case '/live': {
+				res.setHeader('content-type', state.audio?.type ?? 'audio/mpeg');
+				return res.end(state.audio?.body ?? Buffer.alloc(2000, 7));
+			}
+			case '/moved':
+				res.statusCode = 302;
+				res.setHeader('location', '/live');
+				return res.end();
+			case '/loop':
+				res.statusCode = 302;
+				res.setHeader('location', '/loop');
+				return res.end();
+			case '/list.m3u':
+				res.setHeader('content-type', 'audio/x-mpegurl');
+				return res.end(`#EXTM3U\n#EXTINF:-1,Mock station\n${live}\n`);
+			case '/list.pls':
+				res.setHeader('content-type', 'audio/x-scpls');
+				return res.end(`[playlist]\nNumberOfEntries=1\nFile1=${live}\nTitle1=Mock station\n`);
+			case '/hls.m3u8':
+				res.setHeader('content-type', 'audio/x-mpegurl');
+				return res.end('#EXTM3U\n#EXT-X-TARGETDURATION:6\n#EXTINF:6,\nsegment0.aac\n');
+			case '/page':
+				res.setHeader('content-type', 'text/html');
+				return res.end('<html><body>secret</body></html>');
+			default:
+				res.statusCode = 404;
+				return res.end();
+		}
+	});
+	return { ...server, calls, state };
 }

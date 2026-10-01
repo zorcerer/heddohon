@@ -13,7 +13,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, describe, test } from 'node:test';
 import { Client, startApp } from './harness.mjs';
-import { startAutoEq, startJellyfin, startSubsonic } from './mocks.mjs';
+import { startAutoEq, startJellyfin, startStationHost, startSubsonic } from './mocks.mjs';
 
 let subsonic;
 let jellyfin;
@@ -2669,5 +2669,110 @@ describe('log files', () => {
 		} finally {
 			await blocked.stop();
 		}
+	});
+});
+
+describe('internet radio', () => {
+	let host;
+	let on;
+	let listener;
+	const station = (id, path, extra = {}) => ({ id, name: `Station ${id}`, streamUrl: `${host.url}${path}`, ...extra });
+
+	before(async () => {
+		host = await startStationHost();
+		subsonic.state.radio = [
+			station('1', '/live', { homePageUrl: 'https://radio.example/one' }),
+			station('2', '/moved', { homePageUrl: 'javascript:alert(1)' }),
+			station('3', '/list.m3u'),
+			station('4', '/list.pls'),
+			station('5', '/hls.m3u8'),
+			station('6', '/page'),
+			station('7', '/loop'),
+			{ id: '8', name: 'By name', streamUrl: `http://localhost:${new URL(host.url).port}/live` },
+			{ id: '9', name: 'A file', streamUrl: 'file:///etc/passwd' },
+			{ id: '10', name: 'With a password', streamUrl: `http://user:pass@127.0.0.1:${new URL(host.url).port}/live` }
+		];
+		// The mock host is on loopback, which a station may not be unless this is set.
+		on = await startApp({ subsonicUrl: subsonic.url, jellyfinUrl: jellyfin.url, env: { HEDDOHON_RADIO_PRIVATE: 'true' } });
+		listener = new Client(on.url);
+		await listener.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' });
+	});
+
+	after(async () => {
+		subsonic.state.radio = [];
+		await on?.stop();
+		await host?.close();
+	});
+
+	const stream = (id, client = listener) => client.request(`/api/radio/${id}/stream`);
+
+	test('the page lists the stations, with a link only to an http or https page, and never the stream address', async () => {
+		const { response, html } = await listener.page('/radio');
+		assert.equal(response.status, 200);
+		assert.match(html, /Station 1/);
+		assert.match(html, /href="https:\/\/radio\.example\/one"/);
+		assert.ok(!html.includes('javascript:'), 'a page address that is not http or https is dropped');
+		assert.ok(!html.includes(host.url), 'the stream address stays on the server');
+	});
+
+	test('a station plays through the server: directly, after a redirect, and from an .m3u or a .pls', async () => {
+		for (const id of ['1', '2', '3', '4']) {
+			host.calls.reset();
+			const response = await stream(id);
+			assert.equal(response.status, 200, `station ${id}`);
+			assert.equal(response.headers.get('content-type'), 'audio/mpeg');
+			assert.equal(response.headers.get('cache-control'), 'no-store');
+			assert.equal((await response.arrayBuffer()).byteLength, 2000, `station ${id}`);
+			assert.equal(host.calls.get('/live'), 1, `station ${id}`);
+		}
+	});
+
+	test('what is not an audio stream is not passed on', async () => {
+		for (const id of ['5', '6']) {
+			const response = await stream(id);
+			assert.equal(response.status, 502, `station ${id}`);
+			assert.ok(!(await response.text()).includes('secret'));
+		}
+		assert.equal((await stream('7')).status, 502, 'a redirect to itself stops after three hops');
+		assert.equal(host.calls.get('/loop'), 4);
+	});
+
+	test('an address that is not plain http or https, or carries a password, is refused without a request', async () => {
+		host.calls.reset();
+		assert.equal((await stream('9')).status, 502);
+		assert.equal((await stream('10')).status, 502);
+		assert.equal(host.calls.get('/live'), 0);
+	});
+
+	test('an id the music server does not list is a 404, and a session is needed', async () => {
+		assert.equal((await stream('nope')).status, 404);
+		assert.equal((await stream('1', new Client(on.url))).status, 401);
+	});
+
+	test('a station on a private address is refused unless HEDDOHON_RADIO_PRIVATE is set, by address and by name', async () => {
+		const guarded = new Client(app.url);
+		await guarded.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' });
+		host.calls.reset();
+		assert.equal((await stream('1', guarded)).status, 502, 'a loopback address');
+		assert.equal((await stream('8', guarded)).status, 502, 'a name that resolves to loopback');
+		assert.equal(host.calls.get('/live'), 0, 'nothing was sent to it');
+		// With the setting, the same name is reached.
+		assert.equal((await stream('8')).status, 200);
+	});
+
+	test('HEDDOHON_RADIO=false takes the page and the route away, and Jellyfin has neither', async () => {
+		const off = await startApp({ subsonicUrl: subsonic.url, jellyfinUrl: jellyfin.url, env: { HEDDOHON_RADIO: 'false' } });
+		try {
+			const client = new Client(off.url);
+			await client.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' });
+			assert.equal((await client.page('/radio')).response.status, 404);
+			assert.equal((await stream('1', client)).status, 404);
+		} finally {
+			await off.stop();
+		}
+		const jf = new Client(on.url);
+		await jf.signIn({ username: 'jfuser', password: 'jfpass', backend: 'jellyfin' });
+		assert.equal((await jf.page('/radio')).response.status, 404);
+		assert.equal((await stream('1', jf)).status, 404);
 	});
 });
