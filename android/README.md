@@ -20,6 +20,12 @@ tab. A WebView would stop the audio soon after the app left the screen.
   there is.
 - **Changing the server.** Press and hold the app's icon and choose Change
   server.
+- **A sign-in in front of the server** (Authelia, Authentik, Cloudflare
+  Access, basic auth). The app cannot tell whether a Heddohon is behind it,
+  says so, and offers to open the address as it stands. The sign-in then
+  happens in the browser, which keeps it. Custom request headers, such as a
+  service token, are not possible here: the requests are the browser's, and
+  an app cannot add headers to them.
 
 Each release of Heddohon carries `heddohon-<version>.apk`, signed with the
 release key. Obtainium can install it from the releases page and keep it up

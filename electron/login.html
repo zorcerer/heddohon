@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; script-src 'self'" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>Sign in</title>
+		<link rel="stylesheet" href="setup.css" />
+	</head>
+	<body>
+		<main>
+			<h1>Sign in</h1>
+			<p class="lede" id="who"></p>
+			<form id="form">
+				<label for="username">User name</label>
+				<input id="username" name="username" type="text" autocomplete="off" spellcheck="false" required />
+				<label for="password">Password</label>
+				<input id="password" name="password" type="password" autocomplete="off" />
+				<div class="row">
+					<button type="button" class="quiet" id="cancel">Cancel</button>
+					<button type="submit">Sign in</button>
+				</div>
+			</form>
+			<p class="small">Asked for by the server, or a proxy in front of it. It is sent there and not kept by this app.</p>
+		</main>
+		<script src="login.js"></script>
+	</body>
+</html>

@@ -8,7 +8,7 @@
  */
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { lstatSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { lstatSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -17,11 +17,12 @@ import { fileURLToPath } from 'node:url';
 import { _electron as electron } from 'playwright';
 import { startApp } from '../../tests/e2e/harness.mjs';
 import { startJellyfin, startSubsonic } from '../../tests/e2e/mocks.mjs';
+import { startFront } from './front.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const shell = join(here, '..');
 const require = createRequire(import.meta.url);
-const { originOf, compareVersions } = require('../lib.js');
+const { originOf, compareVersions, parseHeaders, classify } = require('../lib.js');
 /** Under Node the `electron` package is the path of its binary. Playwright looks for it beside itself, which is the repository root. */
 const executablePath = require('electron');
 /** The packaged app instead, when the suite is pointed at one: `dist/linux-unpacked/heddohon`. */
@@ -128,10 +129,24 @@ describe('the shell', () => {
 			await page.getByRole('button', { name: 'Connect' }).click();
 			await page.getByRole('alert').filter({ hasText: 'could not be reached' }).waitFor();
 
-			// A server, but not a Heddohon: the mock music server.
+			// A server, but not a Heddohon: a site that answers every address with a page.
+			const { createServer } = await import('node:http');
+			const site = createServer((_request, response) => response.end('<h1>Some other site</h1>'));
+			await new Promise((done) => site.listen(0, '127.0.0.1', done));
+			try {
+				await page.getByLabel('Server address').fill(`http://127.0.0.1:${site.address().port}`);
+				await page.getByRole('button', { name: 'Connect' }).click();
+				await page.getByRole('alert').filter({ hasText: 'not as a Heddohon server' }).waitFor();
+			} finally {
+				site.closeAllConnections();
+				site.close();
+			}
+
+			// One that turns everyone away with a 401 and nothing to sign in to: the mock music server.
 			await page.getByLabel('Server address').fill(subsonic.url);
 			await page.getByRole('button', { name: 'Connect' }).click();
-			await page.getByRole('alert').filter({ hasText: 'not as a Heddohon server' }).waitFor();
+			await page.getByRole('alert').filter({ hasText: 'asks for a sign-in this app could not complete' }).waitFor();
+			assert.equal(JSON.parse(readFileSync(join(profile, 'config.json'), 'utf8')).server, undefined, 'nothing saved');
 
 			await page.getByLabel('Server address').fill(`${server.url}/albums?from=a-bookmark`);
 			await page.getByRole('button', { name: 'Connect' }).click();
@@ -356,3 +371,145 @@ async function waitFor(condition) {
 	}
 	assert.fail('timed out waiting');
 }
+
+describe('a server behind a proxy that asks who you are', () => {
+	let backend;
+	let upstream;
+
+	before(async () => {
+		backend = await startSubsonic({ artistCount: 3 });
+		upstream = await startApp({ subsonicUrl: backend.url, jellyfinUrl: jellyfin.url, env: { HEDDOHON_REMOTE_CONTROL: 'false' } });
+	});
+
+	/** Every proxy a test started, closed at the end whatever the test did: one left listening holds the run open. */
+	const fronts = [];
+
+	after(async () => {
+		for (const front of fronts) await front.close().catch(() => undefined);
+		await upstream?.stop();
+		await backend?.close();
+	});
+
+	const fresh = () => mkdtempSync(join(tmpdir(), 'heddohon-desktop-'));
+	const saved = (data) => JSON.parse(readFileSync(join(data, 'config.json'), 'utf8'));
+	const connect = async (page, address) => {
+		await page.getByLabel('Server address').fill(address);
+		await page.getByRole('button', { name: 'Connect' }).click();
+	};
+
+	test('headers are read one to a line, and the ones the app owns are refused', () => {
+		assert.deepEqual(parseHeaders('X-Token: abc\n\n CF-Access-Client-Id:  id.access \n').headers, { 'X-Token': 'abc', 'CF-Access-Client-Id': 'id.access' });
+		assert.deepEqual(parseHeaders('').headers, {});
+		for (const text of ['Cookie: a=b', 'Host: evil.example', 'Sec-Fetch-Site: none', 'no colon here', 'X-Empty:', 'Bad Name: x']) {
+			assert.ok(parseHeaders(text).error, text);
+		}
+		assert.equal(classify(302, ''), 'sign-in');
+		assert.equal(classify(401, ''), 'sign-in');
+		assert.equal(classify(200, '{"status":"ok"}'), 'heddohon');
+		assert.equal(classify(200, '<html>'), 'other');
+		assert.equal(classify(404, ''), 'other');
+	});
+
+	test('a sign-in page on another origin is shown in the window, and the server is saved once a Heddohon answers behind it', async () => {
+		const front = await startFront(upstream.url, 'sso');
+		fronts.push(front);
+		const data = fresh();
+		const { app, page } = await launch(data);
+		try {
+			await page.getByLabel('Server address').waitFor();
+			await connect(page, front.url);
+			// The proxy's page, on its own origin, in this window.
+			await page.getByRole('heading', { name: 'Front sign-in' }).waitFor();
+			assert.equal(new URL(page.url()).origin, front.signInUrl);
+			assert.equal(saved(data).server, undefined, 'not saved before a Heddohon has answered');
+			// It is given nothing of the desktop.
+			assert.equal(await page.evaluate(() => typeof window.heddohonDesktop), 'undefined');
+
+			await page.getByRole('button', { name: 'Sign in to the front' }).click();
+			await page.waitForURL(`${front.url}/login**`);
+			await waitFor(() => saved(data).server === front.url);
+			assert.deepEqual(await opened(app), [], 'nothing was sent to the default browser');
+			assert.equal(app.windows().length, 1);
+		} finally {
+			await app.close();
+		}
+
+		// The next start is signed in already: the cookie is in the profile.
+		const again = await launch(data);
+		try {
+			await again.page.waitForURL(`${front.url}/login**`);
+			assert.deepEqual(await opened(again.app), []);
+		} finally {
+			await again.app.close();
+			rmSync(data, { recursive: true, force: true });
+		}
+	});
+
+	test('a header typed at the address screen goes to the server, is kept, and without it the proxy\'s refusal is explained', async () => {
+		const front = await startFront(upstream.url, 'header');
+		fronts.push(front);
+		const data = fresh();
+		const { app, page } = await launch(data);
+		try {
+			await page.getByLabel('Server address').waitFor();
+			await connect(page, front.url);
+			await page.getByRole('alert').filter({ hasText: 'asks for a sign-in this app could not complete' }).waitFor();
+			assert.equal(front.seen.passed, 0);
+
+			await page.locator('summary').click();
+			await page.getByLabel('Request headers').fill('Cookie: front=1');
+			await connect(page, front.url);
+			await page.getByRole('alert').filter({ hasText: 'set by the app itself' }).waitFor();
+
+			await page.getByLabel('Request headers').fill('X-Front-Token: letmein');
+			await connect(page, front.url);
+			await page.waitForURL(`${front.url}/login**`);
+			assert.equal(saved(data).server, front.url);
+			// Every request the page made carried it, its scripts and styles included.
+			assert.ok(front.seen.passed > 5 && front.seen.headers.every((headers) => headers['x-front-token'] === 'letmein'));
+			// At rest: sealed where the desktop has a keyring, and in a file of the owner's alone where it has none.
+			const config = saved(data);
+			assert.ok(config.headersSealed || config.headersPlain === 'X-Front-Token: letmein');
+			assert.equal(statSync(join(data, 'config.json')).mode & 0o077, 0, 'the profile file is the owner\'s alone');
+		} finally {
+			await app.close();
+		}
+
+		const again = await launch(data);
+		try {
+			await again.page.waitForURL(`${front.url}/login**`);
+		} finally {
+			await again.app.close();
+			rmSync(data, { recursive: true, force: true });
+		}
+	});
+
+	test('a basic-auth challenge is answered from a prompt, and a cancelled one is explained', async () => {
+		const front = await startFront(upstream.url, 'basic');
+		fronts.push(front);
+		const data = fresh();
+		const { app, page } = await launch(data);
+		try {
+			await page.getByLabel('Server address').waitFor();
+			const prompted = app.waitForEvent('window');
+			await connect(page, front.url);
+			const prompt = await prompted;
+			await prompt.getByText(/asks for a name and password \(front\)/).waitFor();
+			await prompt.getByRole('button', { name: 'Cancel' }).click();
+			await page.getByRole('alert').filter({ hasText: 'asks for a sign-in this app could not complete' }).waitFor();
+
+			const second = app.waitForEvent('window');
+			await connect(page, front.url);
+			const again = await second;
+			await again.getByLabel('User name').fill('ada');
+			await again.getByLabel('Password').fill('lovelace');
+			await again.getByRole('button', { name: 'Sign in' }).click();
+			await page.waitForURL(`${front.url}/login**`);
+			await waitFor(() => saved(data).server === front.url);
+			assert.ok(!readFileSync(join(data, 'config.json'), 'utf8').includes('lovelace'), 'the password is not kept');
+		} finally {
+			await app.close();
+			rmSync(data, { recursive: true, force: true });
+		}
+	});
+});

@@ -10,20 +10,41 @@
  *
  * The page is a remote one, so it is given nothing: context isolation and
  * the sandbox are on, there is no Node in it, and the preload exposes its
- * two calls to the address screen alone. The window stays on the server's
- * origin; any other address opens in the default browser.
+ * calls to the app's own two screens alone. The window stays on the
+ * server's origin; any other address opens in the default browser.
+ *
+ * A server behind a proxy that asks who you are first (Authelia, Authentik,
+ * oauth2-proxy, Cloudflare Access, plain basic auth) is reached three ways:
+ *
+ *  - Its sign-in pages are shown in the window. An origin the server, or
+ *    another sign-in page, redirects the window to is a sign-in origin, and
+ *    the window may move between those and back. A link on one of the
+ *    server's own pages to anywhere else still opens in the browser.
+ *  - Headers typed at the address screen are sent with every request to the
+ *    server's origin, and to no other: a service token, for a proxy that
+ *    takes one in place of a sign-in.
+ *  - A basic-auth challenge from the server's origin is answered from a
+ *    prompt.
  */
-const { app, BrowserWindow, Menu, dialog, ipcMain, net, session, shell } = require('electron');
+const { app, BrowserWindow, Menu, dialog, ipcMain, net, safeStorage, session, shell } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
-const { originOf, compareVersions } = require('./lib');
+const { originOf, compareVersions, parseHeaders, formatHeaders, classify } = require('./lib');
 
 const REPOSITORY = 'zorcerer/heddohon';
 const SETUP = path.join(__dirname, 'setup.html');
+const LOGIN = path.join(__dirname, 'login.html');
 /** What the page may ask the desktop for. The audio output list needs `media` to name its devices. */
 const ALLOWED_PERMISSIONS = new Set(['media', 'speaker-selection', 'fullscreen', 'clipboard-sanitized-write', 'screen-wake-lock']);
 const CHECK_TIMEOUT_MS = 8000;
 const UPDATE_CHECK_DELAY_MS = 5000;
+/** `/healthz` is a few dozen bytes. Nothing longer is read. */
+const MAX_CHECK_BYTES = 64 * 1024;
+
+const NOT_HEDDOHON = (origin) => `${origin} answered, but not as a Heddohon server.`;
+const UNREACHABLE = (origin) => `${origin} could not be reached. Check the address, and that this computer can open it in a browser.`;
+const REFUSED = (origin) =>
+	`${origin} asks for a sign-in this app could not complete. If the proxy in front of it takes a header, add it under "A sign-in in front of the server".`;
 
 // Tests point this at a directory of their own.
 if (process.env.HEDDOHON_DESKTOP_DATA) app.setPath('userData', process.env.HEDDOHON_DESKTOP_DATA);
@@ -44,53 +65,78 @@ let config = {};
 function saveConfig() {
 	try {
 		fs.mkdirSync(path.dirname(configPath()), { recursive: true });
-		fs.writeFileSync(configPath(), JSON.stringify(config, null, '\t'));
+		// Readable by its owner only: it can hold the headers below.
+		fs.writeFileSync(configPath(), JSON.stringify(config, null, '\t'), { mode: 0o600 });
+		fs.chmodSync(configPath(), 0o600);
 	} catch {
 		// A profile that cannot be written: the address is asked for again next time.
 	}
 }
 
+/** The headers sent to the server's origin, by name. */
+let headers = {};
+
 /**
- * Whether a Heddohon answers at `origin`: `/healthz` says ok and there is a
- * manifest. Returns null, or what to tell the person at the address screen.
+ * Whether the desktop has a keyring to seal with. Without one Chromium
+ * falls back to a fixed password (`basic_text`), which is the plain text
+ * with a step added.
  */
-async function check(origin) {
-	const get = async (pathname) => {
-		const controller = new AbortController();
-		const timer = setTimeout(() => controller.abort(), CHECK_TIMEOUT_MS);
-		try {
-			return await net.fetch(`${origin}${pathname}`, { signal: controller.signal, redirect: 'error', credentials: 'omit' });
-		} finally {
-			clearTimeout(timer);
-		}
-	};
+const canSeal = () => safeStorage.isEncryptionAvailable() && safeStorage.getSelectedStorageBackend?.() !== 'basic_text';
+
+function loadHeaders() {
 	try {
-		const health = await get('/healthz');
-		const body = health.ok ? await health.json().catch(() => null) : null;
-		if (body?.status !== 'ok') return `${origin} answered, but not as a Heddohon server.`;
-		const manifest = await get('/manifest.webmanifest');
-		if (!manifest.ok) return `${origin} answered, but not as a Heddohon server.`;
-		return null;
+		if (typeof config.headersSealed === 'string') {
+			return parseHeaders(safeStorage.decryptString(Buffer.from(config.headersSealed, 'base64'))).headers ?? {};
+		}
+		if (typeof config.headersPlain === 'string') return parseHeaders(config.headersPlain).headers ?? {};
 	} catch {
-		return `${origin} could not be reached. Check the address, and that this computer can open it in a browser.`;
+		// Sealed under a keyring that is gone: asked for again at the address screen.
 	}
+	return {};
 }
+
+/** Kept sealed with the desktop's keyring where there is one, and in the profile's file, mode 0600, where there is not. */
+function storeHeaders(next) {
+	headers = next;
+	delete config.headersSealed;
+	delete config.headersPlain;
+	const text = formatHeaders(next);
+	if (!text) return;
+	if (canSeal()) config.headersSealed = safeStorage.encryptString(text).toString('base64');
+	else config.headersPlain = text;
+}
+
+const originOrNull = (url) => {
+	try {
+		return new URL(url).origin;
+	} catch {
+		return null;
+	}
+};
 
 let win = null;
 /** Why the address screen is showing, when it is not the first run. */
 let notice = null;
+/** An address behind a sign-in, shown in the window and not saved until a Heddohon has answered there. */
+let pending = null;
+/** Origins the window was redirected to on its way to the server: the proxy's sign-in pages. */
+const signInOrigins = new Set();
 
 function showSetup(message = null) {
 	notice = message;
+	pending = null;
 	void win?.loadFile(SETUP);
 }
 
 function isServer(url) {
-	try {
-		return Boolean(config.server) && new URL(url).origin === config.server;
-	} catch {
-		return false;
-	}
+	const origin = originOrNull(url);
+	return origin !== null && (origin === config.server || origin === pending);
+}
+
+/** The saved server only: what a page has to be to ask the desktop for anything. */
+function isSavedServer(url) {
+	const origin = originOrNull(url);
+	return origin !== null && origin === config.server;
 }
 
 function openOutside(url) {
@@ -100,6 +146,81 @@ function openOutside(url) {
 	} catch {
 		// Not an address.
 	}
+}
+
+/** One GET that follows nothing: the status, where a redirect points, and the start of the body. */
+function get(url) {
+	return new Promise((resolve, reject) => {
+		const request = net.request({ url, redirect: 'manual', credentials: 'omit' });
+		for (const [name, value] of Object.entries(headers)) request.setHeader(name, value);
+		const timer = setTimeout(() => request.abort(), CHECK_TIMEOUT_MS);
+		const done = (answer) => {
+			clearTimeout(timer);
+			resolve(answer);
+		};
+		request.on('redirect', (status) => {
+			done({ status, body: '' });
+			request.abort();
+		});
+		request.on('response', (response) => {
+			const chunks = [];
+			let size = 0;
+			response.on('data', (chunk) => {
+				size += chunk.length;
+				if (size <= MAX_CHECK_BYTES) chunks.push(chunk);
+			});
+			response.on('end', () => done({ status: response.statusCode, body: Buffer.concat(chunks).toString('utf8') }));
+			response.on('error', reject);
+		});
+		request.on('abort', () => reject(new Error('aborted')));
+		request.on('error', (err) => {
+			clearTimeout(timer);
+			reject(err);
+		});
+		request.end();
+	});
+}
+
+/**
+ * What answers at `origin`: `heddohon` when `/healthz` says ok and there is a
+ * manifest, `sign-in` when something in front of it asks who is asking, or
+ * `{ error }` with what to tell the person at the address screen.
+ */
+async function check(origin) {
+	try {
+		const health = await get(`${origin}/healthz`);
+		const kind = classify(health.status, health.body);
+		if (kind === 'sign-in') return 'sign-in';
+		if (kind !== 'heddohon') return { error: NOT_HEDDOHON(origin) };
+		return (await get(`${origin}/manifest.webmanifest`)).status === 200 ? 'heddohon' : { error: NOT_HEDDOHON(origin) };
+	} catch {
+		return { error: UNREACHABLE(origin) };
+	}
+}
+
+/**
+ * The same question asked from the page the window has reached, once a
+ * sign-in is behind it: there it carries whatever the sign-in left, a cookie
+ * or an answered challenge, which a request of this process's own would not.
+ * Until it says yes the address is not saved, and the page is given no
+ * permissions (`isSavedServer`).
+ */
+async function verifyPending(contents) {
+	const origin = pending;
+	if (!origin || !isServer(contents.getURL())) return;
+	const ok = await contents
+		.executeJavaScript(
+			`Promise.all([fetch('/healthz').then((r) => (r.ok ? r.json() : null)), fetch('/manifest.webmanifest').then((r) => r.ok)])
+				.then(([health, manifest]) => health?.status === 'ok' && manifest === true)
+				.catch(() => false)`
+		)
+		.catch(() => false);
+	// Not yet is not no: a proxy's own sign-in page can be on the server's origin
+	// (oauth2-proxy's is), and the next page the window reaches is asked again.
+	if (ok !== true || pending !== origin) return;
+	config.server = origin;
+	pending = null;
+	saveConfig();
 }
 
 function createWindow() {
@@ -144,9 +265,21 @@ function createWindow() {
 	});
 
 	const contents = win.webContents;
-	// The window stays on the server. Anything else is the default browser's.
+	/*
+	 * The window stays on the server and on the sign-in pages in front of it.
+	 * From a sign-in page it may go on to another (a proxy's page hands over to
+	 * an identity provider's with a form or a script, not always a redirect),
+	 * and that one becomes a sign-in origin too. From one of the server's own
+	 * pages, anywhere else is the default browser's.
+	 */
 	contents.on('will-navigate', (event, url) => {
 		if (isServer(url) || url.startsWith('file:')) return;
+		const to = originOrNull(url);
+		const from = originOrNull(contents.getURL());
+		if (to && (signInOrigins.has(to) || (from && signInOrigins.has(from)))) {
+			signInOrigins.add(to);
+			return;
+		}
 		event.preventDefault();
 		openOutside(url);
 	});
@@ -159,8 +292,15 @@ function createWindow() {
 	contents.on('did-fail-load', (_event, code, _description, url, isMainFrame) => {
 		// -3 is a load that was replaced by another, not a failure.
 		if (!isMainFrame || code === -3 || !isServer(url)) return;
-		showSetup(`${config.server} could not be reached.`);
+		showSetup(`${config.server ?? pending} could not be reached.`);
 	});
+	// An address behind a sign-in: when the window is on it, ask it what it is.
+	contents.on('did-navigate', (_event, url, status) => {
+		if (!pending || !isServer(url)) return;
+		// The proxy turned the window away with nothing to sign in to.
+		if (status === 401 || status === 403) showSetup(REFUSED(pending));
+	});
+	contents.on('did-finish-load', () => void verifyPending(contents));
 
 	if (config.server) void win.loadURL(config.server);
 	else showSetup();
@@ -184,6 +324,8 @@ function buildMenu(update = null) {
 		{
 			label: 'View',
 			submenu: [
+				// The way back from a sign-in page that led somewhere else.
+				{ label: 'Go to the server', accelerator: 'Alt+Home', click: () => config.server && void win?.loadURL(config.server) },
 				{ role: 'reload' },
 				{ type: 'separator' },
 				{ role: 'resetZoom' },
@@ -238,28 +380,90 @@ async function checkForUpdate() {
 	}
 }
 
-/** Only the address screen may call these. */
-const fromSetup = (event) => {
+/** Only the app's own screens, files in this package, may call these. */
+const fromOwnPage = (event, file) => {
 	try {
-		return event.senderFrame !== null && new URL(event.senderFrame.url).protocol === 'file:';
+		const url = new URL(event.senderFrame?.url ?? '');
+		return url.protocol === 'file:' && path.basename(url.pathname) === file;
 	} catch {
 		return false;
 	}
 };
 
-ipcMain.handle('setup:state', (event) => (fromSetup(event) ? { server: config.server ?? '', notice } : null));
+ipcMain.handle('setup:state', (event) =>
+	fromOwnPage(event, 'setup.html') ? { server: config.server ?? '', notice, headers: formatHeaders(headers) } : null
+);
 
-ipcMain.handle('setup:connect', async (event, raw) => {
-	if (!fromSetup(event)) return { error: 'Not allowed.' };
+ipcMain.handle('setup:connect', async (event, raw, headerText) => {
+	if (!fromOwnPage(event, 'setup.html')) return { error: 'Not allowed.' };
 	const origin = originOf(raw);
 	if (!origin) return { error: 'That is not an address. It looks like https://music.example.com.' };
-	const problem = await check(origin);
-	if (problem) return { error: problem };
-	config.server = origin;
-	saveConfig();
+	const parsed = parseHeaders(headerText);
+	if (parsed.error) return { error: parsed.error };
+
+	// In place for the check itself, and put back if the address is turned down.
+	const before = headers;
+	headers = parsed.headers;
+	const answer = await check(origin);
+	if (typeof answer === 'object') {
+		headers = before;
+		return answer;
+	}
+	storeHeaders(parsed.headers);
 	notice = null;
+	signInOrigins.clear();
+	if (answer === 'heddohon') {
+		config.server = origin;
+		pending = null;
+	} else {
+		// A sign-in in front of it: shown in the window, and saved once a Heddohon answers behind it.
+		delete config.server;
+		pending = origin;
+	}
+	saveConfig();
 	void win?.loadURL(origin);
 	return { error: null };
+});
+
+/*
+ * A basic-auth challenge: asked for in a small window over the main one. One
+ * prompt per challenge at a time, since a page and what it loads can each be
+ * challenged before the first answer is in.
+ */
+let asking = null;
+let answerLogin = null;
+
+function askCredentials(host, realm) {
+	asking ??= new Promise((resolve) => {
+		const prompt = new BrowserWindow({
+			parent: win ?? undefined,
+			modal: Boolean(win),
+			width: 420,
+			height: 380,
+			resizable: false,
+			minimizable: false,
+			maximizable: false,
+			autoHideMenuBar: true,
+			backgroundColor: '#0b0c0f',
+			title: 'Sign in',
+			webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, sandbox: true, nodeIntegration: false }
+		});
+		let answered = false;
+		answerLogin = { host, realm, submit: (credentials) => ((answered = true), resolve(credentials), prompt.close()) };
+		prompt.on('closed', () => {
+			if (!answered) resolve(null);
+			asking = null;
+			answerLogin = null;
+		});
+		void prompt.loadFile(LOGIN);
+	});
+	return asking;
+}
+
+ipcMain.handle('login:state', (event) => (fromOwnPage(event, 'login.html') && answerLogin ? { host: answerLogin.host, realm: answerLogin.realm } : null));
+ipcMain.handle('login:submit', (event, username, password) => {
+	if (!fromOwnPage(event, 'login.html') || !answerLogin) return;
+	answerLogin.submit(username === null ? null : { username: String(username), password: String(password ?? '') });
 });
 
 if (!app.requestSingleInstanceLock()) {
@@ -271,14 +475,39 @@ if (!app.requestSingleInstanceLock()) {
 		win.focus();
 	});
 
+	// Answered only for the server and its sign-in pages; any other challenge, and a proxy's, is refused as before.
+	app.on('login', (event, _contents, details, authInfo, callback) => {
+		const origin = originOrNull(details.url);
+		if (authInfo.isProxy || !origin || !(isServer(details.url) || signInOrigins.has(origin))) return;
+		event.preventDefault();
+		void askCredentials(authInfo.host, authInfo.realm).then((credentials) => {
+			if (credentials) callback(credentials.username, credentials.password);
+			else callback();
+		});
+	});
+
 	app.whenReady().then(() => {
 		config = readConfig();
 		// A stored address that is no longer one is asked for again.
 		if (config.server && originOf(config.server) !== config.server) delete config.server;
+		headers = loadHeaders();
 
-		const allowed = (contents, permission) => ALLOWED_PERMISSIONS.has(permission) && isServer(contents?.getURL() ?? '');
+		const allowed = (contents, permission) => ALLOWED_PERMISSIONS.has(permission) && isSavedServer(contents?.getURL() ?? '');
 		session.defaultSession.setPermissionRequestHandler((contents, permission, callback) => callback(allowed(contents, permission)));
 		session.defaultSession.setPermissionCheckHandler((contents, permission) => allowed(contents, permission));
+
+		// The headers go to the server's origin and nowhere else: not to a sign-in page, and not to a site a page loads from.
+		session.defaultSession.webRequest.onBeforeSendHeaders((details, callback) => {
+			if (Object.keys(headers).length > 0 && isServer(details.url)) callback({ requestHeaders: { ...details.requestHeaders, ...headers } });
+			else callback({});
+		});
+		// Where the server, or a sign-in page, sends the window is a sign-in page.
+		session.defaultSession.webRequest.onBeforeRedirect((details) => {
+			if (details.resourceType !== 'mainFrame') return;
+			const from = originOrNull(details.url);
+			const to = originOrNull(details.redirectURL);
+			if (to && !isServer(details.redirectURL) && (isServer(details.url) || (from && signInOrigins.has(from)))) signInOrigins.add(to);
+		});
 
 		buildMenu();
 		createWindow();

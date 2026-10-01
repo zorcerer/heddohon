@@ -31,6 +31,8 @@
 			"setup.html",
 			"setup.css",
 			"setup.js",
+			"login.html",
+			"login.js",
 			"build/icon.png"
 		],
 		"directories": {
