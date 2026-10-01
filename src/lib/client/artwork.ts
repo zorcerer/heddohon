@@ -229,7 +229,47 @@ export function applyArtworkColor(target: HTMLElement, color: ArtworkColor | nul
 	if (typeof document !== 'undefined') {
 		const landing = { ...next, hue: from + shortest };
 		requestMorph(landing);
+		if (target === document.documentElement) followCanvas();
 	}
+}
+
+/** How long the room takes to reach a new colour: `--dur-colour` in app.css, and a frame or two. */
+const CANVAS_SETTLED_MS = 1000;
+let canvasTimer: ReturnType<typeof setTimeout> | undefined;
+let swatch: CanvasRenderingContext2D | null = null;
+
+/** A computed colour, in whatever notation the browser reports it, as `#rrggbb`. Null if it cannot be drawn. */
+function asHex(colour: string): string | null {
+	swatch ??= document.createElement('canvas').getContext('2d', { willReadFrequently: true });
+	if (!swatch) return null;
+	swatch.canvas.width = swatch.canvas.height = 1;
+	swatch.fillStyle = '#000';
+	swatch.fillStyle = colour;
+	swatch.fillRect(0, 0, 1, 1);
+	const [r, g, b] = swatch.getImageData(0, 0, 1, 1).data;
+	return `#${[r, g, b].map((part) => part.toString(16).padStart(2, '0')).join('')}`;
+}
+
+/**
+ * Keeps `theme-color` on the canvas colour (the `html` background in
+ * app.css, which is the room's colour at the share its edges average).
+ *
+ * A phone paints its own bars in it: the status bar of an installed app on
+ * Android and iOS, and the toolbar of a browser tab. It was fixed at the dark
+ * theme's ground, so above a room lit by a cover, and above the whole of the
+ * light theme, the bar was a black band. Written at once and again when the
+ * colour has finished moving, since the properties it is made of ease.
+ */
+export function followCanvas(): void {
+	if (typeof document === 'undefined') return;
+	const write = () => {
+		const meta = document.querySelector('meta[name="theme-color"]');
+		const colour = asHex(getComputedStyle(document.documentElement).backgroundColor);
+		if (meta && colour) meta.setAttribute('content', colour);
+	};
+	write();
+	clearTimeout(canvasTimer);
+	canvasTimer = setTimeout(write, CANVAS_SETTLED_MS);
 }
 
 /**

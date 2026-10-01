@@ -110,6 +110,13 @@ export interface UserSettings {
 	installCardDismissed: boolean;
 }
 
+/**
+ * Each theme's ground, `--bg-base` in app.css, for what is painted before the
+ * stylesheet is read: `theme-color` in the served page, and the manifest's
+ * colours, which an installed app's splash screen and bars are drawn in.
+ */
+export const THEME_GROUND: Record<ThemeName, string> = { dark: '#0b0c0f', light: '#f0e7d5' };
+
 export const DEFAULT_SETTINGS: UserSettings = {
 	theme: 'dark',
 	volume: 0.85,
