@@ -16,7 +16,8 @@
 		{ href: '/artists', label: 'Artists', icon: 'artist' as const },
 		{ href: '/playlists', label: 'Playlists', icon: 'playlist' as const },
 		{ href: '/genres', label: 'Genres', icon: 'genre' as const },
-		{ href: '/folders', label: 'Folders', icon: 'folder' as const },
+		// Unless the deployment has switched the folder view off (`HEDDOHON_FOLDERS`).
+		...(data.folders === false ? [] : [{ href: '/folders', label: 'Folders', icon: 'folder' as const }]),
 		// Where the music server keeps stations; see `radio.ts`.
 		...(data.radio ? [{ href: '/radio', label: 'Radio', icon: 'radio' as const }] : []),
 		{ href: '/history', label: 'Recently played', icon: 'history' as const }

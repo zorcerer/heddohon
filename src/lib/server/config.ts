@@ -60,6 +60,8 @@ export interface AppConfig {
 	lrclibUrl: string | null;
 	/** Base URL of the AutoEq results for headphone corrections, or null when off; see `autoeq.ts`. */
 	autoeqUrl: string | null;
+	/** Whether the library can be browsed by its folders on disk: the Folders page and playing a folder. */
+	folders: boolean;
 	/** Whether the music server's internet radio stations are offered and played through this server; see `radio.ts`. */
 	radio: boolean;
 	/** Whether a station may be on a private address. Off unless asked for. */
@@ -300,6 +302,9 @@ function build(): AppConfig {
 					env('HEDDOHON_AUTOEQ_URL') ?? 'https://raw.githubusercontent.com/jaakkopasanen/AutoEq/master/results'
 				)
 			: null,
+		// On. Off for a library whose layout on disk is not for its listeners:
+		// the page shows folder names as the music server stores them.
+		folders: flagEnv('HEDDOHON_FOLDERS', true),
 		// On: the stations are the music server administrator's own list, and a
 		// stream is fetched only when a listener plays one. A station on a
 		// private address is refused unless that is asked for.
@@ -386,6 +391,7 @@ export function config(): AppConfig {
 			remoteControl: true,
 			lrclibUrl: null,
 			autoeqUrl: null,
+			folders: true,
 			radio: true,
 			radioPrivate: false,
 			androidFingerprints: [ANDROID_RELEASE_KEY],

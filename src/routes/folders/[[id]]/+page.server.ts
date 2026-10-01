@@ -1,5 +1,6 @@
 import { error } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
+import { config } from '$lib/server/config';
 import { library } from '$lib/server/library';
 import { folderDetail } from '$lib/server/details';
 import { paginate, readPageNumber } from '$lib/server/paging';
@@ -8,6 +9,8 @@ import type { FolderRef, Song } from '$lib/types';
 type Entry = { folder: FolderRef } | { song: Song };
 
 export const load: PageServerLoad = async (event) => {
+	// Switched off for this deployment: the page is not there.
+	if (!config().folders) error(404, 'Not found');
 	const id = event.params.id ?? null;
 	if (id !== null && (id.length === 0 || id.length >= 256)) error(404, 'That folder does not exist.');
 
