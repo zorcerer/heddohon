@@ -44,6 +44,12 @@ The website, with screenshots and the install steps, is
     <td align="center">More from the artist</td>
   </tr>
   <tr>
+    <td colspan="2"><img src="docs/assets/listening.jpg" alt="Your listening over the last 30 days: 568 plays, 34 hours, a chart of plays by the hour of the day and one by the day of the week, and the top artists and albums"></td>
+  </tr>
+  <tr>
+    <td colspan="2" align="center">Your listening: the history summed up, by 30 days, 90 days, the year or everything kept</td>
+  </tr>
+  <tr>
     <td colspan="2"><img src="docs/assets/share.jpg" alt="A shared song, playing in the browser without an account"></td>
   </tr>
   <tr>
@@ -63,10 +69,12 @@ The website, with screenshots and the install steps, is
 
 <sub>Music in the screenshots: songs and cover art by Josh Woodward
 ([joshwoodward.com](https://www.joshwoodward.com/)), including "The Nest",
-"Insomnia", "Only Whispering" and "California Lullabye", under
+"Insomnia", "I Will Not Let You Let Me Down", "Only Whispering" and
+"California Lullabye", under
 [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/); J.S. Bach, The Art of
 the Fugue, played by Kimiko Ishizaka, dedicated to the public domain
-([CC0](https://creativecommons.org/publicdomain/zero/1.0/)).</sub>
+([CC0](https://creativecommons.org/publicdomain/zero/1.0/)). The plays that
+Your listening counts are generated for the screenshot.</sub>
 
 ## Quick start
 
@@ -83,9 +91,13 @@ expose it publicly, set `ORIGIN` and read [SECURITY.md](SECURITY.md).
 
 Images are `ghcr.io/zorcerer/heddohon` and `zorcererd/heddohon`, for
 `linux/amd64` and `linux/arm64` (a Raspberry Pi 4 or 5 on a 64-bit OS, an ARM
-NAS, an Ampere server); 32-bit ARM is not built. An Unraid template is in
-[`templates/heddohon.xml`](templates/heddohon.xml). Without Docker, on Node 22
+NAS, an Ampere server); 32-bit ARM is not built. Without Docker, on Node 22
 or later: `npm ci && npm run build && node build/index.js`.
+
+On Unraid, Heddohon is listed in Community Applications, from the template in
+[`templates/heddohon.xml`](templates/heddohon.xml):
+
+<a href="https://ca.unraid.net/apps/heddohon-0bp7lm80vkr69w"><img src="https://img.shields.io/badge/Install%20on-Unraid-F15A2C?style=for-the-badge&logo=unraid&logoColor=white" alt="Install on Unraid from Community Applications"></a>
 
 `latest` is the newest release. `dev` is built once a day from the `dev`
 branch, when it has changed and passed the test suites, ahead of the next
@@ -96,11 +108,11 @@ migrated may not open in the release before it.
 
 | | |
 | --- | --- |
-| [Configuration](docs/configuration.md) | Environment variables, reverse proxies, PostgreSQL, Unraid |
+| [Configuration](https://github.com/zorcerer/heddohon/wiki/Configuration) | Environment variables, reverse proxies, PostgreSQL, Unraid |
 | [Security](SECURITY.md) | Threat model, known gaps, reporting a vulnerability |
-| [Audio](docs/audio.md) | Formats, transcoding, and what high resolution means in a browser |
-| [Architecture](docs/architecture.md) | How the server, the client and the music server fit together |
-| [Design notes](docs/design.md) | Why the interface looks and behaves as it does |
+| [Audio](https://github.com/zorcerer/heddohon/wiki/Audio) | Formats, transcoding, and what high resolution means in a browser |
+| [Architecture](https://github.com/zorcerer/heddohon/wiki/Architecture) | How the server, the client and the music server fit together |
+| [Design notes](https://github.com/zorcerer/heddohon/wiki/Design-notes) | Why the interface looks and behaves as it does |
 | [Contributing](CONTRIBUTING.md) | Reporting bugs, suggesting features, and sending pull requests |
 
 ## AI disclosure

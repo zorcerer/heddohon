@@ -43,7 +43,7 @@
 
     **Optional:** the database is SQLite in appdata by default. The PostgreSQL settings under Advanced move it to an existing PostgreSQL server instead, and can be left empty.
 
-    Full configuration: https://github.com/zorcerer/heddohon/blob/main/docs/configuration.md]]>
+    Full configuration: https://github.com/zorcerer/heddohon/wiki/Configuration]]>
   </Description>
 
   <Config Name="WebUI" Target="3000" Default="3000" Mode="tcp" Description="Port the interface is served on." Type="Port" Display="always" Required="true" Mask="false">3000</Config>
