@@ -2,7 +2,7 @@
 	import '$lib/styles/app.css';
 	import { untrack } from 'svelte';
 	import { afterNavigate, beforeNavigate, onNavigate, preloadCode } from '$app/navigation';
-	import { navigating, updated } from '$app/state';
+	import { navigating, page, updated } from '$app/state';
 	import { player } from '$lib/client/player.svelte';
 	import { audioOutputs } from '$lib/client/output.svelte';
 	import { processing } from '$lib/client/processing.svelte';
@@ -26,6 +26,7 @@
 	import NowPlayingPanel from '$lib/components/NowPlayingPanel.svelte';
 	import PhoneDock from '$lib/components/PhoneDock.svelte';
 	import DevicesDialog from '$lib/components/DevicesDialog.svelte';
+	import InstallCard from '$lib/components/InstallCard.svelte';
 	import Reactions from '$lib/components/Reactions.svelte';
 	import TogetherDialog from '$lib/components/TogetherDialog.svelte';
 	import PlaylistPicker from '$lib/components/PlaylistPicker.svelte';
@@ -736,6 +737,10 @@
 		{/if}
 		{#if data.sharing}
 			<ShareDialog />
+		{/if}
+		<!-- Not on a cast receiver's page, which only a Cast device opens. -->
+		{#if !page.url.pathname.startsWith('/cast/')}
+			<InstallCard appName={data.appName} dismissed={data.settings.installCardDismissed} />
 		{/if}
 
 		<!-- Waiting for the next page; see `waiting`. Always there, and hidden

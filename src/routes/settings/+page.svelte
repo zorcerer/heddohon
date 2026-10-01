@@ -9,6 +9,7 @@
 	import { player } from '$lib/client/player.svelte';
 	import { EQ_FREQUENCIES, EQ_RANGE_DB } from '$lib/client/audiochain';
 	import { EQ_PRESETS, processing } from '$lib/client/processing.svelte';
+	import { installer, SAFARI_STEPS } from '$lib/client/install.svelte';
 
 	/** A band's centre as it is printed under its slider: 31, 1k, 16k. */
 	const bandLabel = (hz: number) => (hz >= 1000 ? `${hz / 1000}k` : String(hz));
@@ -685,6 +686,30 @@
 		</div>
 	</form>
 
+	<!-- Outside the save form: nothing here is posted with it. -->
+	<section class="hh-card hh-glass group" id="install" hidden={shown !== 'appearance'}>
+		<div class="group-head">
+			<h2>Install the app</h2>
+			<p class="hh-muted">A window of its own, with an icon in the dock, Start menu or home screen.</p>
+		</div>
+
+		{#if installer.installed}
+			<p class="note">Installed on this device.</p>
+		{:else if installer.route === 'prompt'}
+			<button class="hh-button" type="button" disabled={installer.busy} onclick={() => void installer.install()}>
+				<Icon name="download" size={16} />
+				Install {data.appName}
+			</button>
+		{:else if installer.route}
+			<p class="note">{SAFARI_STEPS[installer.route]}</p>
+		{:else}
+			<p class="hh-muted note">
+				This browser does not install web apps. Chrome and Edge do on Windows, macOS, Linux and
+				Android, and Safari on macOS 17 or later and on iPhone and iPad.
+			</p>
+		{/if}
+	</section>
+
 	<section class="hh-card hh-glass group" hidden={shown !== 'account'}>
 		<div class="group-head">
 			<h2>Session &amp; security</h2>
@@ -1244,7 +1269,7 @@
 	/*
 	 * Fades in rather than appearing in one frame. Opacity only, on the notice
 	 * itself: it is a pane of glass, and a transform on glass is kept off
-	 * throughout (see docs/design.md).
+	 * throughout (see the design notes in the wiki).
 	 */
 	@keyframes saved-in {
 		from {
