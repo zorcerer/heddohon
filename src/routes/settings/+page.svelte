@@ -9,7 +9,7 @@
 	import { player } from '$lib/client/player.svelte';
 	import { EQ_FREQUENCIES, EQ_RANGE_DB } from '$lib/client/audiochain';
 	import { EQ_PRESETS, processing } from '$lib/client/processing.svelte';
-	import { installer, SAFARI_STEPS } from '$lib/client/install.svelte';
+	import { installer, INSTALL_STEPS } from '$lib/client/install.svelte';
 
 	/** A band's centre as it is printed under its slider: 31, 1k, 16k. */
 	const bandLabel = (hz: number) => (hz >= 1000 ? `${hz / 1000}k` : String(hz));
@@ -717,7 +717,7 @@
 				Install {data.appName}
 			</button>
 		{:else if installer.route}
-			<p class="note">{SAFARI_STEPS[installer.route]}</p>
+			<p class="note">{INSTALL_STEPS[installer.route]}</p>
 		{:else}
 			<p class="hh-muted note">
 				This browser does not install web apps. Chrome and Edge do on Windows, macOS, Linux and

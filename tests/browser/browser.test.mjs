@@ -617,31 +617,77 @@ describe('the install card', () => {
 		assert.deepEqual(problems, []);
 	});
 
-	test('is not shown in the installed app', async () => {
-		const { page, problems } = await watchedPage();
-		try {
-			await page.addInitScript(() => {
-				const real = window.matchMedia.bind(window);
-				window.matchMedia = (query) =>
-					query === '(display-mode: standalone)' ? { ...real(query), matches: true, media: query } : real(query);
-			});
-			await page.goto(app.url + '/albums/al1', { waitUntil: 'networkidle' });
-			await offerInstall(page);
-			await play(page);
-			await page.waitForTimeout(300);
-			assert.equal(await card(page).count(), 0);
-		} finally {
-			await page.close();
+	const installedMark = (page) => page.evaluate(() => localStorage.getItem('heddohon:installed'));
+	const dismissedOnAccount = async () => (await (await context.request.get(`${app.url}/api/settings`)).json()).installCardDismissed;
+	/** Puts back what a test of an installed app leaves: the mark in this browser, and the account's setting. */
+	async function forget(page) {
+		await page.evaluate(() => localStorage.removeItem('heddohon:installed')).catch(() => undefined);
+		await settings({ installCardDismissed: false });
+	}
+
+	test('is not shown in the installed app, which marks this browser and puts the card away on the account', async () => {
+		// Each of the display modes an installed app runs in.
+		for (const mode of ['standalone', 'window-controls-overlay']) {
+			const { page, problems } = await watchedPage();
+			try {
+				await page.addInitScript((mode) => {
+					const real = window.matchMedia.bind(window);
+					window.matchMedia = (query) =>
+						query === `(display-mode: ${mode})` ? { ...real(query), matches: true, media: query } : real(query);
+				}, mode);
+				await page.goto(app.url + '/albums/al1', { waitUntil: 'networkidle' });
+				await offerInstall(page);
+				await play(page);
+				await page.waitForTimeout(300);
+				assert.equal(await card(page).count(), 0, mode);
+				assert.equal(await installedMark(page), '1', mode);
+				assert.equal(await dismissedOnAccount(), true, mode);
+			} finally {
+				await forget(page);
+				await page.close();
+			}
+			assert.deepEqual(problems, []);
 		}
-		assert.deepEqual(problems, []);
 	});
 
-	test('tells Safari how, and shows nothing in Firefox', async () => {
+	test('is not shown in a tab of a browser where the app is installed, and Settings still offers it', async () => {
+		const marked = (page) => page.addInitScript(() => localStorage.setItem('heddohon:installed', '1'));
+		const told = (page) => page.addInitScript(() => (navigator.getInstalledRelatedApps = async () => [{ platform: 'webapp' }]));
+		for (const [name, setup] of [['marked by the app', marked], ['reported by the browser', told]]) {
+			const { page, problems } = await watchedPage();
+			try {
+				await setup(page);
+				await page.goto(app.url + '/albums/al1', { waitUntil: 'networkidle' });
+				await offerInstall(page);
+				await play(page);
+				await page.waitForTimeout(300);
+				assert.equal(await card(page).count(), 0, name);
+				assert.equal(await installedMark(page), '1', name);
+				assert.equal(await dismissedOnAccount(), false, `${name}: a tab does not put the card away on the account`);
+
+				await page.goto(app.url + '/settings?tab=appearance', { waitUntil: 'networkidle' });
+				await offerInstall(page);
+				await page.getByRole('button', { name: 'Install Heddohon' }).waitFor();
+			} finally {
+				await page.close();
+				// A page of its own for the clean-up: the first one sets the mark again on every load.
+				const tidy = await context.newPage();
+				await tidy.goto(app.url + '/healthz');
+				await forget(tidy);
+				await tidy.close();
+			}
+			assert.deepEqual(problems, []);
+		}
+	});
+
+	test('tells Safari and Edge how, and shows nothing in Firefox', async () => {
 		const agents = {
 			mac: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15',
 			oldMac: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Safari/605.1.15',
 			iphone: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1',
 			chromeOnIphone: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/128.0.6613.98 Mobile/15E148 Safari/604.1',
+			edge: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36 Edg/140.0.0.0',
+			edgeOnAndroid: 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36 EdgA/140.0.0.0',
 			firefox: 'Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0'
 		};
 		const seen = {};
@@ -662,6 +708,9 @@ describe('the install card', () => {
 		assert.equal(seen.oldMac, null, 'Add to Dock arrived in Safari 17');
 		assert.match(seen.iphone ?? '', /Share, then Add to Home Screen/);
 		assert.equal(seen.chromeOnIphone, null);
+		// Edge where `beforeinstallprompt` has not come: a site on plain http, or a prompt already declined.
+		assert.match(seen.edge ?? '', /choose Apps, then Install this site as an app/);
+		assert.equal(seen.edgeOnAndroid, null);
 		assert.equal(seen.firefox, null);
 	});
 });

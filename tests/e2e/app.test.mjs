@@ -97,6 +97,15 @@ describe('the gate', () => {
 		assert.ok(!body.includes(subsonic.url), 'the upstream URL must not appear');
 	});
 
+	test('the manifest answers without a session and names itself as its related app', async () => {
+		const response = await fetch(`${app.url}/manifest.webmanifest`);
+		assert.equal(response.status, 200);
+		const manifest = await response.json();
+		assert.equal(manifest.display, 'standalone');
+		// What `getInstalledRelatedApps` matches an installed app against.
+		assert.deepEqual(manifest.related_applications, [{ platform: 'webapp', url: `${app.url}/manifest.webmanifest` }]);
+	});
+
 	test('a page without a session redirects to sign-in, with the path kept', async () => {
 		const response = await new Client(app.url).request('/artists?page=2', { headers: { accept: 'text/html' } });
 		assert.equal(response.status, 303);
