@@ -1,4 +1,5 @@
 import type { ClientInit } from '@sveltejs/kit';
+import { installer } from '$lib/client/install.svelte';
 
 /**
  * Waits between attempts at a page's data, in milliseconds. About 5 seconds
@@ -26,6 +27,8 @@ const DATA_RETRY_MS = [400, 1200, 3000];
  * before.
  */
 export const init: ClientInit = () => {
+	// Before the first page renders; see `client/install.svelte.ts`.
+	installer.listen();
 	const fetch = window.fetch.bind(window);
 	window.fetch = async (input, options) => {
 		const url = input instanceof Request ? input.url : String(input);
