@@ -26,6 +26,14 @@ on:
         required: true
       ANDROID_KEYSTORE_PASSWORD:
         required: true
+  # By hand, for a release whose APK did not get attached: builds it again
+  # from the branch the run is started on and attaches it to that release.
+  workflow_dispatch:
+    inputs:
+      version:
+        description: The version of an existing release, without the v.
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -80,10 +88,15 @@ jobs:
       # signed with another would open with an address bar on every server.
       - name: Check the APK is signed with the key the server vouches for
         if: env.RELEASE == 'true'
+        shell: bash -eo pipefail {0}
         run: |
           want=$(grep -oE "'([0-9A-F]{2}:){31}[0-9A-F]{2}'" ../src/lib/server/config.ts | head -1 | tr -d "':" | tr 'A-F' 'a-f')
-          tools=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
-          got=$("$tools/apksigner" verify --print-certs "$RUNNER_TEMP/heddohon-$VERSION.apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
+          # The build tools the project names, which the build has installed. The
+          # newest on the runner printed no "Signer #1" line for the 0.5.0 APK,
+          # and the check failed with nothing to compare.
+          tools="$ANDROID_HOME/build-tools/$(sed -n "s/.*buildToolsVersion '\(.*\)'.*/\1/p" app/build.gradle)"
+          "$tools/apksigner" verify --print-certs "$RUNNER_TEMP/heddohon-$VERSION.apk" | grep -v '^WARNING' | tee "$RUNNER_TEMP/signers.txt"
+          got=$(sed -n 's/^Signer.* certificate SHA-256 digest: //p' "$RUNNER_TEMP/signers.txt" | sort -u)
           echo "server: $want"
           echo "apk:    $got"
           test -n "$want" && test "$want" = "$got"
