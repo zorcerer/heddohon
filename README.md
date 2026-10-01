@@ -44,6 +44,12 @@ The website, with screenshots and the install steps, is
     <td align="center">More from the artist</td>
   </tr>
   <tr>
+    <td colspan="2"><img src="docs/assets/listening.jpg" alt="Your listening over the last 30 days: 568 plays, 34 hours, a chart of plays by the hour of the day and one by the day of the week, and the top artists and albums"></td>
+  </tr>
+  <tr>
+    <td colspan="2" align="center">Your listening: the history summed up, by 30 days, 90 days, the year or everything kept</td>
+  </tr>
+  <tr>
     <td colspan="2"><img src="docs/assets/share.jpg" alt="A shared song, playing in the browser without an account"></td>
   </tr>
   <tr>
@@ -63,10 +69,12 @@ The website, with screenshots and the install steps, is
 
 <sub>Music in the screenshots: songs and cover art by Josh Woodward
 ([joshwoodward.com](https://www.joshwoodward.com/)), including "The Nest",
-"Insomnia", "Only Whispering" and "California Lullabye", under
+"Insomnia", "I Will Not Let You Let Me Down", "Only Whispering" and
+"California Lullabye", under
 [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/); J.S. Bach, The Art of
 the Fugue, played by Kimiko Ishizaka, dedicated to the public domain
-([CC0](https://creativecommons.org/publicdomain/zero/1.0/)).</sub>
+([CC0](https://creativecommons.org/publicdomain/zero/1.0/)). The plays that
+Your listening counts are generated for the screenshot.</sub>
 
 ## Quick start
 
