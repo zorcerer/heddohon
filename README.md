@@ -96,11 +96,11 @@ break, and a database it has migrated may not open in the release before it.
 
 | | |
 | --- | --- |
-| [Configuration](docs/configuration.md) | Environment variables, reverse proxies, PostgreSQL, Unraid |
+| [Configuration](https://github.com/zorcerer/heddohon/wiki/Configuration) | Environment variables, reverse proxies, PostgreSQL, Unraid |
 | [Security](SECURITY.md) | Threat model, known gaps, reporting a vulnerability |
-| [Audio](docs/audio.md) | Formats, transcoding, and what high resolution means in a browser |
-| [Architecture](docs/architecture.md) | How the server, the client and the music server fit together |
-| [Design notes](docs/design.md) | Why the interface looks and behaves as it does |
+| [Audio](https://github.com/zorcerer/heddohon/wiki/Audio) | Formats, transcoding, and what high resolution means in a browser |
+| [Architecture](https://github.com/zorcerer/heddohon/wiki/Architecture) | How the server, the client and the music server fit together |
+| [Design notes](https://github.com/zorcerer/heddohon/wiki/Design-notes) | Why the interface looks and behaves as it does |
 | [Contributing](CONTRIBUTING.md) | Reporting bugs, suggesting features, and sending pull requests |
 
 ## AI disclosure

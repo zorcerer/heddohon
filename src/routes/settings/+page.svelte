@@ -1114,7 +1114,7 @@
 	/*
 	 * Fades in rather than appearing in one frame. Opacity only, on the notice
 	 * itself: it is a pane of glass, and a transform on glass is kept off
-	 * throughout (see docs/design.md).
+	 * throughout (see the design notes in the wiki).
 	 */
 	@keyframes saved-in {
 		from {

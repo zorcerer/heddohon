@@ -60,7 +60,7 @@ npm run dev
 ```
 
 The server reads its settings from the environment; `.env.example` lists them
-all, and [docs/configuration.md](docs/configuration.md) describes each one.
+all, and the wiki's [Configuration](https://github.com/zorcerer/heddohon/wiki/Configuration) page describes each one.
 
 ### Before you open the pull request
 
@@ -95,7 +95,7 @@ fails without it, in whichever suite fits.
 - **Documentation and commit messages** state behaviour and specific values:
   "10 failures per username in 15 minutes" rather than "aggressive rate
   limiting". They do not use em dashes.
-- **Interface changes** follow [docs/design.md](docs/design.md). In particular,
+- **Interface changes** follow the [design notes](https://github.com/zorcerer/heddohon/wiki/Design-notes). In particular,
   the panels are glass, and animating opacity, filters or masks on an element
   that contains glass makes its blur drop out; the design notes explain what to
   animate instead. Include a screenshot or a short recording.
