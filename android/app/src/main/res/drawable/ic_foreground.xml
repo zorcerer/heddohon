@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The maskable icon keeps its mark inside the middle 80%; an adaptive icon shows the middle 61%. Inset to fit. -->
+<inset xmlns:android="http://schemas.android.com/apk/res/android"
+	android:drawable="@drawable/ic_maskable"
+	android:inset="12%" />

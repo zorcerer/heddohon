@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+	android:layout_width="match_parent"
+	android:layout_height="match_parent"
+	android:fillViewport="true"
+	android:fitsSystemWindows="true">
+
+	<LinearLayout
+		android:layout_width="match_parent"
+		android:layout_height="wrap_content"
+		android:layout_gravity="center_vertical"
+		android:orientation="vertical"
+		android:padding="28dp">
+
+		<ImageView
+			android:layout_width="72dp"
+			android:layout_height="72dp"
+			android:importantForAccessibility="no"
+			android:src="@mipmap/ic_launcher" />
+
+		<TextView
+			android:layout_width="wrap_content"
+			android:layout_height="wrap_content"
+			android:layout_marginTop="16dp"
+			android:text="@string/app_name"
+			android:textColor="@color/text"
+			android:textSize="28sp"
+			android:textStyle="bold" />
+
+		<TextView
+			android:layout_width="match_parent"
+			android:layout_height="wrap_content"
+			android:layout_marginTop="8dp"
+			android:text="@string/setup_lede"
+			android:textColor="@color/muted"
+			android:textSize="15sp" />
+
+		<TextView
+			android:layout_width="wrap_content"
+			android:layout_height="wrap_content"
+			android:layout_marginTop="24dp"
+			android:labelFor="@+id/address"
+			android:letterSpacing="0.12"
+			android:text="@string/setup_label"
+			android:textAllCaps="true"
+			android:textColor="@color/accent"
+			android:textSize="12sp" />
+
+		<EditText
+			android:id="@+id/address"
+			android:layout_width="match_parent"
+			android:layout_height="wrap_content"
+			android:layout_marginTop="8dp"
+			android:autofillHints=""
+			android:background="@drawable/field"
+			android:hint="@string/setup_hint"
+			android:imeOptions="actionGo"
+			android:inputType="textUri"
+			android:padding="14dp"
+			android:textColor="@color/text"
+			android:textColorHint="@color/muted"
+			android:textSize="16sp" />
+
+		<TextView
+			android:id="@+id/problem"
+			android:layout_width="match_parent"
+			android:layout_height="wrap_content"
+			android:layout_marginTop="12dp"
+			android:accessibilityLiveRegion="polite"
+			android:textColor="@color/danger"
+			android:textSize="14sp"
+			android:visibility="gone" />
+
+		<Button
+			android:id="@+id/connect"
+			android:layout_width="match_parent"
+			android:layout_height="wrap_content"
+			android:layout_marginTop="12dp"
+			android:background="@drawable/button"
+			android:minHeight="48dp"
+			android:text="@string/setup_connect"
+			android:textAllCaps="false"
+			android:textColor="@color/ground"
+			android:textSize="16sp" />
+
+		<TextView
+			android:layout_width="match_parent"
+			android:layout_height="wrap_content"
+			android:layout_marginTop="20dp"
+			android:text="@string/setup_small"
+			android:textColor="@color/muted"
+			android:textSize="13sp" />
+	</LinearLayout>
+</ScrollView>

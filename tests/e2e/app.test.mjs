@@ -106,6 +106,29 @@ describe('the gate', () => {
 		assert.deepEqual(manifest.related_applications, [{ platform: 'webapp', url: `${app.url}/manifest.webmanifest` }]);
 	});
 
+	test('the server vouches for the Android app without a session: its package and the release key, and any key added', async () => {
+		const RELEASE = '3C:D0:5B:A1:45:77:D7:1F:68:4E:61:51:AF:7C:0F:3F:BE:10:15:A8:BB:52:B2:28:FA:54:B4:11:AC:14:DE:52';
+		const response = await fetch(`${app.url}/.well-known/assetlinks.json`);
+		assert.equal(response.status, 200);
+		assert.match(response.headers.get('content-type'), /^application\/json/);
+		assert.deepEqual(await response.json(), [
+			{
+				relation: ['delegate_permission/common.handle_all_urls'],
+				target: { namespace: 'android_app', package_name: 'app.heddohon.android', sha256_cert_fingerprints: [RELEASE] }
+			}
+		]);
+
+		// A key of someone's own, written in lower case, is listed beside it in upper case.
+		const own = Array.from({ length: 32 }, (_, i) => (i + 160).toString(16)).join(':');
+		const added = await startApp({ subsonicUrl: subsonic.url, jellyfinUrl: jellyfin.url, env: { HEDDOHON_ANDROID_FINGERPRINTS: ` ${own} ` } });
+		try {
+			const [statement] = await (await fetch(`${added.url}/.well-known/assetlinks.json`)).json();
+			assert.deepEqual(statement.target.sha256_cert_fingerprints, [RELEASE, own.toUpperCase()]);
+		} finally {
+			await added.stop();
+		}
+	});
+
 	test('a page without a session redirects to sign-in, with the path kept', async () => {
 		const response = await new Client(app.url).request('/artists?page=2', { headers: { accept: 'text/html' } });
 		assert.equal(response.status, 303);

@@ -19,3 +19,6 @@ SECURITY.md
 
 # The desktop app is built by its own workflow and is no part of the image.
 electron
+
+# The Android app is built by its own workflow and is no part of the image.
+android
