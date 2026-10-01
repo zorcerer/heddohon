@@ -95,6 +95,12 @@ export interface Album {
 	rating: number | null;
 	/** Epoch millis the album was added to the library, when known. */
 	createdAt: number | null;
+	/**
+	 * What the server calls the release, in MusicBrainz's words ("Album", "EP",
+	 * "Single", "Live", "Compilation"), where it says: OpenSubsonic's
+	 * `releaseTypes`. Absent or null where it does not; see `releases.ts`.
+	 */
+	releaseTypes?: string[] | null;
 }
 
 export interface AlbumDetail extends Album {
