@@ -535,7 +535,7 @@ not copy protection, since a signed-in browser is sent the file to play it.
 ### Cover cache
 
 Covers are cached under `$HEDDOHON_DATA_DIR/covers` (see
-[Configuration](docs/configuration.md#cover-cache)). Audio is never written to disk.
+[Configuration](https://github.com/zorcerer/heddohon/wiki/Configuration#cover-cache)). Audio is never written to disk.
 
 - **Session required.** The cache is read after the session check.
 - **Cache key:** backend, viewer, cover id and size. On Subsonic the viewer is a
@@ -692,7 +692,7 @@ build toolchain out of the runtime layer. Secrets are supplied at run time, and
 
 ## Logging
 
-Logs go to stdout and stderr (see [Configuration](docs/configuration.md#logging)).
+Logs go to stdout and stderr (see [Configuration](https://github.com/zorcerer/heddohon/wiki/Configuration#logging)).
 
 - **Default:** failures only.
 - **`info`:** adds username and client address on sign-in attempts, for fail2ban.
