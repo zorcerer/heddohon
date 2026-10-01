@@ -583,3 +583,47 @@ describe('a server behind a proxy that asks who you are', () => {
 		}
 	});
 });
+
+describe('a graphics driver Chromium cannot use', () => {
+	test('the second failure of the GPU process switches to software rendering and starts again, and the menu has the switch', async () => {
+		const data = mkdtempSync(join(tmpdir(), 'heddohon-desktop-'));
+		const menuItem = (app) =>
+			app.evaluate(({ Menu }) => {
+				const item = Menu.getApplicationMenu().items.find((menu) => menu.label === 'Heddohon').submenu.items.find((entry) => entry.label === 'Software rendering');
+				return { checked: item.checked };
+			});
+		const { app, page } = await launch(data);
+		try {
+			await page.getByLabel('Server address').waitFor();
+			assert.deepEqual(await menuItem(app), { checked: false });
+			await app.evaluate(({ app }) => {
+				globalThis.__restarted = 0;
+				app.relaunch = () => void globalThis.__restarted++;
+				app.exit = () => undefined;
+				// One failure can be a driver being replaced under the app; two is the machine.
+				app.emit('child-process-gone', {}, { type: 'GPU', reason: 'crashed' });
+			});
+			assert.equal(await app.evaluate(() => globalThis.__restarted), 0);
+			await app.evaluate(({ app }) => {
+				// A renderer going is not the graphics driver.
+				app.emit('child-process-gone', {}, { type: 'Utility', reason: 'crashed' });
+				app.emit('child-process-gone', {}, { type: 'GPU', reason: 'launch-failed' });
+			});
+			assert.equal(await app.evaluate(() => globalThis.__restarted), 1);
+			assert.equal(JSON.parse(readFileSync(join(data, 'config.json'), 'utf8')).softwareRendering, true);
+		} finally {
+			await app.close();
+		}
+
+		// The next start runs without the graphics card, and says so in the menu.
+		const again = await launch(data);
+		try {
+			await again.page.getByLabel('Server address').waitFor();
+			assert.deepEqual(await menuItem(again.app), { checked: true });
+			assert.equal(await again.app.evaluate(({ app }) => app.getGPUFeatureStatus().gpu_compositing.startsWith('disabled')), true);
+		} finally {
+			await again.app.close();
+			rmSync(data, { recursive: true, force: true });
+		}
+	});
+});

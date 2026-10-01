@@ -1,28 +1,41 @@
 /**
- * Installing Heddohon as an app, where this browser can.
+ * Getting Heddohon as an app, by whichever way suits the device.
  *
- * Chrome and Edge fire `beforeinstallprompt` once the manifest and the
- * service worker qualify, and the event's `prompt()` opens their own install
- * dialog; it works only from a press, and only once per event. Safari has no
- * such event: on macOS 17 and later the page can be added with File, Add to
- * Dock, and on iPhone and iPad with Share, Add to Home Screen, so those get a
- * line of instruction instead. Edge on a desktop gets its own line where the
- * event has not come: it installs any site from its menu, including one
- * served over plain http, where the event never fires. Firefox installs
- * neither way on the desktop and gets nothing.
+ * There are two kinds. The apps Heddohon ships with each release: a window
+ * around this server for Windows (an installer and a portable .exe) and Linux
+ * (an AppImage), and an APK for Android. And the page itself installed by the
+ * browser, as a web app.
+ *
+ *  - Windows and Linux are pointed at the release's files, in any browser.
+ *    The browser's own install is no longer offered there.
+ *  - Android is pointed at the APK, with the browser's install beside it
+ *    where the browser offers one.
+ *  - macOS, iPhone and iPad have no app of ours, so they keep the browser's:
+ *    Chrome and Edge fire `beforeinstallprompt` once the manifest and the
+ *    service worker qualify, and the event's `prompt()` opens their install
+ *    dialog (only from a press, and once per event). Safari has no such
+ *    event: on macOS 17 and later the page is added with File, Add to Dock,
+ *    and on iPhone and iPad with Share, Add to Home Screen, so those get a
+ *    line of instruction. Edge on a Mac gets a line for its own menu where
+ *    the event has not come. Firefox there installs neither way and gets
+ *    nothing.
  *
  * `listen` runs from `hooks.client.ts`, before the first page renders: Chrome
  * fires the event once per page load, and a listener added when the layout
  * mounts can miss it.
  *
- * Whether the app is already installed is known three ways, none of them
- * complete. The page is running as the app (its display mode). The browser
- * says the app is installed (`getInstalledRelatedApps`, with the manifest
- * naming itself under `related_applications`; Chrome and Edge only). Or this
- * browser profile has run as the app or installed it before, which is kept
- * in `localStorage`: the installed app and a tab of the same browser share
- * it, so a tab opened beside the installed app knows. An uninstall is not
- * seen, so the mark stays; Settings offers the install whatever it says.
+ * Whether the app is already in use is known several ways, none of them
+ * complete. The page is running inside one of ours: the desktop app names
+ * itself in its user agent, and the Android app opens the server with
+ * `?app=android` and is the referrer of the page it opens. A reverse proxy's
+ * sign-in page in between replaces the referrer, so both are read, and what
+ * they say is kept in `sessionStorage` for the pages the tab loads afterwards.
+ * The page is running as an installed web app (its display mode). The browser says the web app is installed (`getInstalledRelatedApps`, with
+ * the manifest naming itself under `related_applications`; Chrome and Edge
+ * only). Or this browser profile has done any of those before, which is kept
+ * in `localStorage`: an installed web app and a tab of the same browser share
+ * it, so a tab opened beside the app knows. An uninstall is not seen, so the
+ * mark stays; Settings makes the offer whatever it says.
  */
 
 /** Chrome's event, which TypeScript's DOM types do not have. */
@@ -31,8 +44,11 @@ interface BeforeInstallPromptEvent extends Event {
 	userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>;
 }
 
-/** How this browser installs the app: its own dialog, a line of instruction, or not at all. */
-export type InstallRoute = 'prompt' | 'safari-mac' | 'safari-ios' | 'edge' | null;
+/**
+ * How this device gets the app: one of ours from the release (`app-*`), the
+ * browser's own dialog, a line of instruction, or not at all.
+ */
+export type InstallRoute = 'app-windows' | 'app-linux' | 'app-android' | 'prompt' | 'safari-mac' | 'safari-ios' | 'edge' | null;
 
 /** The line shown where there is no button to press. */
 export const INSTALL_STEPS: Record<'safari-mac' | 'safari-ios' | 'edge', string> = {
@@ -41,18 +57,56 @@ export const INSTALL_STEPS: Record<'safari-mac' | 'safari-ios' | 'edge', string>
 	edge: "In Edge's menu (the three dots), choose Apps, then Install this site as an app."
 };
 
+/** What each of our apps is, for the card and for Settings. */
+export const APP_KINDS: Record<'app-windows' | 'app-linux' | 'app-android', { system: string; files: string; action: string }> = {
+	'app-windows': { system: 'Windows', files: 'an installer or a portable .exe', action: 'Get the app' },
+	'app-linux': { system: 'Linux', files: 'an AppImage', action: 'Get the app' },
+	'app-android': { system: 'Android', files: 'an APK to install', action: 'Get the APK' }
+};
+
+/** The latest release, whose files the apps are. */
+export const APP_RELEASES = 'https://github.com/zorcerer/heddohon/releases/latest';
+
 const INSTALLED_KEY = 'heddohon:installed';
+/** Set in the tab one of our apps opened, for the pages it loads after the first. */
+const IN_APP_KEY = 'heddohon:in-app';
+/** The Android app, as the referrer of the page it opens. */
+const ANDROID_APP = 'android-app://app.heddohon.android';
+
+/** Whether the page is inside the desktop app or the Android app. */
+function inOurApp(): boolean {
+	if (/\bElectron\//.test(navigator.userAgent)) return true;
+	const opened = document.referrer.startsWith(ANDROID_APP) || new URLSearchParams(location.search).get('app') === 'android';
+	try {
+		if (opened) sessionStorage.setItem(IN_APP_KEY, '1');
+		return opened || sessionStorage.getItem(IN_APP_KEY) === '1';
+	} catch {
+		// Storage refused: known for this page only.
+		return opened;
+	}
+}
 
 /** The display modes an installed app runs in. A browser tab is `browser`. */
 const APP_DISPLAY_MODES = ['standalone', 'window-controls-overlay', 'minimal-ui', 'fullscreen'];
+
+/**
+ * One of our apps for this system, from the user agent. ChromeOS says Linux
+ * and runs neither an AppImage nor an .exe, so it is left to the browser.
+ */
+function appRoute(): InstallRoute {
+	const ua = navigator.userAgent;
+	if (/Android/.test(ua)) return 'app-android';
+	if (/Windows NT/.test(ua)) return 'app-windows';
+	if (/Linux/.test(ua) && !/CrOS/.test(ua)) return 'app-linux';
+	return null;
+}
 
 /**
  * The browser from its user agent, where there is no event to go by. Other
  * browsers on iOS carry `CriOS`, `FxiOS` or `EdgiOS`, and Chromium on macOS
  * carries `Chrome`, so those are ruled out before Safari. iPadOS asks for
  * desktop sites and reports itself as a Mac, which only its touch points tell
- * apart. Add to Dock arrived in Safari 17. Edge on a desktop carries `Edg/`;
- * on Android it carries `EdgA/` and its menu is another one.
+ * apart. Add to Dock arrived in Safari 17. Edge on a desktop carries `Edg/`.
  */
 function instructedRoute(): InstallRoute {
 	const ua = navigator.userAgent;
@@ -67,17 +121,20 @@ function instructedRoute(): InstallRoute {
 class Installer {
 	/** Chrome's event, held until the button is pressed. */
 	#deferred = $state<BeforeInstallPromptEvent | null>(null);
+	#app = $state<InstallRoute>(null);
 	#instructed = $state<InstallRoute>(null);
-	/** Running as the installed app, or installed from this page just now. */
+	/** Running as the app (one of ours, or the installed web app), or installed from this page just now. */
 	installed = $state(false);
-	/** Installed as far as this browser can tell, running as the app or not; see the top of the file. */
+	/** In use as far as this browser can tell, running as the app or not; see the top of the file. */
 	known = $state(false);
 	busy = $state(false);
 
 	listen() {
 		this.installed =
+			inOurApp() ||
 			APP_DISPLAY_MODES.some((mode) => matchMedia(`(display-mode: ${mode})`).matches) ||
 			(navigator as Navigator & { standalone?: boolean }).standalone === true;
+		this.#app = appRoute();
 		this.#instructed = instructedRoute();
 		if (this.installed) this.#mark();
 		else this.known = this.#marked();
@@ -94,13 +151,19 @@ class Installer {
 		});
 	}
 
-	/** How this browser installs, or null where it cannot or is running as the app already. */
+	/** How this device gets the app, or null where it cannot or is running as the app already. */
 	get route(): InstallRoute {
 		if (this.installed) return null;
+		if (this.#app) return this.#app;
 		return this.#deferred ? 'prompt' : this.#instructed;
 	}
 
-	/** Whether to suggest installing: this browser can, and the app is not known to be installed. */
+	/** Whether the browser's own install dialog can be opened: beside the APK on Android, and the route itself on a Mac. */
+	get canPrompt(): boolean {
+		return !this.installed && this.#deferred !== null;
+	}
+
+	/** Whether to suggest the app: there is a way to get it, and it is not known to be in use. */
 	get suggested(): boolean {
 		return this.route !== null && !this.known;
 	}

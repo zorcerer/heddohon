@@ -9,7 +9,12 @@
 	import { player } from '$lib/client/player.svelte';
 	import { EQ_FREQUENCIES, EQ_RANGE_DB } from '$lib/client/audiochain';
 	import { EQ_PRESETS, processing } from '$lib/client/processing.svelte';
-	import { installer, INSTALL_STEPS } from '$lib/client/install.svelte';
+	import { APP_KINDS, APP_RELEASES, installer, INSTALL_STEPS } from '$lib/client/install.svelte';
+
+	/** One of Heddohon's own apps for this system, where there is one; see `install.svelte.ts`. */
+	const appKind = $derived(
+		installer.route === 'app-windows' || installer.route === 'app-linux' || installer.route === 'app-android' ? APP_KINDS[installer.route] : null
+	);
 
 	/** A band's centre as it is printed under its slider: 31, 1k, 16k. */
 	const bandLabel = (hz: number) => (hz >= 1000 ? `${hz / 1000}k` : String(hz));
@@ -710,18 +715,35 @@
 		</div>
 
 		{#if installer.installed}
-			<p class="note">Installed on this device.</p>
+			<p class="note">You are using the app.</p>
+		{:else if appKind}
+			<p class="note">
+				{data.appName} for {appKind.system} is {appKind.files}, with the latest release. It opens this server
+				in a window of its own.
+			</p>
+			<div class="install-ways">
+				<!-- Another site: a new tab, told nothing about this one. -->
+				<a class="hh-button" href={APP_RELEASES} target="_blank" rel="noopener noreferrer">
+					<Icon name="download" size={16} />
+					{appKind.action}
+				</a>
+				{#if installer.route === 'app-android' && installer.canPrompt}
+					<button class="hh-button" type="button" disabled={installer.busy} onclick={() => void installer.install()}>
+						Install from the browser
+					</button>
+				{/if}
+			</div>
 		{:else if installer.route === 'prompt'}
 			<button class="hh-button" type="button" disabled={installer.busy} onclick={() => void installer.install()}>
 				<Icon name="download" size={16} />
 				Install {data.appName}
 			</button>
-		{:else if installer.route}
+		{:else if installer.route === 'safari-mac' || installer.route === 'safari-ios' || installer.route === 'edge'}
 			<p class="note">{INSTALL_STEPS[installer.route]}</p>
 		{:else}
 			<p class="hh-muted note">
-				This browser does not install web apps. Chrome and Edge do on Windows, macOS, Linux and
-				Android, and Safari on macOS 17 or later and on iPhone and iPad.
+				This browser does not install web apps. On a Mac, Chrome and Edge do, and Safari 17 or later; on
+				iPhone and iPad, Safari does.
 			</p>
 		{/if}
 	</section>
@@ -1407,6 +1429,16 @@
 		display: grid;
 		grid-template-columns: repeat(10, minmax(0, 1fr));
 		gap: var(--space-1);
+	}
+
+	.install-ways {
+		display: flex;
+		flex-wrap: wrap;
+		gap: var(--space-2);
+	}
+
+	.install-ways a {
+		text-decoration: none;
 	}
 
 	.correction {

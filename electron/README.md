@@ -98,3 +98,18 @@ oauth2-proxy, Cloudflare Access, basic auth) is reached three ways.
 
 An address is saved only once a Heddohon has answered behind the sign-in.
 Until then its page is given no permissions.
+
+## A window that will not open, or closes at once
+
+On a machine whose graphics driver Chromium cannot use (a virtual machine, a
+remote desktop, some driver and compositor pairs) the app's GPU process fails
+as it starts. The terminal shows lines such as
+`CommandBufferHelper::AllocateRingBuffer() failed`. The second failure in a
+run switches the app to software rendering and starts it again, and it stays
+that way. **Heddohon, Software rendering** in the menu bar (Alt shows it)
+switches it by hand. For one run:
+
+```
+./heddohon-<version>-x86_64.AppImage --disable-gpu
+HEDDOHON_DESKTOP_NO_GPU=1 ./heddohon-<version>-x86_64.AppImage
+```

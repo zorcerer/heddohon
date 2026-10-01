@@ -1,14 +1,15 @@
 <script lang="ts">
 	/**
-	 * A suggestion to install the app, where this browser can install it.
-	 * Mounted once in the root layout; `client/install.svelte.ts` works out
-	 * how, or whether, the browser installs.
+	 * A suggestion to get the app: one of Heddohon's own on Windows, Linux and
+	 * Android, as a link to the latest release, and the page installed by the
+	 * browser on a Mac, an iPhone and an iPad. Mounted once in the root layout;
+	 * `client/install.svelte.ts` works out which, or whether.
 	 *
 	 * It waits until something has played in this page load, so it never
 	 * greets a first visit, and it is gone for good on the account once
 	 * dismissed, or once the account has run the installed app. Settings, Appearance keeps the same offer for later.
 	 */
-	import { installer, INSTALL_STEPS } from '$lib/client/install.svelte';
+	import { APP_KINDS, APP_RELEASES, installer, INSTALL_STEPS } from '$lib/client/install.svelte';
 	import { player } from '$lib/client/player.svelte';
 	import Icon from './Icon.svelte';
 
@@ -23,6 +24,8 @@
 	});
 
 	const route = $derived(installer.route);
+	/** One of our apps for this system, where there is one. */
+	const kind = $derived(route === 'app-windows' || route === 'app-linux' || route === 'app-android' ? APP_KINDS[route] : null);
 	const shown = $derived(installer.suggested && played && !dismissed && !closed);
 
 	/*
@@ -51,13 +54,22 @@
 	<aside class="install hh-glass hh-glass--deep hh-float" aria-label="Install the app">
 		<Icon name="download" size={17} />
 		<p>
-			<strong>Install {appName}</strong> as an app, in a window of its own.
-			{#if route !== 'prompt'}{INSTALL_STEPS[route]}{/if}
+			{#if kind}
+				<strong>{appName} for {kind.system}</strong>: {kind.files}, with the latest release.
+			{:else}
+				<strong>Install {appName}</strong> as an app, in a window of its own.
+				{#if route === 'safari-mac' || route === 'safari-ios' || route === 'edge'}{INSTALL_STEPS[route]}{/if}
+			{/if}
 		</p>
 		<div class="actions">
-			{#if route === 'prompt'}
+			{#if kind}
+				<!-- Another site: a new tab, told nothing about this one. -->
+				<a class="hh-button hh-button--primary" href={APP_RELEASES} target="_blank" rel="noopener noreferrer">{kind.action}</a>
+			{/if}
+			<!-- The browser's own install: the route itself on a Mac, and beside the APK on Android where Chrome offers it. -->
+			{#if route === 'prompt' || (route === 'app-android' && installer.canPrompt)}
 				<button
-					class="hh-button hh-button--primary"
+					class={route === 'prompt' ? 'hh-button hh-button--primary' : 'hh-button'}
 					type="button"
 					disabled={installer.busy}
 					onclick={() => void installer.install()}
@@ -118,6 +130,8 @@
 		padding: 0.45rem 0.85rem;
 		border-radius: var(--r-md);
 		font-size: 0.8125rem;
+		text-decoration: none;
+		white-space: nowrap;
 	}
 
 	/* A phone: the page scrolls as a whole, so the card is fixed above the dock. */

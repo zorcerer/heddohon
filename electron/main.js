@@ -66,6 +66,35 @@ function readConfig() {
 
 let config = {};
 
+/**
+ * Software rendering, for a machine whose graphics driver Chromium cannot
+ * use: a virtual machine, a remote desktop, some driver and compositor pairs.
+ * There the GPU process fails as it starts (`AllocateRingBuffer() failed` is
+ * one way it says so) and takes the window with it. The second failure in a
+ * run switches hardware acceleration off for good and starts the app again;
+ * Software rendering in the Heddohon menu switches it by hand, and
+ * `HEDDOHON_DESKTOP_NO_GPU=1` or `--disable-gpu` does it for one run. It has
+ * to be decided before the app is ready, so the profile is read here.
+ */
+config = readConfig();
+if (config.softwareRendering || process.env.HEDDOHON_DESKTOP_NO_GPU) app.disableHardwareAcceleration();
+
+/** Starts the app again. An AppImage is started as the file it is, not as the binary mounted inside it. */
+function restart() {
+	app.relaunch(process.env.APPIMAGE ? { execPath: process.env.APPIMAGE, args: process.argv.slice(1) } : undefined);
+	app.exit(0);
+}
+
+let gpuFailures = 0;
+app.on('child-process-gone', (_event, details) => {
+	if (details.type !== 'GPU' || details.reason === 'clean-exit' || details.reason === 'killed') return;
+	gpuFailures++;
+	if (gpuFailures < 2 || config.softwareRendering) return;
+	config.softwareRendering = true;
+	saveConfig();
+	restart();
+});
+
 function saveConfig() {
 	try {
 		fs.mkdirSync(path.dirname(configPath()), { recursive: true });
@@ -329,6 +358,19 @@ function buildMenu(update = null) {
 					: []),
 				{ label: `Version ${app.getVersion()}`, enabled: false },
 				{ label: 'Check for updates…', click: () => void checkForUpdate(true) },
+				{ type: 'separator' },
+				{
+					label: 'Software rendering',
+					type: 'checkbox',
+					checked: Boolean(config.softwareRendering),
+					// Decided before the app is ready, so a change starts it again.
+					click: () => {
+						config.softwareRendering = !config.softwareRendering;
+						saveConfig();
+						restart();
+					}
+				},
+				{ type: 'separator' },
 				{ role: 'quit' }
 			]
 		},
@@ -509,7 +551,6 @@ if (!app.requestSingleInstanceLock()) {
 	});
 
 	app.whenReady().then(() => {
-		config = readConfig();
 		// A stored address that is no longer one is asked for again.
 		if (config.server && originOf(config.server) !== config.server) delete config.server;
 		headers = loadHeaders();
