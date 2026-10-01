@@ -23,6 +23,7 @@ const SETUP = path.join(__dirname, 'setup.html');
 /** What the page may ask the desktop for. The audio output list needs `media` to name its devices. */
 const ALLOWED_PERMISSIONS = new Set(['media', 'speaker-selection', 'fullscreen', 'clipboard-sanitized-write', 'screen-wake-lock']);
 const CHECK_TIMEOUT_MS = 8000;
+const UPDATE_CHECK_DELAY_MS = 5000;
 
 // Tests point this at a directory of their own.
 if (process.env.HEDDOHON_DESKTOP_DATA) app.setPath('userData', process.env.HEDDOHON_DESKTOP_DATA);
@@ -197,23 +198,41 @@ function buildMenu(update = null) {
 }
 
 /**
- * Asks GitHub for the latest release, once per start, and puts it in the menu
- * when it is newer. The app does not update itself: an AppImage is a file the
- * person replaces, and a .deb is the package manager's.
+ * Asks GitHub for the latest release, once per start. A newer one goes in the
+ * menu, where it stays, and is said once in a dialog, since the menu bar is
+ * hidden until Alt is pressed. The app does not update itself: an AppImage is
+ * a file the person replaces, and a .deb is the package manager's.
+ *
+ * `HEDDOHON_DESKTOP_RELEASES` points the question somewhere else, which the
+ * suite uses.
  */
 async function checkForUpdate() {
 	if (process.env.HEDDOHON_DESKTOP_NO_UPDATE_CHECK) return;
 	try {
-		const response = await net.fetch(`https://api.github.com/repos/${REPOSITORY}/releases/latest`, {
+		const response = await net.fetch(process.env.HEDDOHON_DESKTOP_RELEASES || `https://api.github.com/repos/${REPOSITORY}/releases/latest`, {
 			headers: { accept: 'application/vnd.github+json' },
 			credentials: 'omit'
 		});
 		if (!response.ok) return;
 		const latest = await response.json();
 		const version = String(latest.tag_name ?? '').replace(/^v/, '');
-		if (version && compareVersions(version, app.getVersion()) > 0) {
-			buildMenu({ version, url: `https://github.com/${REPOSITORY}/releases/tag/v${version}` });
-		}
+		if (!/^\d+\.\d+\.\d+/.test(version) || compareVersions(version, app.getVersion()) <= 0) return;
+		const url = `https://github.com/${REPOSITORY}/releases/tag/v${version}`;
+		buildMenu({ version, url });
+		// Once per release: asked again only when there is a newer one still.
+		if (config.toldVersion === version || !win || win.isDestroyed()) return;
+		config.toldVersion = version;
+		saveConfig();
+		const { response: choice } = await dialog.showMessageBox(win, {
+			type: 'info',
+			title: 'Heddohon',
+			message: `Heddohon ${version} is available`,
+			detail: `This is ${app.getVersion()}. The newer app is on the releases page, as an AppImage and a .deb. It stays listed in the menu (press Alt, then Heddohon).`,
+			buttons: ['Get it', 'Later'],
+			defaultId: 0,
+			cancelId: 1
+		});
+		if (choice === 0) openOutside(url);
 	} catch {
 		// Offline, or GitHub not reachable: asked again at the next start.
 	}
@@ -263,7 +282,8 @@ if (!app.requestSingleInstanceLock()) {
 
 		buildMenu();
 		createWindow();
-		void checkForUpdate();
+		// After the window has had time to show the server: the dialog is not the first thing seen.
+		setTimeout(() => void checkForUpdate(), UPDATE_CHECK_DELAY_MS);
 	});
 
 	app.on('window-all-closed', () => app.quit());

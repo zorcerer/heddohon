@@ -43,11 +43,30 @@ let server;
 let profile;
 
 /** Starts the shell on a profile, with the default browser replaced by a list of what it was asked to open. */
+/**
+ * Starts the app, once more if the first start gives no window to talk to.
+ * In CI a start of the packaged app has twice hung to its timeout, each time
+ * straight after another instance closed and with no lock left in the
+ * profile; it has not happened in a container here. What it printed is shown,
+ * so the next time says why.
+ */
+async function startShell(options) {
+	for (let attempt = 1; ; attempt++) {
+		try {
+			return await electron.launch(options);
+		} catch (err) {
+			console.error(`start ${attempt} of the app failed: ${String(err).split('\n').slice(0, 12).join('\n')}`);
+			if (attempt === 2) throw err;
+			await new Promise((done) => setTimeout(done, 2000));
+		}
+	}
+}
+
 async function launch(data = profile) {
 	// One instance per profile: a start while the last one is still on its way
 	// out finds its lock and quits. Chromium's lock is a link in the profile.
 	for (let i = 0; i < 100 && lockHeld(data); i++) await new Promise((done) => setTimeout(done, 100));
-	const app = await electron.launch({
+	const app = await startShell({
 		executablePath: packaged ?? executablePath,
 		// No sandbox: the suite runs in a container without user namespaces.
 		args: packaged ? ['--no-sandbox'] : [shell, '--no-sandbox'],
@@ -240,3 +259,100 @@ describe('the desktop media controls', () => {
 		}
 	});
 });
+
+describe('a newer release', () => {
+	/** GitHub's answer for the latest release, from a server of the suite's own. */
+	async function releases(tag) {
+		const { createServer } = await import('node:http');
+		const hits = { count: 0 };
+		const mock = createServer((_request, response) => {
+			hits.count++;
+			response.setHeader('content-type', 'application/json');
+			response.end(JSON.stringify({ tag_name: tag }));
+		});
+		await new Promise((done) => mock.listen(0, '127.0.0.1', done));
+		return { url: `http://127.0.0.1:${mock.address().port}/latest`, hits, close: () => new Promise((done) => mock.close(done)) };
+	}
+
+	async function start(data, url) {
+		const app = await startShell({
+			executablePath: packaged ?? executablePath,
+			args: packaged ? ['--no-sandbox'] : [shell, '--no-sandbox'],
+			env: { ...process.env, HEDDOHON_DESKTOP_DATA: data, HEDDOHON_DESKTOP_RELEASES: url },
+			timeout: 30_000
+		});
+		// In place before the check, which waits 5 seconds after the start.
+		await app.evaluate(({ dialog, shell }) => {
+			globalThis.__asked = [];
+			globalThis.__opened = [];
+			dialog.showMessageBox = async (_window, options) => {
+				globalThis.__asked.push(options.message);
+				return { response: 0 };
+			};
+			shell.openExternal = async (url) => void globalThis.__opened.push(url);
+		});
+		return app;
+	}
+	const menuLabels = (app) =>
+		app.evaluate(({ Menu }) => Menu.getApplicationMenu().items[0].submenu.items.map((item) => item.label));
+
+	test('is said once in a dialog, stays in the menu, and Get it opens its page', async () => {
+		const mock = await releases('v99.1.0');
+		const data = mkdtempSync(join(tmpdir(), 'heddohon-desktop-'));
+		try {
+			const first = await start(data, mock.url);
+			try {
+				await first.firstWindow();
+				await waitFor(async () => (await first.evaluate(() => globalThis.__asked.length)) === 1);
+				assert.deepEqual(await first.evaluate(() => globalThis.__asked), ['Heddohon 99.1.0 is available']);
+				assert.deepEqual(await first.evaluate(() => globalThis.__opened), ['https://github.com/zorcerer/heddohon/releases/tag/v99.1.0']);
+				assert.ok((await menuLabels(first)).includes('Version 99.1.0 is available'));
+			} finally {
+				await first.close();
+			}
+
+			// The next start: in the menu again, and not said again.
+			for (let i = 0; i < 100 && lockHeld(data); i++) await new Promise((done) => setTimeout(done, 100));
+			const second = await start(data, mock.url);
+			try {
+				await second.firstWindow();
+				await waitFor(async () => (await menuLabels(second)).includes('Version 99.1.0 is available'));
+				assert.deepEqual(await second.evaluate(() => globalThis.__asked), []);
+				assert.equal(mock.hits.count, 2);
+			} finally {
+				await second.close();
+			}
+		} finally {
+			await mock.close();
+			rmSync(data, { recursive: true, force: true });
+		}
+	});
+
+	test('nothing is said for the same or an earlier release, or for an answer that is not a version', async () => {
+		for (const tag of ['v0.0.0', 'latest']) {
+			const mock = await releases(tag);
+			const data = mkdtempSync(join(tmpdir(), 'heddohon-desktop-'));
+			const app = await start(data, mock.url);
+			try {
+				await app.firstWindow();
+				await waitFor(() => mock.hits.count === 1);
+				await new Promise((done) => setTimeout(done, 500));
+				assert.deepEqual(await app.evaluate(() => globalThis.__asked), [], tag);
+				assert.ok(!(await menuLabels(app)).some((label) => /is available/.test(label)), tag);
+			} finally {
+				await app.close();
+				await mock.close();
+				rmSync(data, { recursive: true, force: true });
+			}
+		}
+	});
+});
+
+/** Waits up to 15 seconds for `condition` to hold. */
+async function waitFor(condition) {
+	for (let i = 0; i < 150; i++) {
+		if (await condition()) return;
+		await new Promise((done) => setTimeout(done, 100));
+	}
+	assert.fail('timed out waiting');
+}

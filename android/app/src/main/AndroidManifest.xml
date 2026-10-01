@@ -25,6 +25,11 @@
 				android:resource="@xml/shortcuts" />
 		</activity>
 
+		<!-- Shown by MainActivity, once per newer release. -->
+		<activity
+			android:name=".UpdateActivity"
+			android:exported="false" />
+
 		<!-- Exported for the launcher's shortcut. It only ever shows the address screen. -->
 		<activity
 			android:name=".SetupActivity"

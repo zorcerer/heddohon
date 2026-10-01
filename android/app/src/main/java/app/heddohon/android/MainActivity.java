@@ -40,6 +40,16 @@ public class MainActivity extends Activity {
 			return;
 		}
 
+		// A newer release found by an earlier start is mentioned once, before the
+		// server opens. Later comes back here with it marked as told.
+		String newer = Updates.toAnnounce(this);
+		if (newer != null) {
+			startActivity(new Intent(this, UpdateActivity.class).putExtra(UpdateActivity.VERSION, newer));
+			finish();
+			return;
+		}
+		Updates.checkSoon(this);
+
 		int ground = getColor(R.color.ground);
 		CustomTabColorSchemeParams colours =
 				new CustomTabColorSchemeParams.Builder().setToolbarColor(ground).setNavigationBarColor(ground).build();

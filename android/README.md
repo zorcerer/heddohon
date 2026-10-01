@@ -25,6 +25,12 @@ Each release of Heddohon carries `heddohon-<version>.apk`, signed with the
 release key. Obtainium can install it from the releases page and keep it up
 to date. It is not on the Play Store.
 
+The app is in no store, so it looks for a newer release itself: once a day,
+when it is opened, it asks GitHub for Heddohon's latest release. When that is
+later than the app, the next start says so once, with **Get it** opening the
+releases page and **Later** carrying on to the server. It downloads and
+installs nothing itself.
+
 ## Building it
 
 Android SDK 36 and JDK 17 or later.
