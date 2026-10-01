@@ -15,6 +15,15 @@ tab. A WebView would stop the audio soon after the app left the screen.
   key the app is signed with. Heddohon 0.5.0 and later serves that file for
   the released app. An older server, or an app signed with another key,
   still opens, in a Custom Tab with the address bar showing.
+  The browser asks Google's servers whether the file is there, and they fetch
+  it from the internet without a sign-in. Behind a reverse proxy that asks who
+  you are first, let `/.well-known/assetlinks.json` through for everyone, on
+  every address the name resolves to: a proxy that answers over IPv4 and asks
+  for a sign-in over IPv6 fails the check. This address shows what Google
+  gets, with your server's in place of the example:
+  `https://digitalassetlinks.googleapis.com/v1/statements:list?source.web.site=https://music.example.com&relation=delegate_permission/common.handle_all_urls`
+- **The status bar and the navigation bar** are the browser's. It paints
+  them, and the page does not draw under them.
 - **A browser is needed** that supports Trusted Web Activities: Chrome, Edge,
   Samsung Internet, Brave. With none, the server opens in whatever browser
   there is.
@@ -28,7 +37,8 @@ tab. A WebView would stop the audio soon after the app left the screen.
   an app cannot add headers to them.
 
 Each release of Heddohon carries `heddohon-<version>.apk`, signed with the
-release key. Obtainium can install it from the releases page and keep it up
+release key. It is one file for every processor (ARM, ARM64, x86, x86_64):
+the app holds no native code. Obtainium can install it from the releases page and keep it up
 to date. It is not on the Play Store.
 
 The app is in no store, so it looks for a newer release itself: once a day,

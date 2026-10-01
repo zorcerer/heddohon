@@ -79,6 +79,10 @@ None of them needs a real music server: the suites start mock Navidrome and
 Jellyfin servers of their own. A fix for a bug should come with a test that
 fails without it, in whichever suite fits.
 
+The desktop app in `electron/` and the Android app in `android/` have suites
+of their own, which CI runs when those directories change. Their READMEs say
+how to run them.
+
 ### Conventions
 
 - **One change per pull request**, with a description of what it changes for

@@ -11,7 +11,7 @@ body:
     attributes:
       label: Heddohon version
       description: Shown at the foot of Settings and on the sign-in page.
-      placeholder: '0.3.0'
+      placeholder: '0.5.0'
     validations:
       required: true
   - type: dropdown
@@ -44,6 +44,7 @@ body:
     id: browser
     attributes:
       label: Browser and device
+      description: Or the desktop app or the Android app, with its version.
       placeholder: 'Safari on iPhone, iOS 26.0'
     validations:
       required: true

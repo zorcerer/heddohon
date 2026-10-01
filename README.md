@@ -25,7 +25,7 @@ The website, with screenshots and the install steps, is
 
 - **Original files**, up to FLAC 24/192, with the decoded format shown in the player. Optional transcoding to MP3, Opus or AAC, switched from the quality badge. Casts to a Chromecast from Chrome on Android and to AirPlay from Safari.
 - **Coloured by the artwork:** the interface takes its accent from the playing cover, in two themes, Liquid (dark glass) and Paper (parchment and ink).
-- **Library:** albums, artists (with the albums of others they appear on), genres, playlists, favourites and the folders on disk, with synced lyrics and recommendations from your music server. Playlists reorder by dragging or with the arrow keys. Songs and albums take a rating of one to five stars on Navidrome.
+- **Library:** albums, artists (their releases listed as albums, EPs, singles, live records and compilations, with the albums of others they appear on), genres, playlists, favourites and the folders on disk, with synced lyrics and recommendations from your music server. Playlists reorder by dragging or with the arrow keys. Songs and albums take a rating of one to five stars on Navidrome.
 - **Instant mix** from a track, an album or an artist: up to 100 similar tracks from your music server, with AudioMuse-AI's sonic similarity where it is installed.
 - **Internet radio** from the stations Navidrome lists, played through your server, from a stream address or an .m3u or .pls playlist.
 - **Links to songs, albums and playlists** anyone can play without an account, for 1, 7 or 30 days. Or listen together: a live link that plays what you play, as you play it, with reactions.
@@ -110,6 +110,7 @@ migrated may not open in the release before it.
 | | |
 | --- | --- |
 | [Configuration](https://github.com/zorcerer/heddohon/wiki/Configuration) | Environment variables, reverse proxies, PostgreSQL, Unraid |
+| [Apps](https://github.com/zorcerer/heddohon/wiki/Apps) | The desktop app for Linux and Windows, the Android app, and running them behind a sign-in |
 | [Security](SECURITY.md) | Threat model, known gaps, reporting a vulnerability |
 | [Audio](https://github.com/zorcerer/heddohon/wiki/Audio) | Formats, transcoding, and what high resolution means in a browser |
 | [Architecture](https://github.com/zorcerer/heddohon/wiki/Architecture) | How the server, the client and the music server fit together |
