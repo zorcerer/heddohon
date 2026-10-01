@@ -6,9 +6,9 @@
 	 *
 	 * It waits until something has played in this page load, so it never
 	 * greets a first visit, and it is gone for good on the account once
-	 * dismissed. Settings, Appearance keeps the same offer for later.
+	 * dismissed, or once the account has run the installed app. Settings, Appearance keeps the same offer for later.
 	 */
-	import { installer, SAFARI_STEPS } from '$lib/client/install.svelte';
+	import { installer, INSTALL_STEPS } from '$lib/client/install.svelte';
 	import { player } from '$lib/client/player.svelte';
 	import Icon from './Icon.svelte';
 
@@ -23,7 +23,15 @@
 	});
 
 	const route = $derived(installer.route);
-	const shown = $derived(Boolean(route) && played && !dismissed && !closed);
+	const shown = $derived(installer.suggested && played && !dismissed && !closed);
+
+	/*
+	 * Someone running the installed app has found it. The card is put away on
+	 * the account, so it does not come up in their other browsers either.
+	 */
+	$effect(() => {
+		if (installer.installed && !dismissed && !closed) dismiss();
+	});
 
 	function dismiss() {
 		closed = true;
@@ -31,7 +39,11 @@
 			method: 'PATCH',
 			headers: { 'content-type': 'application/json' },
 			body: JSON.stringify({ installCardDismissed: true })
-		}).catch(() => undefined);
+		})
+			// Read to its end: a response left unread holds its connection open, and
+			// this one can be sent as the page loads.
+			.then((response) => response.arrayBuffer())
+			.catch(() => undefined);
 	}
 </script>
 
@@ -40,7 +52,7 @@
 		<Icon name="download" size={17} />
 		<p>
 			<strong>Install {appName}</strong> as an app, in a window of its own.
-			{#if route !== 'prompt'}{SAFARI_STEPS[route]}{/if}
+			{#if route !== 'prompt'}{INSTALL_STEPS[route]}{/if}
 		</p>
 		<div class="actions">
 			{#if route === 'prompt'}

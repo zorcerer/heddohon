@@ -17,7 +17,7 @@ import { config } from '$lib/server/config';
  * `app.html` puts in `theme-color`: the splash screen and the title bar are
  * painted before the page has said which theme the account uses.
  */
-export const GET: RequestHandler = () => {
+export const GET: RequestHandler = ({ url }) => {
 	const { appName } = config();
 	const manifest = {
 		id: '/',
@@ -31,6 +31,10 @@ export const GET: RequestHandler = () => {
 		background_color: '#0b0c0f',
 		theme_color: '#0b0c0f',
 		categories: ['music', 'entertainment'],
+		// Names this manifest as its own related app, which is what lets a tab ask
+		// the browser whether the app is installed (`getInstalledRelatedApps`), so
+		// the install card is not shown beside an installed app.
+		related_applications: [{ platform: 'webapp', url: `${url.origin}/manifest.webmanifest` }],
 		icons: [
 			{ src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
 			{ src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
