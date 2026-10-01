@@ -118,11 +118,12 @@ function flagEnv(name: string, fallback: boolean): boolean {
 }
 
 /**
- * The session lifetime is capped at 72 hours by policy. An operator may make it
- * shorter; they may not make it longer, and asking for longer is clamped rather
- * than rejected so a typo cannot silently weaken the deployment.
+ * How long a sign-in lasts where `HEDDOHON_SESSION_HOURS` is not set: 30 days.
+ * The operator chooses the lifetime, shorter or longer. The upper bound, 100
+ * years, only keeps the expiry inside what a date holds.
  */
-export const ABSOLUTE_SESSION_HOUR_CAP = 72;
+export const DEFAULT_SESSION_HOURS = 30 * 24;
+const MAX_SESSION_HOURS = 100 * 365 * 24;
 
 /**
  * Who this process is, for a message an operator can act on. `getuid` is
@@ -229,7 +230,7 @@ function build(): AppConfig {
 	return {
 		secret,
 		dataDir: dataDirectory(),
-		sessionMaxHours: intEnv('HEDDOHON_SESSION_HOURS', 72, 1, ABSOLUTE_SESSION_HOUR_CAP),
+		sessionMaxHours: intEnv('HEDDOHON_SESSION_HOURS', DEFAULT_SESSION_HOURS, 1, MAX_SESSION_HOURS),
 		cookieSecure: boolEnv('HEDDOHON_COOKIE_SECURE', 'auto'),
 		upstreamTimeoutMs: intEnv('HEDDOHON_UPSTREAM_TIMEOUT_MS', 20_000, 1_000, 120_000),
 		// Megabytes in, bytes out. 0 disables the cache; the ceiling is there so a
@@ -316,7 +317,7 @@ export function config(): AppConfig {
 		return {
 			secret: 'x'.repeat(32),
 			dataDir: '/data',
-			sessionMaxHours: 72,
+			sessionMaxHours: DEFAULT_SESSION_HOURS,
 			cookieSecure: 'auto',
 			upstreamTimeoutMs: 20_000,
 			coverCacheBytes: 0,
