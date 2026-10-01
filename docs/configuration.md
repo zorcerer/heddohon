@@ -104,7 +104,7 @@ npm run build && npm start   # production
 | `HEDDOHON_JELLYFIN_URL` | one of | none | Jellyfin base URL. |
 | `HEDDOHON_SUBSONIC_LABEL` | no | `Navidrome` | Name shown on the sign-in screen. |
 | `HEDDOHON_JELLYFIN_LABEL` | no | `Jellyfin` | Name shown on the sign-in screen. |
-| `HEDDOHON_SESSION_HOURS` | no | `72` | Session lifetime. Clamped to 72. |
+| `HEDDOHON_SESSION_HOURS` | no | `720` | How long a sign-in lasts, in hours, from 1 upwards. The default is 30 days. It is fixed at sign-in and not extended by activity. Browsers keep a cookie for at most 400 days, so a longer lifetime still ends there. |
 | `HEDDOHON_DATA_DIR` | no | `/data` | Where the cover cache lives, and the SQLite database unless `HEDDOHON_DATABASE_URL` is set. |
 | `HEDDOHON_DATABASE_URL` | no | none | A PostgreSQL server to keep the database on, as `postgres://host:5432/database`. Unset, the database is SQLite in the data directory. See [PostgreSQL](#postgresql). |
 | `HEDDOHON_DATABASE_USER` | no | from the URL | PostgreSQL user, so it need not be in the URL. |
@@ -254,7 +254,7 @@ nothing at all. Raise it for more.
 Each line is a timestamp, a level, an event name, then `key=value` pairs:
 
 ```
-2026-09-14T23:39:34.873Z info  started build=1789429163439 node=22.22.2 logLevel=info data=/data covers=512MB sessionHours=72 upstreams="subsonic=10.0.0.10:4533"
+2026-09-14T23:39:34.873Z info  started build=1789429163439 node=22.22.2 logLevel=info data=/data covers=512MB sessionHours=720 upstreams="subsonic=10.0.0.10:4533"
 2026-09-14T23:39:35.277Z info  signed-in username=alice backend=subsonic address=10.0.0.5
 2026-09-14T23:41:02.113Z warn  sign-in-rejected username=bob backend=subsonic address=10.0.0.9 kind=auth
 ```

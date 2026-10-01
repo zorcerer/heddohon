@@ -98,7 +98,7 @@ src/
     server/
       config.ts           admin configuration, the only source of upstream URLs
       crypto.ts           AES-256-GCM sealing, session token digests
-      auth.ts             sign-in, sessions, the 72-hour ceiling
+      auth.ts             sign-in, sessions and their lifetime
       db.ts               SQLite schema and connection
       settings.ts         per-account preferences and persisted queue
       proxy.ts            range-aware media proxying

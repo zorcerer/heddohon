@@ -15,7 +15,7 @@ const KEEPALIVE_MS = 25_000;
 /**
  * This browser's stream of what the account's other browsers are playing, and
  * of the commands they send it; see `remote.ts`. It ends with the session:
- * signing out, being signed out from Settings and the 72-hour expiry all cut it.
+ * signing out, being signed out from Settings and the session expiring all cut it.
  */
 export const GET: RequestHandler = async ({ locals, request }) => {
 	const session = locals.session;
