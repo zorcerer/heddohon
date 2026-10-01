@@ -85,7 +85,8 @@ Equaliser, routes both audio elements through a Web Audio graph:
 - ten peaking bands at 31, 62, 125, 250, 500 Hz and 1, 2, 4, 8 and 16 kHz,
   one octave wide, each set within 12 dB either way, with the presets Flat,
   Bass, Treble, Vocal and Loudness;
-- one gain for the volume, mute and the sleep timer's fade.
+- one gain for the volume, mute and the sleep timer's fade;
+- one gain that goes to silence and back around a pause, a skip and a seek.
 
 The switch and the bands are kept in the browser (`localStorage`), not on the
 account: an equaliser is set for the headphones or speakers of one device.
@@ -98,6 +99,12 @@ What changes with it on:
 - **Volume normalisation raises quiet tracks** as far as their peak value
   allows, where the element's `volume` can only lower them. A track without a
   peak value is not raised.
+- **A pause, a skip and a seek fade.** The output goes to silence over 150 ms
+  before the element is paused, moved or given the next track, and a track
+  picked up mid-way comes back over 150 ms. An element stopped or moved
+  mid-cycle cuts its waveform there, which is heard as a click. The seek bar
+  moves at once and the sound follows 150 ms later; a track that ends by
+  itself is not faded, so an album still runs on without a gap.
 - **iPhone and iPad** apply the graph's gains, so the crossfade, normalisation
   and the sleep timer's fade work there. Whether playback carries on with the
   screen locked through a graph has not been tested on a device yet.

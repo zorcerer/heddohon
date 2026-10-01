@@ -399,6 +399,110 @@ describe('crossfade and the album', () => {
 	});
 });
 
+describe('a pause, a skip and a seek through the graph', () => {
+	/*
+	 * The output gain cannot be read from the page, so its ramps are recorded
+	 * as they are scheduled: `[target, seconds]` for each linear ramp, the only
+	 * ones the duck makes (the bands and the level use `setTargetAtTime`).
+	 */
+	const recordRamps = (page, processing) =>
+		page.addInitScript((on) => {
+			if (on) localStorage.setItem('heddohon:audio-processing', JSON.stringify({ enabled: true, gains: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0] }));
+			window.__ramps = [];
+			const ramp = AudioParam.prototype.linearRampToValueAtTime;
+			AudioParam.prototype.linearRampToValueAtTime = function (value, end) {
+				window.__ramps.push([value, Math.round((end - this.__now) * 1000)]);
+				return ramp.call(this, value, end);
+			};
+			const set = AudioParam.prototype.setValueAtTime;
+			AudioParam.prototype.setValueAtTime = function (value, at) {
+				this.__now = at;
+				return set.call(this, value, at);
+			};
+		}, processing);
+	const playing = () => [...document.querySelectorAll('audio')].find((a) => !a.paused && a.currentTime > 0);
+	const transport = (page, name) => page.locator('aside.panel').getByRole('button', { name, exact: true });
+
+	async function opened(processing) {
+		subsonic.state.audio = { type: 'audio/wav', body: silentWav(60) };
+		const { page, problems } = await watchedPage();
+		await recordRamps(page, processing);
+		await page.goto(app.url + '/albums/al1', { waitUntil: 'networkidle' });
+		await page.getByRole('button', { name: 'Play Song 1a', exact: true }).click();
+		await page.waitForFunction(() => [...document.querySelectorAll('audio')].some((a) => !a.paused && a.currentTime > 0.3));
+		return { page, problems };
+	}
+	async function closed(page) {
+		subsonic.state.audio = null;
+		await page.evaluate(() => localStorage.removeItem('heddohon:audio-processing')).catch(() => undefined);
+		await page.close();
+	}
+
+	test('fade to silence over 150ms first, and a resumed track comes back up', async () => {
+		const { page, problems } = await opened(true);
+		try {
+			// Pause: the element runs on until the output is silent.
+			const atPress = await page.evaluate(async () => {
+				document.querySelector('aside.panel button[aria-label="Pause"]').click();
+				await new Promise((r) => setTimeout(r, 40));
+				return [...document.querySelectorAll('audio')].some((a) => !a.paused);
+			});
+			assert.equal(atPress, true, 'still running 40ms after the press');
+			await page.waitForFunction(() => [...document.querySelectorAll('audio')].every((a) => a.paused));
+			assert.deepEqual(await page.evaluate(() => window.__ramps), [[0, 150]]);
+
+			// Play: up from silence.
+			await transport(page, 'Play').click();
+			await page.waitForFunction(() => window.__ramps.length === 2);
+			assert.deepEqual(await page.evaluate(() => window.__ramps[1]), [1, 150]);
+			await page.waitForFunction(playing);
+
+			// Seek: the bar moves at once, the element after the fade, and the sound comes back.
+			await page.evaluate(() => (window.__ramps = []));
+			const seek = await page.evaluate(async () => {
+				const audio = [...document.querySelectorAll('audio')].find((a) => !a.paused);
+				// 5 seconds on, from the keyboard.
+				const bar = document.querySelector('aside.panel [aria-label="Seek within track"]');
+				bar.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+				const early = audio.currentTime;
+				await new Promise((r) => setTimeout(r, 400));
+				return { early, late: audio.currentTime };
+			});
+			assert.ok(seek.early < 4, `the element had not moved at the press: ${seek.early}`);
+			assert.ok(seek.late > 5, `the element moved after the fade: ${seek.late}`);
+			assert.deepEqual(await page.evaluate(() => window.__ramps), [
+				[0, 150],
+				[1, 150]
+			]);
+
+			// Skip: the next track loads after the fade and starts at full level.
+			await page.evaluate(() => (window.__ramps = []));
+			await transport(page, 'Next track').click();
+			await page.waitForFunction(() => document.querySelector('aside.panel h2.title')?.textContent === 'Song 1b');
+			await page.waitForFunction(playing);
+			assert.deepEqual(await page.evaluate(() => window.__ramps), [[0, 150]], 'down for the skip, and not ramped up under the new track');
+		} finally {
+			await closed(page);
+		}
+		assert.deepEqual(problems, []);
+	});
+
+	test('without the graph a pause is immediate', async () => {
+		const { page, problems } = await opened(false);
+		try {
+			const paused = await page.evaluate(() => {
+				document.querySelector('aside.panel button[aria-label="Pause"]').click();
+				return [...document.querySelectorAll('audio')].every((a) => a.paused);
+			});
+			assert.equal(paused, true);
+			assert.deepEqual(await page.evaluate(() => window.__ramps), []);
+		} finally {
+			await closed(page);
+		}
+		assert.deepEqual(problems, []);
+	});
+});
+
 describe('the equaliser', () => {
 	test('is off until switched on, then kept in this browser with its bands', async () => {
 		const { page, problems } = await watchedPage();
