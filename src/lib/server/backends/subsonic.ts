@@ -266,6 +266,19 @@ function toSong(raw: Record<string, any>): Song {
 	};
 }
 
+/**
+ * OpenSubsonic's `releaseTypes`, with `isCompilation` counted as one. Null
+ * where the server sends neither, which leaves the kind to the record's size.
+ */
+function releaseTypesOf(raw: Record<string, any>): string[] | null {
+	const types = asArray(raw.releaseTypes as unknown[])
+		.filter((type): type is string => typeof type === 'string' && type.trim() !== '')
+		.slice(0, 8)
+		.map((type) => type.trim().slice(0, 40));
+	if (raw.isCompilation === true && !types.some((type) => type.toLowerCase() === 'compilation')) types.push('Compilation');
+	return types.length > 0 ? types : null;
+}
+
 function toAlbum(raw: Record<string, any>): Album {
 	const created = raw.created ? Date.parse(raw.created) : NaN;
 	return {
@@ -281,7 +294,8 @@ function toAlbum(raw: Record<string, any>): Album {
 		starred: Boolean(raw.starred),
 		starredAt: starredAt(raw.starred),
 		rating: ratingOf(raw.userRating),
-		createdAt: Number.isFinite(created) ? created : null
+		createdAt: Number.isFinite(created) ? created : null,
+		releaseTypes: releaseTypesOf(raw)
 	};
 }
 
@@ -823,6 +837,22 @@ export const subsonicBackend: MediaBackend = {
 	async setRating(cred, id, rating) {
 		// One method for a song, an album or an artist id alike; 0 removes it.
 		await call(cred, 'setRating.view', { id, rating });
+	},
+
+	async getRadioStations(cred) {
+		const body = await call<{ internetRadioStations?: { internetRadioStation?: unknown } }>(
+			cred,
+			'getInternetRadioStations.view'
+		);
+		return asArray(body.internetRadioStations?.internetRadioStation as Record<string, any>[])
+			.filter((station) => station?.id !== undefined && typeof station.streamUrl === 'string')
+			.slice(0, 500)
+			.map((station) => ({
+				id: String(station.id),
+				name: typeof station.name === 'string' && station.name.trim() ? station.name.trim().slice(0, 200) : 'Station',
+				streamUrl: station.streamUrl,
+				homePageUrl: typeof station.homePageUrl === 'string' ? station.homePageUrl : null
+			}));
 	},
 
 	async getLyrics(cred, song): Promise<Lyrics | null> {

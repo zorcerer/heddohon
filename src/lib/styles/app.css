@@ -102,6 +102,14 @@
 	--edge-right: calc(var(--float-gap) + env(safe-area-inset-right, 0px));
 	--edge-bottom: calc(var(--float-gap) + env(safe-area-inset-bottom, 0px));
 	--edge-left: calc(var(--float-gap) + env(safe-area-inset-left, 0px));
+	/*
+	 * The top of a page drawn without the shell (sign-in, a shared link,
+	 * listening together): its usual air, or enough to clear the status bar and
+	 * the Dynamic Island where an installed app draws under them. `--tight` is
+	 * the same for a phone-width layout that starts closer to the top.
+	 */
+	--bare-top: max(var(--space-6), calc(env(safe-area-inset-top, 0px) + var(--space-3)));
+	--bare-top-tight: max(var(--space-4), calc(env(safe-area-inset-top, 0px) + var(--space-2)));
 
 	/*
 	 * Motion. Every duration and curve in the interface is one of these; a
@@ -359,98 +367,106 @@
 	color-scheme: dark;
 }
 
-/* ── Light: Sleek ────────────────────────────────────────────────────────── */
+/* ── Light: Paper ────────────────────────────────────────────────────────── */
 /*
- * Shown in Settings as "Sleek", against "Liquid" for the dark theme; the
+ * Shown in Settings as "Paper", against "Liquid" for the dark theme; the
  * stored values stay `light` and `dark`.
  *
- * A light theme done as light themes are: the page is a soft cool grey, not
- * white, and the panels on it are a step lighter, so nothing on screen is at
- * full brightness except the few things meant to catch the eye. Text is a
- * soft charcoal rather than near-black. The first version ran #f2f3f6 under
- * near-white panes lifted to 125% brightness, with #15171b headlines and an
- * accent at 27% lightness: glare on one side, ink blots on the other.
+ * Parchment and ink, after zor.rip: the page is `#f0e7d5` and the type
+ * `#2e241a`, and every other tone is one of the two mixed into the other,
+ * as that site mixes them, so nothing on screen is a grey. Panes are sheets
+ * a step lighter than the page. The accent is still the artwork's hue, as
+ * in Liquid, taken through a rust ink (`#7a2e12`, zor.rip's link colour) so
+ * that a blue or green cover prints on the paper rather than glowing on it.
+ * See "Paper finish" further down for the texture.
  *
- * The finish borrows from the menus of Nintendo's Wii and 3DS without copying
- * them: pale grey plastic with a gloss along its top edge, fine pinstripes in
- * the room, and a soft ring of the accent around what the pointer is on,
- * rather than a lift in shadow. See "Sleek finish" further down.
+ * It replaced Sleek, a cool grey after the menus of the Wii and the 3DS, on
+ * 2026-09-29.
  */
 [data-theme='light'] {
-	--bg-base: #e3e6eb;
-	--bg-sunken: #d9dde3;
-	--bg-surface: #eef0f3;
-	--bg-raised: #f7f8fa;
-	--bg-hover: #e6e9ee;
-	--bg-active: #dde1e7;
+	--bg-base: #f0e7d5;
+	--bg-sunken: #e6ddcc;
+	--bg-surface: #f5eee1;
+	--bg-raised: #faf5eb;
+	--bg-hover: #eae1cf;
+	--bg-active: #e3d9c6;
 
-	--text-strong: #373c44;
-	--text-default: #4a5059;
-	--text-muted: #6b727c;
-	--text-faint: #858c96;
+	/* Ink, and ink mixed into the paper at 88, 78 and 68 percent. The faint
+	   step holds 4.8:1 on the page. */
+	--text-strong: #2e241a;
+	--text-default: #453b30;
+	--text-muted: #594f43;
+	--text-faint: #6c6256;
 
-	--border-hairline: #d2d7de;
-	--border-strong: #b9c0ca;
+	--border-hairline: #d8cfbe;
+	--border-strong: #c0b6a6;
 
 	/*
-	 * The artwork's hue, bright enough to read as a colour, dark enough to
-	 * hold white type. How light a hue can go and keep 4.5:1 under white
-	 * depends on the hue: yellow and cyan are bright at any lightness, blue
-	 * and violet are dark. So the lightness rises toward blue, where it can
-	 * afford to, and stays low toward yellow: 31% at yellow, green and red,
-	 * 40% at blue and violet. At one flat 27% blue read as black. Worst hues
-	 * computed: yellow 4.9:1 and cyan 4.3:1 against white at full saturation.
+	 * The artwork's hue at the lightness Sleek worked out for white type (31%
+	 * at yellow, green and red, rising to 40% at blue and violet), with the rust
+	 * mixed in: 30 percent for a cover at 45% saturation or more, and all of it
+	 * by 22%, so a grey cover, and the neutral tint while nothing plays, print
+	 * in the rust. A grey cover's hue says little, and a blue mixed half and
+	 * half with the rust in oklab came out a plum grey. The rust is darker than
+	 * every hue at those lightnesses, so the mix holds pale type at least as
+	 * well.
 	 */
+	--rust-share: min(100%, calc(30% + max(0%, 45% - var(--art-s)) * 3));
 	--accent-l: calc(31% + 9% * max(0, cos((var(--art-h) - 255) * 1deg)));
-	--accent: hsl(var(--art-h) min(calc(var(--art-s) + 14%), 58%) var(--accent-l));
-	--accent-strong: hsl(var(--art-h) min(calc(var(--art-s) + 18%), 62%) calc(var(--accent-l) - 5%));
-	/* The ring and the washes: the same hue, pale. */
-	--accent-quiet: hsl(var(--art-h) min(calc(var(--art-s) + 20%), 70%) 78%);
-	--accent-contrast: #ffffff;
+	--accent: color-mix(
+		in oklab,
+		hsl(var(--art-h) min(calc(var(--art-s) + 10%), 52%) var(--accent-l)) calc(100% - var(--rust-share)),
+		#7a2e12
+	);
+	--accent-strong: color-mix(
+		in oklab,
+		hsl(var(--art-h) min(calc(var(--art-s) + 14%), 56%) calc(var(--accent-l) - 5%)) calc(100% - var(--rust-share)),
+		#6a2610
+	);
+	/* The ring and the washes: the same hue, pale, on the paper's warmth. */
+	--accent-quiet: color-mix(in oklab, hsl(var(--art-h) min(calc(var(--art-s) + 16%), 60%) 76%) 65%, #e8d4b0);
+	--accent-contrast: #fbf6ec;
 
-	--positive: #3f7a5c;
-	--warning: #8a6a22;
-	--danger: #b04a53;
+	--positive: #4f6b3a;
+	--warning: #7a5c2e;
+	--danger: #9c2b1b;
 	--highres: var(--accent-strong);
 
-	/* Shadows in the grey of the page, not black: a lit room's shade is blue-grey. */
-	--shadow-mid: 0 8px 22px -12px rgb(54 64 80 / 0.22);
-	--shadow-high: 0 24px 56px -28px rgb(54 64 80 / 0.28);
+	/* Shadows in a brown of the ink, as paper shades, not black or grey. */
+	--shadow-mid: 0 8px 22px -12px rgb(74 52 30 / 0.24);
+	--shadow-high: 0 24px 56px -28px rgb(74 52 30 / 0.3);
 
 	/*
-	 * Frosted plastic rather than clear glass: mostly opaque, the page's own
-	 * grey a step lighter, and no brightness lift. The lift was what put the
-	 * panels at full white.
+	 * Sheets rather than glass: mostly opaque, and what shows through is
+	 * browned a little, as through thin paper.
 	 */
-	--glass-base: 74%;
-	--glass-tint: 7%;
-	--glass-blur: blur(26px) saturate(100%) brightness(1.02);
-	--glass-blur-deep: blur(46px) saturate(96%) brightness(1.03);
-	--glass-base-deep: 84%;
-	--control-face: color-mix(in srgb, var(--bg-raised) 60%, transparent);
-	--control-blur: blur(14px) saturate(100%);
-	--field-face: color-mix(in srgb, var(--bg-sunken) 50%, transparent);
-	--field-face-focus: color-mix(in srgb, var(--bg-raised) 88%, transparent);
-	--field-blur: blur(14px) saturate(100%);
+	--glass-base: 80%;
+	--glass-tint: 5%;
+	--glass-blur: blur(26px) sepia(0.25) saturate(90%);
+	--glass-blur-deep: blur(46px) sepia(0.3) saturate(86%);
+	--glass-base-deep: 88%;
+	--control-face: color-mix(in srgb, var(--bg-raised) 64%, transparent);
+	--control-blur: blur(14px) sepia(0.2);
+	--field-face: color-mix(in srgb, var(--bg-sunken) 55%, transparent);
+	--field-face-focus: color-mix(in srgb, var(--bg-raised) 90%, transparent);
+	--field-blur: blur(14px) sepia(0.2);
 	--field-edge: var(--text-faint-through);
-	--text-muted-through: #555b64;
-	--text-faint-through: #6d737c;
+	--text-muted-through: #4f463b;
+	--text-faint-through: #62584c;
 
 	/*
-	 * On a pale ground a glow has no light to add, so hover takes the room's
-	 * colour and a faint bloom; the ring (see "Sleek finish") does the rest.
+	 * On paper a glow has no light to add, so hover takes the accent and a
+	 * faint bloom of it, like ink spreading into the fibres.
 	 */
-	--text-shade: 0 1px 1px rgb(255 255 255 / 0.6);
+	--text-shade: 0 1px 0 rgb(255 250 238 / 0.55);
 	--glow-color: var(--accent);
-	--glow-text: var(--text-shade),
-		0 0 10px color-mix(in srgb, hsl(var(--art-h) var(--art-s) 60%) 26%, transparent);
-	--glow-icon: drop-shadow(0 0 4px color-mix(in srgb, hsl(var(--art-h) var(--art-s) 56%) 30%, transparent));
-	--glass-edge: rgb(80 92 110 / 0.16);
-	--glass-sheen: rgb(255 255 255 / 0.85);
-	--ambience-strength: 24%;
-	--float-shadow: 0 18px 40px -22px rgb(54 64 80 / 0.32), 0 2px 8px -5px rgb(54 64 80 / 0.18);
+	--glow-text: var(--text-shade), 0 0 8px color-mix(in srgb, var(--accent) 18%, transparent);
+	--glow-icon: drop-shadow(0 0 3px color-mix(in srgb, var(--accent) 24%, transparent));
+	--glass-edge: rgb(46 36 26 / 0.16);
+	--glass-sheen: rgb(255 250 238 / 0.6);
+	--ambience-strength: 16%;
+	--float-shadow: 0 18px 40px -22px rgb(74 52 30 / 0.34), 0 2px 8px -5px rgb(74 52 30 / 0.2);
 
-	/* Headlines at 700: at 800 in charcoal they were the darkest thing on screen. */
 	--display-weight: 700;
 	--display-tracking: -0.028em;
 
@@ -940,7 +956,7 @@ textarea {
 }
 
 :root[data-theme='light'] .aurora {
-	--aurora-strength: 0.32;
+	--aurora-strength: 0.18;
 }
 
 .aurora.still::before {
@@ -1110,20 +1126,32 @@ textarea {
  * around it faded would be more jarring than the fade. Nothing here moves.
  */
 
-/* ── Sleek finish ────────────────────────────────────────────────────────── */
+/* ── Paper finish ────────────────────────────────────────────────────────── */
 /*
- * What the light theme adds beyond its palette, after the menus of the Wii
- * and the 3DS: plastic with a gloss along its top, pinstripes in the room,
- * and a ring of the accent around the thing under the pointer. Each is a
- * layer of paint on something that already exists; nothing here moves, and
- * the glass keeps its blur.
+ * What the light theme adds beyond its palette, after zor.rip: a faint ruled
+ * grid across the room, as on a ledger page, a few stains where the paper has
+ * aged, and sheets for panes, with flat keys pressed into them rather than
+ * raised. Each is a layer of paint on something that already exists; nothing
+ * here moves, and the glass keeps its blur.
  */
 
-/* Fine horizontal lines across the room, 1px in every 5, under the pools. */
+/*
+ * The room: the grid (a line of ink at 5 percent every 34px down, and at 3
+ * percent across), the grain, seven stains in the brown of old paper, then
+ * the artwork's pools, weaker than in Liquid so the paper stays paper.
+ */
 [data-theme='light'] .hh-ambience {
 	background-image:
-		repeating-linear-gradient(to bottom, rgb(255 255 255 / 0.26) 0 1px, transparent 1px 5px),
+		repeating-linear-gradient(to bottom, transparent 0 33px, rgb(46 36 26 / 0.05) 33px 34px),
+		repeating-linear-gradient(to right, transparent 0 33px, rgb(46 36 26 / 0.03) 33px 34px),
 		var(--grain),
+		radial-gradient(ellipse 90px 60px at 12% 18%, rgb(122 90 46 / 0.08), transparent 70%),
+		radial-gradient(ellipse 40px 52px at 88% 9%, rgb(109 79 40 / 0.065), transparent 72%),
+		radial-gradient(ellipse 130px 70px at 76% 61%, rgb(122 90 46 / 0.05), transparent 68%),
+		radial-gradient(ellipse 55px 38px at 27% 74%, rgb(107 74 34 / 0.06), transparent 70%),
+		radial-gradient(ellipse 34px 44px at 53% 33%, rgb(122 90 46 / 0.045), transparent 74%),
+		radial-gradient(ellipse 70px 46px at 6% 52%, rgb(109 79 40 / 0.055), transparent 71%),
+		radial-gradient(ellipse 46px 30px at 94% 87%, rgb(122 90 46 / 0.05), transparent 70%),
 		radial-gradient(
 			90% 70% at 4% 96%,
 			color-mix(in srgb, hsl(var(--art-h) var(--art-s) var(--art-l)) var(--ambience-strength), transparent) 0%,
@@ -1134,25 +1162,15 @@ textarea {
 			color-mix(in srgb, hsl(var(--art-h) var(--art-s) var(--art-l)) calc(var(--ambience-strength) * 0.8), transparent) 0%,
 			transparent 68%
 		),
-		radial-gradient(
-			70% 90% at 78% 100%,
-			color-mix(in srgb, hsl(var(--art-h) var(--art-s) var(--art-l)) calc(var(--ambience-strength) * 0.5), transparent) 0%,
-			transparent 66%
-		),
-		linear-gradient(
-			160deg,
-			color-mix(in srgb, hsl(var(--art-h) var(--art-s) var(--art-l)) calc(var(--ambience-strength) * 0.28), transparent) 0%,
-			transparent 60%
-		),
 		linear-gradient(var(--bg-base), var(--bg-base));
-	background-size: auto, var(--grain-size) var(--grain-size), auto, auto, auto, auto, auto;
-	background-repeat: repeat, repeat, no-repeat, no-repeat, no-repeat, no-repeat, no-repeat;
+	background-size: auto, auto, var(--grain-size) var(--grain-size), auto, auto, auto, auto, auto, auto, auto, auto, auto, auto;
+	background-repeat: repeat, repeat, repeat, no-repeat, no-repeat, no-repeat, no-repeat, no-repeat, no-repeat, no-repeat, no-repeat, no-repeat, no-repeat;
 }
 
-/* A gloss down the top of each pane, fading out over its first 9rem. */
+/* A sheet: lighter toward its top, where the light falls, over the grain. */
 [data-theme='light'] .hh-glass {
 	background-image:
-		linear-gradient(to bottom, rgb(255 255 255 / 0.5), rgb(255 255 255 / 0) 9rem),
+		linear-gradient(to bottom, rgb(255 251 242 / 0.4), rgb(255 251 242 / 0) 9rem),
 		var(--grain),
 		linear-gradient(
 			to bottom,
@@ -1162,33 +1180,37 @@ textarea {
 	background-size: auto, var(--grain-size), auto;
 }
 
-/* Buttons: a rounded plastic key, glossed along its top half, with a bright
-   edge on top and a soft one below. */
+/* Keys: flat, with an ink edge and the paper's light along the top, as if
+   pressed into the sheet. */
 [data-theme='light'] .hh-button {
-	background-image: linear-gradient(to bottom, rgb(255 255 255 / 0.7), rgb(255 255 255 / 0) 60%);
-	border-color: var(--border-hairline);
+	background-image: none;
+	border-color: var(--border-strong);
 	box-shadow:
-		inset 0 1px 0 rgb(255 255 255 / 0.9),
-		0 1px 2px rgb(54 64 80 / 0.12);
+		inset 0 1px 0 rgb(255 250 238 / 0.7),
+		0 1px 0 rgb(46 36 26 / 0.08);
 }
 
 [data-theme='light'] .hh-button--primary {
-	background-image: linear-gradient(to bottom, rgb(255 255 255 / 0.2), rgb(255 255 255 / 0) 55%);
+	background-image: none;
 	border-color: var(--accent-strong);
 	box-shadow:
-		inset 0 1px 0 rgb(255 255 255 / 0.28),
-		0 2px 6px -2px color-mix(in srgb, var(--accent) 45%, transparent);
+		inset 0 1px 0 rgb(255 250 238 / 0.18),
+		0 1px 0 rgb(46 36 26 / 0.12);
 }
 
-/* The selection ring: the pale accent around the key, as those menus light the
-   tile the cursor is on. */
+/* Under the pointer: the pale accent around the key. */
 [data-theme='light'] .hh-button:hover,
 [data-theme='light'] .hh-button:focus-visible {
-	border-color: color-mix(in srgb, var(--accent) 55%, var(--border-hairline));
+	border-color: color-mix(in srgb, var(--accent) 55%, var(--border-strong));
 	box-shadow:
-		inset 0 1px 0 rgb(255 255 255 / 0.9),
-		0 0 0 3px color-mix(in srgb, var(--accent-quiet) 75%, transparent),
-		0 2px 8px -3px color-mix(in srgb, var(--accent) 30%, transparent);
+		inset 0 1px 0 rgb(255 250 238 / 0.7),
+		0 0 0 3px color-mix(in srgb, var(--accent-quiet) 70%, transparent);
+}
+
+/* Selected text in the rust, as on zor.rip. */
+[data-theme='light'] ::selection {
+	background: var(--accent);
+	color: var(--accent-contrast);
 }
 
 /* ── View transitions ────────────────────────────────────────────────────── */
@@ -1326,6 +1348,24 @@ textarea {
  * `press.ts` restarts the animation on every press, so a second tap ripples
  * again rather than finishing the first.
  */
+/*
+ * How far a shelf fades at each end while more cards lie past it; see
+ * `.track` in `MediaShelf.svelte`. Registered as lengths so that the mask
+ * they shape eases between 0 and the fade width. A browser without
+ * `@property` reads the same values and changes them in one step.
+ */
+@property --shelf-fade-start {
+	syntax: '<length>';
+	inherits: false;
+	initial-value: 0px;
+}
+
+@property --shelf-fade-end {
+	syntax: '<length>';
+	inherits: false;
+	initial-value: 0px;
+}
+
 @property --press {
 	syntax: '<number>';
 	/* Read by the `::after`, which inherits it from the button. */

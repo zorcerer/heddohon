@@ -8,9 +8,12 @@
  * state (settings, credentials) says so and puts it back.
  */
 import assert from 'node:assert/strict';
+import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { after, before, describe, test } from 'node:test';
 import { Client, startApp } from './harness.mjs';
-import { startJellyfin, startSubsonic } from './mocks.mjs';
+import { startAutoEq, startJellyfin, startStationHost, startSubsonic } from './mocks.mjs';
 
 let subsonic;
 let jellyfin;
@@ -55,6 +58,36 @@ async function asFreshAccount(username, run) {
 	}
 }
 
+describe('how long a sign-in lasts', () => {
+	/** The session cookie's `Max-Age` from a sign-in, in seconds. */
+	async function lifetime(url) {
+		const response = await fetch(`${url}/login`, {
+			method: 'POST',
+			redirect: 'manual',
+			headers: { origin: url, accept: 'text/html', 'content-type': 'application/x-www-form-urlencoded' },
+			body: new URLSearchParams({ username: 'testuser', password: 'testpass', backend: 'subsonic', next: '/' })
+		});
+		assert.equal(response.status, 303);
+		const cookie = response.headers.getSetCookie().find((c) => /heddohon_session=/.test(c) && !/max-age=0/i.test(c));
+		return Number(/max-age=(\d+)/i.exec(cookie ?? '')?.[1]);
+	}
+
+	test('30 days unless set', async () => {
+		assert.equal(await lifetime(app.url), 30 * 24 * 60 * 60);
+	});
+
+	test('whatever HEDDOHON_SESSION_HOURS says, above 30 days as well as below', async () => {
+		for (const hours of [2000, 12]) {
+			const set = await startApp({ subsonicUrl: subsonic.url, jellyfinUrl: jellyfin.url, env: { HEDDOHON_SESSION_HOURS: String(hours) } });
+			try {
+				assert.equal(await lifetime(set.url), hours * 60 * 60);
+			} finally {
+				await set.stop();
+			}
+		}
+	});
+});
+
 describe('the gate', () => {
 	test('/healthz answers without a session and names no upstream URL', async () => {
 		const response = await fetch(`${app.url}/healthz`);
@@ -62,6 +95,66 @@ describe('the gate', () => {
 		const body = await response.text();
 		assert.match(body, /"status":"ok"/);
 		assert.ok(!body.includes(subsonic.url), 'the upstream URL must not appear');
+	});
+
+	test('the manifest answers without a session and names itself as its related app', async () => {
+		const response = await fetch(`${app.url}/manifest.webmanifest`);
+		assert.equal(response.status, 200);
+		const manifest = await response.json();
+		assert.equal(manifest.display, 'standalone');
+		// What `getInstalledRelatedApps` matches an installed app against.
+		assert.deepEqual(manifest.related_applications, [{ platform: 'webapp', url: `${app.url}/manifest.webmanifest` }]);
+	});
+
+	test('the bars a phone paints are the theme\'s ground: in the page and in the manifest it asks for', async () => {
+		const client = new Client(app.url);
+		await client.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' });
+		const head = async () => (await client.page('/albums')).html.split('</head>')[0];
+		try {
+			const dark = await head();
+			assert.match(dark, /name="theme-color" content="#0b0c0f"/);
+			assert.match(dark, /rel="manifest" href="\/manifest\.webmanifest"/);
+			// An installed app on iOS draws the page under its status bar and the Dynamic Island.
+			assert.match(dark, /apple-mobile-web-app-status-bar-style" content="black-translucent"/);
+
+			await client.json('/api/settings', 'PATCH', { theme: 'light' });
+			const light = await head();
+			assert.match(light, /name="theme-color" content="#f0e7d5"/);
+			assert.match(light, /rel="manifest" href="\/manifest\.webmanifest\?theme=light"/);
+		} finally {
+			await client.json('/api/settings', 'PATCH', { theme: 'dark' });
+		}
+
+		const colours = async (query) => {
+			const manifest = await (await fetch(`${app.url}/manifest.webmanifest${query}`)).json();
+			return [manifest.theme_color, manifest.background_color];
+		};
+		assert.deepEqual(await colours(''), ['#0b0c0f', '#0b0c0f']);
+		assert.deepEqual(await colours('?theme=light'), ['#f0e7d5', '#f0e7d5']);
+		assert.deepEqual(await colours('?theme=%22%3E'), ['#0b0c0f', '#0b0c0f'], 'anything else is the dark one');
+	});
+
+	test('the server vouches for the Android app without a session: its package and the release key, and any key added', async () => {
+		const RELEASE = '3C:D0:5B:A1:45:77:D7:1F:68:4E:61:51:AF:7C:0F:3F:BE:10:15:A8:BB:52:B2:28:FA:54:B4:11:AC:14:DE:52';
+		const response = await fetch(`${app.url}/.well-known/assetlinks.json`);
+		assert.equal(response.status, 200);
+		assert.match(response.headers.get('content-type'), /^application\/json/);
+		assert.deepEqual(await response.json(), [
+			{
+				relation: ['delegate_permission/common.handle_all_urls'],
+				target: { namespace: 'android_app', package_name: 'app.heddohon.android', sha256_cert_fingerprints: [RELEASE] }
+			}
+		]);
+
+		// A key of someone's own, written in lower case, is listed beside it in upper case.
+		const own = Array.from({ length: 32 }, (_, i) => (i + 160).toString(16)).join(':');
+		const added = await startApp({ subsonicUrl: subsonic.url, jellyfinUrl: jellyfin.url, env: { HEDDOHON_ANDROID_FINGERPRINTS: ` ${own} ` } });
+		try {
+			const [statement] = await (await fetch(`${added.url}/.well-known/assetlinks.json`)).json();
+			assert.deepEqual(statement.target.sha256_cert_fingerprints, [RELEASE, own.toUpperCase()]);
+		} finally {
+			await added.stop();
+		}
 	});
 
 	test('a page without a session redirects to sign-in, with the path kept', async () => {
@@ -166,6 +259,16 @@ describe('settings', () => {
 		const bogus = await (await user.json('/api/settings', 'PATCH', { crossfadeWithinAlbum: 'yes' })).json();
 		assert.equal(bogus.crossfadeWithinAlbum, true, 'a value that is not a boolean keeps the one stored');
 		await user.json('/api/settings', 'PATCH', { crossfadeWithinAlbum: false });
+	});
+
+	test('the install card is not dismissed until it is, and takes only a boolean', async () => {
+		const before = await (await user.json('/api/settings', 'PATCH', {})).json();
+		assert.equal(before.installCardDismissed, false);
+		const on = await (await user.json('/api/settings', 'PATCH', { installCardDismissed: true })).json();
+		assert.equal(on.installCardDismissed, true);
+		const bogus = await (await user.json('/api/settings', 'PATCH', { installCardDismissed: 'no' })).json();
+		assert.equal(bogus.installCardDismissed, true, 'a value that is not a boolean keeps the one stored');
+		await user.json('/api/settings', 'PATCH', { installCardDismissed: false });
 	});
 
 	test('a saved theme is in the first byte of HTML', async () => {
@@ -1038,6 +1141,16 @@ describe('listening history', () => {
 		});
 	});
 
+	test('Recently played and Your listening are tabs of each other, under History on the rail', async () => {
+		const current = (html) => /<nav class="tabs[^"]*" aria-label="Listening history">[\s\S]*?aria-current="page"[^>]*>([^<]+)</.exec(html)?.[1];
+		const rail = (html) => /title="([^"]+)" aria-current="page"/.exec(html)?.[1];
+		for (const [path, tab] of [['/history', 'Recently played'], ['/stats', 'Your listening']]) {
+			const { html } = await user.page(path);
+			assert.equal(current(html), tab, `${path} does not mark its tab`);
+			assert.equal(rail(html), 'History', `${path} does not light History on the rail`);
+		}
+	});
+
 	test('Jellyfin plays are noted too', async () => {
 		const client = new Client(app.url);
 		await client.signIn({ username: 'jfuser', password: 'jfpass', backend: 'jellyfin' });
@@ -1105,6 +1218,76 @@ describe('listening history', () => {
 		} finally {
 			jellyfin.state.played = [];
 		}
+	});
+
+	/** The album links on the home page's shelf titled `title`, in order. */
+	const shelfAlbums = (html, title) => {
+		const section = html.split(`>${title}<`)[1]?.split('</section>')[0] ?? '';
+		return [...section.matchAll(/href="\/albums\/([^"]+)"/g)].map((m) => m[1]);
+	};
+
+	test('Rediscover offers an album played three times or more, and not in the last six months', async () => {
+		await asFreshAccount('rediscover', async (client) => {
+			await client.json('/api/settings', 'PATCH', { reportPlayback: false });
+			subsonic.state.played.set('s1a', daysAgo(200));
+			subsonic.state.played.set('s1b', daysAgo(200));
+			subsonic.state.played.set('s2a', daysAgo(200));
+			try {
+				await importHistory(client);
+				assert.doesNotMatch((await client.page('/')).html, />Rediscover</, 'two plays of an album count as often');
+
+				// A second, older play of s1a makes three for Album 1.
+				subsonic.state.played.set('s1a', daysAgo(250));
+				assert.equal((await importHistory(client)).imported, 1);
+				const { response, html } = await client.page('/');
+				assert.equal(response.status, 200, explain('the home page failed'));
+				assert.deepEqual(shelfAlbums(html, 'Rediscover'), ['al1']);
+
+				await play(client, 's1b');
+				assert.doesNotMatch((await client.page('/')).html, />Rediscover</, 'an album played today is still offered');
+			} finally {
+				subsonic.state.played.clear();
+			}
+		});
+	});
+
+	test('On this day names the albums played on the asked date in earlier years, in the asked time zone', async () => {
+		await asFreshAccount('anniversary', async (client) => {
+			const now = new Date();
+			const utc = (years, days, hours = 12) =>
+				new Date(Date.UTC(now.getUTCFullYear() - years, now.getUTCMonth(), now.getUTCDate() + days, hours));
+			const onThisDay = async (date, offset) => {
+				const response = await client.request(`/api/on-this-day?date=${date.toISOString().slice(0, 10)}&offset=${offset}`);
+				return response.ok ? (await response.json()).albums : response.status;
+			};
+			subsonic.state.played.set('s3a', utc(1, 0).toISOString());
+			subsonic.state.played.set('s4a', utc(2, 0).toISOString());
+			subsonic.state.played.set('s4b', utc(2, 0, 13).toISOString());
+			subsonic.state.played.set('s5a', utc(1, -5).toISOString());
+			subsonic.state.played.set('s6a', utc(0, -2).toISOString());
+			try {
+				assert.equal((await importHistory(client)).imported, 5);
+				const today = await onThisDay(utc(0, 0), 0);
+				assert.deepEqual(
+					today.map((album) => [album.id, album.year, album.plays]),
+					[
+						['al3', now.getUTCFullYear() - 1, 1],
+						['al4', now.getUTCFullYear() - 2, 2]
+					]
+				);
+				assert.equal(today[0].name, 'Album 3');
+				// Noon in UTC is two in the morning of the next day at UTC+14.
+				assert.deepEqual(await onThisDay(utc(0, 0), 840), []);
+				assert.deepEqual((await onThisDay(utc(0, 1), 840)).map((album) => album.id), ['al3', 'al4']);
+
+				assert.doesNotMatch((await client.page('/')).html, />On this day</, 'the server drew the shelf in its own time zone');
+				for (const query of ['date=2026-02-30&offset=0', 'date=2026-9-29&offset=0', 'date=9999-01-01&offset=0', `date=${utc(0, 0).toISOString().slice(0, 10)}&offset=900`, 'offset=0']) {
+					assert.equal((await client.request(`/api/on-this-day?${query}`)).status, 400, query);
+				}
+			} finally {
+				subsonic.state.played.clear();
+			}
+		});
 	});
 });
 
@@ -2323,5 +2506,398 @@ describe('the security review of 2026-09-29', () => {
 		assert.equal(response.status, 404);
 		assert.match(response.headers.get('content-type') ?? '', /^text\/html/);
 		assert.match(response.headers.get('content-security-policy') ?? '', /default-src 'none'/);
+	});
+});
+describe('headphone corrections from AutoEq', () => {
+	let autoeq;
+	let on;
+	let listener;
+
+	before(async () => {
+		autoeq = await startAutoEq();
+		on = await startApp({
+			subsonicUrl: subsonic.url,
+			jellyfinUrl: jellyfin.url,
+			env: { HEDDOHON_AUTOEQ: 'true', HEDDOHON_AUTOEQ_URL: autoeq.url }
+		});
+		listener = new Client(on.url);
+		await listener.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' });
+	});
+
+	after(async () => {
+		await on?.stop();
+		await autoeq?.close();
+	});
+
+	const search = async (query, client = listener) => {
+		const response = await client.request(`/api/autoeq?q=${encodeURIComponent(query)}`);
+		return { status: response.status, results: response.ok ? (await response.json()).results : null };
+	};
+	const profile = (id, client = listener) => client.request(`/api/autoeq/profile?id=${encodeURIComponent(id)}`);
+
+	test('is off unless asked for', async () => {
+		const off = new Client(app.url);
+		await off.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' });
+		assert.equal((await search('hd 650', off)).status, 404);
+		assert.equal((await profile('oratory1990/over-ear/Sennheiser HD 650', off)).status, 404);
+	});
+
+	test('needs a session', async () => {
+		assert.equal((await search('hd 650', new Client(on.url))).status, 401);
+	});
+
+	test('a search finds each measurement of a headphone, and reads the index once', async () => {
+		const found = await search('hd 650');
+		assert.equal(found.status, 200);
+		assert.deepEqual(
+			found.results.map((entry) => [entry.id, entry.source, entry.rig]),
+			[
+				['oratory1990/over-ear/Sennheiser HD 650', 'oratory1990', null],
+				['crinacle/GRAS 43AG-7 over-ear/Sennheiser HD 650', 'crinacle', 'GRAS 43AG-7'],
+				['crinacle/GRAS 43AG-7 over-ear/Sennheiser HD 650 (2020)', 'crinacle', 'GRAS 43AG-7']
+			]
+		);
+		assert.deepEqual((await search('aero anc')).results.map((entry) => entry.name), ['1MORE Aero (ANC Off)']);
+		assert.deepEqual((await search('climber')).results, [], 'a path that climbs out of the directory is not listed');
+		assert.deepEqual((await search('h')).results, [], 'one letter is not searched for');
+		assert.equal(autoeq.calls.get('index'), 1);
+	});
+
+	test('a profile comes back as numbers, and is fetched once', async () => {
+		autoeq.calls.reset();
+		const response = await profile('oratory1990/over-ear/Sennheiser HD 650');
+		assert.equal(response.status, 200);
+		assert.deepEqual(await response.json(), {
+			id: 'oratory1990/over-ear/Sennheiser HD 650',
+			name: 'Sennheiser HD 650',
+			source: 'oratory1990',
+			preamp: -6.1,
+			filters: [
+				{ type: 'lowshelf', frequency: 105, gain: 6.4, q: 0.7 },
+				{ type: 'peaking', frequency: 8800, gain: 5.1, q: 1.42 },
+				{ type: 'peaking', frequency: 118, gain: -3.1, q: 0.5 },
+				{ type: 'highshelf', frequency: 10000, gain: -2.1, q: 0.7 }
+			]
+		});
+		assert.equal((await profile('oratory1990/over-ear/Sennheiser HD 650')).status, 200);
+		assert.equal(autoeq.calls.get('profile'), 1);
+	});
+
+	test('an id the index does not list is never asked for upstream', async () => {
+		autoeq.calls.reset();
+		for (const id of ['../../secret/Climber', 'oratory1990/over-ear/Nothing', 'oratory1990/over-ear/Sennheiser HD 650/../x']) {
+			assert.equal((await profile(id)).status, 404, id);
+		}
+		assert.equal(autoeq.calls.get('profile'), 0);
+	});
+
+	test('a profile whose file is missing answers 502', async () => {
+		assert.equal((await profile('crinacle/GRAS 43AG-7 over-ear/Sennheiser HD 650')).status, 502);
+	});
+
+	test('a restart reads the index from the data directory, and a failed fetch leaves it in use', async () => {
+		// A data directory of its own with the index the first app stored: two
+		// processes do not share a database.
+		const dataDir = mkdtempSync(join(tmpdir(), 'heddohon-e2e-'));
+		const file = join(dataDir, 'autoeq-index.json');
+		copyFileSync(join(on.dataDir, 'autoeq-index.json'), file);
+		const stored = JSON.parse(readFileSync(file, 'utf8'));
+		assert.equal(stored.etag, '"v1"');
+		autoeq.calls.reset();
+		const again = await startApp({
+			subsonicUrl: subsonic.url,
+			jellyfinUrl: jellyfin.url,
+			dataDir,
+			env: { HEDDOHON_AUTOEQ: 'true', HEDDOHON_AUTOEQ_URL: autoeq.url }
+		});
+		try {
+			const client = new Client(again.url);
+			await client.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' });
+			assert.equal((await search('hd 650', client)).results.length, 3);
+			assert.equal(autoeq.calls.get('index') + autoeq.calls.get('index304'), 0, 'a day has not passed');
+		} finally {
+			await again.stop();
+		}
+
+		// A day on, by the date in the file: the server asks with the ETag it kept.
+		// Stopping an app removes its data directory, so it is made again each time.
+		for (const [down, expected] of [
+			[false, { index304: 1, results: 3 }],
+			[true, { index304: 0, results: 3 }]
+		]) {
+			mkdirSync(dataDir, { recursive: true });
+			writeFileSync(file, JSON.stringify({ ...stored, fetchedAt: Date.now() - 25 * 60 * 60 * 1000 }));
+			autoeq.calls.reset();
+			autoeq.state.down = down;
+			const aged = await startApp({
+				subsonicUrl: subsonic.url,
+				jellyfinUrl: jellyfin.url,
+				dataDir,
+				env: { HEDDOHON_AUTOEQ: 'true', HEDDOHON_AUTOEQ_URL: autoeq.url }
+			});
+			try {
+				const client = new Client(aged.url);
+				await client.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' });
+				assert.equal((await search('hd 650', client)).results.length, expected.results, `down=${down}`);
+				assert.equal(autoeq.calls.get('index304'), expected.index304, `down=${down}`);
+				assert.equal(autoeq.calls.get('index'), 0);
+			} finally {
+				autoeq.state.down = false;
+				await aged.stop();
+			}
+		}
+	});
+});
+
+
+describe('log files', () => {
+	const day = (daysAgo) => new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+	/** A data directory with log files of these ages, in days, and a file that is not a log. */
+	function seeded(ages) {
+		const dataDir = mkdtempSync(join(tmpdir(), 'heddohon-e2e-'));
+		mkdirSync(join(dataDir, 'logs'));
+		for (const age of ages) writeFileSync(join(dataDir, 'logs', `heddohon-${day(age)}.log`), 'old\n');
+		writeFileSync(join(dataDir, 'logs', 'notes.txt'), 'kept\n');
+		return dataDir;
+	}
+	const start = (dataDir, env) =>
+		startApp({ subsonicUrl: subsonic.url, jellyfinUrl: jellyfin.url, dataDir, env: { HEDDOHON_LOG_LEVEL: 'info', ...env } });
+
+	test('one file a day under the data directory, and files more than 7 days old are deleted', async () => {
+		const dataDir = seeded([3, 7, 8, 400]);
+		const logged = await start(dataDir, {});
+		try {
+			const client = new Client(logged.url);
+			await client.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' });
+			assert.deepEqual(
+				readdirSync(join(dataDir, 'logs')).sort(),
+				[`heddohon-${day(0)}.log`, `heddohon-${day(3)}.log`, `heddohon-${day(7)}.log`, 'notes.txt'].sort()
+			);
+			const today = readFileSync(join(dataDir, 'logs', `heddohon-${day(0)}.log`), 'utf8');
+			assert.match(today, / info  started .*logFiles=7d/);
+			assert.match(today, / info  signed-in username=testuser /);
+			// What the file holds is what the logger sent to stdout and stderr
+			// (the line the Node adapter prints as it starts to listen is not its own).
+			const printed = logged.output().trim().split('\n').filter((line) => /^\d{4}-\d{2}-\d{2}T/.test(line));
+			assert.deepEqual(today.trim().split('\n'), printed);
+			assert.ok(!today.includes('testpass'));
+		} finally {
+			await logged.stop();
+		}
+	});
+
+	test('HEDDOHON_LOG_KEEP_DAYS sets how many days are kept, and 0 writes no files', async () => {
+		const longer = seeded([8, 29, 31]);
+		const kept = await start(longer, { HEDDOHON_LOG_KEEP_DAYS: '30' });
+		try {
+			assert.deepEqual(
+				readdirSync(join(longer, 'logs')).sort(),
+				[`heddohon-${day(0)}.log`, `heddohon-${day(8)}.log`, `heddohon-${day(29)}.log`, 'notes.txt'].sort()
+			);
+		} finally {
+			await kept.stop();
+		}
+
+		const none = seeded([400]);
+		const off = await start(none, { HEDDOHON_LOG_KEEP_DAYS: '0' });
+		try {
+			assert.deepEqual(readdirSync(join(none, 'logs')).sort(), [`heddohon-${day(400)}.log`, 'notes.txt'].sort(), 'nothing written, nothing deleted');
+			assert.match(off.output(), /started .*logFiles=off/);
+		} finally {
+			await off.stop();
+		}
+	});
+
+	test('a logs directory that cannot be written is reported once, and the server runs', async () => {
+		const dataDir = mkdtempSync(join(tmpdir(), 'heddohon-e2e-'));
+		// A file where the directory should be.
+		writeFileSync(join(dataDir, 'logs'), '');
+		const blocked = await start(dataDir, {});
+		try {
+			assert.equal((await fetch(`${blocked.url}/healthz`)).status, 200);
+			assert.equal(blocked.output().split('\n').filter((line) => line.includes('log-file-failed')).length, 1);
+			assert.match(blocked.output(), / info  started /);
+		} finally {
+			await blocked.stop();
+		}
+	});
+});
+
+describe('internet radio', () => {
+	let host;
+	let on;
+	let listener;
+	const station = (id, path, extra = {}) => ({ id, name: `Station ${id}`, streamUrl: `${host.url}${path}`, ...extra });
+
+	before(async () => {
+		host = await startStationHost();
+		subsonic.state.radio = [
+			station('1', '/live', { homePageUrl: 'https://radio.example/one' }),
+			station('2', '/moved', { homePageUrl: 'javascript:alert(1)' }),
+			station('3', '/list.m3u'),
+			station('4', '/list.pls'),
+			station('5', '/hls.m3u8'),
+			station('6', '/page'),
+			station('7', '/loop'),
+			{ id: '8', name: 'By name', streamUrl: `http://localhost:${new URL(host.url).port}/live` },
+			{ id: '9', name: 'A file', streamUrl: 'file:///etc/passwd' },
+			{ id: '10', name: 'With a password', streamUrl: `http://user:pass@127.0.0.1:${new URL(host.url).port}/live` }
+		];
+		// The mock host is on loopback, which a station may not be unless this is set.
+		on = await startApp({ subsonicUrl: subsonic.url, jellyfinUrl: jellyfin.url, env: { HEDDOHON_RADIO_PRIVATE: 'true' } });
+		listener = new Client(on.url);
+		await listener.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' });
+	});
+
+	after(async () => {
+		subsonic.state.radio = [];
+		await on?.stop();
+		await host?.close();
+	});
+
+	const stream = (id, client = listener) => client.request(`/api/radio/${id}/stream`);
+
+	test('the page lists the stations, with a link only to an http or https page, and never the stream address', async () => {
+		const { response, html } = await listener.page('/radio');
+		assert.equal(response.status, 200);
+		assert.match(html, /Station 1/);
+		assert.match(html, /href="https:\/\/radio\.example\/one"/);
+		assert.ok(!html.includes('javascript:'), 'a page address that is not http or https is dropped');
+		assert.ok(!html.includes(host.url), 'the stream address stays on the server');
+	});
+
+	test('a station plays through the server: directly, after a redirect, and from an .m3u or a .pls', async () => {
+		for (const id of ['1', '2', '3', '4']) {
+			host.calls.reset();
+			const response = await stream(id);
+			assert.equal(response.status, 200, `station ${id}`);
+			assert.equal(response.headers.get('content-type'), 'audio/mpeg');
+			assert.equal(response.headers.get('cache-control'), 'no-store');
+			assert.equal((await response.arrayBuffer()).byteLength, 2000, `station ${id}`);
+			assert.equal(host.calls.get('/live'), 1, `station ${id}`);
+		}
+	});
+
+	test('what is not an audio stream is not passed on', async () => {
+		for (const id of ['5', '6']) {
+			const response = await stream(id);
+			assert.equal(response.status, 502, `station ${id}`);
+			assert.ok(!(await response.text()).includes('secret'));
+		}
+		assert.equal((await stream('7')).status, 502, 'a redirect to itself stops after three hops');
+		assert.equal(host.calls.get('/loop'), 4);
+	});
+
+	test('an address that is not plain http or https, or carries a password, is refused without a request', async () => {
+		host.calls.reset();
+		assert.equal((await stream('9')).status, 502);
+		assert.equal((await stream('10')).status, 502);
+		assert.equal(host.calls.get('/live'), 0);
+	});
+
+	test('an id the music server does not list is a 404, and a session is needed', async () => {
+		assert.equal((await stream('nope')).status, 404);
+		assert.equal((await stream('1', new Client(on.url))).status, 401);
+	});
+
+	test('a station on a private address is refused unless HEDDOHON_RADIO_PRIVATE is set, by address and by name', async () => {
+		const guarded = new Client(app.url);
+		await guarded.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' });
+		host.calls.reset();
+		assert.equal((await stream('1', guarded)).status, 502, 'a loopback address');
+		assert.equal((await stream('8', guarded)).status, 502, 'a name that resolves to loopback');
+		assert.equal(host.calls.get('/live'), 0, 'nothing was sent to it');
+		// With the setting, the same name is reached.
+		assert.equal((await stream('8')).status, 200);
+	});
+
+	test('HEDDOHON_RADIO=false takes the page and the route away, and Jellyfin has neither', async () => {
+		const off = await startApp({ subsonicUrl: subsonic.url, jellyfinUrl: jellyfin.url, env: { HEDDOHON_RADIO: 'false' } });
+		try {
+			const client = new Client(off.url);
+			await client.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' });
+			assert.equal((await client.page('/radio')).response.status, 404);
+			assert.equal((await stream('1', client)).status, 404);
+		} finally {
+			await off.stop();
+		}
+		const jf = new Client(on.url);
+		await jf.signIn({ username: 'jfuser', password: 'jfpass', backend: 'jellyfin' });
+		assert.equal((await jf.page('/radio')).response.status, 404);
+		assert.equal((await stream('1', jf)).status, 404);
+	});
+});
+
+describe('an artist\'s releases by kind', () => {
+	/** The headings of the release sections on an artist page, in order, each with its albums. */
+	async function sections(client, artistId) {
+		const { response, html } = await client.page(`/artists/${artistId}`);
+		assert.equal(response.status, 200);
+		const found = [];
+		for (const part of html.split('<section').slice(1)) {
+			const title = /<h2[^>]*>([^<]+)<\/h2>/.exec(part)?.[1];
+			const albums = [...part.matchAll(/href="\/albums\/([^"]+)"/g)].map((match) => match[1]);
+			if (title && ['Albums', 'EPs', 'Singles', 'Live', 'Compilations'].includes(title)) found.push([title, [...new Set(albums)]]);
+		}
+		return found;
+	}
+
+	test('what the server calls a release decides, and its size where the server does not say', async () => {
+		// An account of its own: an artist read in the last minute is held per account.
+		await asFreshAccount('releases', async (client) => {
+		try {
+			subsonic.state.releaseTypes.set('al0', ['Album']);
+			subsonic.state.releaseTypes.set('al5', ['EP']);
+			subsonic.state.releaseTypes.set('al6', ['Album', 'Live']);
+			subsonic.state.releaseTypes.set('al7', ['Single', 'Compilation']);
+			subsonic.state.albumShapes.set('al8', { songCount: 12, duration: 45 * 60 });
+			subsonic.state.albumShapes.set('al9', { songCount: 5, duration: 20 * 60 });
+			subsonic.state.albumShapes.set('al10', { songCount: 3, duration: 60 * 60 });
+			subsonic.state.albumShapes.set('al11', { isCompilation: true });
+
+			// Artist 0 has two records: one the server calls an album, one it says nothing about (two tracks, six minutes).
+			assert.deepEqual(await sections(client, 'ar0'), [
+				['Albums', ['al0']],
+				['Singles', ['al0x']]
+			]);
+			assert.deepEqual(await sections(client, 'ar5'), [['EPs', ['al5']]]);
+			assert.deepEqual(await sections(client, 'ar6'), [['Live', ['al6']]], 'a live album is listed as live');
+			assert.deepEqual(await sections(client, 'ar7'), [['Compilations', ['al7']]]);
+			assert.deepEqual(await sections(client, 'ar8'), [['Albums', ['al8']]], '12 tracks, 45 minutes');
+			assert.deepEqual(await sections(client, 'ar9'), [['EPs', ['al9']]], '5 tracks, 20 minutes');
+			assert.deepEqual(await sections(client, 'ar10'), [['Albums', ['al10']]], '3 tracks of 20 minutes are not a single');
+			assert.deepEqual(await sections(client, 'ar11'), [['Compilations', ['al11']]], 'isCompilation');
+		} finally {
+			subsonic.state.releaseTypes.clear();
+			subsonic.state.albumShapes.clear();
+		}
+		});
+	});
+});
+
+describe('the folder view', () => {
+	const rail = async (client) => /href="\/folders"/.test((await client.page('/albums')).html);
+
+	test('is there unless HEDDOHON_FOLDERS=false, which takes the page, its link and playing a folder away', async () => {
+		const on = new Client(app.url);
+		await on.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' });
+		assert.equal((await on.page('/folders')).response.status, 200);
+		assert.equal(await rail(on), true);
+
+		const off = await startApp({ subsonicUrl: subsonic.url, jellyfinUrl: jellyfin.url, env: { HEDDOHON_FOLDERS: 'false' } });
+		try {
+			const client = new Client(off.url);
+			await client.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' });
+			assert.equal((await client.page('/folders')).response.status, 404);
+			assert.equal((await client.page('/folders/anything')).response.status, 404);
+			assert.equal((await client.json('/api/tracks', 'POST', { source: 'folder', id: 'anything' })).status, 404);
+			assert.equal(await rail(client), false, 'no link in the rail');
+			assert.ok(!/href="\/folders"/.test((await client.page('/library')).html), 'nor under Library');
+			// The rest of the library is as it was.
+			assert.equal((await client.page('/albums')).response.status, 200);
+			assert.equal((await client.json('/api/tracks', 'POST', { source: 'album', id: 'al1' })).status, 200);
+		} finally {
+			await off.stop();
+		}
 	});
 });

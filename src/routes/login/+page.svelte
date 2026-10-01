@@ -441,6 +441,7 @@
 		justify-content: center;
 		gap: var(--space-6) var(--space-7);
 		padding: var(--space-6) var(--space-5);
+		padding-top: var(--bare-top);
 		grid-template-columns: minmax(0, 23rem) minmax(0, 25rem);
 		grid-template-areas:
 			'intro panel'
@@ -896,7 +897,7 @@
 				'colophon';
 			gap: var(--space-5);
 			align-content: start;
-			padding-top: var(--space-6);
+			padding-top: var(--bare-top);
 		}
 
 		.wordmark {

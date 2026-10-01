@@ -182,6 +182,31 @@ jobs:
             --notes-file release-notes.md \
             docker-compose.yml docker-compose.dev.yml
 
+  # The desktop app for Linux and Windows, as this version, attached to the
+  # release once it exists. A failure here leaves the release and its image as they are.
+  desktop:
+    needs: [plan, publish]
+    permissions:
+      contents: write
+    uses: ./.github/workflows/desktop.yml
+    with:
+      version: ${{ needs.plan.outputs.version }}
+      upload: true
+
+  # The Android app, as this version and signed with the release key,
+  # attached to the release once it exists. A failure here leaves the release
+  # and its image as they are.
+  android:
+    needs: [plan, publish]
+    permissions:
+      contents: write
+    uses: ./.github/workflows/android.yml
+    with:
+      version: ${{ needs.plan.outputs.version }}
+    secrets:
+      ANDROID_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+
   # The repository's package.json follows the releases, so a `:dev` build,
   # which reports that version with `-dev.<short sha>`, counts on from the last
   # one. The commit goes to `dev` and reaches `main` with the next release. A

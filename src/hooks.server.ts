@@ -1,7 +1,7 @@
 import { isRedirect, redirect, type Handle, type HandleServerError, type RequestEvent } from '@sveltejs/kit';
 import { version } from '$app/environment';
 import { resolveSession } from '$lib/server/auth';
-import { getSettings, DEFAULT_SETTINGS } from '$lib/server/settings';
+import { getSettings, DEFAULT_SETTINGS, THEME_GROUND } from '$lib/server/settings';
 import { ConfigError, config } from '$lib/server/config';
 import { FALLBACK_HTML_CSP, SECURITY_HEADERS } from '$lib/headers';
 import {
@@ -14,6 +14,7 @@ import {
 	redact,
 	withRequest
 } from '$lib/server/log';
+import { logKeepDays } from '$lib/server/logfile';
 
 /**
  * Routes reachable without a session. Everything else requires one.
@@ -22,7 +23,7 @@ import {
  * Every route under it resolves the token itself and serves the one song the
  * link names, and nothing under it accepts a write. See `lib/server/shares.ts`.
  */
-const PUBLIC_ROUTES = ['/login', '/healthz', '/share', '/cast', '/together', '/manifest.webmanifest'];
+const PUBLIC_ROUTES = ['/login', '/healthz', '/share', '/cast', '/together', '/manifest.webmanifest', '/.well-known/assetlinks.json'];
 
 const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
@@ -100,6 +101,7 @@ function announce(): void {
 			build: version,
 			node: process.versions.node,
 			logLevel: logLevel(),
+			logFiles: logKeepDays() > 0 ? `${logKeepDays()}d` : 'off',
 			data: cfg.dataDir,
 			covers: cfg.coverCacheBytes > 0 ? `${Math.round(cfg.coverCacheBytes / 1024 / 1024)}MB` : 'off',
 			sharing: cfg.sharing ? 'on' : 'off',
@@ -311,6 +313,20 @@ const handleRequest: Handle = async ({ event, resolve }) => {
 		transformPageChunk: ({ html }) =>
 			html
 				.replace('data-theme="dark"', `data-theme="${event.locals.settings?.theme ?? DEFAULT_SETTINGS.theme}"`)
+				// The bars a phone paints around the page, in the theme's ground from
+				// the first byte as well: black bars above and below the light theme
+				// were the dark theme's. The manifest is asked for by theme, since it
+				// is fetched without a cookie and cannot know the account.
+				.replace(
+					'name="theme-color" content="#0b0c0f"',
+					`name="theme-color" content="${THEME_GROUND[event.locals.settings?.theme ?? DEFAULT_SETTINGS.theme]}"`
+				)
+				.replace(
+					'href="/manifest.webmanifest"',
+					(event.locals.settings?.theme ?? DEFAULT_SETTINGS.theme) === 'light'
+						? 'href="/manifest.webmanifest?theme=light"'
+						: 'href="/manifest.webmanifest"'
+				)
 				// Same reason as the theme: the scale is known on the server, so it
 				// is in the first byte rather than applied after hydration, which
 				// would resize the whole page in front of the reader.

@@ -9,9 +9,80 @@
 	import { player } from '$lib/client/player.svelte';
 	import { EQ_FREQUENCIES, EQ_RANGE_DB } from '$lib/client/audiochain';
 	import { EQ_PRESETS, processing } from '$lib/client/processing.svelte';
+	import { APP_KINDS, APP_RELEASES, installer, INSTALL_STEPS } from '$lib/client/install.svelte';
+
+	/** One of Heddohon's own apps for this system, where there is one; see `install.svelte.ts`. */
+	const appKind = $derived(
+		installer.route === 'app-windows' || installer.route === 'app-linux' || installer.route === 'app-android' ? APP_KINDS[installer.route] : null
+	);
 
 	/** A band's centre as it is printed under its slider: 31, 1k, 16k. */
 	const bandLabel = (hz: number) => (hz >= 1000 ? `${hz / 1000}k` : String(hz));
+
+	/*
+	 * The headphone correction: a search of the AutoEq database where the
+	 * server offers it (`data.autoeq`), and a ParametricEQ.txt read in this
+	 * browser either way.
+	 */
+	interface HeadphoneMatch {
+		id: string;
+		name: string;
+		source: string;
+		rig: string | null;
+	}
+	let headphoneQuery = $state('');
+	let headphoneMatches = $state<HeadphoneMatch[] | null>(null);
+	let correctionError = $state<string | null>(null);
+	let correctionBusy = $state(false);
+	let searchSerial = 0;
+	let searchTimer: ReturnType<typeof setTimeout> | undefined;
+
+	/** Asks 250ms after the last key, and drops an answer that a later one has overtaken. */
+	function searchHeadphones() {
+		clearTimeout(searchTimer);
+		const query = headphoneQuery.trim();
+		const serial = ++searchSerial;
+		correctionError = null;
+		if (query.length < 2) {
+			headphoneMatches = null;
+			return;
+		}
+		searchTimer = setTimeout(async () => {
+			const response = await fetch(`/api/autoeq?q=${encodeURIComponent(query)}`).catch(() => null);
+			if (serial !== searchSerial) return;
+			if (!response?.ok) {
+				headphoneMatches = null;
+				correctionError = 'The headphone database could not be reached. Try again later.';
+				return;
+			}
+			headphoneMatches = (await response.json()).results as HeadphoneMatch[];
+		}, 250);
+	}
+
+	async function chooseHeadphone(match: HeadphoneMatch) {
+		correctionBusy = true;
+		correctionError = null;
+		const chosen = await processing.chooseCorrection(match.id);
+		correctionBusy = false;
+		if (!chosen) {
+			correctionError = 'That correction could not be fetched. Try again later.';
+			return;
+		}
+		headphoneQuery = '';
+		headphoneMatches = null;
+	}
+
+	async function importCorrection(input: HTMLInputElement) {
+		const file = input.files?.[0];
+		// Emptied so that choosing the same file again is a change.
+		input.value = '';
+		if (!file) return;
+		correctionError = (await processing.importCorrection(file))
+			? null
+			: 'That file holds no filters. It should be a ParametricEQ.txt, with lines such as "Filter 1: ON PK Fc 105 Hz Gain 6.4 dB Q 0.70".';
+	}
+
+	const signed = (db: number) => `${db > 0 ? '+' : ''}${db.toFixed(1)}`;
 	import type { ActionData, PageData } from './$types';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -33,6 +104,12 @@
 			body: JSON.stringify({ historyDays: days })
 		}).catch(() => undefined);
 	}
+	/** The session lifetime in days where it is a whole number of them, and in hours otherwise. */
+	const sessionLifetime = $derived(
+		data.sessionMaxHours % 24 === 0
+			? `${data.sessionMaxHours / 24} day${data.sessionMaxHours === 24 ? '' : 's'}`
+			: `${data.sessionMaxHours} hour${data.sessionMaxHours === 1 ? '' : 's'}`
+	);
 	let withdrawing = $state<string | null>(null);
 	let ending = $state<string | null>(null);
 
@@ -220,12 +297,12 @@
 				<span class="label">
 					Theme
 					<span class="hint hh-muted">
-						Liquid is dark glass lit by the artwork. Sleek is light, in soft greys.
+						Liquid is dark glass lit by the artwork. Paper is parchment and ink, tinted by it.
 					</span>
 				</span>
 				<select class="hh-input control" name="theme" bind:value={settings.theme}>
 					<option value="dark">Liquid</option>
-					<option value="light">Sleek</option>
+					<option value="light">Paper</option>
 				</select>
 			</label>
 
@@ -418,6 +495,152 @@
 				</span>
 				<input type="checkbox" name="reportPlayback" bind:checked={settings.reportPlayback} />
 			</label>
+
+			<!--
+				Unlike the rows above, these are kept in this browser rather than on the
+				account, for the headphones or speakers it plays through, and apply as
+				they are changed rather than on save. Their inputs have no names, so
+				the save form does not post them.
+			-->
+			<h3 class="subhead">Equaliser</h3>
+			<p class="hh-muted note">Kept in this browser only. Applied as you change it.</p>
+
+			<label class="row switch">
+				<span class="label">
+					Process audio in this browser
+					<span class="hint hh-muted">
+						Plays through Web Audio at the output device's rate, which the equaliser needs. Volume
+						normalisation can then raise quiet tracks as well as lower loud ones, and a crossfade works on
+						an iPhone or iPad.
+						{#if player.processing && !processing.enabled}
+							Switched off; this page keeps processing until it is loaded again.
+						{/if}
+					</span>
+				</span>
+				<input
+					type="checkbox"
+					checked={processing.enabled}
+					onchange={(event) => processing.setEnabled(event.currentTarget.checked)}
+				/>
+			</label>
+
+			{#if processing.enabled}
+				<label class="row" class:set-aside={processing.bandsOff}>
+					<span class="label">
+						Preset
+						{#if processing.bandsOff}
+							<span class="hint hh-muted">
+								The bands are off while a headphone correction is in use, and come back as
+								they were when it is removed.
+							</span>
+						{/if}
+					</span>
+					<select
+						class="hh-input control"
+						disabled={processing.bandsOff}
+						value={processing.preset ?? ''}
+						onchange={(event) => processing.applyPreset(event.currentTarget.value)}
+					>
+						{#if processing.preset === null}
+							<option value="">Custom</option>
+						{/if}
+						{#each Object.entries(EQ_PRESETS) as [key, preset] (key)}
+							<option value={key}>{preset.label}</option>
+						{/each}
+					</select>
+				</label>
+
+				<div class="eq" class:set-aside={processing.bandsOff} role="group" aria-label="Equaliser bands">
+					{#each EQ_FREQUENCIES as frequency, band (frequency)}
+						<label class="band">
+							<span class="gain hh-numeric">{processing.gains[band] > 0 ? '+' : ''}{processing.gains[band]}</span>
+							<input
+								type="range"
+								min={-EQ_RANGE_DB}
+								max={EQ_RANGE_DB}
+								step="1"
+								value={processing.gains[band]}
+								aria-label="{bandLabel(frequency)}Hz, in dB"
+								disabled={processing.bandsOff}
+								oninput={(event) => processing.setGain(band, Number(event.currentTarget.value))}
+							/>
+							<span class="hz hh-numeric">{bandLabel(frequency)}</span>
+						</label>
+					{/each}
+				</div>
+
+				<div class="correction">
+					<div class="label">
+						Headphone correction
+						<span class="hint hh-muted">
+							A preamp and filters measured for one headphone. While one is in use the bands above are off.
+							{#if data.autoeq}
+								Search the AutoEq database, or import a ParametricEQ.txt.
+							{:else}
+								Import a ParametricEQ.txt, the file AutoEq and Equalizer APO use.
+							{/if}
+						</span>
+					</div>
+
+					{#if processing.correction}
+						{@const chosen = processing.correction}
+						<p class="chosen">
+							<span>
+								<strong>{chosen.name}</strong>
+								<span class="hh-muted">
+									{chosen.source ? `${chosen.source} · ` : ''}{chosen.filters.length} filter{chosen.filters.length === 1 ? '' : 's'},
+									preamp {signed(chosen.preamp)} dB
+								</span>
+							</span>
+							<button class="hh-button" type="button" onclick={() => processing.setCorrection(null)}>Remove</button>
+						</p>
+					{/if}
+
+					<div class="correction-actions">
+						{#if data.autoeq}
+							<!-- Enter would submit the settings form this sits in. -->
+							<input
+								class="hh-input"
+								type="search"
+								placeholder="Search headphones"
+								aria-label="Search headphones"
+								autocomplete="off"
+								bind:value={headphoneQuery}
+								oninput={searchHeadphones}
+								onkeydown={(event) => event.key === 'Enter' && event.preventDefault()}
+							/>
+						{/if}
+						<label class="hh-button import">
+							<Icon name="plus" size={16} />
+							Import ParametricEQ.txt
+							<input
+								class="hh-visually-hidden"
+								type="file"
+								accept=".txt,text/plain"
+								onchange={(event) => void importCorrection(event.currentTarget)}
+							/>
+						</label>
+					</div>
+
+					{#if headphoneMatches}
+						{#if headphoneMatches.length === 0}
+							<p class="hh-muted note">No headphone by that name in the database.</p>
+						{:else}
+							<ul class="matches" aria-label="Headphones found">
+								{#each headphoneMatches as match (match.id)}
+									<li>
+										<button type="button" disabled={correctionBusy} onclick={() => void chooseHeadphone(match)}>
+											<span>{match.name}</span>
+											<span class="hh-muted">{match.source}{match.rig ? ` on ${match.rig}` : ''}</span>
+										</button>
+									</li>
+								{/each}
+							</ul>
+						{/if}
+					{/if}
+					{#if correctionError}<p class="note" role="alert">{correctionError}</p>{/if}
+				</div>
+			{/if}
 		</section>
 
 		<section class="hh-card hh-glass group" hidden={shown !== 'playback'}>
@@ -484,74 +707,44 @@
 		</div>
 	</form>
 
-	<!--
-		Outside the save form: these are kept in this browser, not on the account,
-		and apply as they are changed.
-	-->
-	<section class="hh-card hh-glass group" hidden={shown !== 'playback'} aria-labelledby="eq-heading">
+	<!-- Outside the save form: nothing here is posted with it. -->
+	<section class="hh-card hh-glass group" id="install" hidden={shown !== 'appearance'}>
 		<div class="group-head">
-			<h2 id="eq-heading">Equaliser</h2>
-			<p class="hh-muted">
-				Kept in this browser only, for the headphones or speakers it plays through. Applied as you
-				change it.
-			</p>
+			<h2>Install the app</h2>
+			<p class="hh-muted">A window of its own, with an icon in the dock, Start menu or home screen.</p>
 		</div>
 
-		<label class="row switch">
-			<span class="label">
-				Process audio in this browser
-				<span class="hint hh-muted">
-					Plays through Web Audio at the output device's rate, which the equaliser needs. Volume
-					normalisation can then raise quiet tracks as well as lower loud ones, and a crossfade works on
-					an iPhone or iPad. Not yet tested on an iPhone or iPad with the screen locked, or while casting.
-					{#if player.processing && !processing.enabled}
-						Switched off; this page keeps processing until it is loaded again.
-					{/if}
-				</span>
-			</span>
-			<input
-				type="checkbox"
-				name="audioProcessing"
-				checked={processing.enabled}
-				onchange={(event) => processing.setEnabled(event.currentTarget.checked)}
-			/>
-		</label>
-
-		{#if processing.enabled}
-			<label class="row">
-				<span class="label">Preset</span>
-				<select
-					class="hh-input control"
-					name="eqPreset"
-					value={processing.preset ?? ''}
-					onchange={(event) => processing.applyPreset(event.currentTarget.value)}
-				>
-					{#if processing.preset === null}
-						<option value="">Custom</option>
-					{/if}
-					{#each Object.entries(EQ_PRESETS) as [key, preset] (key)}
-						<option value={key}>{preset.label}</option>
-					{/each}
-				</select>
-			</label>
-
-			<div class="eq" role="group" aria-label="Equaliser bands">
-				{#each EQ_FREQUENCIES as frequency, band (frequency)}
-					<label class="band">
-						<span class="gain hh-numeric">{processing.gains[band] > 0 ? '+' : ''}{processing.gains[band]}</span>
-						<input
-							type="range"
-							min={-EQ_RANGE_DB}
-							max={EQ_RANGE_DB}
-							step="1"
-							value={processing.gains[band]}
-							aria-label="{bandLabel(frequency)}Hz, in dB"
-							oninput={(event) => processing.setGain(band, Number(event.currentTarget.value))}
-						/>
-						<span class="hz hh-numeric">{bandLabel(frequency)}</span>
-					</label>
-				{/each}
+		{#if installer.installed}
+			<p class="note">You are using the app.</p>
+		{:else if appKind}
+			<p class="note">
+				{data.appName} for {appKind.system} is {appKind.files}, with the latest release. It opens this server
+				in a window of its own.
+			</p>
+			<div class="install-ways">
+				<!-- Another site: a new tab, told nothing about this one. -->
+				<a class="hh-button" href={APP_RELEASES} target="_blank" rel="noopener noreferrer">
+					<Icon name="download" size={16} />
+					{appKind.action}
+				</a>
+				{#if installer.route === 'app-android' && installer.canPrompt}
+					<button class="hh-button" type="button" disabled={installer.busy} onclick={() => void installer.install()}>
+						Install from the browser
+					</button>
+				{/if}
 			</div>
+		{:else if installer.route === 'prompt'}
+			<button class="hh-button" type="button" disabled={installer.busy} onclick={() => void installer.install()}>
+				<Icon name="download" size={16} />
+				Install {data.appName}
+			</button>
+		{:else if installer.route === 'safari-mac' || installer.route === 'safari-ios' || installer.route === 'edge'}
+			<p class="note">{INSTALL_STEPS[installer.route]}</p>
+		{:else}
+			<p class="hh-muted note">
+				This browser does not install web apps. On a Mac, Chrome and Edge do, and Safari 17 or later; on
+				iPhone and iPad, Safari does.
+			</p>
 		{/if}
 	</section>
 
@@ -643,8 +836,8 @@
 		</ul>
 
 		<p class="hh-muted note">
-			Sessions have a hard ceiling of {data.sessionMaxHours} hours and are never extended by
-			activity: when the clock runs out, you sign in again. Your music server password is held
+			A sign-in lasts {sessionLifetime} and is not extended by activity: when the time is up,
+			you sign in again. Your music server password is held
 			encrypted on the server and is never sent to this browser. Signing out does not withdraw
 			shared links; see below.
 		</p>
@@ -1236,6 +1429,97 @@
 		display: grid;
 		grid-template-columns: repeat(10, minmax(0, 1fr));
 		gap: var(--space-1);
+	}
+
+	.install-ways {
+		display: flex;
+		flex-wrap: wrap;
+		gap: var(--space-2);
+	}
+
+	.install-ways a {
+		text-decoration: none;
+	}
+
+	.correction {
+		display: grid;
+		gap: var(--space-3);
+	}
+
+	.chosen {
+		margin: 0;
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--space-3);
+		font-size: 0.875rem;
+	}
+
+	.chosen > span {
+		display: grid;
+		gap: 0.15rem;
+		min-width: 0;
+	}
+
+	.correction-actions {
+		display: flex;
+		flex-wrap: wrap;
+		gap: var(--space-2);
+	}
+
+	.correction-actions input[type='search'] {
+		flex: 1 1 14rem;
+		min-width: 0;
+	}
+
+	.import {
+		cursor: pointer;
+	}
+
+	/* The file input is hidden, so its focus is drawn on the label. */
+	.import:has(:focus-visible) {
+		outline: 2px solid var(--accent);
+		outline-offset: 2px;
+	}
+
+	/* One measurement per row: the same headphone is listed once per measurer. */
+	.matches {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+		display: grid;
+		max-height: 16rem;
+		overflow-y: auto;
+		border: 1px solid var(--border-hairline);
+		border-radius: var(--r-sm);
+	}
+
+	.matches button {
+		width: 100%;
+		display: flex;
+		/* On a phone the measurer drops under the name. */
+		flex-wrap: wrap;
+		justify-content: space-between;
+		gap: var(--space-3);
+		padding: var(--space-2) var(--space-3);
+		text-align: left;
+		font-size: 0.875rem;
+		color: var(--text-default);
+	}
+
+	.matches button:hover,
+	.matches button:focus-visible {
+		background: color-mix(in srgb, var(--accent) 10%, transparent);
+	}
+
+	.matches li + li {
+		border-top: 1px solid var(--border-hairline);
+	}
+
+	/* Greyed while a headphone correction is in use; the controls are disabled as well. */
+	.eq.set-aside,
+	.row.set-aside select {
+		opacity: 0.4;
 	}
 
 	.band {

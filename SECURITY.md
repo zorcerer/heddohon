@@ -34,9 +34,14 @@ each server's label and kind. The upstream credential leaves the process only as
 a request to the music server. The one host you expose is Heddohon.
 
 Heddohon also contacts a PostgreSQL server when `HEDDOHON_DATABASE_URL` names
-one (see [PostgreSQL](#postgresql)). The one other host it contacts is LRCLIB, and only with
-`HEDDOHON_LYRICS_LRCLIB=true` (off by default). See [Lyrics from
-LRCLIB](#lyrics-from-lrclib).
+one (see [PostgreSQL](#postgresql)). The other hosts it contacts are LRCLIB, only with
+`HEDDOHON_LYRICS_LRCLIB=true`, and the AutoEq results on GitHub, only with
+`HEDDOHON_AUTOEQ=true`; both are off by default. And the hosts of the internet
+radio stations the music server lists, when a listener plays one; that is on
+unless `HEDDOHON_RADIO=false`. See [Lyrics from
+LRCLIB](#lyrics-from-lrclib), [Headphone corrections from
+AutoEq](#headphone-corrections-from-autoeq) and [Internet
+radio](#internet-radio).
 
 ## PostgreSQL
 
@@ -91,6 +96,74 @@ sent.
   so reopening lyrics does not ask again.
 - **Treated as text.** The lines are rendered escaped like every other string,
   and the view labels them "LRCLIB".
+
+## Headphone corrections from AutoEq
+
+With `HEDDOHON_AUTOEQ=true`, the server requests two things from
+`HEDDOHON_AUTOEQ_URL` (by default the `results` directory of
+`jaakkopasanen/AutoEq` on `raw.githubusercontent.com`): `INDEX.md`, once a day,
+and the ParametricEQ.txt of each headphone someone chooses in Settings. That is
+what the host learns: this server's address, and which headphones were chosen.
+No account name, credential or upstream detail is sent.
+
+- **Server-side only.** The browser's policy is unchanged; it talks to Heddohon.
+- **Only paths the index lists.** `/api/autoeq/profile?id=` answers 404 for an
+  id that is not in the index, without a request upstream. An index entry
+  whose path has an empty, `.` or `..` segment is dropped when the index is
+  read, from the network or from the data directory.
+- **Bounded.** 10 seconds, 4 MB for the index and 16 KB for a profile, 20,000
+  entries, redirects refused. A failed index fetch leaves the held copy in
+  use and is tried again after 5 minutes; both are logged as `autoeq-failed`.
+- **Parsed to numbers.** A profile is returned as a preamp and up to 20
+  filters, each a type from three, a frequency from 10 Hz to 24 kHz, a gain
+  within 30 dB and a Q from 0.1 to 30. None of the fetched text is passed on.
+  The browser checks the same ranges again before building the filters, for a
+  profile from the server, from an imported file and from its own storage.
+- **Cached.** The index in memory and in `HEDDOHON_DATA_DIR/autoeq-index.json`
+  for 24 hours, refreshed with `If-None-Match`; 500 profiles in memory for 24
+  hours, a failure for 5 minutes.
+- Both routes need a session. Search matches in memory and makes no request
+  upstream once the index is held.
+
+## Internet radio
+
+Navidrome keeps a list of internet radio stations, set by its administrators:
+a name and the address of a stream on another host. Jellyfin has no such list.
+The browser's policy allows media from this origin only, so a station is
+played through Heddohon: `GET /api/radio/<id>/stream` fetches the stream and
+passes the bytes on. This is the one place the server fetches an address it
+was not configured with. `HEDDOHON_RADIO=false` removes the page and the
+route.
+
+- **Only a listed station.** The id is looked up in the music server's list
+  for the signed-in account. Nothing a request carries is fetched, and the
+  stream address is not sent to the browser.
+- **http or https only**, without a user name or password in the address.
+- **Public addresses only.** A station on a loopback, private, link-local,
+  carrier-grade NAT or multicast address is refused, by address and by name:
+  every address the host resolves to is checked inside the connection's own
+  lookup, so the address checked is the address dialled. This is what keeps a
+  station from being used to read a service on the server's own network.
+  `HEDDOHON_RADIO_PRIVATE=true` allows them, for a stream served on the local
+  network.
+- **Redirects** are followed up to three times, each hop held to the same
+  rules. An `.m3u` or `.pls` playlist counts as one: up to 64 KB of it is
+  read for its first address.
+- **Audio only.** A response whose type is not `audio/*` or `application/ogg`
+  is dropped unread and answered 502. An HLS playlist is not played.
+- **Bounded.** 10 seconds to the first byte, cut after 30 seconds without
+  data, 4 streams per account at once. The stream ends with the listener's
+  request and with their session.
+- **What the station's host learns** is this server's address, not the
+  listener's. The request carries no cookie and no account detail.
+- **What reaches the browser** is the station's bytes under the type it sent,
+  with `X-Content-Type-Options: nosniff` as on every response. A station's own
+  page is linked only if it is an http or https address, in a new tab with
+  `rel="noopener noreferrer"`.
+- Failures are logged as `radio-failed` with the station's id and the reason;
+  the browser is told only that the station could not be played.
+- Nothing is reported to the music server for a station, it is not added to
+  the listening history, and a queue holding one is not saved.
 
 ## Linking Last.fm and ListenBrainz
 
@@ -157,11 +230,14 @@ only `HMAC-SHA256(token)`, so reading the database yields no usable cookie.
 | --- | --- |
 | Name | `__Host-heddohon_session` when `Secure`, `heddohon_session` otherwise |
 | Flags | `HttpOnly`, `SameSite=Lax`, `Path=/`, host-only, `Secure` (see below) |
-| Lifetime | `HEDDOHON_SESSION_HOURS`, default and hard ceiling **72 hours** |
+| Lifetime | `HEDDOHON_SESSION_HOURS`, **30 days** (720 hours) unless set |
 | Extension | Activity updates `last_seen_at` only; `expires_at` is fixed at creation |
 
 Expiry is checked on every request, and an expired row is deleted when
-presented. Signing out deletes the server-side record. When the upstream rejects
+presented. A session token copied from a browser works until that expiry, so
+the lifetime is also how long a copied token is good for; Settings lists the
+account's sessions and ends any of them, and a deployment that wants a shorter
+window sets `HEDDOHON_SESSION_HOURS`. Signing out deletes the server-side record. When the upstream rejects
 a stored credential, every session for that account is destroyed.
 
 **A reused Jellyfin user name starts a new account.** Accounts are matched by
@@ -215,7 +291,7 @@ seek, volume, or a queue of up to 1000 track ids) to one of them; the target
 is looked up among the signing-in account's own streams, so an id from another
 account reaches nothing. `POST /api/remote/state` is taken only from the
 session that opened the stream it names. A stream is tied to its session like
-audio: signing out, being signed out from Settings and the 72-hour expiry end
+audio: signing out, being signed out from Settings and the session expiring end
 it. An account holds at most 20 streams. Anyone signed in to the account can
 already play and change its queue, so this gives a browser no access it lacked;
 it lets one browser of the account start sound on another. The registry is in
@@ -379,7 +455,7 @@ address, `/cast/<token>`, a public route. What it is limited to:
 - **It lasts 6 hours**, and never past the session's own expiry. The browser
   asks for new ones after 5.
 - **It ends with the session.** Each request looks the session up by its
-  handle; signing out, being signed out from Settings and the 72-hour expiry
+  handle; signing out, being signed out from Settings and the session expiring
   make every address the session was given answer 404, and a stream in
   progress is cut as the browser's own are.
 - **Every refusal is the same 404**: malformed, forged, expired, a session
@@ -414,7 +490,7 @@ plays, as it plays, without an account. What it is limited to:
   routes take `?song=`, and answer 404 for any id but the one the host last
   reported, through the host's account. The file is sent as it is stored.
 - **It ends** when the host ends it, after 12 hours, or when the host's session
-  ends (signing out, being signed out from Settings, the 72-hour expiry). A
+  ends (signing out, being signed out from Settings, the session expiring). A
   stream in progress is cut with the host's session.
 - **Listeners send reactions only.** One of five emoji, from a listener whose
   event stream is open, at most one a second. There are no names or messages.
@@ -603,6 +679,7 @@ Covers are cached under `$HEDDOHON_DATA_DIR/covers` (see
 | Listen-together reaction | one of five emoji, one a second per listener |
 | Genre id in a path | 200 characters; on Jellyfin a GUID, since `GenreIds` takes a list |
 | Cover size | one of ten, 64 to 1536 |
+| "On this day" date and time zone | a real `YYYY-MM-DD` within a year of the server's; an offset of -720 to 840 minutes |
 | Transcode codec | `mp3`, `opus`, `aac` |
 | Transcode bitrate | 96, 128, 192, 256, 320 kbps |
 | ListenBrainz token | 1 to 128 of `A-Z a-z 0-9 -` (ListenBrainz issues 36) |
@@ -691,7 +768,11 @@ build toolchain out of the runtime layer. Secrets are supplied at run time, and
 
 ## Logging
 
-Logs go to stdout and stderr (see [Configuration](https://github.com/zorcerer/heddohon/wiki/Configuration#logging)).
+Logs go to stdout and stderr, and the same lines to a file a day in
+`HEDDOHON_DATA_DIR/logs`, kept for `HEDDOHON_LOG_KEEP_DAYS` days (7 unless set;
+`0` writes none). See [Configuration](https://github.com/zorcerer/heddohon/wiki/Configuration#logging).
+The files are created with mode 0640 and hold what the level set below puts
+in the log, so whoever can read the data directory can read them.
 
 - **Default:** failures only.
 - **`info`:** adds username and client address on sign-in attempts, for fail2ban.
@@ -767,6 +848,17 @@ session token and any `u`, `t`, `s` or `p` query parameter.
 - **`/manifest.webmanifest` is unauthenticated**, since browsers fetch it
   without cookies. It returns `HEDDOHON_APP_NAME`, fixed colours, icon paths and
   three shortcut paths.
+- **`/.well-known/assetlinks.json` is unauthenticated**, since Android's
+  browsers fetch it without cookies. It names the Android app's package and the
+  SHA-256 of the certificate the released app is signed with, plus any in
+  `HEDDOHON_ANDROID_FINGERPRINTS`. What it grants: an app signed with one of
+  those keys may show this origin in the browser without the address bar (a
+  Trusted Web Activity). The page still runs in the browser, under its
+  policy, with the browser's cookies; the app is given no session and reads
+  nothing of the page. Someone holding the release key could publish an app
+  that shows a Heddohon server without an address bar, which is what the
+  released app does; they could not show another site as this one, since the
+  file vouches only for the origin that serves it.
 - **Concurrent streams per account are uncapped.** Cap them at the proxy for wide exposure.
 - **Authentication is as strong as the upstream account.** There is no second
   factor or sign-in notification. Settings lists the account's sessions and
@@ -843,7 +935,7 @@ suite.
 | Medium | `?next=` accepted `/\example.tld` and `/<TAB>/example.tld` | Parsed and held to this origin |
 | Low | Account rows matched case-sensitively | `COLLATE NOCASE` |
 
-Also examined: token entropy, HMAC lookup timing, the 72 hour ceiling against a
+Also examined: token entropy, HMAC lookup timing, the session lifetime against a
 client-set `Max-Age`, IV uniqueness, behaviour on an unset, short or changed
 secret, the build-time placeholder secret, credential exposure in load returns
 and the bundle, all 31 logging call sites, the header allowlist, route gate

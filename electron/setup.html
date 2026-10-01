@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self'" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>Heddohon</title>
+		<link rel="stylesheet" href="setup.css" />
+	</head>
+	<body>
+		<main>
+			<img src="build/icon.png" width="72" height="72" alt="" />
+			<h1>Heddohon</h1>
+			<p class="lede">The address of your Heddohon server, as you open it in a browser.</p>
+			<form id="form">
+				<label for="address">Server address</label>
+				<input id="address" name="address" type="text" inputmode="url" autocomplete="off" spellcheck="false" placeholder="https://music.example.com" required />
+				<details id="more">
+					<summary>A sign-in in front of the server</summary>
+					<p class="small">
+						A proxy that asks you to sign in first (Authelia, Authentik, Cloudflare Access) shows its page in this
+						window, and one that asks for a name and password is answered from a prompt. For a proxy that takes a
+						header instead, such as a service token, add it here, one to a line. It is sent to the server's address
+						and to no other.
+					</p>
+					<label for="headers">Request headers</label>
+					<textarea id="headers" name="headers" rows="3" spellcheck="false" autocomplete="off" placeholder="CF-Access-Client-Id: …&#10;CF-Access-Client-Secret: …"></textarea>
+				</details>
+				<p id="problem" role="alert" hidden></p>
+				<button id="connect" type="submit">Connect</button>
+			</form>
+			<p class="small">
+				The app is a window onto that server: your music, your account and your settings stay on it. Change the
+				address later from the menu (press Alt), under Heddohon.
+			</p>
+		</main>
+		<script src="setup.js"></script>
+	</body>
+</html>

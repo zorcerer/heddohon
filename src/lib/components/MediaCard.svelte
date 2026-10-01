@@ -1,4 +1,5 @@
 <script lang="ts">
+	import type { Snippet } from 'svelte';
 	import { goto } from '$app/navigation';
 	import Cover from './Cover.svelte';
 	import Icon from './Icon.svelte';
@@ -15,11 +16,14 @@
 		/** Artists are people, not records: they get a plain round portrait. */
 		rounded = false,
 		transitionId = null,
-		onplay = null
+		onplay = null,
+		detail
 	}: {
 		href: string;
 		title: string;
 		subtitle?: string | null;
+		/** Under the title and subtitle, for what a shelf of its own says of each album. */
+		detail?: Snippet;
 		coverArt: string | null | undefined;
 		rounded?: boolean;
 		/** Album id, if this card should carry its sleeve into the next page. */
@@ -148,6 +152,7 @@
 		{#if subtitle}
 			<span class="subtitle hh-truncate hh-muted">{subtitle}</span>
 		{/if}
+		{@render detail?.()}
 	</div>
 </a>
 
@@ -229,12 +234,12 @@
 	}
 
 	/*
-	 * Sleek (the light theme): a ring of the pale accent around the cover and
-	 * a shade in the page's grey below it, in place of the coloured glow, which
-	 * on a pale ground read as a stain. See "Sleek finish" in app.css.
+	 * Paper (the light theme): a ring of the pale accent around the cover and
+	 * a shade in the brown of the ink below it, in place of the coloured glow,
+	 * which on a pale ground read as a stain. See "Paper finish" in app.css.
 	 */
 	:global([data-theme='light']) .art::before {
-		box-shadow: 0 0.6rem 0.9rem rgb(54 64 80 / 0.2);
+		box-shadow: 0 0.6rem 0.9rem rgb(74 52 30 / 0.22);
 	}
 
 	:global([data-theme='light']) .card:hover .art :global(.cover) {

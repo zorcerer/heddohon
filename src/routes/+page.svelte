@@ -1,13 +1,17 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { player } from '$lib/client/player.svelte';
 	import AlbumTile from '$lib/components/AlbumTile.svelte';
 	import FeaturedRelease from '$lib/components/FeaturedRelease.svelte';
 	import MediaCard from '$lib/components/MediaCard.svelte';
 	import MediaShelf from '$lib/components/MediaShelf.svelte';
+	import OnThisDayShelf from '$lib/components/OnThisDayShelf.svelte';
+	import RediscoverShelf from '$lib/components/RediscoverShelf.svelte';
 	import SectionHeader from '$lib/components/SectionHeader.svelte';
 	import TrackList from '$lib/components/TrackList.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import { playContainer } from '$lib/client/actions';
+	import type { RememberedAlbum } from '$lib/server/history';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -33,6 +37,36 @@
 			{ title: 'On repeat', albums: data.mostPlayed, href: '/albums?sort=mostPlayed' }
 		].filter((shelf) => shelf.albums.length > 0)
 	);
+
+	/*
+	 * Albums played on this date in earlier years. The date is the listener's,
+	 * in this browser's time zone, which the server does not know, so the shelf
+	 * is asked for once the page is in the browser. It is not needed for the
+	 * first paint.
+	 */
+	let onThisDay = $state<{ today: Date; albums: RememberedAlbum[] } | null>(null);
+
+	onMount(() => {
+		const today = new Date();
+		const pad = (n: number) => String(n).padStart(2, '0');
+		const date = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
+		const offset = -today.getTimezoneOffset();
+		const controller = new AbortController();
+		fetch(`/api/on-this-day?date=${date}&offset=${offset}`, { signal: controller.signal })
+			.then((response) => (response.ok ? response.json() : null))
+			.then((body: { albums: RememberedAlbum[] } | null) => {
+				if (body) onThisDay = { today, albums: body.albums };
+			})
+			// The shelf is left out when it cannot be read.
+			.catch(() => {});
+		return () => controller.abort();
+	});
+
+	const rediscovering = $derived(data.rediscover.length > 0);
+	const remembering = $derived((onThisDay?.albums.length ?? 0) > 0);
+
+	// The numbered sections above Favourites.
+	const albumShelves = $derived(shelves.length + Number(rediscovering) + Number(remembering));
 </script>
 
 <svelte:head>
@@ -100,11 +134,20 @@
 		</MediaShelf>
 	{/each}
 
+	<!-- From the history on this server; see forgottenAlbums and onThisDay. -->
+	{#if rediscovering}
+		<RediscoverShelf albums={data.rediscover} index={shelves.length + 1} />
+	{/if}
+
+	{#if onThisDay && remembering}
+		<OnThisDayShelf albums={onThisDay.albums} today={onThisDay.today} index={shelves.length + Number(rediscovering) + 1} />
+	{/if}
+
 	<!-- Streamed: the page does not wait for the favourites. See the loader. -->
 	{#await data.favouriteSongs then favouriteSongs}
 		{#if favouriteSongs.length > 0}
 			<section>
-				<SectionHeader title="Favourites" href="/favourites" index={shelves.length + 1} />
+				<SectionHeader title="Favourites" href="/favourites" index={albumShelves + 1} />
 				<TrackList songs={favouriteSongs} variant="artwork" showAlbum showQuality={false} columns />
 			</section>
 		{/if}
@@ -114,7 +157,7 @@
 				<SectionHeader
 					title="Something different"
 					eyebrow="Picked at random"
-					index={shelves.length + (favouriteSongs.length > 0 ? 2 : 1)}
+					index={albumShelves + (favouriteSongs.length > 0 ? 2 : 1)}
 				/>
 				<TrackList songs={data.discover} variant="artwork" showAlbum showQuality={false} columns />
 			</section>
@@ -177,6 +220,21 @@
 
 		.account:active {
 			scale: 0.92;
+		}
+
+		/*
+		 * The title takes the whole row, short of the corner the account button
+		 * is in, and Shuffle something goes under it. Side by side, the button
+		 * sat at the foot of the row and the account button at its head, 44px
+		 * tall in a row of 70px: they overlapped by 14px at 393px wide.
+		 */
+		.masthead > div {
+			flex: 1 1 100%;
+			padding-right: 3.5rem;
+		}
+
+		.masthead {
+			gap: var(--space-3);
 		}
 	}
 

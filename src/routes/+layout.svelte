@@ -2,14 +2,14 @@
 	import '$lib/styles/app.css';
 	import { untrack } from 'svelte';
 	import { afterNavigate, beforeNavigate, onNavigate, preloadCode } from '$app/navigation';
-	import { navigating, updated } from '$app/state';
+	import { navigating, page, updated } from '$app/state';
 	import { player } from '$lib/client/player.svelte';
 	import { audioOutputs } from '$lib/client/output.svelte';
 	import { processing } from '$lib/client/processing.svelte';
 	import { remote } from '$lib/client/remote.svelte';
 	import { settleStarred } from '$lib/client/favourites.svelte';
 	import { together } from '$lib/client/together.svelte';
-	import { tintFrom } from '$lib/client/artwork';
+	import { followCanvas, tintFrom } from '$lib/client/artwork';
 	import { ambience } from '$lib/client/ambience.svelte';
 	import {
 		prefersReducedMotion,
@@ -26,6 +26,7 @@
 	import NowPlayingPanel from '$lib/components/NowPlayingPanel.svelte';
 	import PhoneDock from '$lib/components/PhoneDock.svelte';
 	import DevicesDialog from '$lib/components/DevicesDialog.svelte';
+	import InstallCard from '$lib/components/InstallCard.svelte';
 	import Reactions from '$lib/components/Reactions.svelte';
 	import TogetherDialog from '$lib/components/TogetherDialog.svelte';
 	import PlaylistPicker from '$lib/components/PlaylistPicker.svelte';
@@ -112,6 +113,10 @@
 		const secondary = secondaryAudio;
 		untrack(() => player.attach(primary, secondary, data.settings));
 		untrack(() => processing.init());
+		// Where the headphone database is on, a chosen profile a day old is asked for again.
+		untrack(() => {
+			if (data.autoeq) void processing.refreshCorrection();
+		});
 		untrack(() => void audioOutputs.init());
 		void restoreQueue();
 		return () => player.detach();
@@ -157,6 +162,7 @@
 		'/artists',
 		'/artists/_',
 		'/genres',
+		'/radio',
 		'/genres/_',
 		'/playlists',
 		'/playlists/_',
@@ -218,6 +224,8 @@
 	// the next full page load. Mirroring it here closes that gap.
 	$effect(() => {
 		document.documentElement.dataset.theme = data.settings.theme;
+		// The phone's bars take the new theme's ground with it; see `followCanvas`.
+		followCanvas();
 	});
 
 	// The scale is written into the served HTML by the same transform as the
@@ -271,9 +279,18 @@
 	 * the queue follows. On Subsonic every id is its own upstream call, eight at
 	 * a time, so a queue of 1000 tracks held the player empty until the last of
 	 * 1000 calls had answered.
+	 *
+	 * A queue the listener starts while the lookups are out wins. The saved one
+	 * is put in only if the player still holds what it held at the start: a
+	 * track played before the current track's lookup answered was replaced by
+	 * the saved queue, and the next save wrote the saved queue back.
 	 */
 	async function restoreQueue() {
 		try {
+			// Untracked: this runs inside the effect that attaches the player, and a
+			// read here would make every queue change re-run it.
+			const untouched = untrack(() => player.queue);
+			const replaced = () => player.queue !== untouched;
 			const response = await fetch('/api/play-state', { headers: { accept: 'application/json' } });
 			if (!response.ok) return;
 			const state = await response.json();
@@ -287,6 +304,7 @@
 			};
 
 			const [current] = await lookUp([ids[savedIndex]]);
+			if (replaced()) return;
 			if (current && ids.length > 1) {
 				await player.restore(
 					[current],
@@ -306,6 +324,7 @@
 			// after it, and the queue resumes at the same position from the start
 			// of the track now there.
 			const songs = await lookUp(ids);
+			if (replaced()) return;
 			await player.restore(songs, { index: savedIndex, position: 0, ...settings });
 		} catch {
 			// A missing queue is not worth an error message.
@@ -721,6 +740,10 @@
 		{/if}
 		{#if data.sharing}
 			<ShareDialog />
+		{/if}
+		<!-- Not on a cast receiver's page, which only a Cast device opens. -->
+		{#if !page.url.pathname.startsWith('/cast/')}
+			<InstallCard appName={data.appName} dismissed={data.settings.installCardDismissed} />
 		{/if}
 
 		<!-- Waiting for the next page; see `waiting`. Always there, and hidden
@@ -1231,6 +1254,17 @@
 			-webkit-backdrop-filter: blur(18px);
 			backdrop-filter: blur(18px);
 			pointer-events: none;
+		}
+
+		/*
+		 * iOS writes the clock, the signal and the battery in white over an
+		 * installed app that draws under them (`black-translucent` in app.html),
+		 * in the light theme as well, where frosted parchment would leave them
+		 * unreadable. So the strip is smoked there: white on it measures 7.2 to 1
+		 * over the parchment ground.
+		 */
+		:global([data-theme='light']) .app::after {
+			background: rgb(38 30 22 / 0.72);
 		}
 
 		/*

@@ -9,6 +9,8 @@ still lands on it. Each one opens that section in the wiki.
 
 ## [Equaliser and audio processing](https://github.com/zorcerer/heddohon/wiki/Audio#equaliser-and-audio-processing)
 
+### [Headphone correction](https://github.com/zorcerer/heddohon/wiki/Audio#headphone-correction)
+
 ## [Audio output](https://github.com/zorcerer/heddohon/wiki/Audio#audio-output)
 
 ## [Casting](https://github.com/zorcerer/heddohon/wiki/Audio#casting)

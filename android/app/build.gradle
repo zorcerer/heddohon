@@ -1,0 +1,72 @@
+plugins {
+	id 'com.android.application'
+}
+
+// The version follows Heddohon's releases: `-PversionName=0.5.0` from the
+// release workflow, and a code that counts up with it (0.5.0 is 500).
+def releaseName = (findProperty('versionName') ?: '0.0.0').toString()
+def parts = releaseName.tokenize('.-').take(3).collect { it.isInteger() ? it.toInteger() : 0 }
+while (parts.size() < 3) parts << 0
+def releaseCode = Math.max(1, parts[0] * 10000 + parts[1] * 100 + parts[2])
+
+// The release key, from the environment in CI. Without it a release build is
+// signed with the debug key of the machine, which installs but is not the app
+// a server vouches for (`/.well-known/assetlinks.json`).
+def keystore = System.getenv('HEDDOHON_ANDROID_KEYSTORE')
+
+android {
+	namespace 'app.heddohon.android'
+	// 36 to compile against: the browser library asks for it. The app still targets 35.
+	compileSdk 36
+	buildToolsVersion '36.0.0'
+
+	defaultConfig {
+		applicationId 'app.heddohon.android'
+		minSdk 23
+		targetSdk 35
+		versionCode releaseCode
+		versionName releaseName
+	}
+
+	signingConfigs {
+		release {
+			if (keystore) {
+				storeFile file(keystore)
+				storePassword System.getenv('HEDDOHON_ANDROID_KEYSTORE_PASSWORD')
+				keyAlias System.getenv('HEDDOHON_ANDROID_KEY_ALIAS') ?: 'heddohon'
+				keyPassword System.getenv('HEDDOHON_ANDROID_KEY_PASSWORD') ?: System.getenv('HEDDOHON_ANDROID_KEYSTORE_PASSWORD')
+			}
+		}
+	}
+
+	buildTypes {
+		release {
+			minifyEnabled true
+			shrinkResources true
+			proguardFiles getDefaultProguardFile('proguard-android-optimize.txt')
+			signingConfig keystore ? signingConfigs.release : signingConfigs.debug
+		}
+	}
+
+	// For the version the update check compares against.
+	buildFeatures {
+		buildConfig true
+	}
+
+	compileOptions {
+		sourceCompatibility JavaVersion.VERSION_17
+		targetCompatibility JavaVersion.VERSION_17
+	}
+
+	lint {
+		abortOnError true
+		warningsAsErrors false
+	}
+}
+
+dependencies {
+	// Trusted Web Activities: `TwaLauncher`, and the Custom Tab it falls back to.
+	implementation 'com.google.androidbrowserhelper:androidbrowserhelper:2.6.2'
+
+	testImplementation 'junit:junit:4.13.2'
+}

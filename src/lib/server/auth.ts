@@ -6,7 +6,7 @@
  *     to the configured Navidrome/Jellyfin server; if the upstream says no,
  *     there is no local fallback that could say yes.
  *  2. A session is an opaque random token. The database stores only its HMAC
- *     digest and an absolute expiry that is never extended past 72 hours.
+ *     digest and an absolute expiry, set at sign-in and never extended.
  */
 import { createHash, randomUUID } from 'node:crypto';
 import type { Cookies } from '@sveltejs/kit';
@@ -165,8 +165,8 @@ async function storeAccount(
 		 * The music server has a different user under this name: an account
 		 * deleted and a new one created with the same name, or a rename that
 		 * freed it. Keeping the row handed the new person's credential to the
-		 * old person's sessions, which then read the new person's library for
-		 * up to 72 hours, and played the old person's links through it.
+		 * old person's sessions, which then read the new person's library until
+		 * they expired, and played the old person's links through it.
 		 * Everything tied to the old user goes before the credential changes,
 		 * so no request can pair an old session with the new credential.
 		 */
@@ -181,8 +181,8 @@ async function storeAccount(
 		 * told apart from its owner changing their password. Both end the row's
 		 * sessions. Kept, the sessions of whoever held the old password went on
 		 * working with the new one: a Navidrome name reused for another person
-		 * handed that person's library to the previous holder for up to 72
-		 * hours. The cost is that changing a password signs out the other
+		 * handed that person's library to the previous holder until the
+		 * sessions expired. The cost is that changing a password signs out the other
 		 * devices, which is also what a password change is expected to do.
 		 *
 		 * Links, settings and the queue are kept, since the same person
@@ -310,9 +310,9 @@ export async function createSession(
  * Sessions one account may hold at once. A sign-in past it ends the oldest.
  *
  * A correct password cleared the throttle, so any account holder could open
- * sessions without limit: 300 sign-ins in 1.5s made 300 rows, each kept for
- * 72 hours, and a Settings page of 290KB. 50 is more browsers than one
- * person signs in from in 72 hours.
+ * sessions without limit: 300 sign-ins in 1.5s made 300 rows, each kept
+ * until it expired, and a Settings page of 290KB. 50 is more browsers than
+ * one person stays signed in on.
  */
 const MAX_SESSIONS_PER_ACCOUNT = 50;
 
@@ -430,7 +430,7 @@ export async function resolveSession(event: CookieContext): Promise<Authenticate
 	}
 
 	// `last_seen_at` is observability only. It deliberately does not extend
-	// `expires_at`: the 72-hour ceiling is absolute, not idle-based.
+	// `expires_at`: the lifetime is absolute, not idle-based.
 	//
 	// Written at most once a minute per session. It was written on every
 	// request, and a library page opens dozens of covers, each of which came

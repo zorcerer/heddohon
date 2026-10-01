@@ -58,10 +58,55 @@ export interface AppConfig {
 	remoteControl: boolean;
 	/** LRCLIB base URL for lyrics the music server lacks, or null when off. */
 	lrclibUrl: string | null;
+	/** Base URL of the AutoEq results for headphone corrections, or null when off; see `autoeq.ts`. */
+	autoeqUrl: string | null;
+	/** Whether the library can be browsed by its folders on disk: the Folders page and playing a folder. */
+	folders: boolean;
+	/** Whether the music server's internet radio stations are offered and played through this server; see `radio.ts`. */
+	radio: boolean;
+	/** Whether a station may be on a private address. Off unless asked for. */
+	radioPrivate: boolean;
+	/**
+	 * SHA-256 fingerprints of the certificates an Android app this server
+	 * vouches for is signed with; see `routes/.well-known/assetlinks.json`.
+	 */
+	androidFingerprints: string[];
 	database: DatabaseConfig;
 }
 
 export class ConfigError extends Error {}
+
+/**
+ * The certificate the released Android app is signed with, as the SHA-256
+ * `keytool` and `apksigner` print. Its key is held in the repository's
+ * secrets and signs the APK attached to each release.
+ */
+export const ANDROID_RELEASE_KEY =
+	'3C:D0:5B:A1:45:77:D7:1F:68:4E:61:51:AF:7C:0F:3F:BE:10:15:A8:BB:52:B2:28:FA:54:B4:11:AC:14:DE:52';
+
+/** A fingerprint as 32 pairs of hex digits with colons between, upper case. */
+const FINGERPRINT = /^[0-9A-F]{2}(:[0-9A-F]{2}){31}$/;
+
+/**
+ * The released app's key, and those in `HEDDOHON_ANDROID_FINGERPRINTS`: a
+ * comma-separated list, for an app built and signed by someone else. One that
+ * is not a fingerprint is a mistake worth stopping for, since the app would
+ * open with an address bar and nothing would say why.
+ */
+function androidFingerprints(): string[] {
+	const extra = (env('HEDDOHON_ANDROID_FINGERPRINTS') ?? '')
+		.split(',')
+		.map((entry) => entry.trim().toUpperCase())
+		.filter(Boolean);
+	for (const entry of extra) {
+		if (!FINGERPRINT.test(entry)) {
+			throw new ConfigError(
+				`HEDDOHON_ANDROID_FINGERPRINTS holds ${JSON.stringify(entry)}, which is not a SHA-256 fingerprint (32 pairs of hex digits, colons between)`
+			);
+		}
+	}
+	return [...new Set([ANDROID_RELEASE_KEY, ...extra])];
+}
 
 function env(name: string): string | undefined {
 	const raw = process.env[name];
@@ -118,11 +163,12 @@ function flagEnv(name: string, fallback: boolean): boolean {
 }
 
 /**
- * The session lifetime is capped at 72 hours by policy. An operator may make it
- * shorter; they may not make it longer, and asking for longer is clamped rather
- * than rejected so a typo cannot silently weaken the deployment.
+ * How long a sign-in lasts where `HEDDOHON_SESSION_HOURS` is not set: 30 days.
+ * The operator chooses the lifetime, shorter or longer. The upper bound, 100
+ * years, only keeps the expiry inside what a date holds.
  */
-export const ABSOLUTE_SESSION_HOUR_CAP = 72;
+export const DEFAULT_SESSION_HOURS = 30 * 24;
+const MAX_SESSION_HOURS = 100 * 365 * 24;
 
 /**
  * Who this process is, for a message an operator can act on. `getuid` is
@@ -229,7 +275,7 @@ function build(): AppConfig {
 	return {
 		secret,
 		dataDir: dataDirectory(),
-		sessionMaxHours: intEnv('HEDDOHON_SESSION_HOURS', 72, 1, ABSOLUTE_SESSION_HOUR_CAP),
+		sessionMaxHours: intEnv('HEDDOHON_SESSION_HOURS', DEFAULT_SESSION_HOURS, 1, MAX_SESSION_HOURS),
 		cookieSecure: boolEnv('HEDDOHON_COOKIE_SECURE', 'auto'),
 		upstreamTimeoutMs: intEnv('HEDDOHON_UPSTREAM_TIMEOUT_MS', 20_000, 1_000, 120_000),
 		// Megabytes in, bytes out. 0 disables the cache; the ceiling is there so a
@@ -248,6 +294,23 @@ function build(): AppConfig {
 		lrclibUrl: flagEnv('HEDDOHON_LYRICS_LRCLIB', false)
 			? normaliseUrl('HEDDOHON_LYRICS_LRCLIB_URL', env('HEDDOHON_LYRICS_LRCLIB_URL') ?? 'https://lrclib.net')
 			: null,
+		// Off unless asked for: the server fetches from another host, which learns
+		// this server's address and the headphones chosen.
+		autoeqUrl: flagEnv('HEDDOHON_AUTOEQ', false)
+			? normaliseUrl(
+					'HEDDOHON_AUTOEQ_URL',
+					env('HEDDOHON_AUTOEQ_URL') ?? 'https://raw.githubusercontent.com/jaakkopasanen/AutoEq/master/results'
+				)
+			: null,
+		// On. Off for a library whose layout on disk is not for its listeners:
+		// the page shows folder names as the music server stores them.
+		folders: flagEnv('HEDDOHON_FOLDERS', true),
+		// On: the stations are the music server administrator's own list, and a
+		// stream is fetched only when a listener plays one. A station on a
+		// private address is refused unless that is asked for.
+		radio: flagEnv('HEDDOHON_RADIO', true),
+		radioPrivate: flagEnv('HEDDOHON_RADIO_PRIVATE', false),
+		androidFingerprints: androidFingerprints(),
 		database: databaseConfig()
 	};
 }
@@ -316,7 +379,7 @@ export function config(): AppConfig {
 		return {
 			secret: 'x'.repeat(32),
 			dataDir: '/data',
-			sessionMaxHours: 72,
+			sessionMaxHours: DEFAULT_SESSION_HOURS,
 			cookieSecure: 'auto',
 			upstreamTimeoutMs: 20_000,
 			coverCacheBytes: 0,
@@ -327,6 +390,11 @@ export function config(): AppConfig {
 			downloads: true,
 			remoteControl: true,
 			lrclibUrl: null,
+			autoeqUrl: null,
+			folders: true,
+			radio: true,
+			radioPrivate: false,
+			androidFingerprints: [ANDROID_RELEASE_KEY],
 			database: { kind: 'sqlite' }
 		};
 	}

@@ -24,3 +24,13 @@ vite.config.ts.timestamp-*
 
 # Local data directory (HEDDOHON_DATA_DIR=./data in CONTRIBUTING.md)
 /data/
+
+# The desktop app: its own dependencies and what electron-builder makes
+/electron/node_modules
+/electron/dist
+
+# The Android app: what Gradle makes and caches
+/android/.gradle
+/android/build
+/android/app/build
+/android/local.properties

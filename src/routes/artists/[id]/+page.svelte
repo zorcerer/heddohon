@@ -12,6 +12,7 @@
 	import TrackList from '$lib/components/TrackList.svelte';
 	import { playContainer } from '$lib/client/actions';
 	import { heroSweep } from '$lib/client/motion';
+	import { RELEASE_GROUPS, releaseKind } from '$lib/releases';
 	import type { Album } from '$lib/types';
 	import type { PageData } from './$types';
 
@@ -45,6 +46,13 @@
 	const latest = $derived(albums.length > 1 && artist.topSongs.length > 0 ? albums[0] : null);
 	const popular = $derived(artist.topSongs.slice(0, 5));
 
+	/** The releases by kind, each newest first: albums, EPs, singles, live records, compilations. See `releases.ts`. */
+	const groups = $derived(
+		RELEASE_GROUPS.map((group) => ({ ...group, albums: albums.filter((album) => releaseKind(album) === group.kind) })).filter(
+			(group) => group.albums.length > 0
+		)
+	);
+
 	/*
 	 * Albums by others the artist is on, once the loader's search has answered.
 	 * Held here rather than awaited in the markup so the shelf after it can be
@@ -61,7 +69,7 @@
 			live = false;
 		};
 	});
-	const releasesIndex = $derived((popular.length > 0 ? 1 : 0) + (albums.length > 0 ? 1 : 0));
+	const releasesIndex = $derived((popular.length > 0 ? 1 : 0) + groups.length);
 </script>
 
 <svelte:head>
@@ -116,11 +124,11 @@
 		</div>
 	{/if}
 
-	{#if albums.length > 0}
+	{#each groups as group, position (group.kind)}
 		<section>
-			<SectionHeader title="Releases" index={popular.length > 0 ? 2 : 1} />
+			<SectionHeader title={group.title} index={(popular.length > 0 ? 2 : 1) + position} />
 			<MediaGrid density={data.settings.gridSize}>
-				{#each albums as album (album.id)}
+				{#each group.albums as album (album.id)}
 					<MediaCard
 						href="/albums/{album.id}"
 						title={album.name}
@@ -132,7 +140,7 @@
 				{/each}
 			</MediaGrid>
 		</section>
-	{/if}
+	{/each}
 
 	{#if appearing.length > 0}
 		<MediaShelf title="Appears on" eyebrow="Other artists' albums" index={releasesIndex + 1} density="compact">
@@ -192,6 +200,15 @@
 	.details {
 		/* The hero title sizes itself against this column — see HeroTitle. */
 		container-type: inline-size;
+		/*
+		 * The whole column, whatever the hero does with its items. A size
+		 * container has no width of its own to offer: its contents do not count.
+		 * Where the hero centres its items, on a phone, or starts them, under
+		 * 46rem, this was 0 wide at that point and everything in it spilled to the
+		 * right: at 360px the biography ran to x=377 and was cut off.
+		 */
+		justify-self: stretch;
+		min-width: 0;
 		display: grid;
 		gap: var(--space-2);
 		justify-items: start;

@@ -1,6 +1,7 @@
 import type { LayoutServerLoad } from './$types';
 import { backendFor } from '$lib/server/backends';
 import { config } from '$lib/server/config';
+import { radioEnabled } from '$lib/server/radio';
 import { DEFAULT_SETTINGS } from '$lib/server/settings';
 import { APP_VERSION } from '$lib/server/version';
 
@@ -18,6 +19,12 @@ export const load: LayoutServerLoad = async ({ locals, url }) => {
 		remoteControl: cfg.remoteControl,
 		// Listening together needs both; see `together.ts`.
 		together: cfg.sharing && cfg.remoteControl,
+		// Whether headphone corrections can be searched for; see `autoeq.ts`.
+		autoeq: cfg.autoeqUrl !== null,
+		// Whether the library can be browsed by folder; see `HEDDOHON_FOLDERS`.
+		folders: cfg.folders,
+		// Whether the music server keeps internet radio stations (Navidrome does) and they are offered here.
+		radio: radioEnabled(session),
 		// Whether the music server keeps star ratings. Navidrome does, Jellyfin
 		// does not, and the stars are drawn only where a press can be saved.
 		ratings: Boolean(session && backendFor(session.account.backend).setRating),

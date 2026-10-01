@@ -1,0 +1,287 @@
+/**
+ * Internet radio: the stations the music server lists, and their streams.
+ *
+ * Navidrome keeps a list of stations, each a name and the address of a stream
+ * on some other host. The browser only talks to Heddohon (the policy on its
+ * pages allows media from this origin alone), so a station is played through
+ * here: this server fetches the stream and passes the bytes on.
+ *
+ * That makes this the one place the server fetches an address it was not
+ * configured with, so the address is held to rules before anything is sent:
+ *
+ *  - It comes from the music server's list for the signed-in account, looked
+ *    up by the station's id. Nothing a request carries is fetched.
+ *  - http or https, without a user name or password in it.
+ *  - Every address its host resolves to is public, unless
+ *    `HEDDOHON_RADIO_PRIVATE=true`. A station set to a host on the local
+ *    network, or one that resolves there, would otherwise read whatever
+ *    answers on that network back out as "audio". The check is made in the
+ *    connection's own lookup, so the address checked is the address dialled.
+ *  - A redirect is followed up to three times, each hop held to the same
+ *    rules. A playlist file (.m3u, .pls), which many station addresses are,
+ *    counts as one: its first address is where the stream is.
+ *  - What comes back has to say it is audio. Anything else is dropped unread.
+ *    An HLS playlist is a list of segments, not a stream, and is not played.
+ *
+ * The stream is sent on as it arrives, with its type and no length. It ends
+ * when the listener leaves, when the session ends, or when it stalls.
+ */
+import { lookup as dnsLookup } from 'node:dns';
+import http from 'node:http';
+import https from 'node:https';
+import { BlockList, isIP, type LookupFunction } from 'node:net';
+import { Readable } from 'node:stream';
+import type { RadioStation } from '$lib/types';
+import type { AuthenticatedSession } from './auth';
+import { backendFor } from './backends';
+import type { RadioStationSource } from './backends/types';
+import { config } from './config';
+import { log, reason } from './log';
+import { APP_VERSION } from './version';
+
+/** To the first byte of the answer. A live stream has no time limit after that, only the stall below. */
+const CONNECT_TIMEOUT_MS = 10_000;
+/** A stream that sends nothing for this long is cut. */
+const STALL_TIMEOUT_MS = 30_000;
+const MAX_REDIRECTS = 3;
+/** Stations one account plays at once: a tab each on a few devices. */
+const MAX_STREAMS_PER_ACCOUNT = 4;
+/** The types a playlist file is served as, and the most of one that is read. */
+const PLAYLIST_TYPES = new Set(['audio/x-mpegurl', 'audio/mpegurl', 'audio/x-scpls', 'application/pls+xml']);
+const MAX_PLAYLIST_BYTES = 64 * 1024;
+
+/** Loopback, private, link-local, carrier-grade NAT, multicast and the unspecified addresses. */
+const NOT_PUBLIC = new BlockList();
+for (const [network, prefix] of [
+	['0.0.0.0', 8],
+	['10.0.0.0', 8],
+	['100.64.0.0', 10],
+	['127.0.0.0', 8],
+	['169.254.0.0', 16],
+	['172.16.0.0', 12],
+	['192.0.0.0', 24],
+	['192.168.0.0', 16],
+	['198.18.0.0', 15],
+	['224.0.0.0', 3]
+] as const) {
+	NOT_PUBLIC.addSubnet(network, prefix, 'ipv4');
+}
+for (const [network, prefix] of [
+	['::', 127],
+	['64:ff9b::', 96],
+	['fc00::', 7],
+	['fe80::', 10],
+	['ff00::', 8]
+] as const) {
+	NOT_PUBLIC.addSubnet(network, prefix, 'ipv6');
+}
+
+function isPublic(address: string, family: number): boolean {
+	// An IPv4 address written as IPv6 is the IPv4 address.
+	const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(address);
+	if (mapped) return !NOT_PUBLIC.check(mapped[1], 'ipv4');
+	return !NOT_PUBLIC.check(address, family === 6 ? 'ipv6' : 'ipv4');
+}
+
+export class RadioError extends Error {
+	constructor(
+		message: string,
+		readonly kind: 'unknown' | 'refused' | 'unreachable' | 'not_audio' | 'busy'
+	) {
+		super(message);
+	}
+}
+
+/** Whether this deployment and this account's music server offer stations. */
+export function radioEnabled(session: AuthenticatedSession | null): boolean {
+	return Boolean(session && config().radio && backendFor(session.account.backend).getRadioStations);
+}
+
+async function sources(session: AuthenticatedSession): Promise<RadioStationSource[]> {
+	const list = backendFor(session.account.backend).getRadioStations;
+	if (!config().radio || !list) return [];
+	return list(session.credential);
+}
+
+/** A station's own page, if it is an http or https address: it becomes a link. */
+function homePage(raw: string | null): string | null {
+	if (!raw) return null;
+	try {
+		const url = new URL(raw);
+		return url.protocol === 'http:' || url.protocol === 'https:' ? url.href : null;
+	} catch {
+		return null;
+	}
+}
+
+/** The stations for the Radio page, without their stream addresses. */
+export async function radioStations(session: AuthenticatedSession): Promise<RadioStation[]> {
+	return (await sources(session)).map((station) => ({ id: station.id, name: station.name, homePage: homePage(station.homePageUrl) }));
+}
+
+/** The address as a URL this server will fetch, or a refusal. */
+function allowed(raw: string): URL {
+	let url: URL;
+	try {
+		url = new URL(raw);
+	} catch {
+		throw new RadioError('The station has no usable address', 'refused');
+	}
+	if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new RadioError('The station is not an http or https address', 'refused');
+	if (url.username || url.password) throw new RadioError('The station address carries a user name or password', 'refused');
+	const host = url.hostname.replace(/^\[|\]$/g, '');
+	// A literal address is never looked up, so it is checked here.
+	const family = isIP(host);
+	if (family !== 0 && !config().radioPrivate && !isPublic(host, family)) {
+		throw new RadioError('The station is on a private address', 'refused');
+	}
+	return url;
+}
+
+/** DNS for the connection, refusing a name with any address that is not public. */
+const guardedLookup: LookupFunction = (hostname, options, callback) => {
+	dnsLookup(hostname, { ...options, all: true }, (err, addresses) => {
+		if (err) return callback(err, '', 0);
+		if (!config().radioPrivate && addresses.some((entry) => !isPublic(entry.address, entry.family))) {
+			return callback(Object.assign(new Error('The station resolves to a private address'), { code: 'EPRIVATE' }), '', 0);
+		}
+		// Node asks for every address when it races families, and for one otherwise.
+		if ((options as { all?: boolean }).all) (callback as unknown as (err: null, list: typeof addresses) => void)(null, addresses);
+		else callback(null, addresses[0].address, addresses[0].family);
+	});
+};
+
+function request(url: URL, signal: AbortSignal): Promise<http.IncomingMessage> {
+	return new Promise((resolve, reject) => {
+		const outgoing = (url.protocol === 'https:' ? https : http).request(url, {
+			method: 'GET',
+			headers: { accept: 'audio/*', 'user-agent': `Heddohon/${APP_VERSION} (https://github.com/zorcerer/heddohon)` },
+			lookup: guardedLookup,
+			signal
+		});
+		const timer = setTimeout(() => outgoing.destroy(new Error('The station did not answer in time')), CONNECT_TIMEOUT_MS);
+		outgoing.once('response', (response) => {
+			clearTimeout(timer);
+			resolve(response);
+		});
+		outgoing.once('error', (err) => {
+			clearTimeout(timer);
+			reject(err);
+		});
+		outgoing.end();
+	});
+}
+
+/** The first address in an .m3u or .pls body, or null for an HLS playlist or one with none. */
+async function firstInPlaylist(response: http.IncomingMessage): Promise<string | null> {
+	const chunks: Buffer[] = [];
+	let total = 0;
+	for await (const chunk of response) {
+		total += (chunk as Buffer).length;
+		if (total > MAX_PLAYLIST_BYTES) {
+			response.destroy();
+			return null;
+		}
+		chunks.push(chunk as Buffer);
+	}
+	const text = Buffer.concat(chunks).toString('utf8');
+	if (text.includes('#EXT-X-')) return null;
+	for (const raw of text.split(/\r?\n/)) {
+		const line = raw.trim().replace(/^File\d+=/i, '');
+		if (/^https?:\/\//i.test(line)) return line;
+	}
+	return null;
+}
+
+const active = new Map<string, number>();
+
+/**
+ * The stream of station `id` for this session, as a response to send on.
+ * Throws `RadioError`: `unknown` for an id the music server does not list,
+ * `refused` for an address the rules above turn down, `unreachable` when the
+ * station does not answer, `not_audio` when it answers with something else,
+ * `busy` past `MAX_STREAMS_PER_ACCOUNT`.
+ */
+export async function openStation(session: AuthenticatedSession, id: string, client: AbortSignal): Promise<Response> {
+	const station = (await sources(session)).find((entry) => entry.id === id);
+	if (!station) throw new RadioError('No such station', 'unknown');
+
+	const account = session.account.id;
+	if ((active.get(account) ?? 0) >= MAX_STREAMS_PER_ACCOUNT) throw new RadioError('Too many stations are playing on this account', 'busy');
+	active.set(account, (active.get(account) ?? 0) + 1);
+	let released = false;
+	const release = () => {
+		if (released) return;
+		released = true;
+		const left = (active.get(account) ?? 1) - 1;
+		if (left > 0) active.set(account, left);
+		else active.delete(account);
+	};
+
+	const controller = new AbortController();
+	const stop = () => controller.abort();
+	client.addEventListener('abort', stop, { once: true });
+
+	try {
+		let url = allowed(station.streamUrl);
+		let response: http.IncomingMessage | null = null;
+		for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+			const answer = await request(url, controller.signal).catch((err) => {
+				if (err instanceof RadioError) throw err;
+				throw new RadioError(
+					(err as NodeJS.ErrnoException).code === 'EPRIVATE' ? 'The station resolves to a private address' : `The station could not be reached: ${reason(err)}`,
+					(err as NodeJS.ErrnoException).code === 'EPRIVATE' ? 'refused' : 'unreachable'
+				);
+			});
+			const status = answer.statusCode ?? 0;
+			if (status >= 300 && status < 400 && answer.headers.location) {
+				answer.destroy();
+				url = allowed(new URL(answer.headers.location, url).href);
+				continue;
+			}
+			if (status !== 200) {
+				answer.destroy();
+				throw new RadioError(`The station answered HTTP ${status}`, 'unreachable');
+			}
+			if (PLAYLIST_TYPES.has((answer.headers['content-type'] ?? '').split(';')[0].trim().toLowerCase())) {
+				const listed = await firstInPlaylist(answer);
+				if (!listed) throw new RadioError('The station is a playlist with no stream this server can pass on', 'not_audio');
+				url = allowed(new URL(listed, url).href);
+				continue;
+			}
+			response = answer;
+			break;
+		}
+		if (!response) throw new RadioError('The station redirects too many times', 'unreachable');
+
+		const type = (response.headers['content-type'] ?? '').split(';')[0].trim().toLowerCase();
+		if (!type.startsWith('audio/') && type !== 'application/ogg') {
+			response.destroy();
+			throw new RadioError(`The station sent ${type || 'no content type'}, which is not an audio stream`, 'not_audio');
+		}
+
+		const upstream = response;
+		upstream.setTimeout(STALL_TIMEOUT_MS, () => upstream.destroy(new Error('The station stopped sending')));
+		upstream.once('close', () => {
+			release();
+			client.removeEventListener('abort', stop);
+		});
+		log.debug('radio', { station: station.id, host: url.host, type });
+		return new Response(Readable.toWeb(upstream) as ReadableStream<Uint8Array>, {
+			headers: {
+				'content-type': type,
+				// Live: nothing to cache, and a proxy in front must not hold it back.
+				'cache-control': 'no-store',
+				'x-accel-buffering': 'no'
+			}
+		});
+	} catch (err) {
+		controller.abort();
+		release();
+		client.removeEventListener('abort', stop);
+		if (err instanceof RadioError && err.kind !== 'unknown') {
+			log.warn('radio-failed', { station: station.id, kind: err.kind, detail: err.message });
+		}
+		throw err;
+	}
+}

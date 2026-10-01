@@ -7,17 +7,20 @@
 
 	let { appName }: { appName: string } = $props();
 
-	const LINKS = [
+	const LINKS = $derived([
 		{ href: '/', label: 'Home', icon: 'home' as const, exact: true },
 		{ href: '/albums', label: 'Albums', icon: 'album' as const, exact: false },
 		{ href: '/artists', label: 'Artists', icon: 'artist' as const, exact: false },
 		{ href: '/genres', label: 'Genres', icon: 'genre' as const, exact: false },
 		{ href: '/playlists', label: 'Playlists', icon: 'playlist' as const, exact: false },
-		{ href: '/folders', label: 'Folders', icon: 'folder' as const, exact: false },
-		{ href: '/history', label: 'Recently played', icon: 'history' as const, exact: false },
+		// Unless the deployment has switched the folder view off (`HEDDOHON_FOLDERS`).
+		...(page.data.folders === false ? [] : [{ href: '/folders', label: 'Folders', icon: 'folder' as const, exact: false }]),
+		// Where the music server keeps stations; see `radio.ts`.
+		...(page.data.radio ? [{ href: '/radio', label: 'Radio', icon: 'radio' as const, exact: false }] : []),
+		{ href: '/history', label: 'History', icon: 'history' as const, exact: false, also: '/stats' },
 		{ href: '/favourites', label: 'Favourites', icon: 'heart' as const, exact: false },
 		{ href: '/search', label: 'Search', icon: 'search' as const, exact: false }
-	];
+	]);
 
 	/*
 	 * Where the rail points: the page being opened while it loads, then that
@@ -27,7 +30,10 @@
 	 */
 	const path = $derived(navigating.to?.url.pathname ?? page.url.pathname);
 
-	function isActive(href: string, exact: boolean): boolean {
+	// `also` is a second page the entry stands for: History is Recently played
+	// and Your listening, which are tabs of one another.
+	function isActive(href: string, exact: boolean, also?: string): boolean {
+		if (also && path === also) return true;
 		return exact ? path === href : path === href || path.startsWith(`${href}/`);
 	}
 
@@ -49,7 +55,7 @@
 	let placedIndex = -1;
 	let measured = $state(false);
 	let settled = $state(false);
-	const activeIndex = $derived(LINKS.findIndex((link) => isActive(link.href, link.exact)));
+	const activeIndex = $derived(LINKS.findIndex((link) => isActive(link.href, link.exact, link.also)));
 
 	function place() {
 		const anchor = activeIndex >= 0 ? anchors[activeIndex] : null;
@@ -131,7 +137,7 @@
 			style:--marker-y="{marker?.y ?? 0}px"
 		></li>
 		{#each LINKS as link, index (link.href)}
-			{@const active = isActive(link.href, link.exact)}
+			{@const active = isActive(link.href, link.exact, link.also)}
 			<li>
 				<a
 					class="link"

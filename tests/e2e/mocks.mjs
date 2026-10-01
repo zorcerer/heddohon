@@ -137,6 +137,12 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 		ignoreRange: false,
 		/** Milliseconds between the first and second half of a `stream` body, to keep a read in progress. */
 		streamSlowMs: 0,
+		/** OpenSubsonic `releaseTypes` by album id, such as `['EP']`. An album without an entry sends none. */
+		releaseTypes: new Map(),
+		/** Fields to put over an album's own, by id: `{ songCount, duration, isCompilation }`. */
+		albumShapes: new Map(),
+		/** Internet radio stations, as `{ id, name, streamUrl, homePageUrl }`. None unless a test adds them. */
+		radio: [],
 		/** Cover ids answered with a solid colour, as `[r, g, b]`, instead of the 1px PNG. */
 		coverColors: new Map(),
 		/** Songs on each album from `getAlbum`, up to 26: `s1a`, `s1b`, `s1c` and on. */
@@ -208,6 +214,8 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 		duration: 360,
 		year: 2000 + (i % 20),
 		userRating: state.ratings.get(id),
+		...(state.releaseTypes.has(id) ? { releaseTypes: state.releaseTypes.get(id) } : {}),
+		...(state.albumShapes.get(id) ?? {}),
 		// A 2009 edition of a record from 1979, and a date with no year (Navidrome
 		// sends 0), which leaves the edition's year.
 		...(i === 29 ? { originalReleaseDate: { year: 1979, month: 5, day: 1 } } : {}),
@@ -443,6 +451,8 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 			}
 			case 'getAlbumList2':
 				return send(ok({ albumList2: { album: Array.from({ length: Math.min(12, artistCount) }, (_, i) => album(i)) } }));
+			case 'getInternetRadioStations':
+				return send(ok({ internetRadioStations: { internetRadioStation: state.radio } }));
 			case 'getGenres':
 				return send(ok({ genres: { genre: GENRES } }));
 			case 'getPlaylists':
@@ -703,5 +713,107 @@ export async function startJellyfin() {
 		return send({}, 404);
 	});
 
+	return { ...server, calls, state };
+}
+
+/** The correction the mock AutoEq serves for the Sennheiser HD 650, as AutoEq writes it. */
+export const HD650_PARAMETRIC = `Preamp: -6.1 dB
+Filter 1: ON LSC Fc 105 Hz Gain 6.4 dB Q 0.70
+Filter 2: ON PK Fc 8800 Hz Gain 5.1 dB Q 1.42
+Filter 3: ON PK Fc 118 Hz Gain -3.1 dB Q 0.50
+Filter 4: OFF PK Fc 37 Hz Gain 0.7 dB Q 3.96
+Filter 5: ON HSC Fc 10000 Hz Gain -2.1 dB Q 0.70
+`;
+
+/**
+ * The `results` directory of AutoEq: `INDEX.md`, answered with an ETag and a
+ * 304 for a request that names it, and the ParametricEQ.txt of one profile.
+ * The index lists a profile whose file is missing and one whose path climbs
+ * out of the directory. `calls` counts `index`, `index304` and `profile`.
+ */
+export async function startAutoEq() {
+	const calls = counter();
+	const state = { etag: '"v1"', down: false };
+	const index = () => `# Index
+This is a list of all equalization profiles.
+
+- [Sennheiser HD 650](./oratory1990/over-ear/Sennheiser%20HD%20650) by oratory1990
+- [Sennheiser HD 650](./crinacle/GRAS%2043AG-7%20over-ear/Sennheiser%20HD%20650) by crinacle on GRAS 43AG-7
+- [Sennheiser HD 650 (2020)](./crinacle/GRAS%2043AG-7%20over-ear/Sennheiser%20HD%20650%20(2020)) by crinacle on GRAS 43AG-7
+- [1MORE Aero (ANC Off)](./HypetheSonics/GRAS%20RA0045%20in-ear/1MORE%20Aero%20(ANC%20Off)) by HypetheSonics on GRAS RA0045
+- [Climber](./../../secret/Climber) by nobody
+`;
+	const server = await listen((req, res) => {
+		const path = decodeURIComponent(new URL(req.url, 'http://x').pathname);
+		if (state.down) {
+			res.statusCode = 503;
+			return res.end();
+		}
+		if (path === '/results/INDEX.md') {
+			res.setHeader('etag', state.etag);
+			if (req.headers['if-none-match'] === state.etag) {
+				calls.hit('index304');
+				res.statusCode = 304;
+				return res.end();
+			}
+			calls.hit('index');
+			res.setHeader('content-type', 'text/plain; charset=utf-8');
+			return res.end(index());
+		}
+		calls.hit('profile');
+		if (path === '/results/oratory1990/over-ear/Sennheiser HD 650/Sennheiser HD 650 ParametricEQ.txt') {
+			res.setHeader('content-type', 'text/plain; charset=utf-8');
+			return res.end(HD650_PARAMETRIC);
+		}
+		res.statusCode = 404;
+		res.end('404: Not Found');
+	});
+	return { ...server, url: `${server.url}/results`, calls, state };
+}
+
+/**
+ * A host that radio stations live on. `/live` is an audio stream (`state.audio`,
+ * as `{ type, body }`, 2000 bytes of `audio/mpeg` unless set), `/moved` redirects
+ * to it, `/list.m3u` and `/list.pls` are playlists that name it, `/hls.m3u8` is
+ * an HLS playlist, `/page` is a web page, and `/loop` redirects to itself.
+ * `calls` counts each path.
+ */
+export async function startStationHost() {
+	const calls = counter();
+	const state = { audio: null };
+	const server = await listen((req, res) => {
+		const { pathname } = new URL(req.url, 'http://x');
+		calls.hit(pathname);
+		const live = `http://${req.headers.host}/live`;
+		switch (pathname) {
+			case '/live': {
+				res.setHeader('content-type', state.audio?.type ?? 'audio/mpeg');
+				return res.end(state.audio?.body ?? Buffer.alloc(2000, 7));
+			}
+			case '/moved':
+				res.statusCode = 302;
+				res.setHeader('location', '/live');
+				return res.end();
+			case '/loop':
+				res.statusCode = 302;
+				res.setHeader('location', '/loop');
+				return res.end();
+			case '/list.m3u':
+				res.setHeader('content-type', 'audio/x-mpegurl');
+				return res.end(`#EXTM3U\n#EXTINF:-1,Mock station\n${live}\n`);
+			case '/list.pls':
+				res.setHeader('content-type', 'audio/x-scpls');
+				return res.end(`[playlist]\nNumberOfEntries=1\nFile1=${live}\nTitle1=Mock station\n`);
+			case '/hls.m3u8':
+				res.setHeader('content-type', 'audio/x-mpegurl');
+				return res.end('#EXTM3U\n#EXT-X-TARGETDURATION:6\n#EXTINF:6,\nsegment0.aac\n');
+			case '/page':
+				res.setHeader('content-type', 'text/html');
+				return res.end('<html><body>secret</body></html>');
+			default:
+				res.statusCode = 404;
+				return res.end();
+		}
+	});
 	return { ...server, calls, state };
 }

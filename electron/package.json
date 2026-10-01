@@ -1,0 +1,77 @@
+{
+	"name": "heddohon-desktop",
+	"productName": "Heddohon",
+	"desktopName": "heddohon.desktop",
+	"version": "0.0.0",
+	"description": "Heddohon in a window of its own, for a server you run.",
+	"private": true,
+	"license": "MIT",
+	"author": {
+		"name": "zorcerer",
+		"email": "zorcerer@users.noreply.github.com"
+	},
+	"homepage": "https://github.com/zorcerer/heddohon",
+	"main": "main.js",
+	"scripts": {
+		"start": "electron .",
+		"dist": "electron-builder --linux AppImage --x64 --arm64 --publish never",
+		"dist:win": "electron-builder --win nsis portable --x64 --publish never",
+		"test": "node --test \"test/*.test.mjs\""
+	},
+	"devDependencies": {
+		"electron": "^44.5.1",
+		"electron-builder": "^26.15.3",
+		"playwright-core": "1.63.0"
+	},
+	"build": {
+		"appId": "app.heddohon.desktop",
+		"productName": "Heddohon",
+		"files": [
+			"main.js",
+			"lib.js",
+			"preload.js",
+			"setup.html",
+			"setup.css",
+			"setup.js",
+			"login.html",
+			"login.js",
+			"build/icon.png"
+		],
+		"directories": {
+			"output": "dist"
+		},
+		"artifactName": "heddohon-${version}-${arch}.${ext}",
+		"win": {
+			"target": [
+				"nsis",
+				"portable"
+			],
+			"icon": "build/icon.png"
+		},
+		"nsis": {
+			"oneClick": true,
+			"perMachine": false,
+			"artifactName": "heddohon-${version}-setup.${ext}"
+		},
+		"portable": {
+			"artifactName": "heddohon-${version}-portable.${ext}"
+		},
+		"linux": {
+			"target": [
+				"AppImage"
+			],
+			"category": "AudioVideo",
+			"icon": "build/icon.png",
+			"executableName": "heddohon",
+			"syncDesktopName": true,
+			"synopsis": "Music player for your own Navidrome or Jellyfin library",
+			"desktop": {
+				"entry": {
+					"Name": "Heddohon",
+					"Categories": "AudioVideo;Audio;Player;",
+					"StartupWMClass": "Heddohon"
+				}
+			}
+		}
+	}
+}
