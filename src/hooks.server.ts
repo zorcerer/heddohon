@@ -23,7 +23,7 @@ import { logKeepDays } from '$lib/server/logfile';
  * Every route under it resolves the token itself and serves the one song the
  * link names, and nothing under it accepts a write. See `lib/server/shares.ts`.
  */
-const PUBLIC_ROUTES = ['/login', '/healthz', '/share', '/cast', '/together', '/manifest.webmanifest'];
+const PUBLIC_ROUTES = ['/login', '/healthz', '/share', '/cast', '/together', '/manifest.webmanifest', '/.well-known/assetlinks.json'];
 
 const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 

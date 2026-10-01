@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+	<!-- The dark theme's ground, which the web manifest also names as its background and theme colour. -->
+	<color name="ground">#0B0C0F</color>
+	<color name="panel">#14171C</color>
+	<color name="edge">#2A2F38</color>
+	<color name="text">#E8EAEE</color>
+	<color name="muted">#9AA3B0</color>
+	<color name="accent">#9FC6D3</color>
+	<color name="danger">#E5796F</color>
+</resources>

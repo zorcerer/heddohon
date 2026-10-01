@@ -64,10 +64,47 @@ export interface AppConfig {
 	radio: boolean;
 	/** Whether a station may be on a private address. Off unless asked for. */
 	radioPrivate: boolean;
+	/**
+	 * SHA-256 fingerprints of the certificates an Android app this server
+	 * vouches for is signed with; see `routes/.well-known/assetlinks.json`.
+	 */
+	androidFingerprints: string[];
 	database: DatabaseConfig;
 }
 
 export class ConfigError extends Error {}
+
+/**
+ * The certificate the released Android app is signed with, as the SHA-256
+ * `keytool` and `apksigner` print. Its key is held in the repository's
+ * secrets and signs the APK attached to each release.
+ */
+export const ANDROID_RELEASE_KEY =
+	'3C:D0:5B:A1:45:77:D7:1F:68:4E:61:51:AF:7C:0F:3F:BE:10:15:A8:BB:52:B2:28:FA:54:B4:11:AC:14:DE:52';
+
+/** A fingerprint as 32 pairs of hex digits with colons between, upper case. */
+const FINGERPRINT = /^[0-9A-F]{2}(:[0-9A-F]{2}){31}$/;
+
+/**
+ * The released app's key, and those in `HEDDOHON_ANDROID_FINGERPRINTS`: a
+ * comma-separated list, for an app built and signed by someone else. One that
+ * is not a fingerprint is a mistake worth stopping for, since the app would
+ * open with an address bar and nothing would say why.
+ */
+function androidFingerprints(): string[] {
+	const extra = (env('HEDDOHON_ANDROID_FINGERPRINTS') ?? '')
+		.split(',')
+		.map((entry) => entry.trim().toUpperCase())
+		.filter(Boolean);
+	for (const entry of extra) {
+		if (!FINGERPRINT.test(entry)) {
+			throw new ConfigError(
+				`HEDDOHON_ANDROID_FINGERPRINTS holds ${JSON.stringify(entry)}, which is not a SHA-256 fingerprint (32 pairs of hex digits, colons between)`
+			);
+		}
+	}
+	return [...new Set([ANDROID_RELEASE_KEY, ...extra])];
+}
 
 function env(name: string): string | undefined {
 	const raw = process.env[name];
@@ -268,6 +305,7 @@ function build(): AppConfig {
 		// private address is refused unless that is asked for.
 		radio: flagEnv('HEDDOHON_RADIO', true),
 		radioPrivate: flagEnv('HEDDOHON_RADIO_PRIVATE', false),
+		androidFingerprints: androidFingerprints(),
 		database: databaseConfig()
 	};
 }
@@ -350,6 +388,7 @@ export function config(): AppConfig {
 			autoeqUrl: null,
 			radio: true,
 			radioPrivate: false,
+			androidFingerprints: [ANDROID_RELEASE_KEY],
 			database: { kind: 'sqlite' }
 		};
 	}

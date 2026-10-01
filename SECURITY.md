@@ -848,6 +848,17 @@ session token and any `u`, `t`, `s` or `p` query parameter.
 - **`/manifest.webmanifest` is unauthenticated**, since browsers fetch it
   without cookies. It returns `HEDDOHON_APP_NAME`, fixed colours, icon paths and
   three shortcut paths.
+- **`/.well-known/assetlinks.json` is unauthenticated**, since Android's
+  browsers fetch it without cookies. It names the Android app's package and the
+  SHA-256 of the certificate the released app is signed with, plus any in
+  `HEDDOHON_ANDROID_FINGERPRINTS`. What it grants: an app signed with one of
+  those keys may show this origin in the browser without the address bar (a
+  Trusted Web Activity). The page still runs in the browser, under its
+  policy, with the browser's cookies; the app is given no session and reads
+  nothing of the page. Someone holding the release key could publish an app
+  that shows a Heddohon server without an address bar, which is what the
+  released app does; they could not show another site as this one, since the
+  file vouches only for the origin that serves it.
 - **Concurrent streams per account are uncapped.** Cap them at the proxy for wide exposure.
 - **Authentication is as strong as the upstream account.** There is no second
   factor or sign-in notification. Settings lists the account's sessions and

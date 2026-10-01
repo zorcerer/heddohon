@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+	<string name="app_name">Heddohon</string>
+	<string name="setup_lede">The address of your Heddohon server, as you open it in a browser.</string>
+	<string name="setup_label">Server address</string>
+	<string name="setup_hint">https://music.example.com</string>
+	<string name="setup_connect">Connect</string>
+	<string name="setup_checking">Checking…</string>
+	<string name="setup_small">The app is a window onto that server: your music, your account and your settings stay on it. To change the address later, press and hold the app\'s icon and choose Change server.</string>
+	<string name="setup_not_address">That is not an address. It looks like https://music.example.com.</string>
+	<string name="setup_needs_https">The address has to start with https://. The app opens the server in a secure window, which a plain http address cannot be.</string>
+	<string name="setup_unreachable">%1$s could not be reached. Check the address, and that this phone can open it in a browser.</string>
+	<string name="setup_not_heddohon">%1$s answered, but not as a Heddohon server.</string>
+	<string name="shortcut_change_short">Change server</string>
+	<string name="shortcut_change_long">Change the server address</string>
+	<string name="no_browser">No browser on this phone can open the server. Install Chrome, or another browser that supports Trusted Web Activities.</string>
+</resources>
