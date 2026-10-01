@@ -1014,6 +1014,50 @@ describe('internet radio', () => {
 });
 
 describe('the bars a phone paints around the page', () => {
+	test('under the status bar of an installed app on iOS, the strip the clock is read against is dark in both themes', async () => {
+		const settings = (patch) => context.request.patch(`${app.url}/api/settings`, { data: patch, headers: { origin: app.url } });
+		const phone = await browser.newContext({ viewport: { width: 393, height: 852 }, isMobile: true, hasTouch: true });
+		const signIn = await phone.request.post(`${app.url}/login`, {
+			form: { username: 'testuser', password: 'testpass', backend: 'subsonic', next: '/' },
+			headers: { origin: app.url, accept: 'text/html' },
+			maxRedirects: 0
+		});
+		assert.equal(signIn.status(), 303);
+		/** The strip's colour over the theme's ground, and the contrast of iOS's white clock on it. */
+		const strip = async () => {
+			const page = await phone.newPage();
+			try {
+				await page.goto(app.url + '/', { waitUntil: 'networkidle' });
+				return await page.evaluate(() => {
+					const shell = document.querySelector('.app');
+					const after = getComputedStyle(shell, '::after');
+					const canvas = document.createElement('canvas').getContext('2d');
+					canvas.fillStyle = getComputedStyle(document.body).backgroundColor;
+					canvas.fillRect(0, 0, 1, 1);
+					canvas.fillStyle = after.backgroundColor;
+					canvas.fillRect(0, 0, 1, 1);
+					const [r, g, b] = canvas.getImageData(0, 0, 1, 1).data;
+					const linear = (part) => (part / 255 <= 0.03928 ? part / 255 / 12.92 : ((part / 255 + 0.055) / 1.055) ** 2.4);
+					const luminance = 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b);
+					return { position: after.position, height: after.height, contrast: 1.05 / (luminance + 0.05) };
+				});
+			} finally {
+				await page.close();
+			}
+		};
+		try {
+			const dark = await strip();
+			assert.equal(dark.position, 'fixed');
+			assert.ok(dark.contrast >= 4.5, `dark theme: ${dark.contrast.toFixed(1)} to 1`);
+			await settings({ theme: 'light' });
+			const light = await strip();
+			assert.ok(light.contrast >= 4.5, `light theme: ${light.contrast.toFixed(1)} to 1`);
+		} finally {
+			await settings({ theme: 'dark' });
+			await phone.close();
+		}
+	});
+
 	test('theme-color follows the canvas: lit by the playing cover, and the light theme\'s ground in the light theme', async () => {
 		const settings = (patch) => context.request.patch(`${app.url}/api/settings`, { data: patch, headers: { origin: app.url } });
 		subsonic.state.audio = { type: 'audio/wav', body: silentWav(30) };

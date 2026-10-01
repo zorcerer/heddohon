@@ -166,6 +166,8 @@
 		display: grid;
 		grid-template-rows: auto minmax(0, 1fr) auto;
 		padding: clamp(1rem, 3vw, 3rem);
+		/* Clear of the status bar where an installed app draws under it. */
+		padding-top: max(clamp(1rem, 3vw, 3rem), calc(env(safe-area-inset-top, 0px) + var(--space-2)));
 		color: var(--text-strong);
 		overflow: hidden;
 	}

@@ -1257,6 +1257,17 @@
 		}
 
 		/*
+		 * iOS writes the clock, the signal and the battery in white over an
+		 * installed app that draws under them (`black-translucent` in app.html),
+		 * in the light theme as well, where frosted parchment would leave them
+		 * unreadable. So the strip is smoked there: white on it measures 7.2 to 1
+		 * over the parchment ground.
+		 */
+		:global([data-theme='light']) .app::after {
+			background: rgb(38 30 22 / 0.72);
+		}
+
+		/*
 		 * The content cell runs the length of the page here and passes behind
 		 * the dock, and a layer fading behind glass darkens it in Safari and
 		 * Firefox (see the veil above). So the veil is fixed to the screen,

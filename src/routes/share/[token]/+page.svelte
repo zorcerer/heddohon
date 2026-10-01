@@ -543,6 +543,7 @@
 		justify-content: center;
 		gap: var(--space-6) var(--space-7);
 		padding: var(--space-6) var(--space-5);
+		padding-top: var(--bare-top);
 		grid-template-columns: minmax(0, 23rem) minmax(0, 23rem);
 		grid-template-areas:
 			'intro card'
@@ -1020,7 +1021,7 @@
 				'colophon';
 			gap: var(--space-5);
 			align-content: start;
-			padding-top: var(--space-6);
+			padding-top: var(--bare-top);
 		}
 
 		.wordmark {
@@ -1060,7 +1061,7 @@
 			/* Centred when the screen has room to spare, as the login page is;
 			   measured at 560px of content on an 852px iPhone 16. */
 			align-content: center;
-			padding: var(--space-4) var(--space-4) var(--space-3);
+			padding: var(--bare-top-tight) var(--space-4) var(--space-3);
 			grid-template-columns: minmax(0, 1fr);
 			grid-template-areas:
 				'intro'

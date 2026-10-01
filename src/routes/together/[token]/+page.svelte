@@ -225,6 +225,7 @@
 		justify-content: center;
 		gap: var(--space-7);
 		padding: var(--space-6) var(--space-5);
+		padding-top: var(--bare-top);
 		color: var(--text-default);
 	}
 
