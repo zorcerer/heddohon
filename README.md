@@ -105,6 +105,12 @@ branch, when it has changed and passed the test suites, ahead of the next
 release, for trying what is coming; it can break, and a database it has
 migrated may not open in the release before it.
 
+The Android app is an APK on each release. [Obtainium](https://obtainium.imranr.dev)
+installs it from there and updates it from each later release. On a phone with
+Obtainium installed, this adds Heddohon to it:
+
+<a href="https://apps.obtainium.imranr.dev/redirect?r=obtainium://add/https://github.com/zorcerer/heddohon"><img src="https://img.shields.io/badge/Add%20to-Obtainium-D2BCFD?style=for-the-badge&logo=obtainium&logoColor=white" alt="Add Heddohon to Obtainium"></a>
+
 ## Documentation
 
 | | |
