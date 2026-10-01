@@ -1340,6 +1340,24 @@ textarea {
  * `press.ts` restarts the animation on every press, so a second tap ripples
  * again rather than finishing the first.
  */
+/*
+ * How far a shelf fades at each end while more cards lie past it; see
+ * `.track` in `MediaShelf.svelte`. Registered as lengths so that the mask
+ * they shape eases between 0 and the fade width. A browser without
+ * `@property` reads the same values and changes them in one step.
+ */
+@property --shelf-fade-start {
+	syntax: '<length>';
+	inherits: false;
+	initial-value: 0px;
+}
+
+@property --shelf-fade-end {
+	syntax: '<length>';
+	inherits: false;
+	initial-value: 0px;
+}
+
 @property --press {
 	syntax: '<number>';
 	/* Read by the `::after`, which inherits it from the button. */

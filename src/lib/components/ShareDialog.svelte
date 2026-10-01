@@ -104,13 +104,7 @@
 						{/if}
 					</p>
 
-					<p class="rights">
-						<Icon name="info" size={15} />
-						<span>
-							Only share music you have the right to share. Sending {aNoun} to a friend is not the same
-							as posting it publicly, and a link anyone can open may infringe the artist's copyright.
-						</span>
-					</p>
+					<p class="note hh-muted">Only share music you have the right to share.</p>
 
 					<button
 						class="hh-button hh-button--primary submit"
@@ -353,28 +347,6 @@
 	.note {
 		margin: 0;
 		font-size: 0.8125rem;
-	}
-
-	/* Set apart from the note above it without raising its voice: the warning
-	   tone, at the size of the rest of the small print. */
-	.rights {
-		margin: 0;
-		display: grid;
-		grid-template-columns: auto minmax(0, 1fr);
-		gap: var(--space-2);
-		align-items: start;
-		padding: var(--space-2) var(--space-3);
-		border-radius: var(--r-sm);
-		border: 1px solid color-mix(in srgb, var(--warning) 35%, transparent);
-		background: color-mix(in srgb, var(--warning) 8%, transparent);
-		font-size: 0.75rem;
-		line-height: 1.45;
-		color: var(--text-default);
-	}
-
-	.rights :global(svg) {
-		margin-top: 0.1rem;
-		color: var(--warning);
 	}
 
 	.field {

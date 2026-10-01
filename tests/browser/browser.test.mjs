@@ -895,6 +895,35 @@ describe('an artist page on a phone', () => {
 	});
 });
 
+describe('a shelf at the edge of the content column', () => {
+	test('fades out at an end with more cards past it, and is whole at an end it stops at', async () => {
+		const { page, problems } = await watchedPage();
+		try {
+			await page.goto(app.url + '/', { waitUntil: 'networkidle' });
+			const track = page.locator('main .shelf .track').first();
+			const edges = () =>
+				track.evaluate((el) => {
+					const style = getComputedStyle(el);
+					return {
+						start: style.getPropertyValue('--shelf-fade-start').trim(),
+						end: style.getPropertyValue('--shelf-fade-end').trim(),
+						masked: (style.maskImage || style.webkitMaskImage).startsWith('linear-gradient')
+					};
+				});
+			// 40 albums do not fit: more to the right, none to the left.
+			await page.waitForFunction((el) => getComputedStyle(el).getPropertyValue('--shelf-fade-end').trim() === '48px', await track.elementHandle());
+			assert.deepEqual(await edges(), { start: '0px', end: '48px', masked: true });
+
+			await track.evaluate((el) => el.scrollTo({ left: el.scrollWidth, behavior: 'instant' }));
+			await page.waitForFunction((el) => getComputedStyle(el).getPropertyValue('--shelf-fade-start').trim() === '48px', await track.elementHandle());
+			assert.deepEqual(await edges(), { start: '48px', end: '0px', masked: true });
+		} finally {
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+});
+
 describe('internet radio', () => {
 	test('a station plays as a live item: no seeking, no track actions, nothing reported or saved', async () => {
 		const host = await startStationHost();
@@ -1410,6 +1439,13 @@ describe('an album link', () => {
 			await page.goto(app.url + '/albums/al10', { waitUntil: 'networkidle' });
 			await page.getByRole('button', { name: 'Share a link to this album' }).click();
 			await page.getByText('Share an album').waitFor();
+			// The reminder about rights is one line of the small print, not a box of its own.
+			const reminder = page.locator('dialog.share p', { hasText: 'Only share music you have the right to share.' });
+			assert.equal((await reminder.innerText()).trim(), 'Only share music you have the right to share.');
+			assert.deepEqual(
+				await reminder.evaluate((p) => [p.className.includes('note'), getComputedStyle(p).borderTopWidth, getComputedStyle(p).backgroundColor]),
+				[true, '0px', 'rgba(0, 0, 0, 0)']
+			);
 			await page.getByRole('button', { name: 'Create link' }).click();
 			const url = await page.locator('dialog input.url').inputValue();
 			assert.match(url, /\/share\/[A-Za-z0-9_-]{43}$/);
@@ -2227,6 +2263,7 @@ describe('playback on another browser', () => {
 			await field.waitFor({ timeout: 5000 });
 			const link = await field.inputValue();
 			assert.match(link, /\/together\/[\w-]+$/);
+			await hostPage.locator('dialog.together p', { hasText: 'Only share music you have the right to share.' }).waitFor();
 			await hostPage.locator('dialog.together').getByRole('button', { name: 'Close' }).click();
 
 			await guest.goto(link, { waitUntil: 'load' });

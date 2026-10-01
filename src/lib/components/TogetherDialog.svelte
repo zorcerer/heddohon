@@ -49,6 +49,7 @@
 				you do. They need no account, and can send a reaction. It ends at {ends}, when you end it, or when you
 				sign out.
 			</p>
+			<p class="hh-muted note">Only share music you have the right to share.</p>
 
 			<span class="link-row">
 				<input class="hh-input url" readonly value={together.link} onfocus={(event) => event.currentTarget.select()} spellcheck="false" aria-label="Listen-together link" />

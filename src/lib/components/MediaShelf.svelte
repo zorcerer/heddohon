@@ -87,6 +87,8 @@
 	<div
 		class="track hh-stagger"
 		class:compact={density === 'compact'}
+		class:more-before={!atStart}
+		class:more-after={!atEnd}
 		bind:this={track}
 		onscroll={measure}
 	>
@@ -132,6 +134,41 @@
 		padding: var(--space-2) var(--space-4) var(--space-6);
 		margin: calc(-1 * var(--space-2)) calc(-1 * var(--space-4)) calc(-1 * var(--space-5));
 		scroll-padding-inline: var(--space-4);
+		/*
+		 * The line runs to the edge of the content column, where a cover and its
+		 * title were cut off square beside the player. An edge with more cards
+		 * past it fades out over `--fade` instead; an edge the line ends at is
+		 * left whole, so the first and last card are never dimmed. The two widths
+		 * are registered lengths (`app.css`), which is what lets them ease as the
+		 * line reaches an end. No card holds glass, which a mask on an ancestor
+		 * would leave without its blur.
+		 */
+		--fade: 3rem;
+		-webkit-mask-image: linear-gradient(
+			to right,
+			transparent,
+			#000 var(--shelf-fade-start),
+			#000 calc(100% - var(--shelf-fade-end)),
+			transparent
+		);
+		mask-image: linear-gradient(
+			to right,
+			transparent,
+			#000 var(--shelf-fade-start),
+			#000 calc(100% - var(--shelf-fade-end)),
+			transparent
+		);
+		transition:
+			--shelf-fade-start var(--transition),
+			--shelf-fade-end var(--transition);
+	}
+
+	.track.more-before {
+		--shelf-fade-start: var(--fade);
+	}
+
+	.track.more-after {
+		--shelf-fade-end: var(--fade);
 	}
 
 	.track::-webkit-scrollbar {
@@ -175,6 +212,8 @@
 		.track {
 			--card: 132px;
 			gap: var(--space-1);
+			/* Half a card shows at the edge here, and stays readable as one. */
+			--fade: 1.5rem;
 		}
 
 		.track.compact {
