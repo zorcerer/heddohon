@@ -43,11 +43,30 @@ let server;
 let profile;
 
 /** Starts the shell on a profile, with the default browser replaced by a list of what it was asked to open. */
+/**
+ * Starts the app, once more if the first start gives no window to talk to.
+ * In CI a start of the packaged app has twice hung to its timeout, each time
+ * straight after another instance closed and with no lock left in the
+ * profile; it has not happened in a container here. What it printed is shown,
+ * so the next time says why.
+ */
+async function startShell(options) {
+	for (let attempt = 1; ; attempt++) {
+		try {
+			return await electron.launch(options);
+		} catch (err) {
+			console.error(`start ${attempt} of the app failed: ${String(err).split('\n').slice(0, 12).join('\n')}`);
+			if (attempt === 2) throw err;
+			await new Promise((done) => setTimeout(done, 2000));
+		}
+	}
+}
+
 async function launch(data = profile) {
 	// One instance per profile: a start while the last one is still on its way
 	// out finds its lock and quits. Chromium's lock is a link in the profile.
 	for (let i = 0; i < 100 && lockHeld(data); i++) await new Promise((done) => setTimeout(done, 100));
-	const app = await electron.launch({
+	const app = await startShell({
 		executablePath: packaged ?? executablePath,
 		// No sandbox: the suite runs in a container without user namespaces.
 		args: packaged ? ['--no-sandbox'] : [shell, '--no-sandbox'],
@@ -256,7 +275,7 @@ describe('a newer release', () => {
 	}
 
 	async function start(data, url) {
-		const app = await electron.launch({
+		const app = await startShell({
 			executablePath: packaged ?? executablePath,
 			args: packaged ? ['--no-sandbox'] : [shell, '--no-sandbox'],
 			env: { ...process.env, HEDDOHON_DESKTOP_DATA: data, HEDDOHON_DESKTOP_RELEASES: url },
