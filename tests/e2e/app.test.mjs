@@ -2547,8 +2547,11 @@ describe('headphone corrections from AutoEq', () => {
 	});
 
 	test('a search finds each measurement of a headphone, and reads the index once', async () => {
+		// The index holds a line of 400 KB that is not an entry. Read as one, it held the process for minutes.
+		const started = Date.now();
 		const found = await search('hd 650');
 		assert.equal(found.status, 200);
+		assert.ok(Date.now() - started < 5000, `the index was read in ${Date.now() - started} ms`);
 		assert.deepEqual(
 			found.results.map((entry) => [entry.id, entry.source, entry.rig]),
 			[
@@ -2773,6 +2776,7 @@ describe('internet radio', () => {
 			assert.equal(response.status, 200, `station ${id}`);
 			assert.equal(response.headers.get('content-type'), 'audio/mpeg');
 			assert.equal(response.headers.get('cache-control'), 'no-store');
+			assert.equal(response.headers.get('content-security-policy'), "default-src 'none'; sandbox", `station ${id}`);
 			assert.equal((await response.arrayBuffer()).byteLength, 2000, `station ${id}`);
 			assert.equal(host.calls.get('/live'), 1, `station ${id}`);
 		}

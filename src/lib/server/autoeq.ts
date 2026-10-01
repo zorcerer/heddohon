@@ -30,6 +30,13 @@ const TIMEOUT_MS = 10_000;
 /** Five times the index's size on 1 October 2026. */
 const MAX_INDEX_BYTES = 4 * 1024 * 1024;
 const MAX_ENTRIES = 20_000;
+/**
+ * An entry is about 100 characters. A longer line is not one, and is not put
+ * to the pattern below: on a line of `](./` repeated it backtracks in the
+ * square of the length (242 ms for 32 KB, an hour for the 4 MB the index may
+ * be), with the process doing nothing else.
+ */
+const MAX_LINE = 1000;
 const INDEX_TTL_MS = 24 * 60 * 60 * 1000;
 /** After a failed fetch, how long the held copy is served before asking again. */
 const RETRY_MS = 5 * 60 * 1000;
@@ -81,6 +88,7 @@ export function parseIndex(markdown: string): AutoEqEntry[] {
 	const entries: AutoEqEntry[] = [];
 	const seen = new Set<string>();
 	for (const line of markdown.split(/\r?\n/)) {
+		if (line.length > MAX_LINE) continue;
 		const match = ENTRY.exec(line.trim());
 		if (!match) continue;
 		let id: string;
