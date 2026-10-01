@@ -10,12 +10,14 @@
  * parser. `HEDDOHON_LOG_FORMAT=json` emits one JSON object per line instead,
  * for a collector that would otherwise have to guess at the shape.
  *
- * Nothing here writes a file or rotates one. The process logs to stdout and
- * stderr and the thing that runs it decides where that goes, which is what
- * `docker logs`, journald and every process supervisor already expect.
+ * The process logs to stdout and stderr, and the thing that runs it decides
+ * where that goes, which is what `docker logs`, journald and every process
+ * supervisor expect. The same lines are also kept in a file a day under the
+ * data directory, for `HEDDOHON_LOG_KEEP_DAYS` days; see `logfile.ts`.
  */
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomUUID } from 'node:crypto';
+import { writeLogFile } from './logfile';
 
 export type LogLevel = 'error' | 'warn' | 'info' | 'debug';
 
@@ -109,9 +111,8 @@ function escapeInvisible(text: string): string {
 	);
 }
 
-function emit(want: LogLevel, event: string, fields: LogFields = {}): void {
-	if (!isEnabled(want)) return;
-
+/** One line of the log, with the time it carries. */
+function format(want: LogLevel, event: string, fields: LogFields): { time: string; line: string } {
 	const active = context.getStore();
 	const all: LogFields = { ...fields };
 	// Every string field, not only the ones a call site thought to pass through
@@ -143,10 +144,22 @@ function emit(want: LogLevel, event: string, fields: LogFields = {}): void {
 		line = `${time} ${want.padEnd(5)} ${event}${parts.length ? ' ' + parts.join(' ') : ''}`;
 	}
 
+	return { time, line };
+}
+
+function emit(want: LogLevel, event: string, fields: LogFields = {}): void {
+	if (!isEnabled(want)) return;
+	const { time, line } = format(want, event, fields);
+
 	// Anything a human has to act on goes to stderr, the rest to stdout, so a
 	// pipeline that only keeps one of the two keeps the right one.
 	if (want === 'error' || want === 'warn') console.error(line);
 	else console.log(line);
+
+	// And to the day's file. A directory that cannot be written turns the files
+	// off and says so once, on stderr only, whatever the level.
+	const failed = writeLogFile(time, line);
+	if (failed) console.error(format('warn', 'log-file-failed', { detail: failed }).line);
 }
 
 export const log = {

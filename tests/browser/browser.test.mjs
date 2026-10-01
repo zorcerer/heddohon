@@ -852,6 +852,48 @@ describe('the headphone correction', () => {
 	});
 });
 
+describe('an artist page on a phone', () => {
+	test('fits the screen, with the name, biography and buttons centred', async () => {
+		for (const viewport of [
+			{ width: 393, height: 852 },
+			{ width: 360, height: 780 }
+		]) {
+			const phone = await browser.newContext({ viewport, isMobile: true, hasTouch: true });
+			const signIn = await phone.request.post(`${app.url}/login`, {
+				form: { username: 'testuser', password: 'testpass', backend: 'subsonic', next: '/' },
+				headers: { origin: app.url, accept: 'text/html' },
+				maxRedirects: 0
+			});
+			assert.equal(signIn.status(), 303);
+			const page = await phone.newPage();
+			try {
+				await page.goto(app.url + '/artists/ar0', { waitUntil: 'networkidle' });
+				const seen = await page.evaluate(() => {
+					const width = innerWidth;
+					const box = (selector) => document.querySelector(selector).getBoundingClientRect();
+					const past = [...document.querySelectorAll('main .hero *')]
+						.filter((el) => el.getBoundingClientRect().right > width + 1 || el.getBoundingClientRect().left < -1)
+						.map((el) => `${el.tagName.toLowerCase()}.${el.className}`);
+					const centre = (rect) => Math.round(rect.left + rect.width / 2 - width / 2);
+					return {
+						scrolls: document.documentElement.scrollWidth - width,
+						past,
+						details: Math.round(box('main .hero .details').width),
+						off: { portrait: centre(box('main .hero .portrait')), bio: centre(box('main .hero .bio')), actions: centre(box('main .hero .actions')) }
+					};
+				});
+				const at = `${viewport.width}px`;
+				assert.equal(seen.scrolls, 0, at);
+				assert.deepEqual(seen.past, [], `${at}: nothing in the header past either edge`);
+				assert.ok(seen.details > viewport.width * 0.8, `${at}: the text column is ${seen.details}px wide`);
+				for (const [name, off] of Object.entries(seen.off)) assert.ok(Math.abs(off) <= 2, `${at}: ${name} is ${off}px off centre`);
+			} finally {
+				await phone.close();
+			}
+		}
+	});
+});
+
 describe('a shelf at the edge of the content column', () => {
 	test('fades out at an end with more cards past it, and is whole at an end it stops at', async () => {
 		const { page, problems } = await watchedPage();
