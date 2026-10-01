@@ -65,11 +65,15 @@ against the packaged app, after `npm run dist`. On Windows that is
 
 - The page is remote, so it has no Node, runs sandboxed with context
   isolation, and the preload gives its two calls to the address screen only.
-- The window stays on the server's origin. Any other address opens in the
-  default browser.
+- The window stays on the server's origin, and so does any window a page on
+  the server opens. Any other address opens in the default browser.
 - Permissions are granted to the server's origin only, and only the ones the
-  player uses: media (to name audio outputs), choosing a speaker, full screen,
-  writing to the clipboard, and keeping the screen awake.
+  player uses: reading the names of the audio outputs, choosing a speaker,
+  full screen, writing to the clipboard, and keeping the screen awake. The
+  microphone and the camera are refused: Electron has no prompt of its own,
+  so a grant would be silent. Up to 0.5.0 they were granted.
+- The address screen's calls, which can read the saved request headers,
+  answer the package's own file and no other file on the disk.
 
 ## A sign-in in front of the server
 
