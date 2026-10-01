@@ -91,9 +91,13 @@ expose it publicly, set `ORIGIN` and read [SECURITY.md](SECURITY.md).
 
 Images are `ghcr.io/zorcerer/heddohon` and `zorcererd/heddohon`, for
 `linux/amd64` and `linux/arm64` (a Raspberry Pi 4 or 5 on a 64-bit OS, an ARM
-NAS, an Ampere server); 32-bit ARM is not built. An Unraid template is in
-[`templates/heddohon.xml`](templates/heddohon.xml). Without Docker, on Node 22
+NAS, an Ampere server); 32-bit ARM is not built. Without Docker, on Node 22
 or later: `npm ci && npm run build && node build/index.js`.
+
+On Unraid, Heddohon is listed in Community Applications, from the template in
+[`templates/heddohon.xml`](templates/heddohon.xml):
+
+<a href="https://ca.unraid.net/apps/heddohon-0bp7lm80vkr69w"><img src="https://img.shields.io/badge/Install%20on-Unraid-F15A2C?style=for-the-badge&logo=unraid&logoColor=white" alt="Install on Unraid from Community Applications"></a>
 
 `latest` is the newest release. `dev` is built once a day from the `dev`
 branch, when it has changed and passed the test suites, ahead of the next
