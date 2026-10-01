@@ -673,10 +673,13 @@ describe('the headphone correction', () => {
 	const countBiquads = (page) =>
 		page.addInitScript(() => {
 			window.__biquads = 0;
+			window.__filters = [];
 			const create = BaseAudioContext.prototype.createBiquadFilter;
 			BaseAudioContext.prototype.createBiquadFilter = function () {
 				window.__biquads++;
-				return create.call(this);
+				const filter = create.call(this);
+				window.__filters.push(filter);
+				return filter;
 			};
 		});
 
@@ -689,6 +692,13 @@ describe('the headphone correction', () => {
 			assert.equal(await page.getByRole('searchbox', { name: 'Search headphones' }).count(), 0, 'no search where the database is off');
 			assert.equal(await page.evaluate(() => window.__biquads), 10);
 
+			// The bands, set before the correction: 31 Hz is the first biquad made.
+			const band = page.getByRole('slider', { name: '31Hz, in dB' });
+			const preset = page.getByRole('combobox', { name: 'Preset' });
+			const inGraph = (db) => page.waitForFunction((want) => Math.abs(window.__filters[0].gain.value - want) < 0.05, db);
+			await preset.selectOption('bass');
+			await inGraph(6);
+
 			const input = page.locator('.correction input[type="file"]');
 			await input.setInputFiles(file('Sennheiser HD 650 ParametricEQ.txt', HD650_PARAMETRIC));
 			const chosen = page.locator('.correction .chosen');
@@ -700,6 +710,22 @@ describe('the headphone correction', () => {
 			assert.equal(saved.id, null);
 			assert.deepEqual(saved.filters[0], { type: 'lowshelf', frequency: 105, gain: 6.4, q: 0.7 });
 
+			// With a correction in use the bands are greyed, disabled and flat in the graph, and keep their values.
+			await inGraph(0);
+			assert.equal(await band.isDisabled(), true);
+			assert.equal(await preset.isDisabled(), true);
+			assert.equal(await band.inputValue(), '6');
+			assert.deepEqual((await stored(page)).gains, [6, 5, 4, 2, 0, 0, 0, 0, 0, 0]);
+
+			// Removed, the bands come back as they were; then the correction is put back.
+			// Checked before the reload: a context made without a press does not run its clock here.
+			await chosen.getByRole('button', { name: 'Remove' }).click();
+			await inGraph(6);
+			assert.equal(await band.isDisabled(), false);
+			await input.setInputFiles(file('Sennheiser HD 650 ParametricEQ.txt', HD650_PARAMETRIC));
+			await chosen.waitFor();
+			await inGraph(0);
+
 			// A file with no filters is refused, and the correction in place stays.
 			await input.setInputFiles(file('notes.txt', 'Preamp: -3 dB\nnothing else here\n'));
 			await page.getByRole('alert').filter({ hasText: 'holds no filters' }).waitFor();
@@ -708,10 +734,12 @@ describe('the headphone correction', () => {
 			await page.reload({ waitUntil: 'networkidle' });
 			await page.locator('.correction .chosen').waitFor();
 			assert.equal(await page.evaluate(() => window.__biquads), 14, 'applied again from storage');
+			assert.equal(await page.getByRole('slider', { name: '31Hz, in dB' }).isDisabled(), true);
 
 			await page.locator('.correction .chosen').getByRole('button', { name: 'Remove' }).click();
 			await page.locator('.correction .chosen').waitFor({ state: 'detached' });
 			assert.equal((await stored(page)).correction, undefined);
+			assert.equal(await page.getByRole('slider', { name: '31Hz, in dB' }).isDisabled(), false);
 		} finally {
 			await page.evaluate(() => localStorage.removeItem('heddohon:audio-processing')).catch(() => undefined);
 			await page.close();
