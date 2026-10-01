@@ -520,10 +520,19 @@
 			</label>
 
 			{#if processing.enabled}
-				<label class="row">
-					<span class="label">Preset</span>
+				<label class="row" class:set-aside={processing.bandsOff}>
+					<span class="label">
+						Preset
+						{#if processing.bandsOff}
+							<span class="hint hh-muted">
+								The bands are off while a headphone correction is in use, and come back as
+								they were when it is removed.
+							</span>
+						{/if}
+					</span>
 					<select
 						class="hh-input control"
+						disabled={processing.bandsOff}
 						value={processing.preset ?? ''}
 						onchange={(event) => processing.applyPreset(event.currentTarget.value)}
 					>
@@ -536,7 +545,7 @@
 					</select>
 				</label>
 
-				<div class="eq" role="group" aria-label="Equaliser bands">
+				<div class="eq" class:set-aside={processing.bandsOff} role="group" aria-label="Equaliser bands">
 					{#each EQ_FREQUENCIES as frequency, band (frequency)}
 						<label class="band">
 							<span class="gain hh-numeric">{processing.gains[band] > 0 ? '+' : ''}{processing.gains[band]}</span>
@@ -547,6 +556,7 @@
 								step="1"
 								value={processing.gains[band]}
 								aria-label="{bandLabel(frequency)}Hz, in dB"
+								disabled={processing.bandsOff}
 								oninput={(event) => processing.setGain(band, Number(event.currentTarget.value))}
 							/>
 							<span class="hz hh-numeric">{bandLabel(frequency)}</span>
@@ -558,7 +568,7 @@
 					<div class="label">
 						Headphone correction
 						<span class="hint hh-muted">
-							A preamp and filters measured for one headphone, applied ahead of the bands.
+							A preamp and filters measured for one headphone. While one is in use the bands above are off.
 							{#if data.autoeq}
 								Search the AutoEq database, or import a ParametricEQ.txt.
 							{:else}
@@ -1472,6 +1482,12 @@
 
 	.matches li + li {
 		border-top: 1px solid var(--border-hairline);
+	}
+
+	/* Greyed while a headphone correction is in use; the controls are disabled as well. */
+	.eq.set-aside,
+	.row.set-aside select {
+		opacity: 0.4;
 	}
 
 	.band {

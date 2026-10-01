@@ -13,7 +13,8 @@
  * The side gains carry each track's ReplayGain and the crossfade; the level
  * carries the volume, mute and the sleep timer's fade; the duck goes to
  * silence and back around a pause, a skip and a seek. The correction is the
- * headphone's own filters (`$lib/autoeq`), none unless one is chosen.
+ * headphone's own filters (`$lib/autoeq`), none unless one is chosen. While
+ * one is, the bands are held flat (`processing.svelte.ts`).
  *
  * Measured in Chromium, Firefox and WebKit on 29 September 2026 (issue #32):
  *

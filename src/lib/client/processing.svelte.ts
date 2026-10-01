@@ -79,6 +79,14 @@ class AudioProcessing {
 	gains = $state<number[]>(flat());
 	/** The headphone correction ahead of the bands, or null. */
 	correction = $state<SavedCorrection | null>(null);
+	/**
+	 * Whether the ten bands are set aside: a headphone correction is in use.
+	 * The correction is worked out for a flat signal ahead of it, preamp
+	 * included, and bands on top of it would move the result off its target
+	 * and could take it past full scale. The bands keep their values and come
+	 * back when the correction is removed.
+	 */
+	bandsOff = $derived(this.correction !== null);
 	/** The preset the bands match, or null for bands set by hand. */
 	preset = $derived(
 		Object.keys(EQ_PRESETS).find((key) => EQ_PRESETS[key].gains.every((gain, i) => gain === this.gains[i])) ?? null
@@ -97,8 +105,13 @@ class AudioProcessing {
 		if (this.enabled) this.#route();
 	}
 
+	/** What the graph's bands are given: flat while a correction is in use. */
+	#bands(): number[] {
+		return this.bandsOff ? flat() : this.gains;
+	}
+
 	#route() {
-		player.enableProcessing(this.gains);
+		player.enableProcessing(this.#bands());
 		player.setCorrection(this.correction);
 	}
 
@@ -117,7 +130,10 @@ class AudioProcessing {
 	/** Sets the correction, or removes it for null. */
 	setCorrection(profile: CorrectionProfile | null) {
 		this.correction = profile ? profileFrom(profile, Date.now()) : null;
-		if (this.enabled) player.setCorrection(this.correction);
+		if (this.enabled) {
+			player.setCorrection(this.correction);
+			player.setEqualiser(this.#bands());
+		}
 		this.#write();
 	}
 
@@ -156,20 +172,20 @@ class AudioProcessing {
 	}
 
 	setGain(band: number, value: number) {
-		if (band < 0 || band >= EQ_FREQUENCIES.length) return;
+		if (band < 0 || band >= EQ_FREQUENCIES.length || this.bandsOff) return;
 		this.gains[band] = clampGain(value);
 		this.#apply();
 	}
 
 	applyPreset(key: string) {
 		const preset = EQ_PRESETS[key];
-		if (!preset) return;
+		if (!preset || this.bandsOff) return;
 		this.gains = [...preset.gains];
 		this.#apply();
 	}
 
 	#apply() {
-		if (this.enabled) player.setEqualiser(this.gains);
+		if (this.enabled) player.setEqualiser(this.#bands());
 		this.#write();
 	}
 
