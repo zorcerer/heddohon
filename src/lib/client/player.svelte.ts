@@ -90,6 +90,14 @@ export const SLEEP_MINUTES = [15, 30, 45, 60, 90] as const;
 const SLEEP_FADE_SECONDS = 12;
 
 /**
+ * How long the output takes to reach silence before a pause, a skip or a seek
+ * through the graph, and to come back after. Pausing or moving an element
+ * cuts its waveform mid-cycle, which is heard as a click; 150ms is short
+ * enough to read as the press and long enough to be a fade.
+ */
+const DUCK_MS = 150;
+
+/**
  * A sleep timer: pause at a time on the clock, or when the current track ends.
  * Transient, like `queueOpen`: a reload drops it.
  */
@@ -280,6 +288,11 @@ export class Player {
 	 */
 	#chain: AudioChain | null = null;
 	#chainFading = false;
+	/** Fades to silence in flight; see `#duck`. The output comes back when the last one is lifted. */
+	#ducks = 0;
+	/** The latest press that changes the track, and the latest seek, while each waits for its fade. */
+	#changeSerial = 0;
+	#seekSerial = 0;
 	/** Whether this page plays through the graph. */
 	processing = $state(false);
 	/** The output last chosen, for a graph opened after the choice. */
@@ -545,7 +558,7 @@ export class Player {
 		this.queue = [...songs];
 		this.index = Math.min(Math.max(0, startAt), songs.length - 1);
 		this.#preloadedFor = null;
-		await this.#loadCurrent(true);
+		await this.#changeTrack();
 		this.#persist();
 	}
 
@@ -639,7 +652,7 @@ export class Player {
 		this.direction = position >= this.index ? 1 : -1;
 		this.index = position;
 		this.#invalidatePreload();
-		await this.#loadCurrent(true);
+		await this.#changeTrack();
 		this.#persist();
 	}
 
@@ -680,10 +693,18 @@ export class Player {
 			await this.#loadCurrent(true, true);
 			return;
 		}
+		// A track picked up mid-way starts mid-cycle too, so through the graph it
+		// comes up from silence. A track starting from its top does not need to.
+		const element = this.#primary;
+		const rising = this.#chain !== null && this.#ducks === 0 && element.paused && element.currentTime > 0;
+		if (rising) this.#chain?.duck(0);
 		try {
-			await this.#primary.play();
+			await element.play();
 			this.error = null;
+			if (rising && this.#ducks === 0) this.#chain?.unduck(DUCK_MS / 1000);
 		} catch (err) {
+			// Back at once: a later retry (`canplay`, `visibilitychange`) does not pass here.
+			if (rising && this.#ducks === 0) this.#chain?.unduck(0);
 			// A tab that is not on screen can have play() refused even mid-queue.
 			// Rather than stopping there until the user comes back and presses
 			// play, remember the intent — `visibilitychange` and `canplay` both
@@ -737,7 +758,15 @@ export class Player {
 		this.#cancelRecovery();
 		this.engaged = false;
 		this.#abandonCrossfade();
-		this.#primary?.pause();
+		const element = this.#primary;
+		if (this.#fades()) {
+			// A play pressed inside the fade leaves the element running, and the
+			// lift brings the sound back.
+			void this.#duck().then(() => {
+				if (!this.engaged) element?.pause();
+				this.#lift();
+			});
+		} else element?.pause();
 		this.#chain?.suspendSoon();
 		this.#persist();
 	}
@@ -785,7 +814,8 @@ export class Player {
 			this.index += 1;
 		}
 
-		await this.#loadCurrent(true);
+		if (userInitiated) await this.#changeTrack();
+		else await this.#loadCurrent(true);
 		this.#persist();
 	}
 
@@ -808,7 +838,7 @@ export class Player {
 		} else {
 			this.index -= 1;
 		}
-		await this.#loadCurrent(true);
+		await this.#changeTrack();
 		this.#persist();
 	}
 
@@ -816,13 +846,93 @@ export class Player {
 		if (!this.#primary || !Number.isFinite(seconds)) return;
 		this.#abandonCrossfade();
 		const target = Math.min(Math.max(0, seconds), this.duration || seconds);
-		try {
-			this.#primary.currentTime = target;
-			this.currentTime = target;
-			this.#persist();
-		} catch {
-			// Seeking before metadata is ready throws; ignore and let the user retry.
+		const element = this.#primary;
+		const move = () => {
+			try {
+				element.currentTime = target;
+				this.currentTime = target;
+				this.#persist();
+			} catch {
+				// Seeking before metadata is ready throws; ignore and let the user retry.
+			}
+		};
+		if (!this.#fades()) {
+			move();
+			return;
 		}
+		// The bar goes to the target at once; the element follows once the output
+		// is silent. Of several seeks inside one fade, a drag along the bar, only
+		// the last moves it.
+		const serial = ++this.#seekSerial;
+		this.currentTime = target;
+		void this.#duck().then(() => {
+			if (serial === this.#seekSerial && element === this.#primary) {
+				move();
+				// The track ran out inside the fade, where `ended` is not acted on.
+				if (this.engaged && element.paused) void element.play().catch(() => undefined);
+			}
+			this.#lift();
+		});
+	}
+
+	/**
+	 * Whether a pause, a skip or a seek fades the output first: only through
+	 * the graph, and only while it is producing sound. Without the graph the
+	 * element is paused or moved at once, as before.
+	 */
+	#fades(): boolean {
+		const element = this.#primary;
+		return this.#chain !== null && this.#chain.context.state === 'running' && element !== null && !element.paused;
+	}
+
+	/**
+	 * Takes the output to silence over `DUCK_MS` and resolves once it is there.
+	 * Each call is matched by one `#lift`. While any is in flight `timeupdate`
+	 * and `ended` are not acted on: the queue may already have moved on from
+	 * the track the element is still playing out.
+	 */
+	#duck(): Promise<void> {
+		this.#ducks++;
+		this.#chain?.duck(DUCK_MS / 1000);
+		return new Promise((resolve) => setTimeout(resolve, DUCK_MS));
+	}
+
+	/**
+	 * Ends one fade. When it was the last in flight the output comes back: at
+	 * once if `now` or if nothing is playing, and over `DUCK_MS` under a track
+	 * that carries on from where it was.
+	 */
+	#lift(now = false) {
+		this.#ducks = Math.max(0, this.#ducks - 1);
+		if (this.#ducks > 0) return;
+		const element = this.#primary;
+		this.#chain?.unduck(now || !element || element.paused ? 0 : DUCK_MS / 1000);
+	}
+
+	/**
+	 * Loads the current track after a press that changed it, fading out what
+	 * is playing first where `#fades`. Of several presses inside one fade only
+	 * the last loads. A pause pressed inside the fade is kept: the track loads
+	 * and does not start.
+	 */
+	async #changeTrack() {
+		if (!this.#fades()) {
+			await this.#loadCurrent(true);
+			return;
+		}
+		const serial = ++this.#changeSerial;
+		// A skip is a decision to keep listening, as it is without the fade,
+		// including one pressed while a pause was still fading out.
+		this.engaged = true;
+		await this.#duck();
+		if (serial !== this.#changeSerial) {
+			this.#lift();
+			return;
+		}
+		const loading = this.#loadCurrent(this.engaged);
+		// The new track starts from its top, at full level.
+		this.#lift(true);
+		await loading;
 	}
 
 	seekByFraction(fraction: number) {
@@ -1285,6 +1395,7 @@ export class Player {
 		});
 
 		on('timeupdate', () => {
+			if (this.#ducks > 0) return;
 			this.currentTime = element.currentTime;
 			this.#maybeSleep();
 			this.#maybeScrobble();
@@ -1330,6 +1441,7 @@ export class Player {
 		});
 
 		on('ended', () => {
+			if (this.#ducks > 0) return;
 			this.#reportStop(true);
 			if (this.sleep?.kind === 'track') void this.#sleepAtTrackEnd();
 			else void this.next(false);

@@ -7,11 +7,12 @@
  * to the output, as `player.svelte.ts` describes.
  *
  *   element A ─ side gain ─┐
- *                          ├─ preamp ─ 10 peaking bands ─ level ─ output
+ *                          ├─ preamp ─ 10 peaking bands ─ level ─ duck ─ output
  *   element B ─ side gain ─┘
  *
  * The side gains carry each track's ReplayGain and the crossfade; the level
- * carries the volume, mute and the sleep timer's fade.
+ * carries the volume, mute and the sleep timer's fade; the duck goes to
+ * silence and back around a pause, a skip and a seek.
  *
  * Measured in Chromium, Firefox and WebKit on 29 September 2026 (issue #32):
  *
@@ -52,6 +53,7 @@ export class AudioChain {
 	#preamp: GainNode;
 	#bands: BiquadFilterNode[];
 	#level: GainNode;
+	#duck: GainNode;
 	/** Firefox's route to a chosen output, while one is chosen. */
 	#stream: { node: MediaStreamAudioDestinationNode; element: HTMLAudioElement } | null = null;
 	#suspendTimer: ReturnType<typeof setTimeout> | null = null;
@@ -75,7 +77,9 @@ export class AudioChain {
 			node = band;
 		}
 		node.connect(this.#level);
-		this.#level.connect(this.context.destination);
+		this.#duck = this.context.createGain();
+		this.#level.connect(this.#duck);
+		this.#duck.connect(this.context.destination);
 
 		for (const element of elements) {
 			const side = this.context.createGain();
@@ -99,6 +103,32 @@ export class AudioChain {
 	/** The volume, mute and the sleep timer's fade, as one factor. */
 	setLevel(value: number) {
 		this.#level.gain.setTargetAtTime(value, this.context.currentTime, LEVEL_SMOOTHING_S);
+	}
+
+	/**
+	 * Takes the output to silence over `seconds`, or at once for 0. An element
+	 * paused, moved or given another source mid-cycle cuts the waveform where it
+	 * stands, which is heard as a click; at silence there is nothing to cut.
+	 */
+	duck(seconds: number) {
+		this.#rampDuck(0, seconds);
+	}
+
+	/** Brings the output back over `seconds`, or at once for 0. */
+	unduck(seconds: number) {
+		this.#rampDuck(1, seconds);
+	}
+
+	#rampDuck(to: number, seconds: number) {
+		const gain = this.#duck.gain;
+		const now = this.context.currentTime;
+		gain.cancelScheduledValues(now);
+		if (seconds <= 0) {
+			gain.setValueAtTime(to, now);
+			return;
+		}
+		gain.setValueAtTime(gain.value, now);
+		gain.linearRampToValueAtTime(to, now + seconds);
 	}
 
 	/** One element's own gain: its track's ReplayGain. Cancels a ramp in progress on it. */
@@ -165,8 +195,8 @@ export class AudioChain {
 		}
 		if (!deviceId) {
 			if (!this.#stream) return;
-			this.#level.disconnect();
-			this.#level.connect(this.context.destination);
+			this.#duck.disconnect();
+			this.#duck.connect(this.context.destination);
 			this.#stream.element.pause();
 			this.#stream = null;
 			return;
@@ -178,8 +208,8 @@ export class AudioChain {
 			this.#stream = { node, element };
 		}
 		await this.#stream.element.setSinkId(deviceId);
-		this.#level.disconnect();
-		this.#level.connect(this.#stream.node);
+		this.#duck.disconnect();
+		this.#duck.connect(this.#stream.node);
 		await this.#stream.element.play();
 	}
 }
