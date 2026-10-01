@@ -1,12 +1,13 @@
 /**
- * Heddohon for the Linux desktop: a window around a server you run.
+ * Heddohon for the desktop, Linux and Windows: a window around a server you run.
  *
  * Nothing of the web app is in this package. The first run asks for the
  * server's address, checks that a Heddohon answers there, and from then on
  * the window shows that server, so a server upgrade needs no new app. What
  * the app adds is a launcher entry, a window of its own, and Chromium's
- * Media Session, which on Linux is MPRIS: media keys, the desktop's media
- * controls and `playerctl` work without anything written here.
+ * Media Session, which the desktop's own media controls read: MPRIS on Linux
+ * (media keys, `playerctl`), the system media controls on Windows. Nothing
+ * here is written for either.
  *
  * The page is a remote one, so it is given nothing: context isolation and
  * the sandbox are on, there is no Node in it, and the preload exposes its
@@ -49,6 +50,9 @@ const REFUSED = (origin) =>
 // Tests point this at a directory of their own.
 if (process.env.HEDDOHON_DESKTOP_DATA) app.setPath('userData', process.env.HEDDOHON_DESKTOP_DATA);
 
+// The id Windows groups the window, its taskbar button and its notifications under; the installer's shortcut carries the same.
+if (process.platform === 'win32') app.setAppUserModelId('app.heddohon.desktop');
+
 const configPath = () => path.join(app.getPath('userData'), 'config.json');
 
 function readConfig() {
@@ -65,7 +69,8 @@ let config = {};
 function saveConfig() {
 	try {
 		fs.mkdirSync(path.dirname(configPath()), { recursive: true });
-		// Readable by its owner only: it can hold the headers below.
+		// Readable by its owner only: it can hold the headers below. On Windows the
+		// mode means nothing, and the profile is under the user's own AppData.
 		fs.writeFileSync(configPath(), JSON.stringify(config, null, '\t'), { mode: 0o600 });
 		fs.chmodSync(configPath(), 0o600);
 	} catch {
@@ -77,9 +82,10 @@ function saveConfig() {
 let headers = {};
 
 /**
- * Whether the desktop has a keyring to seal with. Without one Chromium
- * falls back to a fixed password (`basic_text`), which is the plain text
- * with a step added.
+ * Whether the desktop has a keyring to seal with: on Windows always, the
+ * user's own data protection key. On Linux without one, Chromium falls back
+ * to a fixed password (`basic_text`), which is the plain text with a step
+ * added.
  */
 const canSeal = () => safeStorage.isEncryptionAvailable() && safeStorage.getSelectedStorageBackend?.() !== 'basic_text';
 
@@ -317,6 +323,7 @@ function buildMenu(update = null) {
 					? [{ label: `Version ${update.version} is available`, click: () => openOutside(update.url) }, { type: 'separator' }]
 					: []),
 				{ label: `Version ${app.getVersion()}`, enabled: false },
+				{ label: 'Check for updates…', click: () => void checkForUpdate(true) },
 				{ role: 'quit' }
 			]
 		},
@@ -340,36 +347,45 @@ function buildMenu(update = null) {
 }
 
 /**
- * Asks GitHub for the latest release, once per start. A newer one goes in the
- * menu, where it stays, and is said once in a dialog, since the menu bar is
- * hidden until Alt is pressed. The app does not update itself: an AppImage is
- * a file the person replaces, and a .deb is the package manager's.
+ * Asks GitHub for the latest release: once per start, and whenever Check for
+ * updates is chosen from the menu. A newer one goes in the menu, where it
+ * stays, and is said in a dialog whose Get it opens its page: once per release
+ * for the check at the start, since the menu bar is hidden until Alt is
+ * pressed, and every time for one that was asked for. Asked for, it also
+ * says when this is the latest, or that GitHub could not be reached.
+ *
+ * The app does not update itself: an AppImage, an installer or a portable
+ * .exe is a file the person replaces.
  *
  * `HEDDOHON_DESKTOP_RELEASES` points the question somewhere else, which the
  * suite uses.
  */
-async function checkForUpdate() {
-	if (process.env.HEDDOHON_DESKTOP_NO_UPDATE_CHECK) return;
+async function checkForUpdate(asked = false) {
+	if (!asked && process.env.HEDDOHON_DESKTOP_NO_UPDATE_CHECK) return;
+	const say = (message, detail) => {
+		if (asked && win && !win.isDestroyed()) void dialog.showMessageBox(win, { type: 'info', title: 'Heddohon', message, detail, buttons: ['OK'] });
+	};
 	try {
 		const response = await net.fetch(process.env.HEDDOHON_DESKTOP_RELEASES || `https://api.github.com/repos/${REPOSITORY}/releases/latest`, {
 			headers: { accept: 'application/vnd.github+json' },
 			credentials: 'omit'
 		});
-		if (!response.ok) return;
+		if (!response.ok) return say('GitHub could not be asked', `It answered ${response.status}. The releases are at github.com/${REPOSITORY}/releases.`);
 		const latest = await response.json();
 		const version = String(latest.tag_name ?? '').replace(/^v/, '');
-		if (!/^\d+\.\d+\.\d+/.test(version) || compareVersions(version, app.getVersion()) <= 0) return;
+		if (!/^\d+\.\d+\.\d+/.test(version)) return say('GitHub could not be asked', 'Its answer named no release.');
+		if (compareVersions(version, app.getVersion()) <= 0) return say('This is the latest release', `Heddohon ${app.getVersion()}.`);
 		const url = `https://github.com/${REPOSITORY}/releases/tag/v${version}`;
 		buildMenu({ version, url });
-		// Once per release: asked again only when there is a newer one still.
-		if (config.toldVersion === version || !win || win.isDestroyed()) return;
+		// Once per release for the check at the start; every time for one that was asked for.
+		if ((!asked && config.toldVersion === version) || !win || win.isDestroyed()) return;
 		config.toldVersion = version;
 		saveConfig();
 		const { response: choice } = await dialog.showMessageBox(win, {
 			type: 'info',
 			title: 'Heddohon',
 			message: `Heddohon ${version} is available`,
-			detail: `This is ${app.getVersion()}. The newer app is on the releases page, as an AppImage and a .deb. It stays listed in the menu (press Alt, then Heddohon).`,
+			detail: `This is ${app.getVersion()}. The newer app is on the releases page. It stays listed in the menu (press Alt, then Heddohon).`,
 			buttons: ['Get it', 'Later'],
 			defaultId: 0,
 			cancelId: 1
@@ -377,6 +393,7 @@ async function checkForUpdate() {
 		if (choice === 0) openOutside(url);
 	} catch {
 		// Offline, or GitHub not reachable: asked again at the next start.
+		say('GitHub could not be reached', 'Check the connection and try again.');
 	}
 }
 

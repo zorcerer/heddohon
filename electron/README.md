@@ -1,4 +1,4 @@
-# Heddohon for the Linux desktop
+# Heddohon for the desktop: Linux and Windows
 
 A window around a Heddohon server you run. Nothing of the web app is in the
 package: the first start asks for the server's address, checks that a Heddohon
@@ -7,13 +7,32 @@ needs no new app.
 
 What it adds over a browser tab: a launcher entry, a window of its own, and
 the desktop's media controls. Chromium's Media Session is MPRIS on Linux, so
-media keys, the GNOME and KDE controls and `playerctl` work.
+media keys, the GNOME and KDE controls and `playerctl` work; on Windows it is
+the system media controls, with the media keys.
 
-Each release of Heddohon carries an AppImage and a `.deb`, for x64 and arm64.
-The app asks GitHub once per start for the latest release. A newer one is
-said once in a dialog, with **Get it** opening its page, and stays listed in
-the menu (press Alt, then Heddohon). The app does not update itself.
-`HEDDOHON_DESKTOP_NO_UPDATE_CHECK=1` in its environment stops it asking.
+## Getting it
+
+Each release of Heddohon carries:
+
+| File | For |
+| --- | --- |
+| `heddohon-<version>-x86_64.AppImage`, `heddohon-<version>-arm64.AppImage` | Linux. Make it executable and run it. It needs FUSE 2 (`libfuse2`), or run it with `--appimage-extract-and-run`. |
+| `heddohon-<version>-setup.exe` | Windows, x64. Installs for the signed-in user, without administrator rights. |
+| `heddohon-<version>-portable.exe` | Windows, x64. Runs from where it is, installing nothing. |
+
+**The Windows files are not signed.** Windows SmartScreen stops the first
+start with "Windows protected your PC": choose **More info**, then **Run
+anyway**. A browser may also warn about the download.
+
+## Updates
+
+The app does not update itself: each of those is a file you replace with the
+newer one. It asks GitHub once per start for the latest release. A newer one
+is said once in a dialog, with **Get it** opening its page, and stays listed
+in the menu (press Alt, then Heddohon). **Check for updates…** in the same
+menu asks at once, and says what it found: a newer release, with the way to
+it, or that this is the latest. `HEDDOHON_DESKTOP_NO_UPDATE_CHECK=1` in the
+app's environment stops it asking at the start.
 
 ## Running it from here
 
@@ -34,8 +53,11 @@ npm install
 dbus-run-session -- xvfb-run -a npm test
 ```
 
+On Windows it is `npm test`, with nothing in front of it.
+
 `HEDDOHON_DESKTOP_BINARY=dist/linux-unpacked/heddohon` runs the same suite
-against the packaged app, after `npm run dist`.
+against the packaged app, after `npm run dist`. On Windows that is
+`dist\win-unpacked\Heddohon.exe`, after `npm run dist:win`.
 
 ## What the window is allowed
 

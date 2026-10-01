@@ -286,14 +286,14 @@ describe('a newer release', () => {
 			response.end(JSON.stringify({ tag_name: tag }));
 		});
 		await new Promise((done) => mock.listen(0, '127.0.0.1', done));
-		return { url: `http://127.0.0.1:${mock.address().port}/latest`, hits, close: () => new Promise((done) => mock.close(done)) };
+		return { url: `http://127.0.0.1:${mock.address().port}/latest`, hits, close: () => new Promise((done) => (mock.close(() => done()), mock.closeAllConnections())) };
 	}
 
-	async function start(data, url) {
+	async function start(data, url, env = {}) {
 		const app = await startShell({
 			executablePath: packaged ?? executablePath,
 			args: packaged ? ['--no-sandbox'] : [shell, '--no-sandbox'],
-			env: { ...process.env, HEDDOHON_DESKTOP_DATA: data, HEDDOHON_DESKTOP_RELEASES: url },
+			env: { ...process.env, HEDDOHON_DESKTOP_DATA: data, HEDDOHON_DESKTOP_RELEASES: url, ...env },
 			timeout: 30_000
 		});
 		// In place before the check, which waits 5 seconds after the start.
@@ -359,6 +359,50 @@ describe('a newer release', () => {
 				await mock.close();
 				rmSync(data, { recursive: true, force: true });
 			}
+		}
+	});
+
+	test('Check for updates in the menu asks when it is chosen, and says what it found each time', async () => {
+		const choose = (app) =>
+			app.evaluate(({ Menu }) => Menu.getApplicationMenu().items[0].submenu.items.find((item) => item.label === 'Check for updates…').click());
+		const asked = (app) => app.evaluate(() => globalThis.__asked);
+
+		// A newer release: said every time it is asked for, and Get it opens its page.
+		const newer = await releases('v99.1.0');
+		const data = mkdtempSync(join(tmpdir(), 'heddohon-desktop-'));
+		const app = await start(data, newer.url, { HEDDOHON_DESKTOP_NO_UPDATE_CHECK: '1' });
+		try {
+			await app.firstWindow();
+			assert.equal(newer.hits.count, 0, 'nothing asked at the start with the check switched off');
+			await choose(app);
+			await waitFor(async () => (await asked(app)).length === 1);
+			await choose(app);
+			await waitFor(async () => (await asked(app)).length === 2);
+			assert.deepEqual(await asked(app), ['Heddohon 99.1.0 is available', 'Heddohon 99.1.0 is available']);
+			assert.deepEqual(await app.evaluate(() => globalThis.__opened), Array(2).fill('https://github.com/zorcerer/heddohon/releases/tag/v99.1.0'));
+		} finally {
+			await app.close();
+			await newer.close();
+			rmSync(data, { recursive: true, force: true });
+		}
+
+		// The latest already, and GitHub out of reach: each says so.
+		const same = await releases('v0.0.0');
+		const other = mkdtempSync(join(tmpdir(), 'heddohon-desktop-'));
+		const second = await start(other, same.url, { HEDDOHON_DESKTOP_NO_UPDATE_CHECK: '1' });
+		try {
+			await second.firstWindow();
+			await choose(second);
+			await waitFor(async () => (await asked(second)).length === 1);
+			await same.close();
+			await choose(second);
+			await waitFor(async () => (await asked(second)).length === 2);
+			assert.deepEqual(await asked(second), ['This is the latest release', 'GitHub could not be reached']);
+			assert.deepEqual(await second.evaluate(() => globalThis.__opened), []);
+		} finally {
+			await second.close();
+			await same.close().catch(() => undefined);
+			rmSync(other, { recursive: true, force: true });
 		}
 	});
 });
@@ -472,7 +516,8 @@ describe('a server behind a proxy that asks who you are', () => {
 			// At rest: sealed where the desktop has a keyring, and in a file of the owner's alone where it has none.
 			const config = saved(data);
 			assert.ok(config.headersSealed || config.headersPlain === 'X-Front-Token: letmein');
-			assert.equal(statSync(join(data, 'config.json')).mode & 0o077, 0, 'the profile file is the owner\'s alone');
+			// File modes are Linux's; on Windows the profile is under the user's own AppData.
+			if (process.platform !== 'win32') assert.equal(statSync(join(data, 'config.json')).mode & 0o077, 0, 'the profile file is the owner\'s alone');
 		} finally {
 			await app.close();
 		}
