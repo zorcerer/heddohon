@@ -894,6 +894,35 @@ describe('an artist page on a phone', () => {
 	});
 });
 
+describe('a shelf at the edge of the content column', () => {
+	test('fades out at an end with more cards past it, and is whole at an end it stops at', async () => {
+		const { page, problems } = await watchedPage();
+		try {
+			await page.goto(app.url + '/', { waitUntil: 'networkidle' });
+			const track = page.locator('main .shelf .track').first();
+			const edges = () =>
+				track.evaluate((el) => {
+					const style = getComputedStyle(el);
+					return {
+						start: style.getPropertyValue('--shelf-fade-start').trim(),
+						end: style.getPropertyValue('--shelf-fade-end').trim(),
+						masked: (style.maskImage || style.webkitMaskImage).startsWith('linear-gradient')
+					};
+				});
+			// 40 albums do not fit: more to the right, none to the left.
+			await page.waitForFunction((el) => getComputedStyle(el).getPropertyValue('--shelf-fade-end').trim() === '48px', await track.elementHandle());
+			assert.deepEqual(await edges(), { start: '0px', end: '48px', masked: true });
+
+			await track.evaluate((el) => el.scrollTo({ left: el.scrollWidth, behavior: 'instant' }));
+			await page.waitForFunction((el) => getComputedStyle(el).getPropertyValue('--shelf-fade-start').trim() === '48px', await track.elementHandle());
+			assert.deepEqual(await edges(), { start: '48px', end: '0px', masked: true });
+		} finally {
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+});
+
 describe('the tint on the rail and the player', () => {
 	/*
 	 * Each surface cross-fades two washes. When the one on screen was hidden and
