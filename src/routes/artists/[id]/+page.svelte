@@ -192,6 +192,15 @@
 	.details {
 		/* The hero title sizes itself against this column — see HeroTitle. */
 		container-type: inline-size;
+		/*
+		 * The whole column, whatever the hero does with its items. A size
+		 * container has no width of its own to offer: its contents do not count.
+		 * Where the hero centres its items, on a phone, or starts them, under
+		 * 46rem, this was 0 wide at that point and everything in it spilled to the
+		 * right: at 360px the biography ran to x=377 and was cut off.
+		 */
+		justify-self: stretch;
+		min-width: 0;
 		display: grid;
 		gap: var(--space-2);
 		justify-items: start;
