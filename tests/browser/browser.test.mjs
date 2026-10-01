@@ -3161,11 +3161,16 @@ describe('on a phone', () => {
 		// Under the sleeve, below the fold of a 641px screen: brought to the
 		// middle, clear of the dock, as a thumb would scroll it.
 		await row.evaluate((el) => el.scrollIntoView({ block: 'center', behavior: 'instant' }));
+		// The queue is saved 1.2 seconds after it changes. A test that loads another
+		// page straight after this one counts on the saved queue being this one: in
+		// CI the load has twice come first, and the dock came back empty.
+		const saved = page.waitForResponse((response) => response.url().endsWith('/api/play-state') && response.request().method() === 'PUT');
 		await tap(page, row);
 		await page.waitForFunction(
 			(title) => document.querySelector('.phone-dock .now .title')?.textContent === title,
 			`Song ${n}a`
 		);
+		await saved;
 	}
 
 	test('the dock is the navigation, with the tab for the page lit', async () => {
