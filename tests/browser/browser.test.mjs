@@ -1013,6 +1013,49 @@ describe('internet radio', () => {
 	});
 });
 
+describe('the bars a phone paints around the page', () => {
+	test('theme-color follows the canvas: lit by the playing cover, and the light theme\'s ground in the light theme', async () => {
+		const settings = (patch) => context.request.patch(`${app.url}/api/settings`, { data: patch, headers: { origin: app.url } });
+		subsonic.state.audio = { type: 'audio/wav', body: silentWav(30) };
+		// Album 33, whose cover no test before this one has asked for: a cover is cached once fetched.
+		subsonic.state.coverColors.set('al-33', [220, 60, 30]);
+		const { page, problems } = await watchedPage();
+		const seen = () =>
+			page.evaluate(() => {
+				const hex = document.querySelector('meta[name="theme-color"]').getAttribute('content');
+				const canvas = document.createElement('canvas').getContext('2d');
+				canvas.fillStyle = getComputedStyle(document.documentElement).backgroundColor;
+				canvas.fillRect(0, 0, 1, 1);
+				const [r, g, b] = canvas.getImageData(0, 0, 1, 1).data;
+				return { hex, meta: [1, 3, 5].map((at) => Number.parseInt(hex.slice(at, at + 2), 16)), canvas: [r, g, b] };
+			});
+		try {
+			await page.goto(app.url + '/albums/al33', { waitUntil: 'networkidle' });
+			await page.getByRole('button', { name: 'Play Song 33a', exact: true }).click();
+			await page.waitForFunction(() => [...document.querySelectorAll('audio')].some((a) => !a.paused && a.currentTime > 0));
+			// The colour eases for 900ms, and the bar is written again once it has landed.
+			await page.waitForTimeout(2200);
+			const dark = await seen();
+			assert.deepEqual(dark.meta, dark.canvas, 'the bar is the canvas colour');
+			assert.notEqual(dark.hex, '#0b0c0f', 'and no longer the bare ground');
+			assert.ok(dark.meta[0] > dark.meta[2] + 8, `lit by a red cover: ${dark.hex}`);
+
+			await settings({ theme: 'light' });
+			await page.goto(app.url + '/albums/al33', { waitUntil: 'networkidle' });
+			await page.waitForTimeout(1500);
+			const light = await seen();
+			assert.deepEqual(light.meta, light.canvas);
+			assert.ok(Math.min(...light.meta) > 180, `the light theme's bar is light: ${light.hex}`);
+		} finally {
+			await settings({ theme: 'dark' });
+			subsonic.state.audio = null;
+			subsonic.state.coverColors.delete('al-33');
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+});
+
 describe('the tint on the rail and the player', () => {
 	/*
 	 * Each surface cross-fades two washes. When the one on screen was hidden and

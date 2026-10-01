@@ -9,7 +9,7 @@
 	import { remote } from '$lib/client/remote.svelte';
 	import { settleStarred } from '$lib/client/favourites.svelte';
 	import { together } from '$lib/client/together.svelte';
-	import { tintFrom } from '$lib/client/artwork';
+	import { followCanvas, tintFrom } from '$lib/client/artwork';
 	import { ambience } from '$lib/client/ambience.svelte';
 	import {
 		prefersReducedMotion,
@@ -224,6 +224,8 @@
 	// the next full page load. Mirroring it here closes that gap.
 	$effect(() => {
 		document.documentElement.dataset.theme = data.settings.theme;
+		// The phone's bars take the new theme's ground with it; see `followCanvas`.
+		followCanvas();
 	});
 
 	// The scale is written into the served HTML by the same transform as the

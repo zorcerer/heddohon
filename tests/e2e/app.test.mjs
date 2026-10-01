@@ -106,6 +106,34 @@ describe('the gate', () => {
 		assert.deepEqual(manifest.related_applications, [{ platform: 'webapp', url: `${app.url}/manifest.webmanifest` }]);
 	});
 
+	test('the bars a phone paints are the theme\'s ground: in the page and in the manifest it asks for', async () => {
+		const client = new Client(app.url);
+		await client.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' });
+		const head = async () => (await client.page('/albums')).html.split('</head>')[0];
+		try {
+			const dark = await head();
+			assert.match(dark, /name="theme-color" content="#0b0c0f"/);
+			assert.match(dark, /rel="manifest" href="\/manifest\.webmanifest"/);
+			// An installed app on iOS takes its status bar from the page, not a black one of its own.
+			assert.match(dark, /apple-mobile-web-app-status-bar-style" content="default"/);
+
+			await client.json('/api/settings', 'PATCH', { theme: 'light' });
+			const light = await head();
+			assert.match(light, /name="theme-color" content="#f0e7d5"/);
+			assert.match(light, /rel="manifest" href="\/manifest\.webmanifest\?theme=light"/);
+		} finally {
+			await client.json('/api/settings', 'PATCH', { theme: 'dark' });
+		}
+
+		const colours = async (query) => {
+			const manifest = await (await fetch(`${app.url}/manifest.webmanifest${query}`)).json();
+			return [manifest.theme_color, manifest.background_color];
+		};
+		assert.deepEqual(await colours(''), ['#0b0c0f', '#0b0c0f']);
+		assert.deepEqual(await colours('?theme=light'), ['#f0e7d5', '#f0e7d5']);
+		assert.deepEqual(await colours('?theme=%22%3E'), ['#0b0c0f', '#0b0c0f'], 'anything else is the dark one');
+	});
+
 	test('the server vouches for the Android app without a session: its package and the release key, and any key added', async () => {
 		const RELEASE = '3C:D0:5B:A1:45:77:D7:1F:68:4E:61:51:AF:7C:0F:3F:BE:10:15:A8:BB:52:B2:28:FA:54:B4:11:AC:14:DE:52';
 		const response = await fetch(`${app.url}/.well-known/assetlinks.json`);
