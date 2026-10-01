@@ -114,8 +114,8 @@ describe('the gate', () => {
 			const dark = await head();
 			assert.match(dark, /name="theme-color" content="#0b0c0f"/);
 			assert.match(dark, /rel="manifest" href="\/manifest\.webmanifest"/);
-			// An installed app on iOS takes its status bar from the page, not a black one of its own.
-			assert.match(dark, /apple-mobile-web-app-status-bar-style" content="default"/);
+			// An installed app on iOS draws the page under its status bar and the Dynamic Island.
+			assert.match(dark, /apple-mobile-web-app-status-bar-style" content="black-translucent"/);
 
 			await client.json('/api/settings', 'PATCH', { theme: 'light' });
 			const light = await head();
