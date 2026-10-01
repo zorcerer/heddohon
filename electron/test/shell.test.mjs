@@ -230,6 +230,8 @@ describe('the shell', () => {
 		const { app, page } = await launch();
 		try {
 			await page.waitForURL((url) => url.origin === server.url);
+			// Named now, while it is the only one: a closed window stays in the list for a moment, at its head on Windows.
+			const first = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].id);
 			const [second] = await Promise.all([app.waitForEvent('window'), page.evaluate(() => void window.open(`${location.origin}/login`))]);
 			await second.waitForURL((url) => url.origin === server.url);
 			const before = (await opened(app)).length;
@@ -246,7 +248,7 @@ describe('the shell', () => {
 
 			// The address screen's calls answer the package's own file only: the saved headers are among them.
 			writeFileSync(join(elsewhere, 'setup.html'), '<!doctype html><title>Not the app</title>');
-			await app.evaluate(({ BrowserWindow }, file) => BrowserWindow.getAllWindows()[0].loadFile(file), join(elsewhere, 'setup.html'));
+			await app.evaluate(({ BrowserWindow }, [id, file]) => BrowserWindow.fromId(id).loadFile(file), [first, join(elsewhere, 'setup.html')]);
 			await page.waitForURL((url) => url.protocol === 'file:');
 			assert.equal(await page.evaluate(() => window.heddohonDesktop.state()), null);
 			assert.deepEqual(await page.evaluate(() => window.heddohonDesktop.connect('https://example.com', '')), { error: 'Not allowed.' });
