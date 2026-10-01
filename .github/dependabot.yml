@@ -1,0 +1,60 @@
+# Dependency updates for the two apps and for the workflows, as pull requests
+# against `dev`, once a week.
+#
+# The apps are built from what these files pin, and only at a release. The
+# Linux app carries its own Chromium (Electron), so an update there is the
+# security update for the people running it; the Android app runs in the
+# phone's browser and carries one library.
+#
+# Each pull request runs the app's own workflow (`desktop.yml`, `android.yml`),
+# which builds it and runs its suite, so an update that breaks the app fails
+# there. The titles are `fix(desktop)` and `fix(android)`: the release plan
+# reads a `fix` as a patch release, so an update on `dev` is released the next
+# time `dev` goes to `main`, with nothing else needed. A workflow update is
+# `ci`, which releases nothing.
+#
+# The server's own dependencies (the root `package.json`) are not here.
+#
+# This file is read from the default branch, `main`.
+version: 2
+
+updates:
+  - package-ecosystem: npm
+    directory: /electron
+    target-branch: dev
+    schedule:
+      interval: weekly
+      day: monday
+    # One pull request for Electron and electron-builder together.
+    groups:
+      desktop:
+        patterns: ['*']
+    commit-message:
+      prefix: fix(desktop)
+    open-pull-requests-limit: 2
+
+  - package-ecosystem: gradle
+    directory: /android
+    target-branch: dev
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      android:
+        patterns: ['*']
+    commit-message:
+      prefix: fix(android)
+    open-pull-requests-limit: 2
+
+  - package-ecosystem: github-actions
+    directory: /
+    target-branch: dev
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      actions:
+        patterns: ['*']
+    commit-message:
+      prefix: ci
+    open-pull-requests-limit: 2

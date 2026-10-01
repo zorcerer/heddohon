@@ -10,8 +10,10 @@ the desktop's media controls. Chromium's Media Session is MPRIS on Linux, so
 media keys, the GNOME and KDE controls and `playerctl` work.
 
 Each release of Heddohon carries an AppImage and a `.deb`, for x64 and arm64.
-The app checks GitHub once per start for a newer release and lists it in its
-menu (press Alt, then Heddohon). It does not update itself.
+The app asks GitHub once per start for the latest release. A newer one is
+said once in a dialog, with **Get it** opening its page, and stays listed in
+the menu (press Alt, then Heddohon). The app does not update itself.
+`HEDDOHON_DESKTOP_NO_UPDATE_CHECK=1` in its environment stops it asking.
 
 ## Running it from here
 

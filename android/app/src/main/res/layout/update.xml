@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+	android:layout_width="match_parent"
+	android:layout_height="match_parent"
+	android:fitsSystemWindows="true"
+	android:gravity="center_vertical"
+	android:orientation="vertical"
+	android:padding="28dp">
+
+	<ImageView
+		android:layout_width="72dp"
+		android:layout_height="72dp"
+		android:importantForAccessibility="no"
+		android:src="@mipmap/ic_launcher" />
+
+	<TextView
+		android:id="@+id/update_title"
+		android:layout_width="match_parent"
+		android:layout_height="wrap_content"
+		android:layout_marginTop="16dp"
+		android:textColor="@color/text"
+		android:textSize="24sp"
+		android:textStyle="bold" />
+
+	<TextView
+		android:id="@+id/update_body"
+		android:layout_width="match_parent"
+		android:layout_height="wrap_content"
+		android:layout_marginTop="8dp"
+		android:textColor="@color/muted"
+		android:textSize="15sp" />
+
+	<Button
+		android:id="@+id/update_get"
+		android:layout_width="match_parent"
+		android:layout_height="wrap_content"
+		android:layout_marginTop="24dp"
+		android:background="@drawable/button"
+		android:minHeight="48dp"
+		android:text="@string/update_get"
+		android:textAllCaps="false"
+		android:textColor="@color/ground"
+		android:textSize="16sp" />
+
+	<Button
+		android:id="@+id/update_later"
+		style="?android:attr/borderlessButtonStyle"
+		android:layout_width="match_parent"
+		android:layout_height="wrap_content"
+		android:layout_marginTop="8dp"
+		android:minHeight="48dp"
+		android:text="@string/update_later"
+		android:textAllCaps="false"
+		android:textColor="@color/accent"
+		android:textSize="16sp" />
+</LinearLayout>
