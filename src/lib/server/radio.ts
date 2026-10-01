@@ -43,6 +43,7 @@ import { backendFor } from './backends';
 import type { RadioStationSource } from './backends/types';
 import { config } from './config';
 import { log, reason } from './log';
+import { MEDIA_CSP } from './proxy';
 import { isPublic, privateAllowedAfter } from './radio-guard';
 import { APP_VERSION } from './version';
 
@@ -249,6 +250,8 @@ export async function openStation(session: AuthenticatedSession, id: string, cli
 		return new Response(Readable.toWeb(upstream) as ReadableStream<Uint8Array>, {
 			headers: {
 				'content-type': type,
+				// As on the music server's own media: inert if it is opened as a page. See `MEDIA_CSP`.
+				'content-security-policy': MEDIA_CSP,
 				// Live: nothing to cache, and a proxy in front must not hold it back.
 				'cache-control': 'no-store',
 				'x-accel-buffering': 'no'
