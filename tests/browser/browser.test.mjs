@@ -1287,6 +1287,13 @@ describe('an album link', () => {
 			await page.goto(app.url + '/albums/al10', { waitUntil: 'networkidle' });
 			await page.getByRole('button', { name: 'Share a link to this album' }).click();
 			await page.getByText('Share an album').waitFor();
+			// The reminder about rights is one line of the small print, not a box of its own.
+			const reminder = page.locator('dialog.share p', { hasText: 'Only share music you have the right to share.' });
+			assert.equal((await reminder.innerText()).trim(), 'Only share music you have the right to share.');
+			assert.deepEqual(
+				await reminder.evaluate((p) => [p.className.includes('note'), getComputedStyle(p).borderTopWidth, getComputedStyle(p).backgroundColor]),
+				[true, '0px', 'rgba(0, 0, 0, 0)']
+			);
 			await page.getByRole('button', { name: 'Create link' }).click();
 			const url = await page.locator('dialog input.url').inputValue();
 			assert.match(url, /\/share\/[A-Za-z0-9_-]{43}$/);
@@ -2104,6 +2111,7 @@ describe('playback on another browser', () => {
 			await field.waitFor({ timeout: 5000 });
 			const link = await field.inputValue();
 			assert.match(link, /\/together\/[\w-]+$/);
+			await hostPage.locator('dialog.together p', { hasText: 'Only share music you have the right to share.' }).waitFor();
 			await hostPage.locator('dialog.together').getByRole('button', { name: 'Close' }).click();
 
 			await guest.goto(link, { waitUntil: 'load' });
