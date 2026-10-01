@@ -12,7 +12,7 @@ import assert from 'node:assert/strict';
 import { after, before, describe, test } from 'node:test';
 import { chromium } from 'playwright';
 import { startApp } from '../e2e/harness.mjs';
-import { HD650_PARAMETRIC, startAutoEq, startJellyfin, startSubsonic } from '../e2e/mocks.mjs';
+import { HD650_PARAMETRIC, startAutoEq, startJellyfin, startStationHost, startSubsonic } from '../e2e/mocks.mjs';
 
 let subsonic;
 let jellyfin;
@@ -77,6 +77,7 @@ describe('the policy', () => {
 			'/artists/ar1',
 			'/favourites',
 			'/genres',
+			'/radio',
 			'/library',
 			'/playlists',
 			'/folders',
@@ -890,6 +891,86 @@ describe('an artist page on a phone', () => {
 			} finally {
 				await phone.close();
 			}
+		}
+	});
+});
+
+describe('internet radio', () => {
+	test('a station plays as a live item: no seeking, no track actions, nothing reported or saved', async () => {
+		const host = await startStationHost();
+		host.state.audio = { type: 'audio/wav', body: silentWav(30) };
+		subsonic.state.radio = [
+			{ id: '1', name: 'Mock FM', streamUrl: `${host.url}/moved`, homePageUrl: 'https://radio.example/mock' },
+			{ id: '2', name: 'A web page', streamUrl: `${host.url}/page` }
+		];
+		const on = await startApp({
+			subsonicUrl: subsonic.url,
+			jellyfinUrl: jellyfin.url,
+			env: { HEDDOHON_REMOTE_CONTROL: 'false', HEDDOHON_RADIO_PRIVATE: 'true' }
+		});
+		const view = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+		try {
+			const signIn = await view.request.post(`${on.url}/login`, {
+				form: { username: 'testuser', password: 'testpass', backend: 'subsonic', next: '/' },
+				headers: { origin: on.url, accept: 'text/html' },
+				maxRedirects: 0
+			});
+			assert.equal(signIn.status(), 303);
+			const page = await view.newPage();
+			const problems = [];
+			page.on('pageerror', (err) => problems.push(err.message));
+			const sent = [];
+			page.on('request', (request) => {
+				const path = new URL(request.url()).pathname;
+				// The load reads the saved queue; a write of either kind is what must not happen.
+				if (request.method() !== 'GET' && (path === '/api/playback' || path === '/api/play-state')) sent.push(`${request.method()} ${path}`);
+			});
+
+			// The rail has the link where the music server keeps stations.
+			await page.goto(on.url + '/', { waitUntil: 'networkidle' });
+			await page.locator('nav.rail a[href="/radio"]').click();
+			await page.waitForURL(/\/radio$/);
+			assert.equal(await page.getByRole('link', { name: 'radio.example' }).getAttribute('rel'), 'noopener noreferrer');
+
+			await page.getByRole('button', { name: 'Play Mock FM' }).click();
+			await page.waitForFunction(() => [...document.querySelectorAll('audio')].some((a) => !a.paused && a.currentTime > 0.3));
+			const panel = page.locator('aside.panel');
+			assert.equal(await panel.locator('h2.title').innerText(), 'Mock FM');
+			assert.match(await panel.locator('.times').innerText(), /Live/);
+			assert.match(await page.evaluate(() => [...document.querySelectorAll('audio')].find((a) => !a.paused).src), /\/api\/radio\/1\/stream$/);
+			// Nothing to favour, list, read, inspect or share.
+			assert.equal(await panel.getByRole('button', { name: 'Add to playlist' }).count(), 0);
+			assert.equal(await panel.locator('.rounds').count(), 0);
+			for (const name of ['Track details', 'Lyrics']) assert.equal(await panel.getByRole('button', { name }).isDisabled(), true, name);
+
+			// A seek does nothing.
+			const before = await page.evaluate(() => [...document.querySelectorAll('audio')].find((a) => !a.paused).currentTime);
+			await panel.getByRole('slider', { name: 'Seek within track' }).press('End');
+			await page.waitForTimeout(300);
+			const after = await page.evaluate(() => [...document.querySelectorAll('audio')].find((a) => !a.paused).currentTime);
+			assert.ok(after >= before && after < before + 2, `${before} to ${after}`);
+
+			// The row pauses and resumes the station it is playing.
+			await page.getByRole('button', { name: 'Pause Mock FM' }).click();
+			await page.waitForFunction(() => [...document.querySelectorAll('audio')].every((a) => a.paused));
+			await page.getByRole('button', { name: 'Play Mock FM' }).click();
+			await page.waitForFunction(() => [...document.querySelectorAll('audio')].some((a) => !a.paused));
+
+			// Long enough for the debounced queue save (1.2s) had there been one.
+			await page.waitForTimeout(1600);
+			assert.deepEqual(sent, [], 'no playback report and no saved queue for a station');
+			assert.equal(host.calls.get('/live'), 1, 'resumed, not fetched again');
+
+			// A station that is not a stream says so in the player, and the page stays up.
+			await page.getByRole('button', { name: 'Play A web page' }).click();
+			await page.waitForFunction(() => document.querySelector('aside.panel h2.title')?.textContent === 'A web page');
+			await page.waitForTimeout(500);
+			assert.deepEqual(problems, []);
+		} finally {
+			subsonic.state.radio = [];
+			await view.close();
+			await on.stop();
+			await host.close();
 		}
 	});
 });

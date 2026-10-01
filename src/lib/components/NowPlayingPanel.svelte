@@ -443,7 +443,8 @@
 				{/if}
 			</div>
 
-			{#if song}
+			<!-- A station is not a track of the library: nothing to favour, list, rate, read or share. -->
+			{#if song && !song.live}
 				<div class="rounds">
 					<span class="round">
 						<FavouriteButton id={song.id} kind="song" starred={song.starred} size={19} />
@@ -460,7 +461,7 @@
 			{/if}
 		</div>
 
-		{#if song}
+		{#if song && !song.live}
 			<div class="fold" class:open={details} inert={!details}>
 				<div>
 					<dl class="facts">
@@ -509,7 +510,7 @@
 			/>
 			<div class="times">
 				<span class="hh-numeric">{formatDuration(player.currentTime)}</span>
-				{#if song && showQualityBadge}
+				{#if song && !song.live && showQualityBadge}
 					<!--
 						The badge is also the switch. Pressing it asks the music server
 						to convert instead of sending the file, and pressing it again
@@ -529,7 +530,7 @@
 				{:else}
 					<span></span>
 				{/if}
-				<span class="hh-numeric right">−{formatDuration(remaining)}</span>
+				<span class="hh-numeric right">{song?.live ? 'Live' : `−${formatDuration(remaining)}`}</span>
 			</div>
 		</div>
 
@@ -758,7 +759,7 @@
 				class="tool"
 				class:on={details}
 				onclick={() => (details = !details)}
-				disabled={!song}
+				disabled={!song || song.live}
 				aria-pressed={details}
 				aria-label="Track details"
 				title="Track details"
@@ -770,7 +771,7 @@
 				class="tool"
 				class:on={lyricsWindow.open}
 				onclick={showLyrics}
-				disabled={!song}
+				disabled={!song || song.live}
 				aria-pressed={lyricsWindow.open}
 				aria-label="Lyrics"
 				title="Lyrics"
@@ -784,7 +785,7 @@
 				<button
 					class="tool"
 					onclick={() => song && shareComposer.open(song)}
-					disabled={!song}
+					disabled={!song || song.live}
 					aria-label="Share a link to this song"
 					title="Share"
 				>

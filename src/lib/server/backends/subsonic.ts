@@ -825,6 +825,22 @@ export const subsonicBackend: MediaBackend = {
 		await call(cred, 'setRating.view', { id, rating });
 	},
 
+	async getRadioStations(cred) {
+		const body = await call<{ internetRadioStations?: { internetRadioStation?: unknown } }>(
+			cred,
+			'getInternetRadioStations.view'
+		);
+		return asArray(body.internetRadioStations?.internetRadioStation as Record<string, any>[])
+			.filter((station) => station?.id !== undefined && typeof station.streamUrl === 'string')
+			.slice(0, 500)
+			.map((station) => ({
+				id: String(station.id),
+				name: typeof station.name === 'string' && station.name.trim() ? station.name.trim().slice(0, 200) : 'Station',
+				streamUrl: station.streamUrl,
+				homePageUrl: typeof station.homePageUrl === 'string' ? station.homePageUrl : null
+			}));
+	},
+
 	async getLyrics(cred, song): Promise<Lyrics | null> {
 		// OpenSubsonic's getLyricsBySongId is the good one: it returns structured,
 		// optionally synced lines. Navidrome supports it; older servers do not, and

@@ -6,6 +6,14 @@
 export type BackendKind = 'subsonic' | 'jellyfin';
 
 /** What the server knows about the audio itself, used for the quality badge. */
+/** An internet radio station from the music server's list. The stream's address stays on the server. */
+export interface RadioStation {
+	id: string;
+	name: string;
+	/** The station's own page, when the server has one and it is an http or https address. */
+	homePage: string | null;
+}
+
 export interface AudioQuality {
 	/** Container/codec hint, e.g. `flac`, `mp3`, `opus`. */
 	format: string | null;
@@ -61,6 +69,12 @@ export interface Song {
 	quality: AudioQuality;
 	/** Null when the server reports no loudness data for the file. */
 	replayGain: ReplayGain | null;
+	/**
+	 * Set on an internet radio station standing in the queue as a track: a
+	 * stream with no end, no place to seek to and nothing to report as played.
+	 * Its id is `radio:` and the station's id; see `client/radio.ts`.
+	 */
+	live?: boolean;
 }
 
 export interface Album {

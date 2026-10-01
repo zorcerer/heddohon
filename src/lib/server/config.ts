@@ -60,6 +60,10 @@ export interface AppConfig {
 	lrclibUrl: string | null;
 	/** Base URL of the AutoEq results for headphone corrections, or null when off; see `autoeq.ts`. */
 	autoeqUrl: string | null;
+	/** Whether the music server's internet radio stations are offered and played through this server; see `radio.ts`. */
+	radio: boolean;
+	/** Whether a station may be on a private address. Off unless asked for. */
+	radioPrivate: boolean;
 	database: DatabaseConfig;
 }
 
@@ -259,6 +263,11 @@ function build(): AppConfig {
 					env('HEDDOHON_AUTOEQ_URL') ?? 'https://raw.githubusercontent.com/jaakkopasanen/AutoEq/master/results'
 				)
 			: null,
+		// On: the stations are the music server administrator's own list, and a
+		// stream is fetched only when a listener plays one. A station on a
+		// private address is refused unless that is asked for.
+		radio: flagEnv('HEDDOHON_RADIO', true),
+		radioPrivate: flagEnv('HEDDOHON_RADIO_PRIVATE', false),
 		database: databaseConfig()
 	};
 }
@@ -339,6 +348,8 @@ export function config(): AppConfig {
 			remoteControl: true,
 			lrclibUrl: null,
 			autoeqUrl: null,
+			radio: true,
+			radioPrivate: false,
 			database: { kind: 'sqlite' }
 		};
 	}
