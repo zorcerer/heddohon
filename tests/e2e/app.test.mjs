@@ -2874,3 +2874,30 @@ describe('an artist\'s releases by kind', () => {
 		});
 	});
 });
+
+describe('the folder view', () => {
+	const rail = async (client) => /href="\/folders"/.test((await client.page('/albums')).html);
+
+	test('is there unless HEDDOHON_FOLDERS=false, which takes the page, its link and playing a folder away', async () => {
+		const on = new Client(app.url);
+		await on.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' });
+		assert.equal((await on.page('/folders')).response.status, 200);
+		assert.equal(await rail(on), true);
+
+		const off = await startApp({ subsonicUrl: subsonic.url, jellyfinUrl: jellyfin.url, env: { HEDDOHON_FOLDERS: 'false' } });
+		try {
+			const client = new Client(off.url);
+			await client.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' });
+			assert.equal((await client.page('/folders')).response.status, 404);
+			assert.equal((await client.page('/folders/anything')).response.status, 404);
+			assert.equal((await client.json('/api/tracks', 'POST', { source: 'folder', id: 'anything' })).status, 404);
+			assert.equal(await rail(client), false, 'no link in the rail');
+			assert.ok(!/href="\/folders"/.test((await client.page('/library')).html), 'nor under Library');
+			// The rest of the library is as it was.
+			assert.equal((await client.page('/albums')).response.status, 200);
+			assert.equal((await client.json('/api/tracks', 'POST', { source: 'album', id: 'al1' })).status, 200);
+		} finally {
+			await off.stop();
+		}
+	});
+});

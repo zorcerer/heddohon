@@ -1,4 +1,5 @@
 import { json, error } from '@sveltejs/kit';
+import { config } from '$lib/server/config';
 import type { RequestHandler } from './$types';
 import { backendFor, UpstreamError } from '$lib/server/backends';
 import { mapLimited } from '$lib/server/backends/http';
@@ -100,6 +101,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 				break;
 			}
 			case 'folder':
+				if (!config().folders) error(404, 'Not found');
 				// The tracks in the folder itself. Folders below it are not read:
 				// the top of a library holds every one, one call each.
 				songs = (await folderDetail(ctx, id!)).songs;

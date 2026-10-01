@@ -21,6 +21,8 @@ export const load: LayoutServerLoad = async ({ locals, url }) => {
 		together: cfg.sharing && cfg.remoteControl,
 		// Whether headphone corrections can be searched for; see `autoeq.ts`.
 		autoeq: cfg.autoeqUrl !== null,
+		// Whether the library can be browsed by folder; see `HEDDOHON_FOLDERS`.
+		folders: cfg.folders,
 		// Whether the music server keeps internet radio stations (Navidrome does) and they are offered here.
 		radio: radioEnabled(session),
 		// Whether the music server keeps star ratings. Navidrome does, Jellyfin
