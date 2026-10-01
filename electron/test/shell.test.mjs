@@ -585,13 +585,24 @@ describe('a server behind a proxy that asks who you are', () => {
 });
 
 describe('a graphics driver Chromium cannot use', () => {
-	test('the second failure of the GPU process switches to software rendering and starts again, and the menu has the switch', async () => {
+	test('the second failure of the GPU process switches to software rendering and starts again, the next start says so once, and the menu has the switch', async () => {
 		const data = mkdtempSync(join(tmpdir(), 'heddohon-desktop-'));
 		const menuItem = (app) =>
 			app.evaluate(({ Menu }) => {
 				const item = Menu.getApplicationMenu().items.find((menu) => menu.label === 'Heddohon').submenu.items.find((entry) => entry.label === 'Software rendering');
 				return { checked: item.checked };
 			});
+		const saved = () => JSON.parse(readFileSync(join(data, 'config.json'), 'utf8'));
+		/** In place before the dialog, which waits 2 seconds after the start. Answers with this button. */
+		const answering = (app, response) =>
+			app.evaluate(({ dialog }, response) => {
+				globalThis.__said = [];
+				dialog.showMessageBox = async (_window, options) => {
+					globalThis.__said.push([options.message, options.buttons]);
+					return { response };
+				};
+			}, response);
+		const said = (app) => app.evaluate(() => globalThis.__said);
 		const { app, page } = await launch(data);
 		try {
 			await page.getByLabel('Server address').waitFor();
@@ -610,19 +621,52 @@ describe('a graphics driver Chromium cannot use', () => {
 				app.emit('child-process-gone', {}, { type: 'GPU', reason: 'launch-failed' });
 			});
 			assert.equal(await app.evaluate(() => globalThis.__restarted), 1);
-			assert.equal(JSON.parse(readFileSync(join(data, 'config.json'), 'utf8')).softwareRendering, true);
+			assert.equal(saved().softwareRendering, true);
 		} finally {
 			await app.close();
 		}
 
-		// The next start runs without the graphics card, and says so in the menu.
+		// The next start runs without the graphics card, and says so: in a dialog, and in the menu.
 		const again = await launch(data);
 		try {
+			await answering(again.app, 0);
 			await again.page.getByLabel('Server address').waitFor();
 			assert.deepEqual(await menuItem(again.app), { checked: true });
 			assert.equal(await again.app.evaluate(({ app }) => app.getGPUFeatureStatus().gpu_compositing.startsWith('disabled')), true);
+			await waitFor(async () => (await said(again.app)).length === 1);
+			assert.deepEqual(await said(again.app), [['Heddohon switched to software rendering', ['OK', 'Use the graphics card again']]]);
+			await waitFor(() => saved().softwareRenderingSwitched === undefined);
+			assert.equal(saved().softwareRendering, true);
 		} finally {
 			await again.app.close();
+		}
+
+		// Said once: the start after that is quiet.
+		const third = await launch(data);
+		try {
+			await answering(third.app, 0);
+			await third.page.getByLabel('Server address').waitFor();
+			await new Promise((done) => setTimeout(done, 3000));
+			assert.deepEqual(await said(third.app), []);
+		} finally {
+			await third.app.close();
+		}
+
+		// Use the graphics card again switches back and starts the app again.
+		writeFileSync(join(data, 'config.json'), JSON.stringify({ ...saved(), softwareRenderingSwitched: true }));
+		const back = await launch(data);
+		try {
+			await answering(back.app, 1);
+			await back.app.evaluate(({ app }) => {
+				globalThis.__restarted = 0;
+				app.relaunch = () => void globalThis.__restarted++;
+				app.exit = () => undefined;
+			});
+			await waitFor(async () => (await back.app.evaluate(() => globalThis.__restarted)) === 1);
+			assert.equal(saved().softwareRendering, false);
+			assert.equal(saved().softwareRenderingSwitched, undefined);
+		} finally {
+			await back.app.close();
 			rmSync(data, { recursive: true, force: true });
 		}
 	});
