@@ -911,11 +911,20 @@ describe('a shelf at the edge of the content column', () => {
 					};
 				});
 			// 40 albums do not fit: more to the right, none to the left.
-			await page.waitForFunction((el) => getComputedStyle(el).getPropertyValue('--shelf-fade-end').trim() === '48px', await track.elementHandle());
+			// Both lengths ease to their values, so each is waited for, not read once.
+			const settled = async (start, end) =>
+				page.waitForFunction(
+					([el, start, end]) => {
+						const style = getComputedStyle(el);
+						return style.getPropertyValue('--shelf-fade-start').trim() === start && style.getPropertyValue('--shelf-fade-end').trim() === end;
+					},
+					[await track.elementHandle(), start, end]
+				);
+			await settled('0px', '48px');
 			assert.deepEqual(await edges(), { start: '0px', end: '48px', masked: true });
 
 			await track.evaluate((el) => el.scrollTo({ left: el.scrollWidth, behavior: 'instant' }));
-			await page.waitForFunction((el) => getComputedStyle(el).getPropertyValue('--shelf-fade-start').trim() === '48px', await track.elementHandle());
+			await settled('48px', '0px');
 			assert.deepEqual(await edges(), { start: '48px', end: '0px', masked: true });
 		} finally {
 			await page.close();
