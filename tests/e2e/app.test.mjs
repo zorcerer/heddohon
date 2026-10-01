@@ -198,6 +198,16 @@ describe('settings', () => {
 		await user.json('/api/settings', 'PATCH', { crossfadeWithinAlbum: false });
 	});
 
+	test('the install card is not dismissed until it is, and takes only a boolean', async () => {
+		const before = await (await user.json('/api/settings', 'PATCH', {})).json();
+		assert.equal(before.installCardDismissed, false);
+		const on = await (await user.json('/api/settings', 'PATCH', { installCardDismissed: true })).json();
+		assert.equal(on.installCardDismissed, true);
+		const bogus = await (await user.json('/api/settings', 'PATCH', { installCardDismissed: 'no' })).json();
+		assert.equal(bogus.installCardDismissed, true, 'a value that is not a boolean keeps the one stored');
+		await user.json('/api/settings', 'PATCH', { installCardDismissed: false });
+	});
+
 	test('a saved theme is in the first byte of HTML', async () => {
 		await user.json('/api/settings', 'PATCH', { theme: 'light' });
 		const { html } = await user.page('/albums');
