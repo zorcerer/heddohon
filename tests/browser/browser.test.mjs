@@ -36,6 +36,9 @@ before(async () => {
 		maxRedirects: 0
 	});
 	assert.equal(signIn.status(), 303);
+	// The install card sits over the foot of the content once something plays,
+	// in a browser that offers to install; its own tests turn it back on.
+	await context.request.patch(`${app.url}/api/settings`, { data: { installCardDismissed: true }, headers: { origin: app.url } });
 });
 
 after(async () => {
@@ -429,6 +432,133 @@ describe('the equaliser', () => {
 			await page.close();
 		}
 		assert.deepEqual(problems, []);
+	});
+});
+
+describe('the install card', () => {
+	const settings = (patch) => context.request.patch(`${app.url}/api/settings`, { data: patch, headers: { origin: app.url } });
+	const card = (page) => page.locator('aside[aria-label="Install the app"]');
+	/** Chrome's `beforeinstallprompt`, which headless Chromium does not fire by itself. */
+	const offerInstall = (page) =>
+		page.evaluate(() => {
+			const event = new Event('beforeinstallprompt', { cancelable: true });
+			event.prompt = async () => {
+				window.__prompted = (window.__prompted ?? 0) + 1;
+			};
+			event.userChoice = Promise.resolve({ outcome: 'dismissed' });
+			window.dispatchEvent(event);
+		});
+	const play = async (page) => {
+		await page.getByRole('button', { name: 'Play Song 1a', exact: true }).click();
+		await page.waitForFunction(() => [...document.querySelectorAll('audio')].some((a) => !a.paused && a.currentTime > 0));
+	};
+	/** A context of its own with this user agent, signed in. */
+	async function signedIn(userAgent) {
+		const view = await browser.newContext({ viewport: { width: 1440, height: 900 }, userAgent });
+		const signIn = await view.request.post(`${app.url}/login`, {
+			form: { username: 'testuser', password: 'testpass', backend: 'subsonic', next: '/' },
+			headers: { origin: app.url, accept: 'text/html' },
+			maxRedirects: 0
+		});
+		assert.equal(signIn.status(), 303);
+		return view;
+	}
+
+	before(async () => {
+		subsonic.state.audio = { type: 'audio/wav', body: silentWav(30) };
+		assert.equal((await settings({ installCardDismissed: false })).status(), 200);
+	});
+
+	after(async () => {
+		subsonic.state.audio = null;
+		// Off again for the rest of the suite, where it would sit over the content.
+		await settings({ installCardDismissed: true });
+	});
+
+	test('waits for something to play, installs from the button, and stays away once dismissed', async () => {
+		const { page, problems } = await watchedPage();
+		try {
+			await page.goto(app.url + '/albums/al1', { waitUntil: 'networkidle' });
+			await offerInstall(page);
+			await page.waitForTimeout(300);
+			assert.equal(await card(page).count(), 0, 'not before anything plays');
+
+			await play(page);
+			await card(page).waitFor();
+			await card(page).getByRole('button', { name: 'Install', exact: true }).click();
+			await page.waitForFunction(() => window.__prompted === 1);
+			await card(page).waitFor({ state: 'detached' });
+
+			// Chrome offers again while the app is still not installed.
+			await offerInstall(page);
+			await card(page).getByRole('button', { name: 'Not now' }).click();
+			await card(page).waitFor({ state: 'detached' });
+			await page.waitForFunction(async () => (await (await fetch('/api/settings')).json()).installCardDismissed === true);
+
+			await page.reload({ waitUntil: 'networkidle' });
+			await offerInstall(page);
+			await play(page);
+			await page.waitForTimeout(300);
+			assert.equal(await card(page).count(), 0, 'dismissed on the account');
+
+			// Settings still offers it.
+			await page.goto(app.url + '/settings?tab=appearance', { waitUntil: 'networkidle' });
+			await offerInstall(page);
+			await page.getByRole('button', { name: 'Install Heddohon' }).click();
+			await page.waitForFunction(() => window.__prompted === 1);
+		} finally {
+			await settings({ installCardDismissed: false });
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+
+	test('is not shown in the installed app', async () => {
+		const { page, problems } = await watchedPage();
+		try {
+			await page.addInitScript(() => {
+				const real = window.matchMedia.bind(window);
+				window.matchMedia = (query) =>
+					query === '(display-mode: standalone)' ? { ...real(query), matches: true, media: query } : real(query);
+			});
+			await page.goto(app.url + '/albums/al1', { waitUntil: 'networkidle' });
+			await offerInstall(page);
+			await play(page);
+			await page.waitForTimeout(300);
+			assert.equal(await card(page).count(), 0);
+		} finally {
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+
+	test('tells Safari how, and shows nothing in Firefox', async () => {
+		const agents = {
+			mac: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15',
+			oldMac: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Safari/605.1.15',
+			iphone: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1',
+			chromeOnIphone: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/128.0.6613.98 Mobile/15E148 Safari/604.1',
+			firefox: 'Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0'
+		};
+		const seen = {};
+		for (const [name, userAgent] of Object.entries(agents)) {
+			const view = await signedIn(userAgent);
+			const page = await view.newPage();
+			try {
+				await page.goto(app.url + '/albums/al1', { waitUntil: 'networkidle' });
+				await play(page);
+				await page.waitForTimeout(300);
+				seen[name] = (await card(page).count()) ? await card(page).innerText() : null;
+				if (seen[name]) assert.equal(await card(page).getByRole('button', { name: 'Install', exact: true }).count(), 0);
+			} finally {
+				await view.close();
+			}
+		}
+		assert.match(seen.mac ?? '', /File, then Add to Dock/);
+		assert.equal(seen.oldMac, null, 'Add to Dock arrived in Safari 17');
+		assert.match(seen.iphone ?? '', /Share, then Add to Home Screen/);
+		assert.equal(seen.chromeOnIphone, null);
+		assert.equal(seen.firefox, null);
 	});
 });
 

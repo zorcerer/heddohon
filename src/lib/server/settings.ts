@@ -102,6 +102,12 @@ export interface UserSettings {
 	transcodeCodec: TranscodeCodec;
 	/** kbps. What the music server is asked for; it may cap it lower. */
 	transcodeBitrateKbps: number;
+	/**
+	 * Whether the card suggesting the app be installed was dismissed. Kept on
+	 * the account, so a dismissal on one device holds on the others; Settings
+	 * still offers the install. See `InstallCard.svelte`.
+	 */
+	installCardDismissed: boolean;
 }
 
 export const DEFAULT_SETTINGS: UserSettings = {
@@ -122,7 +128,8 @@ export const DEFAULT_SETTINGS: UserSettings = {
 	defaultAlbumSort: 'recentlyAdded',
 	transcode: false,
 	transcodeCodec: 'mp3',
-	transcodeBitrateKbps: 192
+	transcodeBitrateKbps: 192,
+	installCardDismissed: false
 };
 
 /** The sorts the album list actually implements. Kept here so the stored
@@ -192,7 +199,9 @@ export function sanitizeSettings(input: unknown, base: UserSettings = DEFAULT_SE
 			Number(raw.transcodeBitrateKbps)
 		)
 			? Number(raw.transcodeBitrateKbps)
-			: base.transcodeBitrateKbps
+			: base.transcodeBitrateKbps,
+		installCardDismissed:
+			typeof raw.installCardDismissed === 'boolean' ? raw.installCardDismissed : base.installCardDismissed
 	};
 }
 
