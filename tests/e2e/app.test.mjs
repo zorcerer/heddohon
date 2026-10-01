@@ -8,9 +8,12 @@
  * state (settings, credentials) says so and puts it back.
  */
 import assert from 'node:assert/strict';
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { after, before, describe, test } from 'node:test';
 import { Client, startApp } from './harness.mjs';
-import { startJellyfin, startSubsonic } from './mocks.mjs';
+import { startAutoEq, startJellyfin, startSubsonic } from './mocks.mjs';
 
 let subsonic;
 let jellyfin;
@@ -2405,3 +2408,144 @@ describe('the security review of 2026-09-29', () => {
 		assert.match(response.headers.get('content-security-policy') ?? '', /default-src 'none'/);
 	});
 });
+describe('headphone corrections from AutoEq', () => {
+	let autoeq;
+	let on;
+	let listener;
+
+	before(async () => {
+		autoeq = await startAutoEq();
+		on = await startApp({
+			subsonicUrl: subsonic.url,
+			jellyfinUrl: jellyfin.url,
+			env: { HEDDOHON_AUTOEQ: 'true', HEDDOHON_AUTOEQ_URL: autoeq.url }
+		});
+		listener = new Client(on.url);
+		await listener.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' });
+	});
+
+	after(async () => {
+		await on?.stop();
+		await autoeq?.close();
+	});
+
+	const search = async (query, client = listener) => {
+		const response = await client.request(`/api/autoeq?q=${encodeURIComponent(query)}`);
+		return { status: response.status, results: response.ok ? (await response.json()).results : null };
+	};
+	const profile = (id, client = listener) => client.request(`/api/autoeq/profile?id=${encodeURIComponent(id)}`);
+
+	test('is off unless asked for', async () => {
+		const off = new Client(app.url);
+		await off.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' });
+		assert.equal((await search('hd 650', off)).status, 404);
+		assert.equal((await profile('oratory1990/over-ear/Sennheiser HD 650', off)).status, 404);
+	});
+
+	test('needs a session', async () => {
+		assert.equal((await search('hd 650', new Client(on.url))).status, 401);
+	});
+
+	test('a search finds each measurement of a headphone, and reads the index once', async () => {
+		const found = await search('hd 650');
+		assert.equal(found.status, 200);
+		assert.deepEqual(
+			found.results.map((entry) => [entry.id, entry.source, entry.rig]),
+			[
+				['oratory1990/over-ear/Sennheiser HD 650', 'oratory1990', null],
+				['crinacle/GRAS 43AG-7 over-ear/Sennheiser HD 650', 'crinacle', 'GRAS 43AG-7'],
+				['crinacle/GRAS 43AG-7 over-ear/Sennheiser HD 650 (2020)', 'crinacle', 'GRAS 43AG-7']
+			]
+		);
+		assert.deepEqual((await search('aero anc')).results.map((entry) => entry.name), ['1MORE Aero (ANC Off)']);
+		assert.deepEqual((await search('climber')).results, [], 'a path that climbs out of the directory is not listed');
+		assert.deepEqual((await search('h')).results, [], 'one letter is not searched for');
+		assert.equal(autoeq.calls.get('index'), 1);
+	});
+
+	test('a profile comes back as numbers, and is fetched once', async () => {
+		autoeq.calls.reset();
+		const response = await profile('oratory1990/over-ear/Sennheiser HD 650');
+		assert.equal(response.status, 200);
+		assert.deepEqual(await response.json(), {
+			id: 'oratory1990/over-ear/Sennheiser HD 650',
+			name: 'Sennheiser HD 650',
+			source: 'oratory1990',
+			preamp: -6.1,
+			filters: [
+				{ type: 'lowshelf', frequency: 105, gain: 6.4, q: 0.7 },
+				{ type: 'peaking', frequency: 8800, gain: 5.1, q: 1.42 },
+				{ type: 'peaking', frequency: 118, gain: -3.1, q: 0.5 },
+				{ type: 'highshelf', frequency: 10000, gain: -2.1, q: 0.7 }
+			]
+		});
+		assert.equal((await profile('oratory1990/over-ear/Sennheiser HD 650')).status, 200);
+		assert.equal(autoeq.calls.get('profile'), 1);
+	});
+
+	test('an id the index does not list is never asked for upstream', async () => {
+		autoeq.calls.reset();
+		for (const id of ['../../secret/Climber', 'oratory1990/over-ear/Nothing', 'oratory1990/over-ear/Sennheiser HD 650/../x']) {
+			assert.equal((await profile(id)).status, 404, id);
+		}
+		assert.equal(autoeq.calls.get('profile'), 0);
+	});
+
+	test('a profile whose file is missing answers 502', async () => {
+		assert.equal((await profile('crinacle/GRAS 43AG-7 over-ear/Sennheiser HD 650')).status, 502);
+	});
+
+	test('a restart reads the index from the data directory, and a failed fetch leaves it in use', async () => {
+		// A data directory of its own with the index the first app stored: two
+		// processes do not share a database.
+		const dataDir = mkdtempSync(join(tmpdir(), 'heddohon-e2e-'));
+		const file = join(dataDir, 'autoeq-index.json');
+		copyFileSync(join(on.dataDir, 'autoeq-index.json'), file);
+		const stored = JSON.parse(readFileSync(file, 'utf8'));
+		assert.equal(stored.etag, '"v1"');
+		autoeq.calls.reset();
+		const again = await startApp({
+			subsonicUrl: subsonic.url,
+			jellyfinUrl: jellyfin.url,
+			dataDir,
+			env: { HEDDOHON_AUTOEQ: 'true', HEDDOHON_AUTOEQ_URL: autoeq.url }
+		});
+		try {
+			const client = new Client(again.url);
+			await client.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' });
+			assert.equal((await search('hd 650', client)).results.length, 3);
+			assert.equal(autoeq.calls.get('index') + autoeq.calls.get('index304'), 0, 'a day has not passed');
+		} finally {
+			await again.stop();
+		}
+
+		// A day on, by the date in the file: the server asks with the ETag it kept.
+		// Stopping an app removes its data directory, so it is made again each time.
+		for (const [down, expected] of [
+			[false, { index304: 1, results: 3 }],
+			[true, { index304: 0, results: 3 }]
+		]) {
+			mkdirSync(dataDir, { recursive: true });
+			writeFileSync(file, JSON.stringify({ ...stored, fetchedAt: Date.now() - 25 * 60 * 60 * 1000 }));
+			autoeq.calls.reset();
+			autoeq.state.down = down;
+			const aged = await startApp({
+				subsonicUrl: subsonic.url,
+				jellyfinUrl: jellyfin.url,
+				dataDir,
+				env: { HEDDOHON_AUTOEQ: 'true', HEDDOHON_AUTOEQ_URL: autoeq.url }
+			});
+			try {
+				const client = new Client(aged.url);
+				await client.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' });
+				assert.equal((await search('hd 650', client)).results.length, expected.results, `down=${down}`);
+				assert.equal(autoeq.calls.get('index304'), expected.index304, `down=${down}`);
+				assert.equal(autoeq.calls.get('index'), 0);
+			} finally {
+				autoeq.state.down = false;
+				await aged.stop();
+			}
+		}
+	});
+});
+

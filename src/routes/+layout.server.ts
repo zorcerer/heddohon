@@ -18,6 +18,8 @@ export const load: LayoutServerLoad = async ({ locals, url }) => {
 		remoteControl: cfg.remoteControl,
 		// Listening together needs both; see `together.ts`.
 		together: cfg.sharing && cfg.remoteControl,
+		// Whether headphone corrections can be searched for; see `autoeq.ts`.
+		autoeq: cfg.autoeqUrl !== null,
 		// Whether the music server keeps star ratings. Navidrome does, Jellyfin
 		// does not, and the stars are drawn only where a press can be saved.
 		ratings: Boolean(session && backendFor(session.account.backend).setRating),

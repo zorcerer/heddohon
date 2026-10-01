@@ -58,6 +58,8 @@ export interface AppConfig {
 	remoteControl: boolean;
 	/** LRCLIB base URL for lyrics the music server lacks, or null when off. */
 	lrclibUrl: string | null;
+	/** Base URL of the AutoEq results for headphone corrections, or null when off; see `autoeq.ts`. */
+	autoeqUrl: string | null;
 	database: DatabaseConfig;
 }
 
@@ -248,6 +250,14 @@ function build(): AppConfig {
 		lrclibUrl: flagEnv('HEDDOHON_LYRICS_LRCLIB', false)
 			? normaliseUrl('HEDDOHON_LYRICS_LRCLIB_URL', env('HEDDOHON_LYRICS_LRCLIB_URL') ?? 'https://lrclib.net')
 			: null,
+		// Off unless asked for: the server fetches from another host, which learns
+		// this server's address and the headphones chosen.
+		autoeqUrl: flagEnv('HEDDOHON_AUTOEQ', false)
+			? normaliseUrl(
+					'HEDDOHON_AUTOEQ_URL',
+					env('HEDDOHON_AUTOEQ_URL') ?? 'https://raw.githubusercontent.com/jaakkopasanen/AutoEq/master/results'
+				)
+			: null,
 		database: databaseConfig()
 	};
 }
@@ -327,6 +337,7 @@ export function config(): AppConfig {
 			downloads: true,
 			remoteControl: true,
 			lrclibUrl: null,
+			autoeqUrl: null,
 			database: { kind: 'sqlite' }
 		};
 	}

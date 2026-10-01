@@ -705,3 +705,58 @@ export async function startJellyfin() {
 
 	return { ...server, calls, state };
 }
+
+/** The correction the mock AutoEq serves for the Sennheiser HD 650, as AutoEq writes it. */
+export const HD650_PARAMETRIC = `Preamp: -6.1 dB
+Filter 1: ON LSC Fc 105 Hz Gain 6.4 dB Q 0.70
+Filter 2: ON PK Fc 8800 Hz Gain 5.1 dB Q 1.42
+Filter 3: ON PK Fc 118 Hz Gain -3.1 dB Q 0.50
+Filter 4: OFF PK Fc 37 Hz Gain 0.7 dB Q 3.96
+Filter 5: ON HSC Fc 10000 Hz Gain -2.1 dB Q 0.70
+`;
+
+/**
+ * The `results` directory of AutoEq: `INDEX.md`, answered with an ETag and a
+ * 304 for a request that names it, and the ParametricEQ.txt of one profile.
+ * The index lists a profile whose file is missing and one whose path climbs
+ * out of the directory. `calls` counts `index`, `index304` and `profile`.
+ */
+export async function startAutoEq() {
+	const calls = counter();
+	const state = { etag: '"v1"', down: false };
+	const index = () => `# Index
+This is a list of all equalization profiles.
+
+- [Sennheiser HD 650](./oratory1990/over-ear/Sennheiser%20HD%20650) by oratory1990
+- [Sennheiser HD 650](./crinacle/GRAS%2043AG-7%20over-ear/Sennheiser%20HD%20650) by crinacle on GRAS 43AG-7
+- [Sennheiser HD 650 (2020)](./crinacle/GRAS%2043AG-7%20over-ear/Sennheiser%20HD%20650%20(2020)) by crinacle on GRAS 43AG-7
+- [1MORE Aero (ANC Off)](./HypetheSonics/GRAS%20RA0045%20in-ear/1MORE%20Aero%20(ANC%20Off)) by HypetheSonics on GRAS RA0045
+- [Climber](./../../secret/Climber) by nobody
+`;
+	const server = await listen((req, res) => {
+		const path = decodeURIComponent(new URL(req.url, 'http://x').pathname);
+		if (state.down) {
+			res.statusCode = 503;
+			return res.end();
+		}
+		if (path === '/results/INDEX.md') {
+			res.setHeader('etag', state.etag);
+			if (req.headers['if-none-match'] === state.etag) {
+				calls.hit('index304');
+				res.statusCode = 304;
+				return res.end();
+			}
+			calls.hit('index');
+			res.setHeader('content-type', 'text/plain; charset=utf-8');
+			return res.end(index());
+		}
+		calls.hit('profile');
+		if (path === '/results/oratory1990/over-ear/Sennheiser HD 650/Sennheiser HD 650 ParametricEQ.txt') {
+			res.setHeader('content-type', 'text/plain; charset=utf-8');
+			return res.end(HD650_PARAMETRIC);
+		}
+		res.statusCode = 404;
+		res.end('404: Not Found');
+	});
+	return { ...server, url: `${server.url}/results`, calls, state };
+}

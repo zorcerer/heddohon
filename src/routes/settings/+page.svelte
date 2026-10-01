@@ -12,6 +12,71 @@
 
 	/** A band's centre as it is printed under its slider: 31, 1k, 16k. */
 	const bandLabel = (hz: number) => (hz >= 1000 ? `${hz / 1000}k` : String(hz));
+
+	/*
+	 * The headphone correction: a search of the AutoEq database where the
+	 * server offers it (`data.autoeq`), and a ParametricEQ.txt read in this
+	 * browser either way.
+	 */
+	interface HeadphoneMatch {
+		id: string;
+		name: string;
+		source: string;
+		rig: string | null;
+	}
+	let headphoneQuery = $state('');
+	let headphoneMatches = $state<HeadphoneMatch[] | null>(null);
+	let correctionError = $state<string | null>(null);
+	let correctionBusy = $state(false);
+	let searchSerial = 0;
+	let searchTimer: ReturnType<typeof setTimeout> | undefined;
+
+	/** Asks 250ms after the last key, and drops an answer that a later one has overtaken. */
+	function searchHeadphones() {
+		clearTimeout(searchTimer);
+		const query = headphoneQuery.trim();
+		const serial = ++searchSerial;
+		correctionError = null;
+		if (query.length < 2) {
+			headphoneMatches = null;
+			return;
+		}
+		searchTimer = setTimeout(async () => {
+			const response = await fetch(`/api/autoeq?q=${encodeURIComponent(query)}`).catch(() => null);
+			if (serial !== searchSerial) return;
+			if (!response?.ok) {
+				headphoneMatches = null;
+				correctionError = 'The headphone database could not be reached. Try again later.';
+				return;
+			}
+			headphoneMatches = (await response.json()).results as HeadphoneMatch[];
+		}, 250);
+	}
+
+	async function chooseHeadphone(match: HeadphoneMatch) {
+		correctionBusy = true;
+		correctionError = null;
+		const chosen = await processing.chooseCorrection(match.id);
+		correctionBusy = false;
+		if (!chosen) {
+			correctionError = 'That correction could not be fetched. Try again later.';
+			return;
+		}
+		headphoneQuery = '';
+		headphoneMatches = null;
+	}
+
+	async function importCorrection(input: HTMLInputElement) {
+		const file = input.files?.[0];
+		// Emptied so that choosing the same file again is a change.
+		input.value = '';
+		if (!file) return;
+		correctionError = (await processing.importCorrection(file))
+			? null
+			: 'That file holds no filters. It should be a ParametricEQ.txt, with lines such as "Filter 1: ON PK Fc 105 Hz Gain 6.4 dB Q 0.70".';
+	}
+
+	const signed = (db: number) => `${db > 0 ? '+' : ''}${db.toFixed(1)}`;
 	import type { ActionData, PageData } from './$types';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -480,6 +545,78 @@
 							<span class="hz hh-numeric">{bandLabel(frequency)}</span>
 						</label>
 					{/each}
+				</div>
+
+				<div class="correction">
+					<div class="label">
+						Headphone correction
+						<span class="hint hh-muted">
+							A preamp and filters measured for one headphone, applied ahead of the bands.
+							{#if data.autoeq}
+								Search the AutoEq database, or import a ParametricEQ.txt.
+							{:else}
+								Import a ParametricEQ.txt, the file AutoEq and Equalizer APO use.
+							{/if}
+						</span>
+					</div>
+
+					{#if processing.correction}
+						{@const chosen = processing.correction}
+						<p class="chosen">
+							<span>
+								<strong>{chosen.name}</strong>
+								<span class="hh-muted">
+									{chosen.source ? `${chosen.source} · ` : ''}{chosen.filters.length} filter{chosen.filters.length === 1 ? '' : 's'},
+									preamp {signed(chosen.preamp)} dB
+								</span>
+							</span>
+							<button class="hh-button" type="button" onclick={() => processing.setCorrection(null)}>Remove</button>
+						</p>
+					{/if}
+
+					<div class="correction-actions">
+						{#if data.autoeq}
+							<!-- Enter would submit the settings form this sits in. -->
+							<input
+								class="hh-input"
+								type="search"
+								placeholder="Search headphones"
+								aria-label="Search headphones"
+								autocomplete="off"
+								bind:value={headphoneQuery}
+								oninput={searchHeadphones}
+								onkeydown={(event) => event.key === 'Enter' && event.preventDefault()}
+							/>
+						{/if}
+						<label class="hh-button import">
+							<Icon name="plus" size={16} />
+							Import ParametricEQ.txt
+							<input
+								class="hh-visually-hidden"
+								type="file"
+								accept=".txt,text/plain"
+								onchange={(event) => void importCorrection(event.currentTarget)}
+							/>
+						</label>
+					</div>
+
+					{#if headphoneMatches}
+						{#if headphoneMatches.length === 0}
+							<p class="hh-muted note">No headphone by that name in the database.</p>
+						{:else}
+							<ul class="matches" aria-label="Headphones found">
+								{#each headphoneMatches as match (match.id)}
+									<li>
+										<button type="button" disabled={correctionBusy} onclick={() => void chooseHeadphone(match)}>
+											<span>{match.name}</span>
+											<span class="hh-muted">{match.source}{match.rig ? ` on ${match.rig}` : ''}</span>
+										</button>
+									</li>
+								{/each}
+							</ul>
+						{/if}
+					{/if}
+					{#if correctionError}<p class="note" role="alert">{correctionError}</p>{/if}
 				</div>
 			{/if}
 		</section>
@@ -1229,6 +1366,81 @@
 		display: grid;
 		grid-template-columns: repeat(10, minmax(0, 1fr));
 		gap: var(--space-1);
+	}
+
+	.correction {
+		display: grid;
+		gap: var(--space-3);
+	}
+
+	.chosen {
+		margin: 0;
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--space-3);
+		font-size: 0.875rem;
+	}
+
+	.chosen > span {
+		display: grid;
+		gap: 0.15rem;
+		min-width: 0;
+	}
+
+	.correction-actions {
+		display: flex;
+		flex-wrap: wrap;
+		gap: var(--space-2);
+	}
+
+	.correction-actions input[type='search'] {
+		flex: 1 1 14rem;
+		min-width: 0;
+	}
+
+	.import {
+		cursor: pointer;
+	}
+
+	/* The file input is hidden, so its focus is drawn on the label. */
+	.import:has(:focus-visible) {
+		outline: 2px solid var(--accent);
+		outline-offset: 2px;
+	}
+
+	/* One measurement per row: the same headphone is listed once per measurer. */
+	.matches {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+		display: grid;
+		max-height: 16rem;
+		overflow-y: auto;
+		border: 1px solid var(--border-hairline);
+		border-radius: var(--r-sm);
+	}
+
+	.matches button {
+		width: 100%;
+		display: flex;
+		/* On a phone the measurer drops under the name. */
+		flex-wrap: wrap;
+		justify-content: space-between;
+		gap: var(--space-3);
+		padding: var(--space-2) var(--space-3);
+		text-align: left;
+		font-size: 0.875rem;
+		color: var(--text-default);
+	}
+
+	.matches button:hover,
+	.matches button:focus-visible {
+		background: color-mix(in srgb, var(--accent) 10%, transparent);
+	}
+
+	.matches li + li {
+		border-top: 1px solid var(--border-hairline);
 	}
 
 	.band {

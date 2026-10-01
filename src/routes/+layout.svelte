@@ -112,6 +112,10 @@
 		const secondary = secondaryAudio;
 		untrack(() => player.attach(primary, secondary, data.settings));
 		untrack(() => processing.init());
+		// Where the headphone database is on, a chosen profile a day old is asked for again.
+		untrack(() => {
+			if (data.autoeq) void processing.refreshCorrection();
+		});
 		untrack(() => void audioOutputs.init());
 		void restoreQueue();
 		return () => player.detach();

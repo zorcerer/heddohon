@@ -12,7 +12,7 @@ import assert from 'node:assert/strict';
 import { after, before, describe, test } from 'node:test';
 import { chromium } from 'playwright';
 import { startApp } from '../e2e/harness.mjs';
-import { startJellyfin, startSubsonic } from '../e2e/mocks.mjs';
+import { HD650_PARAMETRIC, startAutoEq, startJellyfin, startSubsonic } from '../e2e/mocks.mjs';
 
 let subsonic;
 let jellyfin;
@@ -533,6 +533,115 @@ describe('the equaliser', () => {
 			await page.close();
 		}
 		assert.deepEqual(problems, []);
+	});
+});
+
+describe('the headphone correction', () => {
+	const stored = (page) => page.evaluate(() => JSON.parse(localStorage.getItem('heddohon:audio-processing')));
+	const file = (name, text) => ({ name, mimeType: 'text/plain', buffer: Buffer.from(text) });
+	/** Counts the biquads the graph makes: ten bands, and one per filter of a correction. */
+	const countBiquads = (page) =>
+		page.addInitScript(() => {
+			window.__biquads = 0;
+			const create = BaseAudioContext.prototype.createBiquadFilter;
+			BaseAudioContext.prototype.createBiquadFilter = function () {
+				window.__biquads++;
+				return create.call(this);
+			};
+		});
+
+	test('an imported ParametricEQ.txt sets the filters, is kept, and can be removed', async () => {
+		const { page, problems } = await watchedPage();
+		try {
+			await countBiquads(page);
+			await page.goto(app.url + '/settings?tab=playback', { waitUntil: 'networkidle' });
+			await page.getByRole('checkbox', { name: /Process audio in this browser/ }).check();
+			assert.equal(await page.getByRole('searchbox', { name: 'Search headphones' }).count(), 0, 'no search where the database is off');
+			assert.equal(await page.evaluate(() => window.__biquads), 10);
+
+			const input = page.locator('.correction input[type="file"]');
+			await input.setInputFiles(file('Sennheiser HD 650 ParametricEQ.txt', HD650_PARAMETRIC));
+			const chosen = page.locator('.correction .chosen');
+			await chosen.waitFor();
+			assert.match(await chosen.innerText(), /Sennheiser HD 650\s+4 filters,\s+preamp -6\.1 dB/);
+			assert.equal(await page.evaluate(() => window.__biquads), 14, 'one biquad per filter that is on');
+			const saved = (await stored(page)).correction;
+			assert.equal(saved.name, 'Sennheiser HD 650');
+			assert.equal(saved.id, null);
+			assert.deepEqual(saved.filters[0], { type: 'lowshelf', frequency: 105, gain: 6.4, q: 0.7 });
+
+			// A file with no filters is refused, and the correction in place stays.
+			await input.setInputFiles(file('notes.txt', 'Preamp: -3 dB\nnothing else here\n'));
+			await page.getByRole('alert').filter({ hasText: 'holds no filters' }).waitFor();
+			assert.equal((await stored(page)).correction.name, 'Sennheiser HD 650');
+
+			await page.reload({ waitUntil: 'networkidle' });
+			await page.locator('.correction .chosen').waitFor();
+			assert.equal(await page.evaluate(() => window.__biquads), 14, 'applied again from storage');
+
+			await page.locator('.correction .chosen').getByRole('button', { name: 'Remove' }).click();
+			await page.locator('.correction .chosen').waitFor({ state: 'detached' });
+			assert.equal((await stored(page)).correction, undefined);
+		} finally {
+			await page.evaluate(() => localStorage.removeItem('heddohon:audio-processing')).catch(() => undefined);
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+
+	test('where the database is on, a search finds the headphone and a day-old choice is fetched again', async () => {
+		const autoeq = await startAutoEq();
+		const on = await startApp({
+			subsonicUrl: subsonic.url,
+			jellyfinUrl: jellyfin.url,
+			env: { HEDDOHON_REMOTE_CONTROL: 'false', HEDDOHON_AUTOEQ: 'true', HEDDOHON_AUTOEQ_URL: autoeq.url }
+		});
+		const view = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+		try {
+			const signIn = await view.request.post(`${on.url}/login`, {
+				form: { username: 'testuser', password: 'testpass', backend: 'subsonic', next: '/' },
+				headers: { origin: on.url, accept: 'text/html' },
+				maxRedirects: 0
+			});
+			assert.equal(signIn.status(), 303);
+			const page = await view.newPage();
+			const problems = [];
+			page.on('pageerror', (err) => problems.push(err.message));
+			await page.goto(on.url + '/settings?tab=playback', { waitUntil: 'networkidle' });
+			await page.getByRole('checkbox', { name: /Process audio in this browser/ }).check();
+
+			await page.getByRole('searchbox', { name: 'Search headphones' }).fill('hd 650');
+			const matches = page.getByRole('list', { name: 'Headphones found' }).getByRole('button');
+			await matches.first().waitFor();
+			assert.equal(await matches.count(), 3);
+			await matches.filter({ hasText: /oratory1990$/ }).click();
+			await page.locator('.correction .chosen').waitFor();
+			assert.match(await page.locator('.correction .chosen').innerText(), /Sennheiser HD 650\s+oratory1990 · 4 filters/);
+			const saved = (await stored(page)).correction;
+			assert.equal(saved.id, 'oratory1990/over-ear/Sennheiser HD 650');
+
+			// Inside a day a reload asks for nothing; past it, the profile is fetched again.
+			let fetched = 0;
+			page.on('request', (request) => {
+				if (request.url().includes('/api/autoeq/profile')) fetched++;
+			});
+			await page.reload({ waitUntil: 'networkidle' });
+			assert.equal(fetched, 0);
+			await page.evaluate((at) => {
+				const kept = JSON.parse(localStorage.getItem('heddohon:audio-processing'));
+				kept.correction.fetchedAt = at;
+				kept.correction.preamp = -1;
+				localStorage.setItem('heddohon:audio-processing', JSON.stringify(kept));
+			}, Date.now() - 25 * 60 * 60 * 1000);
+			await page.reload({ waitUntil: 'networkidle' });
+			await page.waitForFunction(() => JSON.parse(localStorage.getItem('heddohon:audio-processing')).correction.preamp === -6.1);
+			assert.equal(fetched, 1);
+			assert.deepEqual(problems, []);
+		} finally {
+			await view.close();
+			await on.stop();
+			await autoeq.close();
+		}
 	});
 });
 

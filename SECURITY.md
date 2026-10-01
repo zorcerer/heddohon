@@ -34,9 +34,11 @@ each server's label and kind. The upstream credential leaves the process only as
 a request to the music server. The one host you expose is Heddohon.
 
 Heddohon also contacts a PostgreSQL server when `HEDDOHON_DATABASE_URL` names
-one (see [PostgreSQL](#postgresql)). The one other host it contacts is LRCLIB, and only with
-`HEDDOHON_LYRICS_LRCLIB=true` (off by default). See [Lyrics from
-LRCLIB](#lyrics-from-lrclib).
+one (see [PostgreSQL](#postgresql)). The other hosts it contacts are LRCLIB, only with
+`HEDDOHON_LYRICS_LRCLIB=true`, and the AutoEq results on GitHub, only with
+`HEDDOHON_AUTOEQ=true`. Both are off by default. See [Lyrics from
+LRCLIB](#lyrics-from-lrclib) and [Headphone corrections from
+AutoEq](#headphone-corrections-from-autoeq).
 
 ## PostgreSQL
 
@@ -91,6 +93,34 @@ sent.
   so reopening lyrics does not ask again.
 - **Treated as text.** The lines are rendered escaped like every other string,
   and the view labels them "LRCLIB".
+
+## Headphone corrections from AutoEq
+
+With `HEDDOHON_AUTOEQ=true`, the server requests two things from
+`HEDDOHON_AUTOEQ_URL` (by default the `results` directory of
+`jaakkopasanen/AutoEq` on `raw.githubusercontent.com`): `INDEX.md`, once a day,
+and the ParametricEQ.txt of each headphone someone chooses in Settings. That is
+what the host learns: this server's address, and which headphones were chosen.
+No account name, credential or upstream detail is sent.
+
+- **Server-side only.** The browser's policy is unchanged; it talks to Heddohon.
+- **Only paths the index lists.** `/api/autoeq/profile?id=` answers 404 for an
+  id that is not in the index, without a request upstream. An index entry
+  whose path has an empty, `.` or `..` segment is dropped when the index is
+  read, from the network or from the data directory.
+- **Bounded.** 10 seconds, 4 MB for the index and 16 KB for a profile, 20,000
+  entries, redirects refused. A failed index fetch leaves the held copy in
+  use and is tried again after 5 minutes; both are logged as `autoeq-failed`.
+- **Parsed to numbers.** A profile is returned as a preamp and up to 20
+  filters, each a type from three, a frequency from 10 Hz to 24 kHz, a gain
+  within 30 dB and a Q from 0.1 to 30. None of the fetched text is passed on.
+  The browser checks the same ranges again before building the filters, for a
+  profile from the server, from an imported file and from its own storage.
+- **Cached.** The index in memory and in `HEDDOHON_DATA_DIR/autoeq-index.json`
+  for 24 hours, refreshed with `If-None-Match`; 500 profiles in memory for 24
+  hours, a failure for 5 minutes.
+- Both routes need a session. Search matches in memory and makes no request
+  upstream once the index is held.
 
 ## Linking Last.fm and ListenBrainz
 
