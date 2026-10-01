@@ -394,7 +394,9 @@ describe('a server behind a proxy that asks who you are', () => {
 	const saved = (data) => JSON.parse(readFileSync(join(data, 'config.json'), 'utf8'));
 	const connect = async (page, address) => {
 		await page.getByLabel('Server address').fill(address);
-		await page.getByRole('button', { name: 'Connect' }).click();
+		// Pressed from the page: a click through Playwright waits for the navigation it
+		// starts, and behind basic auth that one waits for the prompt this test answers.
+		await page.locator('#connect').evaluate((button) => button.click());
 	};
 
 	test('headers are read one to a line, and the ones the app owns are refused', () => {
