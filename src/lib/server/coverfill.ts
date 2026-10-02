@@ -110,8 +110,7 @@ export function startFill(
 /** Stops the account's fill, if it has one running. What is stored stays. */
 export function stopFill(account: string): void {
 	if (job?.account !== account || !running(job.status)) return;
-	job.status.state = 'stopped';
-	job.abort.abort();
+	job.abort.abort('stopped');
 }
 
 /** The cover ids of every album, artist and playlist the account can see. */
@@ -198,8 +197,7 @@ async function run({ status, abort }: Job, backend: MediaBackend, cred: StoredCr
 					if (signal.aborted) return;
 					const weight = cover?.body.byteLength ?? 0;
 					if (held + weight > limitBytes) {
-						status.state = 'full';
-						abort.abort();
+						abort.abort('full');
 						return;
 					}
 					// Before the write, so the three other slots count it too.
@@ -215,14 +213,19 @@ async function run({ status, abort }: Job, backend: MediaBackend, cred: StoredCr
 			FILL_FANOUT,
 			signal
 		);
-		if (status.state === 'running') status.state = 'done';
 	} catch (err) {
 		if (!signal.aborted) {
-			status.state = 'failed';
-			abort.abort();
+			abort.abort('failed');
 			log.warn('cover-fill-failed', { detail: reason(err) });
 		}
 	} finally {
+		/*
+		 * Set here, once every slot has finished, and not where the fill was
+		 * told to end. Set there, a slot still writing its cover was left out
+		 * of the count: a poll in CI read a full fill with 24 covers stored and
+		 * 25 on disk.
+		 */
+		status.state = signal.aborted ? (signal.reason as FillStatus['state']) : 'done';
 		log.info('cover-fill-finished', {
 			state: status.state,
 			covers: status.total,
