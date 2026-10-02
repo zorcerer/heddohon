@@ -29,6 +29,7 @@ import { forgetListings } from './listings';
 import { forgetDetails } from './details';
 import { forgetSuggestions } from './suggestions';
 import { forgetTranscodes } from './transcodes';
+import { stopFill } from './coverfill';
 import { clearAccountState } from './settings';
 import { forgetSharedItems, revokeAllShares } from './shares';
 import { foldName } from './names';
@@ -602,6 +603,7 @@ export async function destroyAllSessions(accountId: string): Promise<void> {
 	forgetSuggestions(accountId);
 	forgetTranscodes(accountId);
 	forgetSharedItems(accountId);
+	stopFill(accountId);
 	// The account was signed in and now is not, without anybody asking for that.
 	// It means the password changed upstream, or the token was revoked there, and
 	// it is the explanation for "it logged me out on its own".

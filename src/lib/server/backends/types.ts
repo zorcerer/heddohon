@@ -158,10 +158,11 @@ export interface MediaBackend {
 	 * server does not say.
 	 *
 	 * Null is a normal answer rather than a failure: a Subsonic server need not
-	 * implement `getUser`, and a server that does may refuse it. Nothing is
-	 * gated on the result. It is read so the interface can state who a
-	 * server-wide action reaches, and an unknown answer changes nothing about
-	 * what an account may do.
+	 * implement `getUser`, and a server that does may refuse it. It is read so
+	 * the interface can state who a server-wide action reaches. One thing is
+	 * gated on it: caching every cover (`coverfill.ts`) needs `true`, so an
+	 * unknown answer leaves that out and changes nothing else about what an
+	 * account may do.
 	 */
 	isAdmin(cred: StoredCredential): Promise<boolean | null>;
 

@@ -1,7 +1,7 @@
 import { error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { nearestCoverSize, proxyMedia, streamRequestFrom } from '$lib/server/proxy';
-import { MAX_ENTRY_BYTES, coverScope, readCover, writeCover } from '$lib/server/covercache';
+import { collectCover, coverScope, readCover, writeCover } from '$lib/server/covercache';
 
 
 /**
@@ -74,7 +74,7 @@ const handler: RequestHandler = async (event) => {
 	if (response.status === 200 && event.request.method === 'GET' && response.body) {
 		const type = response.headers.get('content-type') ?? '';
 		const [toClient, toCache] = response.body.tee();
-		void collect(toCache).then((body) => {
+		void collectCover(toCache).then((body) => {
 			if (body) return writeCover(scope, id, size, type, body);
 		});
 		return new Response(toClient, { status: 200, headers: response.headers });
@@ -82,30 +82,6 @@ const handler: RequestHandler = async (event) => {
 
 	return response;
 };
-
-/**
- * Reads a stream to the end into one buffer, or gives up with null past
- * `MAX_ENTRY_BYTES` (which `writeCover` would refuse) or on a failed read.
- */
-async function collect(stream: ReadableStream<Uint8Array>): Promise<Buffer | null> {
-	const reader = stream.getReader();
-	const chunks: Uint8Array[] = [];
-	let total = 0;
-	try {
-		for (;;) {
-			const { done, value } = await reader.read();
-			if (done) return Buffer.concat(chunks, total);
-			total += value.byteLength;
-			if (total > MAX_ENTRY_BYTES) {
-				await reader.cancel();
-				return null;
-			}
-			chunks.push(value);
-		}
-	} catch {
-		return null;
-	}
-}
 
 export const GET = handler;
 export const HEAD = handler;

@@ -8,7 +8,7 @@
  * state (settings, credentials) says so and puts it back.
  */
 import assert from 'node:assert/strict';
-import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, describe, test } from 'node:test';
@@ -1683,6 +1683,80 @@ describe('covers', () => {
 		const response = await user.request('/api/cover/html?size=256');
 		assert.equal(response.headers.get('content-type'), 'application/octet-stream');
 		assert.match(response.headers.get('content-security-policy') ?? '', /sandbox/);
+	});
+
+	/** Asks where the account's fill stands until it is no longer running. */
+	async function fillEnd(client) {
+		for (let attempt = 0; attempt < 300; attempt++) {
+			const status = await (await client.request('/api/cover-fill')).json();
+			if (status.state !== 'listing' && status.state !== 'running') return status;
+			await new Promise((done) => setTimeout(done, 50));
+		}
+		assert.fail(explain('the fill did not end within 15s'));
+	}
+
+	test('an administrator caches every cover, and a page\'s covers are then answered from disk', async () => {
+		const started = await user.request('/api/cover-fill', { method: 'POST' });
+		assert.equal(started.status, 200, explain('the fill did not start'));
+		const end = await fillEnd(user);
+		// 12 albums at four sizes and 250 artists at two. The playlist has no cover.
+		assert.deepEqual(
+			{ state: end.state, total: end.total, done: end.done, failed: end.failed },
+			{ state: 'done', total: 548, done: 548, failed: 0 },
+			explain('the fill did not finish')
+		);
+		assert.ok(end.stored > 0);
+
+		subsonic.calls.reset();
+		// A card, the album page (640 is served as 512), the same at twice the density, and a row.
+		for (const path of ['/api/cover/al-7?size=384', '/api/cover/al-7?size=640', '/api/cover/al-7?size=1280', '/api/cover/ar-200?size=96']) {
+			const response = await user.request(path);
+			assert.equal(response.status, 200, path);
+			await response.arrayBuffer();
+		}
+		assert.equal(subsonic.calls.get('getCoverArt'), 0, 'a cover was fetched from the music server after the fill');
+
+		// A second fill reads the library and finds every cover held.
+		await user.request('/api/cover-fill', { method: 'POST' });
+		const again = await fillEnd(user);
+		assert.deepEqual({ state: again.state, done: again.done, stored: again.stored }, { state: 'done', done: 548, stored: 0 });
+		assert.equal(subsonic.calls.get('getCoverArt'), 0);
+		assert.match((await user.page('/settings?tab=storage')).html, /Cache every cover/);
+	});
+
+	test('an account the music server does not list as an administrator is refused a fill, and is not offered one', async () => {
+		subsonic.state.admin = false;
+		try {
+			subsonic.calls.reset();
+			const refused = await user.request('/api/cover-fill', { method: 'POST' });
+			assert.equal(refused.status, 403);
+			assert.equal(subsonic.calls.get('getAlbumList2'), 0, 'the library was read for an account that is not an administrator');
+			assert.doesNotMatch((await user.page('/settings?tab=storage')).html, /Cache every cover/);
+		} finally {
+			subsonic.state.admin = true;
+		}
+	});
+
+	test('a fill stops at the disk budget and keeps what it stored', async () => {
+		subsonic.state.coverPadding = 40 * 1024;
+		const small = await startApp({ subsonicUrl: subsonic.url, jellyfinUrl: jellyfin.url, env: { HEDDOHON_COVER_CACHE_MB: '1' } });
+		try {
+			const client = new Client(small.url);
+			await client.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' });
+			assert.equal((await client.request('/api/cover-fill', { method: 'POST' })).status, 200);
+			const end = await fillEnd(client);
+			assert.equal(end.state, 'full', `the fill ended ${end.state} after ${end.done} of ${end.total}`);
+			// 40KB a cover into 1MB is 25 of them. Without the stop the sweep
+			// deletes the first as the last are written, and the fill runs to 548.
+			const dir = join(small.dataDir, 'covers');
+			const files = readdirSync(dir);
+			assert.equal(end.stored, 25);
+			assert.equal(files.length, 25);
+			assert.ok(files.reduce((sum, name) => sum + statSync(join(dir, name)).size, 0) <= 1024 * 1024);
+		} finally {
+			subsonic.state.coverPadding = 0;
+			await small.stop();
+		}
 	});
 });
 

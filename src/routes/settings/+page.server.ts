@@ -4,6 +4,7 @@ import { config } from '$lib/server/config';
 import { destroyAllSessions, endSessions, listSessions } from '$lib/server/auth';
 import { getSettings, saveSettings } from '$lib/server/settings';
 import { cacheStats, clearCache } from '$lib/server/covercache';
+import { fillStatus } from '$lib/server/coverfill';
 import { backendFor, UpstreamError, type ScrobblerService } from '$lib/server/backends';
 import { linkStateDigest } from '$lib/server/crypto';
 import { log, reason } from '$lib/server/log';
@@ -76,6 +77,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 
 	return {
 		coverCache,
+		coverFill: fillStatus(session.account.id),
 		isAdmin,
 		settings,
 		account: session.account,

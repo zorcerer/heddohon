@@ -212,9 +212,43 @@ export async function readCover(
 }
 
 /**
- * Stores a cover. Failures are swallowed: a cache that cannot write is a slow
- * cache rather than a broken page, and a full disk must not take the library
- * down with it.
+ * Whether a cover is stored, by the index alone. For the fill (`coverfill.ts`),
+ * which asks this of every cover in the library and reads none of them.
+ */
+export async function holdsCover(scope: CoverScope, id: string, size: number): Promise<boolean> {
+	const dir = root();
+	if (!dir) return false;
+	return (await storedFiles(dir)).has(cacheKey(scope, id, size));
+}
+
+/**
+ * Reads a stream to the end into one buffer, or gives up with null past
+ * `MAX_ENTRY_BYTES` (which `writeCover` would refuse) or on a failed read.
+ */
+export async function collectCover(stream: ReadableStream<Uint8Array>): Promise<Buffer | null> {
+	const reader = stream.getReader();
+	const chunks: Uint8Array[] = [];
+	let total = 0;
+	try {
+		for (;;) {
+			const { done, value } = await reader.read();
+			if (done) return Buffer.concat(chunks, total);
+			total += value.byteLength;
+			if (total > MAX_ENTRY_BYTES) {
+				await reader.cancel();
+				return null;
+			}
+			chunks.push(value);
+		}
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * Stores a cover, and says whether it did. Failures are swallowed: a cache
+ * that cannot write is a slow cache rather than a broken page, and a full disk
+ * must not take the library down with it.
  */
 export async function writeCover(
 	scope: CoverScope,
@@ -222,11 +256,11 @@ export async function writeCover(
 	size: number,
 	contentType: string,
 	body: Buffer
-): Promise<void> {
+): Promise<boolean> {
 	const dir = root();
-	if (!dir) return;
+	if (!dir) return false;
 	const ext = EXTENSIONS[contentType.split(';')[0].trim().toLowerCase()];
-	if (!ext || body.byteLength === 0 || body.byteLength > MAX_ENTRY_BYTES) return;
+	if (!ext || body.byteLength === 0 || body.byteLength > MAX_ENTRY_BYTES) return false;
 
 	try {
 		if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
@@ -245,7 +279,7 @@ export async function writeCover(
 		// Worth a warning rather than silence: a cache that cannot write is a
 		// cache that is not working, and the page gives no sign of it.
 		log.warn('cover-write-failed', { id, size, detail: reason(err) });
-		return;
+		return false;
 	}
 
 	log.debug('cover-stored', { key: cacheKey(scope, id, size), bytes: body.byteLength });
@@ -255,6 +289,7 @@ export async function writeCover(
 		bytesSinceSweep = 0;
 		void sweep();
 	}
+	return true;
 }
 
 export interface CacheStats {

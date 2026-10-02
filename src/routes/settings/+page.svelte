@@ -165,6 +165,55 @@
 		form && 'coverCache' in form && form.coverCache ? form.coverCache : data.coverCache
 	);
 
+	/*
+	 * Caching every cover: started here, done by the server (`coverfill.ts`).
+	 * The loader gives where it stands when the page opens, and while it runs
+	 * the page asks again every 1.5 seconds, with the Cover cache tab showing.
+	 */
+	let fill = $state(untrack(() => data.coverFill));
+	let fillError = $state('');
+	const filling = $derived(fill.state === 'listing' || fill.state === 'running');
+
+	$effect(() => {
+		fill = data.coverFill;
+	});
+
+	async function fillRequest(method: 'GET' | 'POST' | 'DELETE') {
+		const response = await fetch('/api/cover-fill', { method }).catch(() => null);
+		if (!response?.ok) {
+			// A poll that fails is asked again; a start that fails is said.
+			if (method !== 'GET') {
+				const body = await response?.json().catch(() => null);
+				fillError = body?.message ?? 'The server did not answer. Try again.';
+			}
+			return;
+		}
+		fillError = '';
+		const was = filling;
+		fill = await response.json();
+		// The loader reports the held size, which the fill has changed.
+		if (was && !filling) await invalidateAll();
+	}
+
+	$effect(() => {
+		if (!filling || shown !== 'storage') return;
+		const timer = setInterval(() => void fillRequest('GET'), 1500);
+		return () => clearInterval(timer);
+	});
+
+	const fillSummary = $derived.by(() => {
+		const count = (n: number) => `${n.toLocaleString()} cover${n === 1 ? '' : 's'}`;
+		const progress = `${fill.done.toLocaleString()} of ${count(fill.total)}`;
+		if (fill.state === 'done') {
+			const missing = fill.failed > 0 ? `, and ${fill.failed.toLocaleString()} could not be stored` : '';
+			return `${count(fill.stored)} stored. ${(fill.done - fill.stored - fill.failed).toLocaleString()} were already held${missing}.`;
+		}
+		if (fill.state === 'full') return `Stopped at the limit after ${progress}. A higher HEDDOHON_COVER_CACHE_MB holds the rest.`;
+		if (fill.state === 'stopped') return `Stopped after ${progress}. Starting again skips the covers already held.`;
+		if (fill.state === 'failed') return `The music server stopped answering after ${progress}. Starting again skips the covers already held.`;
+		return '';
+	});
+
 	/** Bytes as the nearest sensible unit, one decimal from a megabyte up. */
 	function formatSize(bytes: number): string {
 		if (bytes < 1024) return `${bytes} B`;
@@ -1141,6 +1190,53 @@
 				</button>
 			</form>
 		{/if}
+
+		<!--
+			Offered to an account the music server lists as an administrator, and
+			refused to any other by the server. A clear costs covers fetched once
+			more; this has the music server render every cover in the library.
+		-->
+		{#if cache.limitBytes > 0 && data.isAdmin}
+			<h3 class="subhead">Cache every cover</h3>
+			<p class="hh-muted note">
+				Reads the albums, artists and playlists of {data.serverLabel || 'the music server'} and
+				stores each cover at the sizes the pages draw: 96, 384, 512 and 1024 pixels for an album,
+				96 and 384 for an artist or a playlist. It runs on this server and carries on with the page
+				closed. Covers already held are skipped, and it stops at the limit above. A track with
+				artwork of its own is cached when it is played.
+				{#if data.account.backend === 'jellyfin'}
+					Jellyfin limits libraries per user, so these covers are held for your account only.
+				{/if}
+			</p>
+			{#if filling}
+				<div class="fill">
+					<progress
+						aria-label="Covers cached"
+						max={fill.state === 'running' ? fill.total : undefined}
+						value={fill.state === 'running' ? fill.done : undefined}
+					></progress>
+					<span class="hh-muted hh-numeric">
+						{fill.state === 'listing'
+							? 'Reading the library…'
+							: `${fill.done.toLocaleString()} of ${fill.total.toLocaleString()}`}
+					</span>
+				</div>
+				<button class="hh-button" type="button" onclick={() => fillRequest('DELETE')}>
+					<Icon name="close" size={16} />
+					Stop
+				</button>
+			{:else}
+				<button class="hh-button" type="button" onclick={() => fillRequest('POST')}>
+					<Icon name="download" size={16} />
+					Cache every cover
+				</button>
+				{#if fillError}
+					<p class="hh-muted note-inline" role="alert">{fillError}</p>
+				{:else if fillSummary}
+					<p class="hh-muted note-inline" role="status">{fillSummary}</p>
+				{/if}
+			{/if}
+		{/if}
 	</section>
 
 	<section class="hh-card hh-glass group" hidden={shown !== 'history'}>
@@ -1596,6 +1692,20 @@
 		max-width: 60ch;
 		padding-top: var(--space-3);
 		border-top: 1px solid var(--border-hairline);
+	}
+
+	.fill {
+		display: flex;
+		align-items: center;
+		gap: var(--space-3);
+		font-size: 0.875rem;
+	}
+
+	.fill progress {
+		flex: 1;
+		max-width: 24rem;
+		height: 0.375rem;
+		accent-color: var(--accent);
 	}
 
 	.danger:hover {
