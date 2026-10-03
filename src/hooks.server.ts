@@ -15,6 +15,7 @@ import {
 	withRequest
 } from '$lib/server/log';
 import { logKeepDays } from '$lib/server/logfile';
+import { keepCoversFilled } from '$lib/server/coverfill';
 
 /**
  * Routes reachable without a session. Everything else requires one.
@@ -97,6 +98,7 @@ function announce(): void {
 	announced = true;
 	try {
 		const cfg = config();
+		keepCoversFilled();
 		log.info('started', {
 			build: version,
 			node: process.versions.node,

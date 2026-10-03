@@ -201,6 +201,30 @@
 		return () => clearInterval(timer);
 	});
 
+	/** Whether the server repeats the fill daily; see `keepFilled` in `coverfill.ts`. */
+	let daily = $state(untrack(() => data.coverFillDaily));
+
+	$effect(() => {
+		daily = data.coverFillDaily;
+	});
+
+	/** Sends the switch as it now stands, and puts it back where the server refused. */
+	async function saveDaily() {
+		const response = await fetch('/api/cover-fill', {
+			method: 'PUT',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ daily })
+		}).catch(() => null);
+		if (!response?.ok) {
+			const body = await response?.json().catch(() => null);
+			fillError = body?.message ?? 'The server did not answer. Try again.';
+			daily = !daily;
+			return;
+		}
+		// Switching it on starts a fill.
+		await fillRequest('GET');
+	}
+
 	const fillSummary = $derived.by(() => {
 		const count = (n: number) => `${n.toLocaleString()} cover${n === 1 ? '' : 's'}`;
 		const progress = `${fill.done.toLocaleString()} of ${count(fill.total)}`;
@@ -1208,6 +1232,17 @@
 					Jellyfin limits libraries per user, so these covers are held for your account only.
 				{/if}
 			</p>
+			<label class="row switch">
+				<span class="label">
+					Keep it filled
+					<span class="hint hh-muted">
+						The server does this itself once a day, and after a restart, so covers added since
+						are cached before anyone opens them. It uses your sign-in to
+						{data.serverLabel || 'the music server'} as stored here, and stays on when you sign out.
+					</span>
+				</span>
+				<input type="checkbox" bind:checked={daily} onchange={saveDaily} />
+			</label>
 			{#if filling}
 				<div class="fill">
 					<progress

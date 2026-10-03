@@ -8,7 +8,7 @@
  * state (settings, credentials) says so and puts it back.
  */
 import assert from 'node:assert/strict';
-import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, describe, test } from 'node:test';
@@ -1734,6 +1734,50 @@ describe('covers', () => {
 			assert.doesNotMatch((await user.page('/settings?tab=storage')).html, /Cache every cover/);
 		} finally {
 			subsonic.state.admin = true;
+		}
+	});
+
+	test('kept filled, the server caches what is missing after a restart with nobody asking, and not once it is switched off', async () => {
+		const dataDir = mkdtempSync(join(tmpdir(), 'heddohon-e2e-kept-'));
+		const dir = join(dataDir, 'covers');
+		const start = () => startApp({ subsonicUrl: subsonic.url, jellyfinUrl: jellyfin.url, dataDir });
+		const signedIn = async (url) => {
+			const client = new Client(url);
+			await client.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' });
+			return client;
+		};
+		/** Stops the app, deletes ten covers and starts it again on the same data. */
+		const restartWithTenMissing = async (running) => {
+			await running.stop({ keepData: true });
+			for (const name of readdirSync(dir).slice(0, 10)) rmSync(join(dir, name));
+			return start();
+		};
+		let kept = await start();
+		try {
+			let client = await signedIn(kept.url);
+			subsonic.state.admin = false;
+			assert.equal((await client.json('/api/cover-fill', 'PUT', { daily: true })).status, 403);
+			subsonic.state.admin = true;
+			assert.equal((await client.json('/api/cover-fill', 'PUT', { daily: 'yes' })).status, 400);
+			// Switching it on starts a fill.
+			assert.equal((await client.json('/api/cover-fill', 'PUT', { daily: true })).status, 200);
+			assert.equal((await fillEnd(client)).state, 'done');
+			assert.equal(readdirSync(dir).length, 548);
+
+			kept = await restartWithTenMissing(kept);
+			for (let attempt = 0; attempt < 200 && readdirSync(dir).length < 548; attempt++) {
+				await new Promise((done) => setTimeout(done, 50));
+			}
+			assert.equal(readdirSync(dir).length, 548, `the covers were not fetched again\n${kept.output()}`);
+
+			client = await signedIn(kept.url);
+			assert.equal((await client.json('/api/cover-fill', 'PUT', { daily: false })).status, 200);
+			kept = await restartWithTenMissing(kept);
+			await new Promise((done) => setTimeout(done, 1000));
+			assert.equal(readdirSync(dir).length, 538);
+		} finally {
+			subsonic.state.admin = true;
+			await kept.stop();
 		}
 	});
 

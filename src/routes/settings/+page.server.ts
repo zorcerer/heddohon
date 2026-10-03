@@ -4,7 +4,7 @@ import { config } from '$lib/server/config';
 import { destroyAllSessions, endSessions, listSessions } from '$lib/server/auth';
 import { getSettings, saveSettings } from '$lib/server/settings';
 import { cacheStats, clearCache } from '$lib/server/covercache';
-import { fillStatus } from '$lib/server/coverfill';
+import { filledBy, fillStatus } from '$lib/server/coverfill';
 import { backendFor, UpstreamError, type ScrobblerService } from '$lib/server/backends';
 import { linkStateDigest } from '$lib/server/crypto';
 import { log, reason } from '$lib/server/log';
@@ -56,8 +56,9 @@ export const load: PageServerLoad = async ({ locals }) => {
 	// Independent reads, started together. They were awaited one after
 	// another, so the page waited for the sum of a directory scan, two upstream
 	// calls and two database reads rather than for the slowest of them.
-	const [coverCache, isAdmin, settings, sessions, shares, history] = await Promise.all([
+	const [coverCache, coverFillKeeper, isAdmin, settings, sessions, shares, history] = await Promise.all([
 		cacheStats(),
+		filledBy(session.account.backend),
 		/*
 		 * Read here rather than stored at sign-in: this is the only page that
 		 * shows it, it costs one upstream request where a login costs none, and
@@ -78,6 +79,8 @@ export const load: PageServerLoad = async ({ locals }) => {
 	return {
 		coverCache,
 		coverFill: fillStatus(session.account.id),
+		// Whether the fill is repeated daily, by this administrator or another.
+		coverFillDaily: coverFillKeeper !== null,
 		isAdmin,
 		settings,
 		account: session.account,

@@ -69,13 +69,14 @@ export async function startApp({ subsonicUrl, jellyfinUrl, env = {}, dataDir: gi
 		url,
 		dataDir,
 		output: () => output,
-		async stop() {
+		/** `keepData` leaves the data directory, for starting the app again on it. */
+		async stop({ keepData = false } = {}) {
 			if (child.exitCode === null) {
 				const exited = new Promise((done) => child.once('exit', done));
 				child.kill('SIGTERM');
 				await exited;
 			}
-			rmSync(dataDir, { recursive: true, force: true });
+			if (!keepData) rmSync(dataDir, { recursive: true, force: true });
 		}
 	};
 }

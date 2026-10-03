@@ -134,6 +134,14 @@ CREATE TABLE IF NOT EXISTS plays (
   duration    INTEGER
 );
 CREATE INDEX IF NOT EXISTS plays_account_idx ON plays(account_id, played_at);
+
+-- Values the server keeps for itself, not for an account: whose cover fill is
+-- repeated daily (coverfill.ts) and, on PostgreSQL, whether the SQLite import
+-- has run.
+CREATE TABLE IF NOT EXISTS meta (
+  key    TEXT PRIMARY KEY,
+  value  TEXT NOT NULL
+);
 `;
 
 /*
@@ -144,10 +152,6 @@ CREATE INDEX IF NOT EXISTS plays_account_idx ON plays(account_id, played_at);
 const POSTGRES_SCHEMA = `${SQLITE_SCHEMA.replace(/\bINTEGER\b/g, 'BIGINT')}
 DROP INDEX IF EXISTS accounts_username_idx;
 CREATE INDEX IF NOT EXISTS accounts_username_ascii_idx ON accounts (backend, lower(username COLLATE "C"));
-CREATE TABLE IF NOT EXISTS meta (
-  key    TEXT PRIMARY KEY,
-  value  TEXT NOT NULL
-);
 `;
 
 /**
@@ -410,7 +414,8 @@ async function open(): Promise<Store> {
  *
  * Runs on the first start against an empty PostgreSQL database, when
  * `heddohon.db` is in the data directory and `HEDDOHON_DATABASE_IMPORT` is not
- * `false`. Accounts, settings, play state and share links are copied; sessions
+ * `false`. Accounts, settings, play state, share links, plays and `meta` are
+ * copied; sessions
  * and throttle counters are not, so everyone signs in once. The stored
  * credentials are copied as they are, sealed, so the same `HEDDOHON_SECRET`
  * has to be set for them to open.
@@ -438,7 +443,8 @@ async function importFromSqlite(pool: pg.Pool): Promise<void> {
 		settings: ['account_id', 'data', 'updated_at'],
 		play_state: ['account_id', 'data', 'updated_at'],
 		shares: ['id', 'token_digest', 'account_id', 'backend', 'song_id', 'created_at', 'expires_at', 'kind'],
-		plays: ['account_id', 'song_id', 'played_at', 'title', 'artist', 'artist_id', 'album', 'album_id', 'cover_art', 'duration']
+		plays: ['account_id', 'song_id', 'played_at', 'title', 'artist', 'artist_id', 'album', 'album_id', 'cover_art', 'duration'],
+		meta: ['key', 'value']
 	} as const;
 	const counts: Record<string, number> = {};
 
