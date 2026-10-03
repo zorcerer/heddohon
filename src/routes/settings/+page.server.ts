@@ -102,7 +102,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 		scrobblerLinks,
 		// Which of a Discord channel and ListenBrainz this account is offered,
 		// and the name of what it has linked. Never the webhook or the token.
-		integrations: { offered: offeredIntegrations(session.account.backend), linked },
+		integrations: { offered: offeredIntegrations(), linked },
 		historyCount: history.total
 	};
 };
@@ -205,6 +205,13 @@ export const actions: Actions = {
 		if (!LISTENBRAINZ_TOKEN.test(token)) {
 			return fail(400, { scrobblerError: 'That is not a ListenBrainz token. Copy it from your ListenBrainz settings.' });
 		}
+		// The other way round from `linkIntegration`: this server already sends them.
+		if ((await linkedIntegrations(session.account.id)).listenbrainz) {
+			return fail(409, {
+				scrobblerError:
+					'ListenBrainz is already linked under “Your plays, elsewhere”. Unlink it there first: with both, each play would be sent twice.'
+			});
+		}
 		try {
 			if (!(await scrobblers.linkListenBrainz(session.credential, token))) {
 				return fail(400, { scrobblerError: 'ListenBrainz did not accept that token.' });
@@ -280,10 +287,22 @@ export const actions: Actions = {
 		if ((kind !== 'discord' && kind !== 'listenbrainz') || value.length === 0 || value.length > 300) {
 			return fail(400, { integrationError: 'That cannot be linked.' });
 		}
+		// Navidrome scrobbles to ListenBrainz itself where the account linked it
+		// there. With both, each play would arrive twice.
+		const scrobblers = backendFor(session.account.backend).scrobblers;
+		if (kind === 'listenbrainz' && scrobblers) {
+			const upstream = await scrobblers.status(session.credential).catch(() => null);
+			if (upstream?.listenbrainz.available && upstream.listenbrainz.linked) {
+				return fail(409, {
+					integrationError:
+						'ListenBrainz is already linked under Scrobbling, where the music server sends each play. Unlink it there first: with both, each play would be sent twice.'
+				});
+			}
+		}
 		const result =
 			kind === 'discord'
 				? await linkDiscord(session.account.id, value)
-				: await linkListenBrainz(session.account.id, session.account.backend, value);
+				: await linkListenBrainz(session.account.id, value);
 		if (typeof result !== 'string') return { integrationLinked: kind };
 		const service = kind === 'discord' ? 'Discord' : 'ListenBrainz';
 		const messages: Record<LinkFailure, [number, string]> = {

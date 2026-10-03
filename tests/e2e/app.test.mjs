@@ -3096,7 +3096,9 @@ describe('plays sent to a Discord channel and to ListenBrainz', () => {
 				HEDDOHON_DISCORD: 'true',
 				HEDDOHON_DISCORD_URL: outside.url,
 				HEDDOHON_LISTENBRAINZ: 'true',
-				HEDDOHON_LISTENBRAINZ_URL: outside.url
+				HEDDOHON_LISTENBRAINZ_URL: outside.url,
+				// Everything the server can write, for the test that looks for a secret in it.
+				HEDDOHON_LOG_LEVEL: 'debug'
 			}
 		});
 	});
@@ -3149,8 +3151,28 @@ describe('plays sent to a Discord channel and to ListenBrainz', () => {
 		assert.equal(outside.calls.get(`GET ${OUTSIDE.webhook}`), 0);
 		const unknown = await action(client, 'linkIntegration', { kind: 'discord', value: address.replace(/w{68}$/, 'x'.repeat(68)) });
 		assert.deepEqual(unknown, { status: 400, error: 'Discord has no webhook at that address.' });
-		// Navidrome links ListenBrainz itself, so this server does not offer to.
-		assert.equal((await action(client, 'linkIntegration', { kind: 'listenbrainz', value: OUTSIDE.listenBrainzToken })).status, 404);
+		// An account on Navidrome links a token of its own here too, unless
+		// Navidrome already scrobbles for it: both would send each play twice.
+		const viaNavidrome = subsonic.state.navidrome.linked;
+		viaNavidrome.listenbrainz = true;
+		try {
+			const twice = await action(client, 'linkIntegration', { kind: 'listenbrainz', value: OUTSIDE.listenBrainzToken });
+			assert.equal(twice.status, 409);
+			assert.match(twice.error, /sent twice/);
+		} finally {
+			viaNavidrome.listenbrainz = false;
+		}
+		assert.equal((await action(client, 'linkIntegration', { kind: 'listenbrainz', value: OUTSIDE.listenBrainzToken })).status, 200);
+		assert.match(await section(client), /Scrobbling to listener/);
+		// And the other way round: Navidrome is not given a token while this server holds one.
+		const other = await client.request('/settings?/linkListenBrainz', {
+			method: 'POST',
+			headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json', 'x-sveltekit-action': 'true' },
+			body: new URLSearchParams({ token: OUTSIDE.listenBrainzToken }).toString()
+		});
+		assert.equal((await other.json()).status, 409);
+		assert.equal(viaNavidrome.listenbrainz, false);
+		assert.equal((await action(client, 'unlinkIntegration', { kind: 'listenbrainz' })).status, 200);
 
 		assert.equal((await action(client, 'linkIntegration', { kind: 'discord', value: address })).status, 200);
 		const linked = await section(client);
@@ -3269,6 +3291,69 @@ describe('plays sent to a Discord channel and to ListenBrainz', () => {
 			assert.deepEqual(statuses, [400, 400, 400, 400, 429, 429]);
 			assert.equal(outside.calls.get(`GET ${new URL(unknown).pathname}`), 4);
 		} finally {
+			subsonic.state.username = 'testuser';
+			subsonic.state.password = 'testpass';
+		}
+	});
+
+	test('a ListenBrainz token and a webhook address are in nothing the server answers with, logs or stores unsealed', async () => {
+		subsonic.state.username = 'keeps';
+		subsonic.state.password = 'keepspass';
+		try {
+			const client = await signedIn(on.url, 'keeps', 'keepspass', 'subsonic');
+			const secrets = { 'ListenBrainz token': OUTSIDE.listenBrainzToken, 'webhook token': 'w'.repeat(68) };
+			/** Every body the server answered with, by what was asked. */
+			const answers = [];
+			const ask = async (what, response) => void answers.push([what, await (await response).text()]);
+			const form = (name, fields) =>
+				client.request(`/settings?/${name}`, {
+					method: 'POST',
+					headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json', 'x-sveltekit-action': 'true' },
+					body: new URLSearchParams(fields).toString()
+				});
+
+			// Linked, linked again over the first, and refused: each answer is kept.
+			for (let n = 0; n < 2; n++) {
+				await ask('linking ListenBrainz', form('linkIntegration', { kind: 'listenbrainz', value: OUTSIDE.listenBrainzToken }));
+				await ask('linking Discord', form('linkIntegration', { kind: 'discord', value: `https://discord.com${OUTSIDE.webhook}` }));
+			}
+			subsonic.state.navidrome.linked.listenbrainz = true;
+			await ask('linking ListenBrainz twice over', form('linkIntegration', { kind: 'listenbrainz', value: OUTSIDE.listenBrainzToken }));
+			subsonic.state.navidrome.linked.listenbrainz = false;
+
+			await ask('a start', client.json('/api/playback', 'POST', { songId: 's3a', event: 'start', position: 0 }));
+			await ask('a play', play(client, 's3a'));
+			// Both were used: "playing now", the post and the listen arrived, with the token where ListenBrainz reads it.
+			assert.deepEqual((await posts(3)).map((post) => post.to).sort(), ['discord', 'listenbrainz', 'listenbrainz']);
+
+			for (const path of ['/settings?tab=account', '/settings/__data.json', '/', '/__data.json', '/history', '/stats']) {
+				await ask(path, client.request(path, { headers: { accept: 'text/html' } }));
+			}
+			// A second account on the same server sees neither.
+			const other = await signedIn(on.url, 'testuser', 'testpass', 'subsonic');
+			await ask('another account\'s settings', other.request('/settings?tab=account', { headers: { accept: 'text/html' } }));
+
+			/** Every file under the data directory: the database, its journal, the logs. */
+			const files = (dir) =>
+				readdirSync(dir, { withFileTypes: true }).flatMap((entry) =>
+					entry.isDirectory() ? files(join(dir, entry.name)) : [join(dir, entry.name)]
+				);
+			const stored = files(on.dataDir);
+			assert.ok(stored.some((file) => file.endsWith('.db')) && stored.some((file) => file.includes('/logs/')), `files: ${stored}`);
+
+			for (const [name, secret] of Object.entries(secrets)) {
+				for (const [what, body] of answers) assert.ok(!body.includes(secret), `the ${name} is in the answer to ${what}`);
+				assert.ok(!on.output().includes(secret), `the ${name} is in the log`);
+				for (const file of stored) assert.ok(!readFileSync(file).includes(secret), `the ${name} is in ${file}`);
+			}
+			// The log was written at debug, so the lines that could have carried one are there.
+			assert.match(on.output(), /integration-linked/);
+			assert.match(on.output(), /debug request .*path=\/settings/);
+
+			await ask('unlinking', form('unlinkIntegration', { kind: 'listenbrainz' }));
+			await form('unlinkIntegration', { kind: 'discord' });
+		} finally {
+			subsonic.state.navidrome.linked.listenbrainz = false;
 			subsonic.state.username = 'testuser';
 			subsonic.state.password = 'testpass';
 		}

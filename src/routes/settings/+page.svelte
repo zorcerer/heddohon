@@ -1124,7 +1124,7 @@
 						<span class="hint hh-muted">
 							{user
 								? `Scrobbling to ${user}, and showing what is playing now.`
-								: 'Paste the user token from your ListenBrainz settings page.'}
+								: 'Paste the user token from your own ListenBrainz settings page. This server sends what you play here.'}
 						</span>
 					</span>
 					{#if user}

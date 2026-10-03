@@ -3,9 +3,10 @@
  *
  * - A Discord channel, through a webhook the account pastes in. Each play that
  *   counts is posted there as one message.
- * - ListenBrainz, with a user token, for an account on a music server that
- *   cannot scrobble there itself. Navidrome can (`backends/navidrome.ts`), so
- *   this is offered on Jellyfin only: both at once would send each play twice.
+ * - ListenBrainz, with a user token of the account's own. Each account links
+ *   its own, on either music server. Navidrome can also scrobble there itself
+ *   (`backends/navidrome.ts`), and both at once would send each play twice,
+ *   so Settings refuses the one while the other is linked.
  *
  * Each is off until the operator turns it on (`HEDDOHON_DISCORD`,
  * `HEDDOHON_LISTENBRAINZ`), as every other request this server makes to a host
@@ -22,8 +23,6 @@
  * Both follow "Report playback": with it off, nothing leaves.
  */
 import type { Song } from '$lib/types';
-import type { BackendKind } from '$lib/types';
-import { backendFor } from './backends';
 import { config } from './config';
 import { openJson, sealJson } from './crypto';
 import { store } from './db';
@@ -96,13 +95,10 @@ const mayAnnounceStart = limiter(5, 5_000);
 /** Attempts to link that reach Discord or ListenBrainz: 5, then one every 2 minutes. */
 const mayLink = limiter(5, 120_000);
 
-/** Which of the two Settings offers an account on this music server. */
-export function offeredIntegrations(backend: BackendKind): Record<IntegrationKind, boolean> {
+/** Which of the two the operator has turned on, for every account. */
+export function offeredIntegrations(): Record<IntegrationKind, boolean> {
 	const cfg = config();
-	return {
-		discord: cfg.discordUrl !== null,
-		listenbrainz: cfg.listenbrainzUrl !== null && !backendFor(backend).scrobblers
-	};
+	return { discord: cfg.discordUrl !== null, listenbrainz: cfg.listenbrainzUrl !== null };
 }
 
 async function links(accountId: string): Promise<{ discord?: DiscordLink; listenbrainz?: ListenBrainzLink }> {
@@ -227,13 +223,9 @@ export async function linkDiscord(accountId: string, address: string): Promise<L
 }
 
 /** Links ListenBrainz from a user token, which ListenBrainz is asked about first. */
-export async function linkListenBrainz(
-	accountId: string,
-	backend: BackendKind,
-	token: string
-): Promise<LinkFailure | { name: string }> {
+export async function linkListenBrainz(accountId: string, token: string): Promise<LinkFailure | { name: string }> {
 	const base = config().listenbrainzUrl;
-	if (!base || !offeredIntegrations(backend).listenbrainz) return 'off';
+	if (!base) return 'off';
 	if (!TOKEN.test(token)) return 'malformed';
 	if (!mayLink(accountId)) return 'throttled';
 	const response = await call(`${base}/1/validate-token`, { headers: { authorization: `Token ${token}` } });
@@ -345,9 +337,9 @@ async function submitListen(
  * `position` is how far into the track the play was counted, in seconds, which
  * puts the start of the listen that far back.
  */
-export async function announcePlay(account: Listener & { backend: BackendKind }, song: Song, position: number): Promise<void> {
+export async function announcePlay(account: Listener, song: Song, position: number): Promise<void> {
 	try {
-		const offered = offeredIntegrations(account.backend);
+		const offered = offeredIntegrations();
 		if (!offered.discord && !offered.listenbrainz) return;
 		const found = await links(account.id);
 		if (!found.discord && !found.listenbrainz) return;
@@ -368,12 +360,9 @@ export async function announcePlay(account: Listener & { backend: BackendKind },
  * only where the account has ListenBrainz linked, since it is a request to the
  * music server that nothing else at a track's start needs.
  */
-export async function announceStart(
-	account: Listener & { backend: BackendKind },
-	song: () => Promise<Song | null>
-): Promise<void> {
+export async function announceStart(account: Listener, song: () => Promise<Song | null>): Promise<void> {
 	try {
-		if (!offeredIntegrations(account.backend).listenbrainz) return;
+		if (!offeredIntegrations().listenbrainz) return;
 		const link = (await links(account.id)).listenbrainz;
 		const playing = link && mayAnnounceStart(account.id) ? await song() : null;
 		if (link && playing) await submitListen(account, link, playing, null);

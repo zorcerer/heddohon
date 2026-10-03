@@ -104,10 +104,11 @@ sent.
 
 With `HEDDOHON_DISCORD=true`, an account can paste a Discord webhook address
 in Settings, and each play that counts (past half the track, or four minutes)
-is posted to that channel. With `HEDDOHON_LISTENBRAINZ=true`, an account on
-Jellyfin can paste a ListenBrainz user token, and the server sends what is
+is posted to that channel. With `HEDDOHON_LISTENBRAINZ=true`, each account can
+paste a ListenBrainz user token of its own, and the server sends what is
 playing at the start of a track and a listen when the play counts. Navidrome
-scrobbles to ListenBrainz itself, so the second is not offered there. What each
+can also scrobble to ListenBrainz itself: Settings refuses to link the one
+while the other is linked, since both would send each play twice. What each
 service learns is this server's address and the title, artist and album of the
 track. The account's user name is not sent: it is what the sign-in page
 accepts, and a channel can have many readers.
@@ -122,7 +123,13 @@ accepts, and a channel can have many readers.
 - **Sealed, and not sent back.** A webhook address posts to its channel and a
   token writes to its profile, so both are sealed with AES-256-GCM under a key
   of their own (`integration`). Settings shows the webhook's name or the
-  ListenBrainz user. Neither secret is in any page or log line.
+  ListenBrainz user. Neither secret is in any page or log line: a test links
+  both with the log at `debug`, plays a track, and searches every answer the
+  server gave, its output, and every file in the data directory for them.
+- **Sent to one place.** A token goes in the `Authorization` header of a
+  request to `HEDDOHON_LISTENBRAINZ_URL` and nowhere else, with redirects
+  refused. That address is the operator's: an `http://` one sends tokens
+  unencrypted.
 - **Library text is shown as text.** Titles, artists and albums are written by
   whoever can edit the library. Markdown in them is escaped, so a title cannot
   become a link in the channel, and `allowed_mentions` is empty, so none of
