@@ -295,7 +295,8 @@ export const actions: Actions = {
 					: 'That is not a ListenBrainz token. Copy it from your ListenBrainz settings.'
 			],
 			refused: [400, kind === 'discord' ? 'Discord has no webhook at that address.' : 'ListenBrainz did not accept that token.'],
-			unreachable: [502, `${service} did not answer. Try again.`]
+			unreachable: [502, `${service} did not answer. Try again.`],
+			throttled: [429, 'That is several attempts in a row. Try again in a few minutes.']
 		};
 		const [status, integrationError] = messages[result];
 		return fail(status, { integrationError });

@@ -10,7 +10,8 @@
  * Each is off until the operator turns it on (`HEDDOHON_DISCORD`,
  * `HEDDOHON_LISTENBRAINZ`), as every other request this server makes to a host
  * that is not the music server is. Turned on, it sends the title, artist and
- * album of what an account plays to a third party the account chose.
+ * album of what an account plays to a third party the account chose. The
+ * account's user name is not sent.
  *
  * What an account pastes in is a secret: a webhook address posts to its
  * channel, and a token writes to its ListenBrainz profile. Both are sealed as
@@ -61,6 +62,39 @@ const WEBHOOK = /^https:\/\/(?:(?:ptb|canary)\.)?discord(?:app)?\.com\/api(?:\/v
 
 /** As `LISTENBRAINZ_TOKEN` in the settings page's actions: a UUID, with room to grow. */
 const TOKEN = /^[A-Za-z0-9-]{1,128}$/;
+
+/**
+ * A bucket of `burst` per account that regains one every `everyMs`.
+ *
+ * Every request below is made by this server, from its address, when an
+ * account asks: a play reported to `/api/playback`, or a link in Settings.
+ * Unlimited, one account's script could post to Discord as fast as it could
+ * report plays, and Discord answers an address that sends it 10,000 refused
+ * requests in 10 minutes by refusing that address for every account here.
+ */
+function limiter(burst: number, everyMs: number): (account: string) => boolean {
+	const buckets = new Map<string, { tokens: number; at: number }>();
+	return (account) => {
+		const now = Date.now();
+		// One entry an account. Past 5000 the map is emptied, which gives every
+		// account its burst back and keeps the map from growing without end.
+		if (buckets.size > 5000) buckets.clear();
+		const bucket = buckets.get(account) ?? { tokens: burst, at: now };
+		bucket.tokens = Math.min(burst, bucket.tokens + (now - bucket.at) / everyMs);
+		bucket.at = now;
+		buckets.set(account, bucket);
+		if (bucket.tokens < 1) return false;
+		bucket.tokens -= 1;
+		return true;
+	};
+}
+
+/** A play counts no sooner than 30 seconds into a track, so 3 a minute is above what listening sends. */
+const mayAnnouncePlay = limiter(5, 20_000);
+/** Skipping through a queue starts a track every second or two; "playing now" follows at one in 5 seconds. */
+const mayAnnounceStart = limiter(5, 5_000);
+/** Attempts to link that reach Discord or ListenBrainz: 5, then one every 2 minutes. */
+const mayLink = limiter(5, 120_000);
 
 /** Which of the two Settings offers an account on this music server. */
 export function offeredIntegrations(backend: BackendKind): Record<IntegrationKind, boolean> {
@@ -167,7 +201,7 @@ async function readJson(response: Response): Promise<Record<string, unknown> | n
 	}
 }
 
-export type LinkFailure = 'off' | 'malformed' | 'refused' | 'unreachable';
+export type LinkFailure = 'off' | 'malformed' | 'refused' | 'unreachable' | 'throttled';
 
 /**
  * Links a Discord channel from its webhook address. The webhook is read from
@@ -179,6 +213,7 @@ export async function linkDiscord(accountId: string, address: string): Promise<L
 	const match = WEBHOOK.exec(address.trim());
 	if (!match) return 'malformed';
 	const [, id, token] = match;
+	if (!mayLink(accountId)) return 'throttled';
 	const response = await call(`${base}/api/webhooks/${id}/${token}`);
 	if (!response) return 'unreachable';
 	if (!response.ok) {
@@ -200,6 +235,7 @@ export async function linkListenBrainz(
 	const base = config().listenbrainzUrl;
 	if (!base || !offeredIntegrations(backend).listenbrainz) return 'off';
 	if (!TOKEN.test(token)) return 'malformed';
+	if (!mayLink(accountId)) return 'throttled';
 	const response = await call(`${base}/1/validate-token`, { headers: { authorization: `Token ${token}` } });
 	if (!response) return 'unreachable';
 	const record = response.ok ? await readJson(response) : null;
@@ -222,9 +258,14 @@ function plain(text: string, length: number): string {
 
 interface Listener {
 	id: string;
-	username: string;
 }
 
+/**
+ * One message a play. It does not name the account: the user name is what the
+ * sign-in page accepts, and a channel can have many readers. The webhook has
+ * a name of its own on Discord, which its owner chose, and the message is
+ * posted under that.
+ */
 async function postToDiscord(account: Listener, link: DiscordLink, song: Song): Promise<void> {
 	const base = config().discordUrl;
 	if (!base) return;
@@ -236,8 +277,6 @@ async function postToDiscord(account: Listener, link: DiscordLink, song: Song): 
 			allowed_mentions: { parse: [] },
 			embeds: [
 				{
-					// Plain text to Discord, unlike the two below it.
-					author: { name: `${account.username.slice(0, 80)} is listening to` },
 					title: plain(song.title, 256),
 					description: [song.artist, song.album]
 						.filter((part): part is string => Boolean(part))
@@ -311,6 +350,8 @@ export async function announcePlay(account: Listener & { backend: BackendKind },
 		const offered = offeredIntegrations(account.backend);
 		if (!offered.discord && !offered.listenbrainz) return;
 		const found = await links(account.id);
+		if (!found.discord && !found.listenbrainz) return;
+		if (!mayAnnouncePlay(account.id)) return;
 		await Promise.all([
 			offered.discord && found.discord ? postToDiscord(account, found.discord, song) : null,
 			offered.listenbrainz && found.listenbrainz
@@ -334,7 +375,7 @@ export async function announceStart(
 	try {
 		if (!offeredIntegrations(account.backend).listenbrainz) return;
 		const link = (await links(account.id)).listenbrainz;
-		const playing = link ? await song() : null;
+		const playing = link && mayAnnounceStart(account.id) ? await song() : null;
 		if (link && playing) await submitListen(account, link, playing, null);
 	} catch (err) {
 		log.warn('integration-failed', { detail: reason(err) });

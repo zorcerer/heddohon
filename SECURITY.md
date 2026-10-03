@@ -108,8 +108,9 @@ is posted to that channel. With `HEDDOHON_LISTENBRAINZ=true`, an account on
 Jellyfin can paste a ListenBrainz user token, and the server sends what is
 playing at the start of a track and a listen when the play counts. Navidrome
 scrobbles to ListenBrainz itself, so the second is not offered there. What each
-service learns is this server's address, the title, artist and album of the
-track, and for Discord the account's user name on the music server.
+service learns is this server's address and the title, artist and album of the
+track. The account's user name is not sent: it is what the sign-in page
+accepts, and a channel can have many readers.
 
 - **The account chooses the channel, not the host.** A webhook address must
   match Discord's own form. Only its id and token are kept, and the request
@@ -131,6 +132,13 @@ track, and for Discord the account's user name on the music server.
   account's name, or its password changes, what it had linked is removed, so
   a name given to someone else does not send that person's plays to the
   previous holder's channel or profile.
+- **Limited per account.** Posts for counted plays: a burst of 5, then one
+  every 20 seconds. "Playing now": 5, then one every 5 seconds. Attempts to
+  link that reach either service: 5, then one every 2 minutes. Every request
+  leaves from this server's address, and Discord refuses an address that sends
+  it 10,000 failed requests in 10 minutes, for every account behind it.
+- **A bare address in a tag is still an address.** Discord turns one into a
+  link wherever it appears in a message, and escaping does not prevent it.
 - **Bounded.** 5 seconds, 16 KB read of an answer, redirects refused. A
   webhook Discord answers with 401 or 404, or a token ListenBrainz answers
   with 401, is unlinked. Failures are logged as `integration-failed` and do

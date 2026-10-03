@@ -3167,7 +3167,8 @@ describe('plays sent to a Discord channel and to ListenBrainz', () => {
 			const [embed] = first.body.embeds;
 			assert.equal(embed.title, '\\[free\\]\\(https://evil.example\\) @everyone');
 			assert.equal(embed.description, 'Artist 0003\nAlbum 3');
-			assert.equal(embed.author.name, 'testuser is listening to');
+			// The user name is what the sign-in page accepts, and is not posted.
+			assert.ok(!JSON.stringify(first.body).includes('testuser'), 'the account\'s user name was posted');
 		} finally {
 			subsonic.state.songTitles.clear();
 		}
@@ -3247,6 +3248,30 @@ describe('plays sent to a Discord channel and to ListenBrainz', () => {
 		await new Promise((done) => setTimeout(done, 200));
 		assert.equal(outside.posts.length, 2);
 		outside.posts.length = 0;
+	});
+
+	test('an account that reports plays, or tries addresses, faster than anyone listens is held to a burst of 5', async () => {
+		subsonic.state.username = 'burst';
+		subsonic.state.password = 'burstpass';
+		try {
+			const client = await signedIn(on.url, 'burst', 'burstpass', 'subsonic');
+			const address = `https://discord.com${OUTSIDE.webhook}`;
+			assert.equal((await action(client, 'linkIntegration', { kind: 'discord', value: address })).status, 200);
+			for (let n = 0; n < 12; n++) await play(client, 's3a');
+			await new Promise((done) => setTimeout(done, 300));
+			assert.equal(outside.posts.length, 5, 'every reported play was posted');
+
+			// The link above was the first attempt; four more reach Discord, and the sixth does not.
+			const unknown = address.replace(/w{68}$/, 'y'.repeat(68));
+			outside.calls.reset();
+			const statuses = [];
+			for (let n = 0; n < 6; n++) statuses.push((await action(client, 'linkIntegration', { kind: 'discord', value: unknown })).status);
+			assert.deepEqual(statuses, [400, 400, 400, 400, 429, 429]);
+			assert.equal(outside.calls.get(`GET ${new URL(unknown).pathname}`), 4);
+		} finally {
+			subsonic.state.username = 'testuser';
+			subsonic.state.password = 'testpass';
+		}
 	});
 
 	test('neither is offered, or can be linked, unless the operator turned it on', async () => {
