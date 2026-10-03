@@ -13,11 +13,17 @@
  * dropped when the fill ends, and `destroyAllSessions` ends the fill. One fill
  * runs at a time in a process, and what it reports is kept in memory until the
  * next one or a restart.
+ *
+ * An administrator can also have it kept filled (`keepFilled`). The server
+ * then starts a fill itself once a day, with that account's stored credential
+ * and no request behind it, as a shared link reads through its owner's.
  */
 import { config } from './config';
 import { backendFor, UpstreamError, type MediaBackend, type StoredCredential } from './backends';
 import { mapLimited } from './backends/http';
 import { cacheStats, collectCover, coverScope, holdsCover, writeCover, type CoverScope } from './covercache';
+import { openJson } from './crypto';
+import { store } from './db';
 import { log, reason } from './log';
 import type { BackendKind } from '$lib/types';
 
@@ -111,6 +117,94 @@ export function startFill(
 export function stopFill(account: string): void {
 	if (job?.account !== account || !running(job.status)) return;
 	job.abort.abort('stopped');
+}
+
+/**
+ * The account whose fill the server repeats daily, one per music server, in
+ * the `meta` table under this key and the backend. One, since a second
+ * administrator's fill of the same library stores the same covers; on
+ * Jellyfin, where a cover is held per viewer, it is the last to switch it on.
+ */
+const KEEPER = 'cover_fill_account';
+
+export async function filledBy(backend: BackendKind): Promise<string | null> {
+	const row = await (await store()).get<{ value: string }>('SELECT value FROM meta WHERE key = ?', `${KEEPER}:${backend}`);
+	return row?.value ?? null;
+}
+
+/** Has the account's fill repeated daily, or with null stops it being repeated. */
+export async function keepFilled(backend: BackendKind, account: string | null): Promise<void> {
+	const database = await store();
+	const key = `${KEEPER}:${backend}`;
+	if (account === null) await database.run('DELETE FROM meta WHERE key = ?', key);
+	else {
+		await database.run(
+			'INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value',
+			key,
+			account
+		);
+	}
+	log.info('cover-fill-kept', { backend, account: account ?? 'nobody' });
+}
+
+const HOUR_MS = 60 * 60 * 1000;
+
+/** When each backend's daily fill last started, in this process. */
+const lastKept = new Map<BackendKind, number>();
+let keeping = false;
+
+/**
+ * Starts the daily fills: one look now and one an hour from then on, each
+ * starting a fill for a backend whose last was 24 hours ago or more.
+ *
+ * Called on the first request (`announce` in `hooks.server.ts`), so a
+ * restart is followed by a fill. That costs the reads of the library and a
+ * lookup per cover when everything is held. Hourly looks, so a music server
+ * that was not answering when this one started is asked again within the hour
+ * and not a day later.
+ */
+export function keepCoversFilled(): void {
+	if (keeping) return;
+	keeping = true;
+	void fillKept();
+	setInterval(() => void fillKept(), HOUR_MS).unref();
+}
+
+async function fillKept(): Promise<void> {
+	try {
+		const cfg = config();
+		if (cfg.coverCacheBytes === 0) return;
+		for (const { kind } of cfg.upstreams) {
+			if (Date.now() - (lastKept.get(kind) ?? 0) < 24 * HOUR_MS) continue;
+			const account = await filledBy(kind);
+			if (!account) continue;
+			const row = await (await store()).get<{ remote_user_id: string | null; credential: string }>(
+				'SELECT remote_user_id, credential FROM accounts WHERE id = ? AND backend = ?',
+				account,
+				kind
+			);
+			if (!row) {
+				await keepFilled(kind, null);
+				continue;
+			}
+			// Throws after `HEDDOHON_SECRET` changes, until the account signs in again.
+			const credential = openJson<StoredCredential>(row.credential);
+			/*
+			 * Asked again each day: the account was an administrator when it
+			 * switched this on. One that no longer is has it switched off. No
+			 * answer (the music server is down, or the password has changed) is
+			 * left for the next look.
+			 */
+			const admin = await backendFor(kind).isAdmin(credential);
+			if (admin === false) await keepFilled(kind, null);
+			if (admin !== true) continue;
+			if (startFill({ id: account, backend: kind, remoteUserId: row.remote_user_id }, credential)) {
+				lastKept.set(kind, Date.now());
+			}
+		}
+	} catch (err) {
+		log.warn('cover-fill-failed', { detail: reason(err) });
+	}
 }
 
 /** The cover ids of every album, artist and playlist the account can see. */
