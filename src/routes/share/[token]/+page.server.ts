@@ -29,7 +29,7 @@ function clip(text: unknown, length = 300): string | null {
 	return text === null || text === undefined ? null : String(text).slice(0, length);
 }
 
-export const load: PageServerLoad = async ({ locals, params, setHeaders }) => {
+export const load: PageServerLoad = async ({ locals, params, setHeaders, url }) => {
 	const cfg = config();
 
 	// A link is a bearer token in a URL. Nothing about this page is for a crawler
@@ -58,6 +58,13 @@ export const load: PageServerLoad = async ({ locals, params, setHeaders }) => {
 		expiresAt: share.expiresAt,
 		// Relative to the page, which is the only place the token is written.
 		media: `/share/${params.token}`,
+		/*
+		 * The cover's whole address, for the preview a messaging app draws of
+		 * the link (`og:image` in the page). A preview is fetched by the app's
+		 * own servers, which resolve nothing against the page. It names the
+		 * token a second time, to a reader that was handed the link to get here.
+		 */
+		previewImage: item.coverArt ?? item.tracks[0]?.coverArt ? `${url.origin}/share/${params.token}/cover?size=512` : null,
 		item: {
 			kind: item.kind,
 			title: clip(item.title) ?? 'Untitled',

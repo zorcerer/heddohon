@@ -67,6 +67,13 @@
 			: []
 	);
 	const capitalized = $derived(aNoun[0].toUpperCase() + aNoun.slice(1));
+	/** The second line of a link's preview: the artist, and for a list how long it is. */
+	const previewText = $derived.by(() => {
+		if (!ready) return '';
+		const count = `${noun === 'album' ? 'Album' : 'Playlist'}, ${tracks.length} track${tracks.length === 1 ? '' : 's'}`;
+		if (noun === 'song') return ready.item.subtitle ?? 'A song';
+		return ready.item.subtitle ? `${ready.item.subtitle} · ${count}` : count;
+	});
 	const signedIn = $derived(Boolean(data.account));
 	const expires = $derived(
 		ready
@@ -273,6 +280,21 @@
 <svelte:head>
 	<title>{song ? `${song.title}${song.artist ? ` · ${song.artist}` : ''}` : 'Shared link'} · {data.appName}</title>
 	<meta name="robots" content="noindex, nofollow" />
+	<!--
+		What a messaging app shows of the link when it is pasted: the title, the
+		artist and the cover, in place of the bare address. The page already
+		gave all three to anyone holding the link.
+	-->
+	{#if ready}
+		<meta property="og:type" content="music.{noun}" />
+		<meta property="og:site_name" content={data.appName} />
+		<meta property="og:title" content={ready.item.title} />
+		<meta property="og:description" content={previewText} />
+		{#if ready.previewImage}
+			<meta property="og:image" content={ready.previewImage} />
+		{/if}
+		<meta name="twitter:card" content="summary" />
+	{/if}
 </svelte:head>
 
 <div class="hh-ambience" aria-hidden="true"></div>

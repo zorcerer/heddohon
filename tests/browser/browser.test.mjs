@@ -1619,6 +1619,10 @@ describe('an album link', () => {
 		const { page, problems } = await watchedPage();
 		const visitor = await browser.newContext({ viewport: { width: 1280, height: 900 } });
 		try {
+			// The device's share sheet, standing in: it records what it was handed.
+			await page.addInitScript(() => {
+				navigator.share = async (data) => void (window.__shared = data);
+			});
 			await page.goto(app.url + '/albums/al10', { waitUntil: 'networkidle' });
 			await page.getByRole('button', { name: 'Share a link to this album' }).click();
 			await page.getByText('Share an album').waitFor();
@@ -1632,6 +1636,8 @@ describe('an album link', () => {
 			await page.getByRole('button', { name: 'Create link' }).click();
 			const url = await page.locator('dialog input.url').inputValue();
 			assert.match(url, /\/share\/[A-Za-z0-9_-]{43}$/);
+			await page.getByRole('button', { name: 'Share…' }).click();
+			assert.deepEqual(await page.evaluate(() => window.__shared), { title: 'Album 10 · Artist 0010', url });
 
 			const shared = await visitor.newPage();
 			await shared.goto(url, { waitUntil: 'networkidle' });

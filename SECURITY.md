@@ -392,6 +392,12 @@ library's id listed every track in the library.
   sandbox CSP as other media, with `private, no-store` on audio and
   `private, max-age=300` on covers, so a withdrawn link stops working in the
   browser that played it. Shared covers bypass the cover cache.
+- **A pasted link is previewed by the app it is pasted into.** The page
+  carries Open Graph tags: the title, the artist and the address of the cover
+  under the link. A messaging service that draws a preview fetches the page
+  and the cover as any holder of the link can, and keeps its own copy of the
+  title and the image. Withdrawing the link does not reach that copy. The
+  audio is not part of a preview.
 - **Every stream request is checked three ways.** The token is resolved, and
   the track is looked up in the owner's song, album or playlist as the owner's
   credential returned it at most five minutes before, so a track the owner can
