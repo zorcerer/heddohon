@@ -654,7 +654,11 @@ Covers are cached under `$HEDDOHON_DATA_DIR/covers` (see
   owner's. It goes on after the account signs out. Each start asks the music
   server again whether the account is an administrator, and switches itself
   off when the answer is no or the account is gone. One account per music
-  server holds it, recorded in the `meta` table by account id.
+  server holds it, recorded in the `meta` table by account id. It has no
+  expiry of its own. It is switched off when the account's stored credential
+  is replaced, by another user under the name or by a changed password, so
+  it never runs with the sign-in of someone who did not switch it on. The
+  account it runs as can switch it off without being an administrator.
 - **Cached bytes persist** until swept, cleared or the volume is deleted. Set
   `HEDDOHON_COVER_CACHE_MB=0` to disable it.
 
@@ -859,6 +863,11 @@ session token and any `u`, `t`, `s` or `p` query parameter.
   account and gets one song with the owner's library permissions. That is the
   purpose of a link; see [Shared links](#shared-links) for what it is limited to.
 - **Shared Subsonic cover cache** assumes one library per Navidrome server.
+  Where Navidrome limits libraries per user, a cover from a library an account
+  cannot see is served to it from the cache if it asks by the exact cover id,
+  since a hit is answered without asking Navidrome. A fill ("Cache every
+  cover") stores every cover its administrator sees; without one, only covers
+  somebody has opened are stored.
 - **Suggestion shelves are held for 30 days.** "You might like" on album and
   artist pages is kept per account for 30 days (an hour when empty), so an
   item in a library the account has since lost can stay on a shelf, as a name

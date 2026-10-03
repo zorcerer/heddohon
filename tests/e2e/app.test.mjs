@@ -1781,6 +1781,38 @@ describe('covers', () => {
 		}
 	});
 
+	test('a changed password switches off Keep it filled, and the account it runs as can switch it off without being an administrator', async () => {
+		const dailyOn = async (client) =>
+			/Keep it filled[\s\S]{0,900}?<input type="checkbox"[^>]*\schecked/.test((await client.page('/settings?tab=storage')).html);
+		await asFreshAccount('keeper', async (client) => {
+			// Nobody has it on, so there is nothing of this account's to switch off.
+			subsonic.state.admin = false;
+			try {
+				assert.equal((await client.json('/api/cover-fill', 'PUT', { daily: false })).status, 403);
+				subsonic.state.admin = true;
+				assert.equal((await client.json('/api/cover-fill', 'PUT', { daily: true })).status, 200);
+				await fillEnd(client);
+				assert.equal(await dailyOn(client), true);
+
+				// No longer an administrator, and still able to take its own sign-in out of use.
+				subsonic.state.admin = false;
+				assert.equal((await client.json('/api/cover-fill', 'PUT', { daily: false })).status, 200);
+				subsonic.state.admin = true;
+				assert.equal(await dailyOn(client), false);
+
+				assert.equal((await client.json('/api/cover-fill', 'PUT', { daily: true })).status, 200);
+				await fillEnd(client);
+				// The name signs in with another password: the same person, or someone given the name.
+				subsonic.state.password = 'another-password';
+				const next = new Client(app.url);
+				assert.equal((await next.signIn({ username: 'keeper', password: 'another-password', backend: 'subsonic' })).status, 303);
+				assert.equal(await dailyOn(next), false, 'the daily fill stayed on for a credential that never switched it on');
+			} finally {
+				subsonic.state.admin = true;
+			}
+		});
+	});
+
 	test('a fill stops at the disk budget and keeps what it stored', async () => {
 		subsonic.state.coverPadding = 40 * 1024;
 		const small = await startApp({ subsonicUrl: subsonic.url, jellyfinUrl: jellyfin.url, env: { HEDDOHON_COVER_CACHE_MB: '1' } });

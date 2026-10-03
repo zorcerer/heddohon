@@ -147,6 +147,19 @@ export async function keepFilled(backend: BackendKind, account: string | null): 
 	log.info('cover-fill-kept', { backend, account: account ?? 'nobody' });
 }
 
+/**
+ * Stops the repeat when the account's credential is replaced: another person
+ * under the name, or a changed password (`storeAccount` in `auth.ts`).
+ *
+ * The switch is one person's agreement to the server using their sign-in
+ * unattended. Left on, the daily fill went on with whatever credential the
+ * row held next, which on a reused name is that of a person who never
+ * switched it on. The same person with a new password switches it on again.
+ */
+export async function dropKeeper(backend: BackendKind, account: string): Promise<void> {
+	if ((await filledBy(backend)) === account) await keepFilled(backend, null);
+}
+
 const HOUR_MS = 60 * 60 * 1000;
 
 /** When each backend's daily fill last started, in this process. */
@@ -171,10 +184,19 @@ export function keepCoversFilled(): void {
 }
 
 async function fillKept(): Promise<void> {
+	let kinds: BackendKind[];
 	try {
 		const cfg = config();
 		if (cfg.coverCacheBytes === 0) return;
-		for (const { kind } of cfg.upstreams) {
+		kinds = cfg.upstreams.map((upstream) => upstream.kind);
+	} catch {
+		// Misconfigured, which `hooks.server.ts` reports on every request.
+		return;
+	}
+	// Each backend on its own: a stored credential that does not open on one
+	// ended the look, and the other backend's fill was never started.
+	for (const kind of kinds) {
+		try {
 			if (Date.now() - (lastKept.get(kind) ?? 0) < 24 * HOUR_MS) continue;
 			const account = await filledBy(kind);
 			if (!account) continue;
@@ -201,9 +223,9 @@ async function fillKept(): Promise<void> {
 			if (startFill({ id: account, backend: kind, remoteUserId: row.remote_user_id }, credential)) {
 				lastKept.set(kind, Date.now());
 			}
+		} catch (err) {
+			log.warn('cover-fill-failed', { backend: kind, detail: reason(err) });
 		}
-	} catch (err) {
-		log.warn('cover-fill-failed', { detail: reason(err) });
 	}
 }
 
