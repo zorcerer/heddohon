@@ -29,7 +29,7 @@ import { forgetListings } from './listings';
 import { forgetDetails } from './details';
 import { forgetSuggestions } from './suggestions';
 import { forgetTranscodes } from './transcodes';
-import { stopFill } from './coverfill';
+import { dropKeeper, stopFill } from './coverfill';
 import { clearAccountState } from './settings';
 import { forgetSharedItems, revokeAllShares } from './shares';
 import { foldName } from './names';
@@ -174,6 +174,7 @@ async function storeAccount(
 		await destroyAllSessions(existing.id);
 		const links = await revokeAllShares(existing.id);
 		await clearAccountState(existing.id);
+		await dropKeeper(kind, existing.id);
 		deviceEpoch++;
 		log.warn('account-user-replaced', { account: existing.id, backend: kind, links });
 	} else if (existing && passwordChanged(existing.credential, credential)) {
@@ -190,6 +191,8 @@ async function storeAccount(
 		 * changing their password would lose them.
 		 */
 		await destroyAllSessions(existing.id);
+		// Not kept with the links and the settings: see `dropKeeper`.
+		await dropKeeper(kind, existing.id);
 		deviceEpoch++;
 		log.warn('account-password-changed', { account: existing.id, backend: kind });
 	}
