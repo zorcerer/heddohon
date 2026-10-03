@@ -636,6 +636,17 @@ Covers are cached under `$HEDDOHON_DATA_DIR/covers` (see
 - **Any account can clear it.** Settings shows whether the account is an
   administrator and who a clear affects. The only cost of clearing is that covers
   are fetched upstream again.
+- **Only an administrator can fill it.** "Cache every cover" in Settings
+  (`POST /api/cover-fill`) reads every album, artist and playlist and has the
+  music server render each cover at up to four sizes. It is refused unless the
+  music server answers that the account is an administrator, asked on each
+  start; a server that does not answer is refused too. One fill runs at a time
+  per process, 4 covers at once, and it stops at `HEDDOHON_COVER_CACHE_MB`.
+  It runs after its request has been answered, so it holds the account's
+  decrypted credential in memory until it ends: the one place a credential
+  outlives its request. Stopping it, or `destroyAllSessions` for the account
+  (a rejected or changed credential), ends it. On Jellyfin it fills only the
+  administrator's own entries, since the key carries the viewer.
 - **Cached bytes persist** until swept, cleared or the volume is deleted. Set
   `HEDDOHON_COVER_CACHE_MB=0` to disable it.
 

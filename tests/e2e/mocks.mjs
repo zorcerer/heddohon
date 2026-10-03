@@ -145,6 +145,10 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 		radio: [],
 		/** Cover ids answered with a solid colour, as `[r, g, b]`, instead of the 1px PNG. */
 		coverColors: new Map(),
+		/** Bytes added after every cover, for a cover of a known weight. */
+		coverPadding: 0,
+		/** What `getUser` says of the account: `adminRole`. */
+		admin: true,
 		/** Songs on each album from `getAlbum`, up to 26: `s1a`, `s1b`, `s1c` and on. */
 		albumSongs: 2,
 		/**
@@ -483,7 +487,7 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 			case 'getRandomSongs':
 				return send(ok({ randomSongs: { song: [song(1, 'a'), song(2, 'a')] } }));
 			case 'getUser':
-				return send(ok({ user: { username: state.username, adminRole: true } }));
+				return send(ok({ user: { username: state.username, adminRole: state.admin } }));
 			case 'getCoverArt': {
 				const id = p.get('id');
 				if (id === 'html') {
@@ -491,7 +495,8 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 					return res.end('<script>parent.stolen = document.cookie</script>');
 				}
 				res.setHeader('content-type', 'image/png');
-				return res.end(state.coverColors.has(id) ? solidPng(state.coverColors.get(id)) : PNG);
+				const cover = state.coverColors.has(id) ? solidPng(state.coverColors.get(id)) : PNG;
+				return res.end(state.coverPadding ? Buffer.concat([cover, Buffer.alloc(state.coverPadding)]) : cover);
 			}
 			case 'stream': {
 				const body = state.audio?.body ?? Buffer.alloc(1000, 7);
