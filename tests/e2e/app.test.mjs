@@ -11,9 +11,9 @@ import assert from 'node:assert/strict';
 import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { after, before, describe, test } from 'node:test';
+import { after, before, beforeEach, describe, test } from 'node:test';
 import { Client, startApp } from './harness.mjs';
-import { startAutoEq, startJellyfin, startStationHost, startSubsonic } from './mocks.mjs';
+import { OUTSIDE, startAutoEq, startJellyfin, startOutside, startStationHost, startSubsonic } from './mocks.mjs';
 
 let subsonic;
 let jellyfin;
@@ -3080,5 +3080,182 @@ describe('the folder view', () => {
 		} finally {
 			await off.stop();
 		}
+	});
+});
+
+describe('plays sent to a Discord channel and to ListenBrainz', () => {
+	let outside;
+	let on;
+
+	before(async () => {
+		outside = await startOutside();
+		on = await startApp({
+			subsonicUrl: subsonic.url,
+			jellyfinUrl: jellyfin.url,
+			env: {
+				HEDDOHON_DISCORD: 'true',
+				HEDDOHON_DISCORD_URL: outside.url,
+				HEDDOHON_LISTENBRAINZ: 'true',
+				HEDDOHON_LISTENBRAINZ_URL: outside.url
+			}
+		});
+	});
+
+	after(async () => {
+		await on?.stop();
+		await outside?.close();
+	});
+
+	// Each test counts the posts from none, whatever the one before it left.
+	beforeEach(() => {
+		outside.posts.length = 0;
+		outside.state.webhookGone = false;
+	});
+
+	/** Posts a settings form action as the enhanced form does, and returns its status and the failure it names. */
+	async function action(client, name, fields = {}) {
+		const response = await client.request(`/settings?/${name}`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json', 'x-sveltekit-action': 'true' },
+			body: new URLSearchParams(fields).toString()
+		});
+		const result = await response.json();
+		const data = result.data ? JSON.parse(result.data) : null;
+		const values = data ? Object.fromEntries(Object.entries(data[0]).map(([k, i]) => [k, data[i]])) : {};
+		return { status: result.status ?? response.status, error: values.integrationError ?? null };
+	}
+	const signedIn = async (url, username, password, backend) => {
+		const client = new Client(url);
+		await client.signIn({ username, password, backend });
+		return client;
+	};
+	const play = (client, songId, extra) => client.json('/api/playback', 'POST', { songId, event: 'stop', position: 90, completed: true, ...extra });
+	/** Waits for `count` posts, and fails with what arrived. */
+	async function posts(count) {
+		for (let attempt = 0; attempt < 100 && outside.posts.length < count; attempt++) await new Promise((done) => setTimeout(done, 20));
+		assert.equal(outside.posts.length, count, explain(`posts: ${JSON.stringify(outside.posts)}`));
+		return outside.posts;
+	}
+	const section = async (client) => (await client.page('/settings?tab=account')).html.split('Your plays, elsewhere')[1] ?? '';
+
+	test('a Discord webhook is checked with Discord, kept out of the page, and posted to once per counted play', async () => {
+		const client = await signedIn(on.url, 'testuser', 'testpass', 'subsonic');
+		const address = `https://discord.com${OUTSIDE.webhook}`;
+
+		// The host an account types is not where the server connects.
+		const elsewhere = await action(client, 'linkIntegration', { kind: 'discord', value: `https://evil.example${OUTSIDE.webhook}` });
+		assert.equal(elsewhere.status, 400);
+		assert.match(elsewhere.error, /not a Discord webhook address/);
+		assert.equal(outside.calls.get(`GET ${OUTSIDE.webhook}`), 0);
+		const unknown = await action(client, 'linkIntegration', { kind: 'discord', value: address.replace(/w{68}$/, 'x'.repeat(68)) });
+		assert.deepEqual(unknown, { status: 400, error: 'Discord has no webhook at that address.' });
+		// Navidrome links ListenBrainz itself, so this server does not offer to.
+		assert.equal((await action(client, 'linkIntegration', { kind: 'listenbrainz', value: OUTSIDE.listenBrainzToken })).status, 404);
+
+		assert.equal((await action(client, 'linkIntegration', { kind: 'discord', value: address })).status, 200);
+		const linked = await section(client);
+		assert.match(linked, /through the webhook “Now playing”/);
+		assert.ok(!(await client.page('/settings?tab=account')).html.includes('w'.repeat(20)), 'the webhook token reached the page');
+
+		// A title written to be a link, and a mention: shown as text, pinging nobody.
+		subsonic.state.songTitles.set('s3a', '[free](https://evil.example) @everyone');
+		try {
+			assert.equal((await play(client, 's3a')).status, 200);
+			const [first] = await posts(1);
+			assert.equal(first.to, 'discord');
+			assert.deepEqual(first.body.allowed_mentions, { parse: [] });
+			const [embed] = first.body.embeds;
+			assert.equal(embed.title, '\\[free\\]\\(https://evil.example\\) @everyone');
+			assert.equal(embed.description, 'Artist 0003\nAlbum 3');
+			assert.equal(embed.author.name, 'testuser is listening to');
+		} finally {
+			subsonic.state.songTitles.clear();
+		}
+
+		// A stop that does not count, and a play with "Report playback" off, post nothing.
+		await play(client, 's3a', { completed: false });
+		await client.json('/api/settings', 'PATCH', { reportPlayback: false });
+		await play(client, 's3a');
+		await client.json('/api/settings', 'PATCH', { reportPlayback: true });
+		await play(client, 's4a');
+		assert.equal((await posts(2))[1].body.embeds[0].title, 'Song 4a');
+
+		// Deleted on Discord: the first play that finds it gone unlinks it.
+		outside.state.webhookGone = true;
+		try {
+			await play(client, 's4a');
+			let html = await section(client);
+			for (let attempt = 0; attempt < 50 && /through the webhook/.test(html); attempt++) {
+				await new Promise((done) => setTimeout(done, 20));
+				html = await section(client);
+			}
+			assert.doesNotMatch(html, /through the webhook/);
+		} finally {
+			outside.state.webhookGone = false;
+			outside.posts.length = 0;
+		}
+	});
+
+	test('a changed password unlinks what the account had linked', async () => {
+		subsonic.state.username = 'outlet';
+		subsonic.state.password = 'outletpass';
+		try {
+			const client = await signedIn(on.url, 'outlet', 'outletpass', 'subsonic');
+			assert.equal((await action(client, 'linkIntegration', { kind: 'discord', value: `https://discord.com${OUTSIDE.webhook}` })).status, 200);
+			subsonic.state.password = 'another-password';
+			const next = await signedIn(on.url, 'outlet', 'another-password', 'subsonic');
+			assert.doesNotMatch(await section(next), /through the webhook/);
+			await play(next, 's3a');
+			await new Promise((done) => setTimeout(done, 200));
+			assert.equal(outside.posts.length, 0, 'a play went to the channel of whoever held the name before');
+		} finally {
+			subsonic.state.username = 'testuser';
+			subsonic.state.password = 'testpass';
+		}
+	});
+
+	test('ListenBrainz on Jellyfin: what is playing at the start of a track, and a listen once the play counts', async () => {
+		const client = await signedIn(on.url, 'jfuser', 'jfpass', 'jellyfin');
+		assert.deepEqual(await action(client, 'linkIntegration', { kind: 'listenbrainz', value: 'not-the-token' }), {
+			status: 400,
+			error: 'ListenBrainz did not accept that token.'
+		});
+		assert.equal((await action(client, 'linkIntegration', { kind: 'listenbrainz', value: OUTSIDE.listenBrainzToken })).status, 200);
+		const html = (await client.page('/settings?tab=account')).html;
+		assert.match(html, /Scrobbling to listener/);
+		assert.ok(!html.includes(OUTSIDE.listenBrainzToken), 'the token reached the page');
+
+		await client.json('/api/playback', 'POST', { songId: 't1', event: 'start', position: 0 });
+		const [now] = await posts(1);
+		assert.equal(now.body.listen_type, 'playing_now');
+		assert.equal(now.body.payload[0].listened_at, undefined);
+		assert.deepEqual(
+			[now.body.payload[0].track_metadata.track_name, now.body.payload[0].track_metadata.artist_name, now.body.payload[0].track_metadata.release_name],
+			['Track 1', 'Artist B', 'Second']
+		);
+
+		const before = Math.floor(Date.now() / 1000);
+		await play(client, 't1');
+		const listen = (await posts(2))[1];
+		assert.equal(listen.body.listen_type, 'single');
+		// Counted 90 seconds in, so the listen started 90 seconds before.
+		const at = listen.body.payload[0].listened_at;
+		assert.ok(at >= before - 91 && at <= before - 88, `listened_at is ${at - before}s from now`);
+
+		assert.equal((await action(client, 'unlinkIntegration', { kind: 'listenbrainz' })).status, 200);
+		await play(client, 't1');
+		await new Promise((done) => setTimeout(done, 200));
+		assert.equal(outside.posts.length, 2);
+		outside.posts.length = 0;
+	});
+
+	test('neither is offered, or can be linked, unless the operator turned it on', async () => {
+		assert.doesNotMatch((await user.page('/settings?tab=account')).html, /Your plays, elsewhere/);
+		const response = await user.request('/settings?/linkIntegration', {
+			method: 'POST',
+			headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json', 'x-sveltekit-action': 'true' },
+			body: new URLSearchParams({ kind: 'discord', value: `https://discord.com${OUTSIDE.webhook}` }).toString()
+		});
+		assert.equal((await response.json()).status, 404);
 	});
 });

@@ -3,6 +3,7 @@ import type { RequestHandler } from './$types';
 import { backendFor, UpstreamError } from '$lib/server/backends';
 import { getSettings } from '$lib/server/settings';
 import { recordPlay } from '$lib/server/history';
+import { announcePlay, announceStart } from '$lib/server/integrations';
 import { log, reason } from '$lib/server/log';
 
 /**
@@ -51,10 +52,23 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 		await recordPlay(session.account.id, songId, { song, keepDays: settings.historyDays }).catch((err) =>
 			log.warn('history-write-failed', { detail: reason(err) })
 		);
+		// To a Discord channel and ListenBrainz, where the account linked them.
+		// Under the same switch as the report to the music server.
+		if (song && settings.reportPlayback) void announcePlay(session.account, song, position);
 	}
 
 	if (!settings.reportPlayback) {
 		return json({ reported: false, reason: 'disabled_by_user' });
+	}
+
+	if (event === 'start') {
+		const songId = body.songId;
+		void announceStart(session.account, () =>
+			backendFor(session.account.backend)
+				.getSongs(session.credential, [songId])
+				.then((songs) => songs[0] ?? null)
+				.catch(() => null)
+		);
 	}
 
 	try {

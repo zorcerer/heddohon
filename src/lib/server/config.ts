@@ -60,6 +60,10 @@ export interface AppConfig {
 	lrclibUrl: string | null;
 	/** Base URL of the AutoEq results for headphone corrections, or null when off; see `autoeq.ts`. */
 	autoeqUrl: string | null;
+	/** Discord's address, for posting plays to a channel's webhook, or null when off; see `integrations.ts`. */
+	discordUrl: string | null;
+	/** The ListenBrainz API, for scrobbles this server sends itself, or null when off; see `integrations.ts`. */
+	listenbrainzUrl: string | null;
 	/** Whether the library can be browsed by its folders on disk: the Folders page and playing a folder. */
 	folders: boolean;
 	/** Whether the music server's internet radio stations are offered and played through this server; see `radio.ts`. */
@@ -302,6 +306,14 @@ function build(): AppConfig {
 					env('HEDDOHON_AUTOEQ_URL') ?? 'https://raw.githubusercontent.com/jaakkopasanen/AutoEq/master/results'
 				)
 			: null,
+		// Both off unless asked for: turned on, an account can have the title,
+		// artist and album of what it plays sent to a third party it chose.
+		discordUrl: flagEnv('HEDDOHON_DISCORD', false)
+			? normaliseUrl('HEDDOHON_DISCORD_URL', env('HEDDOHON_DISCORD_URL') ?? 'https://discord.com')
+			: null,
+		listenbrainzUrl: flagEnv('HEDDOHON_LISTENBRAINZ', false)
+			? normaliseUrl('HEDDOHON_LISTENBRAINZ_URL', env('HEDDOHON_LISTENBRAINZ_URL') ?? 'https://api.listenbrainz.org')
+			: null,
 		// On. Off for a library whose layout on disk is not for its listeners:
 		// the page shows folder names as the music server stores them.
 		folders: flagEnv('HEDDOHON_FOLDERS', true),
@@ -391,6 +403,8 @@ export function config(): AppConfig {
 			remoteControl: true,
 			lrclibUrl: null,
 			autoeqUrl: null,
+			discordUrl: null,
+			listenbrainzUrl: null,
 			folders: true,
 			radio: true,
 			radioPrivate: false,

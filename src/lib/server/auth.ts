@@ -30,6 +30,7 @@ import { forgetDetails } from './details';
 import { forgetSuggestions } from './suggestions';
 import { forgetTranscodes } from './transcodes';
 import { dropKeeper, stopFill } from './coverfill';
+import { dropIntegrations } from './integrations';
 import { clearAccountState } from './settings';
 import { forgetSharedItems, revokeAllShares } from './shares';
 import { foldName } from './names';
@@ -175,6 +176,7 @@ async function storeAccount(
 		const links = await revokeAllShares(existing.id);
 		await clearAccountState(existing.id);
 		await dropKeeper(kind, existing.id);
+		await dropIntegrations(existing.id);
 		deviceEpoch++;
 		log.warn('account-user-replaced', { account: existing.id, backend: kind, links });
 	} else if (existing && passwordChanged(existing.credential, credential)) {
@@ -191,8 +193,10 @@ async function storeAccount(
 		 * changing their password would lose them.
 		 */
 		await destroyAllSessions(existing.id);
-		// Not kept with the links and the settings: see `dropKeeper`.
+		// Not kept with the links and the settings: see `dropKeeper` and
+		// `dropIntegrations`.
 		await dropKeeper(kind, existing.id);
+		await dropIntegrations(existing.id);
 		deviceEpoch++;
 		log.warn('account-password-changed', { account: existing.id, backend: kind });
 	}

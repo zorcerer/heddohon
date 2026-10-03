@@ -5,6 +5,14 @@ import { destroyAllSessions, endSessions, listSessions } from '$lib/server/auth'
 import { getSettings, saveSettings } from '$lib/server/settings';
 import { cacheStats, clearCache } from '$lib/server/covercache';
 import { filledBy, fillStatus } from '$lib/server/coverfill';
+import {
+	linkDiscord,
+	linkedIntegrations,
+	linkListenBrainz,
+	offeredIntegrations,
+	unlinkIntegration,
+	type LinkFailure
+} from '$lib/server/integrations';
 import { backendFor, UpstreamError, type ScrobblerService } from '$lib/server/backends';
 import { linkStateDigest } from '$lib/server/crypto';
 import { log, reason } from '$lib/server/log';
@@ -56,7 +64,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 	// Independent reads, started together. They were awaited one after
 	// another, so the page waited for the sum of a directory scan, two upstream
 	// calls and two database reads rather than for the slowest of them.
-	const [coverCache, coverFillKeeper, isAdmin, settings, sessions, shares, history] = await Promise.all([
+	const [coverCache, coverFillKeeper, isAdmin, settings, sessions, shares, history, linked] = await Promise.all([
 		cacheStats(),
 		filledBy(session.account.backend),
 		/*
@@ -73,7 +81,8 @@ export const load: PageServerLoad = async ({ locals }) => {
 		getSettings(session.account.id),
 		listSessions(session),
 		describeShares(session),
-		recentPlays(session.account.id, 0, 0)
+		recentPlays(session.account.id, 0, 0),
+		linkedIntegrations(session.account.id)
 	]);
 
 	return {
@@ -91,6 +100,9 @@ export const load: PageServerLoad = async ({ locals }) => {
 		sessions,
 		shares,
 		scrobblerLinks,
+		// Which of a Discord channel and ListenBrainz this account is offered,
+		// and the name of what it has linked. Never the webhook or the token.
+		integrations: { offered: offeredIntegrations(session.account.backend), linked },
 		historyCount: history.total
 	};
 };
@@ -252,6 +264,50 @@ export const actions: Actions = {
 		approval.searchParams.set('api_key', start.apiKey);
 		approval.searchParams.set('cb', callback.toString());
 		return { lastfmUrl: approval.toString() };
+	},
+
+	/**
+	 * Links a Discord channel (a webhook address) or ListenBrainz (a user
+	 * token) for the account's plays; see `integrations.ts`. The value is
+	 * checked with the service, sealed, and not sent back.
+	 */
+	linkIntegration: async ({ locals, request }) => {
+		const session = locals.session;
+		if (!session) return fail(401, { error: 'Not signed in' });
+		const form = await request.formData();
+		const kind = form.get('kind');
+		const value = String(form.get('value') ?? '').trim();
+		if ((kind !== 'discord' && kind !== 'listenbrainz') || value.length === 0 || value.length > 300) {
+			return fail(400, { integrationError: 'That cannot be linked.' });
+		}
+		const result =
+			kind === 'discord'
+				? await linkDiscord(session.account.id, value)
+				: await linkListenBrainz(session.account.id, session.account.backend, value);
+		if (typeof result !== 'string') return { integrationLinked: kind };
+		const service = kind === 'discord' ? 'Discord' : 'ListenBrainz';
+		const messages: Record<LinkFailure, [number, string]> = {
+			off: [404, `${service} is not turned on for this server.`],
+			malformed: [
+				400,
+				kind === 'discord'
+					? 'That is not a Discord webhook address. Copy it from the channel under Integrations, Webhooks.'
+					: 'That is not a ListenBrainz token. Copy it from your ListenBrainz settings.'
+			],
+			refused: [400, kind === 'discord' ? 'Discord has no webhook at that address.' : 'ListenBrainz did not accept that token.'],
+			unreachable: [502, `${service} did not answer. Try again.`]
+		};
+		const [status, integrationError] = messages[result];
+		return fail(status, { integrationError });
+	},
+
+	unlinkIntegration: async ({ locals, request }) => {
+		const session = locals.session;
+		if (!session) return fail(401, { error: 'Not signed in' });
+		const kind = (await request.formData()).get('kind');
+		if (kind !== 'discord' && kind !== 'listenbrainz') return fail(400, { integrationError: 'Unknown service.' });
+		await unlinkIntegration(session.account.id, kind);
+		return { integrationUnlinked: kind };
 	},
 
 	clearCovers: async ({ locals }) => {

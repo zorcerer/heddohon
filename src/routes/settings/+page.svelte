@@ -286,6 +286,21 @@
 		};
 	}
 
+	/** Which of the two forms under "Your plays, elsewhere" is waiting on the server. */
+	let integrating = $state<'discord' | 'listenbrainz' | null>(null);
+
+	function integrationSubmit(kind: 'discord' | 'listenbrainz'): SubmitFunction {
+		return () => {
+			integrating = kind;
+			return async ({ update }) => {
+				// Reset, so a webhook address or a token does not stay in the field.
+				await update({ reset: true });
+				await invalidateAll();
+				integrating = null;
+			};
+		};
+	}
+
 	/**
 	 * Sends the browser to last.fm. The action returns the URL rather than
 	 * redirecting to it: `form-action 'self'` refuses a redirect to another
@@ -1044,6 +1059,110 @@
 			</section>
 		{/if}
 	{/await}
+
+	<!-- Only where the operator has turned one of them on; see `integrations.ts`. -->
+	{#if data.integrations.offered.discord || data.integrations.offered.listenbrainz}
+		<section class="hh-card hh-glass group" id="activity" hidden={shown !== 'account'}>
+			<div class="group-head">
+				<h2>Your plays, elsewhere</h2>
+				<p class="hh-muted">
+					Sends the title, artist and album of each track you play past half its length, or four
+					minutes, from this server to what you link here, while “Report playback” under Playback is on.
+				</p>
+			</div>
+
+			{#if form && 'integrationError' in form && form.integrationError}
+				<p class="hh-muted note-inline" role="alert">{form.integrationError}</p>
+			{/if}
+
+			{#if data.integrations.offered.discord}
+				{@const name = data.integrations.linked.discord}
+				<div class="row switch">
+					<span class="label">
+						Discord channel
+						<span class="hint hh-muted">
+							{name
+								? `Posting each play through the webhook “${name}”.`
+								: 'Paste a webhook address from the channel: Edit channel, Integrations, Webhooks.'}
+						</span>
+					</span>
+					{#if name}
+						<form method="POST" action="?/unlinkIntegration" use:enhance={integrationSubmit('discord')}>
+							<input type="hidden" name="kind" value="discord" />
+							<button class="hh-button danger" type="submit" disabled={integrating === 'discord'}>
+								{integrating === 'discord' ? 'Unlinking…' : 'Unlink'}
+							</button>
+						</form>
+					{/if}
+				</div>
+				{#if !name}
+					<form class="token-row" method="POST" action="?/linkIntegration" use:enhance={integrationSubmit('discord')}>
+						<input type="hidden" name="kind" value="discord" />
+						<input
+							class="hh-input"
+							type="password"
+							name="value"
+							required
+							maxlength="300"
+							autocomplete="off"
+							spellcheck="false"
+							aria-label="Discord webhook address"
+							placeholder="https://discord.com/api/webhooks/…"
+						/>
+						<button class="hh-button" type="submit" disabled={integrating === 'discord'}>
+							{integrating === 'discord' ? 'Linking…' : 'Link'}
+						</button>
+					</form>
+				{/if}
+			{/if}
+
+			{#if data.integrations.offered.listenbrainz}
+				{@const user = data.integrations.linked.listenbrainz}
+				<div class="row switch">
+					<span class="label">
+						ListenBrainz
+						<span class="hint hh-muted">
+							{user
+								? `Scrobbling to ${user}, and showing what is playing now.`
+								: 'Paste the user token from your ListenBrainz settings page.'}
+						</span>
+					</span>
+					{#if user}
+						<form method="POST" action="?/unlinkIntegration" use:enhance={integrationSubmit('listenbrainz')}>
+							<input type="hidden" name="kind" value="listenbrainz" />
+							<button class="hh-button danger" type="submit" disabled={integrating === 'listenbrainz'}>
+								{integrating === 'listenbrainz' ? 'Unlinking…' : 'Unlink'}
+							</button>
+						</form>
+					{/if}
+				</div>
+				{#if !user}
+					<form class="token-row" method="POST" action="?/linkIntegration" use:enhance={integrationSubmit('listenbrainz')}>
+						<input type="hidden" name="kind" value="listenbrainz" />
+						<input
+							class="hh-input"
+							type="password"
+							name="value"
+							required
+							maxlength="128"
+							autocomplete="off"
+							spellcheck="false"
+							aria-label="ListenBrainz user token"
+							placeholder="ListenBrainz user token"
+						/>
+						<button class="hh-button" type="submit" disabled={integrating === 'listenbrainz'}>
+							{integrating === 'listenbrainz' ? 'Linking…' : 'Link'}
+						</button>
+					</form>
+				{/if}
+			{/if}
+
+			<p class="hh-muted note">
+				A webhook address or a token is kept encrypted on this server and is not shown again. Unlinking
+				removes it, and so does a changed password on {data.serverLabel || 'the music server'}.
+			</p>
+		</section>
+	{/if}
 
 	<!-- Kept while sharing is off if the account still has links, so they can
 	     be withdrawn before the operator turns it back on. -->
