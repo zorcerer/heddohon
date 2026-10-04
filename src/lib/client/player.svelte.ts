@@ -295,6 +295,8 @@ export class Player {
 	/** The latest press that changes the track, and the latest seek, while each waits for its fade. */
 	#changeSerial = 0;
 	#seekSerial = 0;
+	/** The latest seek waiting for the server to have a transcode whole; see `#seekOnceWhole`. */
+	#wholeSerial = 0;
 	/** Whether this page plays through the graph. */
 	processing = $state(false);
 	/** The output last chosen, for a graph opened after the choice. */
@@ -855,6 +857,15 @@ export class Player {
 		this.#abandonCrossfade();
 		const target = Math.min(Math.max(0, seconds), this.duration || seconds);
 		const element = this.#primary;
+		// Nothing the element can seek to, or not that far: see `#seekOnceWhole`.
+		// A second past the end is left to the element, which stops at its end;
+		// `duration` here can be the music server's figure, a little over.
+		const ranges = element.seekable;
+		if (element.readyState > 0 && (ranges.length === 0 || target > ranges.end(ranges.length - 1) + 1)) {
+			void this.#seekOnceWhole(element, target);
+			return;
+		}
+		++this.#wholeSerial;
 		const move = () => {
 			try {
 				element.currentTime = target;
@@ -1289,6 +1300,53 @@ export class Player {
 	}
 
 	/**
+	 * A seek the element cannot make, in a transcode that began to arrive
+	 * before the server had read it whole.
+	 *
+	 * Such a stream has no ranges (`transcodes.ts`). Chromium seeks in one by
+	 * waiting for the bytes. Firefox reports nothing seekable in it for as long
+	 * as the element holds it, which is the rest of the track: the bar took
+	 * every press and did nothing, long after the server could have answered
+	 * in ranges. Measured in Playwright's Firefox against a read of 6 seconds:
+	 * presses at 0:01 and at 0:12 both left the track where it was.
+	 *
+	 * The server answers in ranges to a new request once its read is whole. So
+	 * the track is asked for again and the position taken up through
+	 * `#pendingSeek`, as a resume is. Not before the server has it whole,
+	 * which a HEAD says with `Accept-Ranges`: asked for sooner, it would come
+	 * as another stream without ranges, from the start. Until then the track
+	 * goes on playing where it is, and after 30 looks a second apart the seek
+	 * is dropped: a transcode too large for the server to hold never has
+	 * ranges.
+	 */
+	async #seekOnceWhole(element: HTMLAudioElement, target: number) {
+		const song = this.current;
+		if (!song) return;
+		const serial = ++this.#wholeSerial;
+		const wanted = () => serial === this.#wholeSerial && this.#primary === element && this.current === song;
+		this.loading = true;
+		for (let attempt = 0; attempt < SEEK_HOLD_ATTEMPTS; attempt++) {
+			const whole = await fetch(this.#srcOf(song), { method: 'HEAD' }).then(
+				(response) => response.ok && response.headers.get('accept-ranges') === 'bytes',
+				() => false
+			);
+			if (!wanted()) return;
+			if (whole) {
+				this.#abandonCrossfade();
+				this.#pendingSeek = target;
+				this.currentTime = target;
+				element.src = this.#srcOf(song);
+				element.load();
+				if (this.engaged) void element.play().catch(() => undefined);
+				return;
+			}
+			await new Promise((done) => setTimeout(done, SEEK_HOLD_MS));
+			if (!wanted()) return;
+		}
+		this.loading = false;
+	}
+
+	/**
 	 * Asks for the rest of the current track from where it stopped arriving.
 	 *
 	 * `playing` is deliberately left alone. This is a gap in the audio, not a
@@ -1404,6 +1462,9 @@ export class Player {
 
 		on('timeupdate', () => {
 			if (this.#ducks > 0) return;
+			// A position waiting to be taken up is what the bar shows. The element
+			// is at 0 until it has loaded, and reported that as it was asked again.
+			if (this.#pendingSeek !== null) return;
 			this.currentTime = element.currentTime;
 			this.#maybeSleep();
 			this.#maybeScrobble();
