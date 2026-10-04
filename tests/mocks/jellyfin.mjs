@@ -3,8 +3,8 @@
 // Covers the calls the Jellyfin adapter makes: password sign-in, item and
 // playlist listings, audio, images and deletes. Tokens are per sign-in and
 // checked on every call. `/__recreate` deletes a user and creates a new one
-// under the same name, the way an administrator reuses a name; the old user's
-// tokens stop working, as they do in Jellyfin.
+// under the same name, as an administrator reusing a name does. The old
+// user's tokens stop working, as in Jellyfin.
 //
 //   node tests/mocks/jellyfin.mjs [port]      (default 8096)
 

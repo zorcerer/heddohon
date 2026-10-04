@@ -1,11 +1,11 @@
 /**
  * Every easing curve in the interface is one of the tokens in `app.css`.
  *
- * Before the tokens the tree had eight curves and fourteen durations, arrived
- * at one component at a time. This fails when a component writes its own
+ * Before the tokens the tree had eight curves and fourteen durations, added
+ * one component at a time. This fails when a component writes its own
  * `cubic-bezier()`, `linear()` or keyword easing instead of a `--ease-*`
- * token, which is how that happened. Durations are not checked: a few are
- * functional delays (the 150ms before a spinner shows) rather than motion.
+ * token. Durations are not checked: a few are functional delays (the 150ms
+ * before a spinner shows).
  *
  *   npm run test:e2e
  */
