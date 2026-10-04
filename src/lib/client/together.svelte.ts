@@ -3,16 +3,15 @@
  * has how the server keeps it.
  *
  * While a party is open, this browser tells the server what it plays: at once
- * when the track or the play state changes or the position jumps (a seek),
- * and every 15 seconds besides. It also holds the party's event stream, for
- * the count of listeners, their reactions, the members and what they add.
+ * when the track or the play state changes or the position jumps (a seek), and
+ * every 15 seconds. It also holds the party's event stream, for the listener
+ * count, reactions, the members and what they add.
  *
  * An addition goes into the player's queue as it arrives, and what is up next
- * is reported whenever it changes, which is how the listeners see the queue
- * and how the server learns an addition was played or removed. Additions and
- * reports are handled one at a time, in the order they came: the server is
- * told the highest addition taken, so one taken out of turn would be counted
- * as taken with those before it.
+ * is reported whenever it changes: that is how listeners see the queue and how
+ * the server learns an addition was played or removed. Additions and reports
+ * are handled one at a time, in order: the server is told the highest addition
+ * taken, so one taken out of turn would count those before it as taken.
  *
  * This module also knows whether the account has joined someone else's party
  * as a member, for "Add to listen together" on a track.
@@ -93,7 +92,7 @@ class Together {
 	}
 
 	/**
-	 * Whether the account has joined a party, asked when this tab is come back
+	 * Whether the account has joined a party, asked when this tab is returned
 	 * to: joining happens on the party's own page, in another tab or browser.
 	 */
 	#look = () => {
@@ -265,8 +264,8 @@ class Together {
 
 	/**
 	 * Tells the server what is up next, when it has changed, and marks the
-	 * tracks the server says are additions. The marks are lost with the page;
-	 * the server keeps who added what and finds the tracks again by their ids.
+	 * tracks the server says are additions. The marks are lost with the page.
+	 * The server keeps who added what and finds the tracks again by their ids.
 	 */
 	async #reportQueue(always = false) {
 		if (!this.party) return;

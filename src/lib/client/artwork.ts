@@ -1,19 +1,14 @@
 /**
- * Pulls a usable accent colour out of cover art.
+ * Pulls an accent colour out of cover art.
  *
- * This runs in the browser rather than on the server on purpose. Extracting it
- * server-side would need an image decoder in the Node process — `sharp` and
- * friends are tens of megabytes of native code, which is a poor trade for one
- * decorative colour. Covers are served same-origin from `/api/cover`, so the
- * canvas is never tainted and a 32x32 draw costs well under a millisecond.
+ * Done in the browser: on the server it would need an image decoder (`sharp`
+ * is tens of megabytes of native code). Covers are same-origin from
+ * `/api/cover`, so the canvas is not tainted, and a 32x32 draw costs under a
+ * millisecond.
  *
- * The colour is tamed hard on the way out: saturation is held under 38% and
- * lightness pulled into a mid band. The target is a record seen through a dark
- * pane of glass rather than a coloured light shone at the screen — at the 58%
- * this used to allow, a saturated sleeve did not tint the interface so much as
- * take it over. The floor still matters as much as the ceiling: below roughly
- * 18% every hue collapses into the same grey and the effect stops reading as
- * colour at all, so the range is narrow at both ends rather than simply lower.
+ * Saturation is held under 38% and lightness pulled into a mid band. At the
+ * 58% once allowed, a saturated sleeve took the interface over. Below roughly
+ * 18% every hue reads as the same grey, so the range is narrow at both ends.
  */
 import { coverUrl } from './format';
 
@@ -75,9 +70,8 @@ function rgbToHsl(r: number, g: number, b: number): [number, number, number] {
 }
 
 function analyse(pixels: Uint8ClampedArray): ArtworkColor | null {
-	// Hues are angles, so they are accumulated as unit vectors — averaging the
-	// raw degrees would put the mean of 350° and 10° at 180°, the exact opposite
-	// of the right answer.
+	// Hues are angles, accumulated as unit vectors: the mean of 350° and 10° in
+	// raw degrees is 180°.
 	const weight = new Float64Array(HUE_BUCKETS);
 	const vectorX = new Float64Array(HUE_BUCKETS);
 	const vectorY = new Float64Array(HUE_BUCKETS);
@@ -97,8 +91,8 @@ function analyse(pixels: Uint8ClampedArray): ArtworkColor | null {
 		// letterboxing or a white sleeve would otherwise dominate the count.
 		if (lightness < 0.12 || lightness > 0.92 || saturation < 0.14) continue;
 
-		// Favour saturated pixels at mid lightness: those are the ones a person
-		// would name if asked what colour the sleeve is.
+		// Saturated pixels at mid lightness weigh most: the colour a person would
+		// name the sleeve by.
 		const pixelWeight = saturation * (1 - Math.abs(lightness - 0.5) * 1.2);
 		if (pixelWeight <= 0) continue;
 
@@ -133,15 +127,13 @@ function analyse(pixels: Uint8ClampedArray): ArtworkColor | null {
 /**
  * The cover, if a copy of it is already on the page.
  *
- * `extract` used to always fetch its own 96px copy, which nothing else on the
- * page uses: a separate request, and the colour arrived only once it came back.
- * Measured on an album-to-album navigation, the room held the previous album's
- * colour for 556ms after the click and then moved. The hero of the page being
- * opened is a copy of the same cover, already decoded and on screen, so it can
- * be drawn straight into the sampling canvas.
+ * `extract` fetched its own 96px copy, and the colour arrived only when that
+ * came back: on an album-to-album navigation the room held the previous
+ * colour for 556ms after the click. The hero of the page being opened is the
+ * same cover, already decoded, and is drawn straight into the sampling canvas.
  *
- * Matched on the path rather than the whole URL: the size is part of the query,
- * and with `srcset` the size actually loaded depends on the display.
+ * Matched on the path: the size is in the query, and with `srcset` the size
+ * loaded depends on the display.
  */
 function onPage(coverArt: string): HTMLImageElement | null {
 	const prefix = `/api/cover/${encodeURIComponent(coverArt)}?`;
@@ -157,11 +149,10 @@ async function extract(coverArt: string): Promise<ArtworkColor | null> {
 }
 
 /**
- * The colour of an image that is already decoded.
- *
- * For a page whose cover does not come from `/api/cover`: a shared link serves
- * its cover from a route of its own, which `extract` has no id to build. The
- * image has to be same-origin, or the canvas is tainted and this returns null.
+ * The colour of an image that is already decoded, for a page whose cover does
+ * not come from `/api/cover` (a shared link serves its cover from its own
+ * route). The image has to be same-origin, or the canvas is tainted and this
+ * returns null.
  */
 export function colorOfImage(image: HTMLImageElement): ArtworkColor | null {
 	const canvas = document.createElement('canvas');
@@ -174,8 +165,7 @@ export function colorOfImage(image: HTMLImageElement): ArtworkColor | null {
 	try {
 		return analyse(context.getImageData(0, 0, SAMPLE_SIZE, SAMPLE_SIZE).data);
 	} catch {
-		// A tainted canvas should be impossible for same-origin covers, but a
-		// decorative colour is never worth throwing over.
+		// A tainted canvas. A decorative colour is not worth throwing over.
 		return null;
 	}
 }
@@ -197,22 +187,17 @@ async function artworkColor(coverArt: string | null | undefined): Promise<Artwor
 	return color;
 }
 
-/**
- * Writes the tint onto an element. Everything below it in the tree picks the new
- * colour up, because the properties are declared `inherits: true`.
- */
+/** Writes the tint onto an element. Its subtree follows: the properties are declared `inherits: true`. */
 export function applyArtworkColor(target: HTMLElement, color: ArtworkColor | null): void {
 	const next = color ?? DEFAULT_ARTWORK_COLOR;
 
-	// Take the short way round the colour wheel. Left alone, a move from 350° to
-	// 10° animates the long way and sweeps the entire spectrum on its way to a
-	// neighbouring hue.
+	// The short way round the colour wheel: left alone, 350° to 10° animates the
+	// long way through the whole spectrum.
 	//
-	// The starting point is read from the *computed* value rather than the inline
-	// one, because --art-h is a registered property and therefore animated: while
-	// a crossfade is still in flight the inline value is the destination, not what
-	// is on screen. Measuring from the destination makes a track skipped
-	// mid-transition take the long way round.
+	// The starting point is the computed value. --art-h is a registered,
+	// animated property, so during a transition the inline value is the
+	// destination, not what is on screen, and measuring from it sends a track
+	// skipped mid-transition the long way round.
 	const previous = Number.parseFloat(
 		getComputedStyle(target).getPropertyValue('--art-h') || target.style.getPropertyValue('--art-h')
 	);
@@ -224,8 +209,8 @@ export function applyArtworkColor(target: HTMLElement, color: ArtworkColor | nul
 	target.style.setProperty('--art-l', `${next.lightness.toFixed(1)}%`);
 
 	// The wash on the rail and the player cross-fades between two fixed colours
-	// rather than following the interpolation above. Same destination, and the
-	// hue takes the short way round there as well: `from` is already unwound.
+	// instead of following the interpolation above, to the same destination by
+	// the same short way: `from` is already unwound.
 	if (typeof document !== 'undefined') {
 		const landing = { ...next, hue: from + shortest };
 		requestMorph(landing);
@@ -251,14 +236,13 @@ function asHex(colour: string): string | null {
 }
 
 /**
- * Keeps `theme-color` on the canvas colour (the `html` background in
- * app.css, which is the room's colour at the share its edges average).
+ * Keeps `theme-color` on the canvas colour (the `html` background in app.css,
+ * the room's colour at the share its edges average).
  *
- * A phone paints its own bars in it: the status bar of an installed app on
- * Android and iOS, and the toolbar of a browser tab. It was fixed at the dark
- * theme's ground, so above a room lit by a cover, and above the whole of the
- * light theme, the bar was a black band. Written at once and again when the
- * colour has finished moving, since the properties it is made of ease.
+ * A phone paints its own bars in it: an installed app's status bar and a
+ * browser tab's toolbar. Fixed at the dark theme's ground, it was a black band
+ * above a room lit by a cover and above the light theme. Written at once and
+ * again when the colour has finished moving, since its properties ease.
  */
 export function followCanvas(): void {
 	if (typeof document === 'undefined') return;
@@ -275,26 +259,25 @@ export function followCanvas(): void {
 /**
  * Hands the two cross-fading surfaces their before and after.
  *
- * They are found by class rather than passed in: the tint is applied at the
- * document root by one caller that has no business knowing which elements
- * happen to paint it, and there are never more than two of them on screen.
+ * They are found by class: the tint is applied at the document root by a
+ * caller that does not know which elements paint it, and at most two are on
+ * screen.
  *
- * The two layers take turns: the new colour goes into the one that is hidden,
- * and `--tint-mix` moves towards it from wherever it is. `app.css`, by
- * `.hh-tint-morph`, records the reset this replaced and the dark frame it is
- * taken to have caused.
+ * The two layers take turns: the new colour goes into the hidden one, and
+ * `--tint-mix` moves towards it. `app.css`, by `.hh-tint-morph`, records the
+ * reset this replaced.
  *
- * The layer on screen is written as well, with the colour it is already
- * showing. Until the first change it has no colour of its own and reads the
- * room's `--art-*`, which start moving at the same moment. Only called with
- * no fade in progress (see `requestMorph`), so neither write lands on a layer
- * that is visible with a different colour.
+ * The layer on screen is written too, with the colour it already shows. Until
+ * the first change it has no colour of its own and reads the room's
+ * `--art-*`, which start moving at the same moment. Called only with no fade
+ * in progress (see `requestMorph`), so neither write lands on a layer visible
+ * in a different colour.
  */
 function morphTintLayers(from: ArtworkColor, to: ArtworkColor): void {
 	const surfaces = document.querySelectorAll<HTMLElement>('.hh-tint-morph');
 	for (const surface of surfaces) {
-		// `--tint-mix` starts at 1 in `app.css`, so the second layer is the one
-		// on screen for a surface that has not changed colour yet.
+		// `--tint-mix` starts at 1 in `app.css`, so the second layer is the one on
+		// screen for a surface that has not changed colour yet.
 		const front = fronts.get(surface) ?? 'b';
 		const back = front === 'a' ? 'b' : 'a';
 		paintTintLayer(surface, front, from);
@@ -316,10 +299,7 @@ const fronts = new WeakMap<HTMLElement, 'a' | 'b'>();
 /** The colour the surfaces are showing, or fading towards. */
 let shown: ArtworkColor = DEFAULT_ARTWORK_COLOR;
 
-/**
- * The fade in progress: the colour it left, and when it ends. Matches
- * `--dur-colour` in `app.css`.
- */
+/** The fade in progress: the colour it left, and when it ends. Matches `--dur-colour` in `app.css`. */
 const TINT_FADE_MS = 900;
 let fading: { from: ArtworkColor; until: number } | null = null;
 /** The latest colour asked for while a fade was running, applied when it ends. */
@@ -331,21 +311,19 @@ let pendingTimer: ReturnType<typeof setTimeout> | null = null;
  * on screen.
  *
  * During a fade both layers are partly visible, so there is no hidden layer to
- * write a new colour into. Writing it into the one fading out changed a
- * visible wash from one colour to another between two frames. Measured at a
- * track change on an album page: the room was sent to the page's cover and
- * back 17ms apart, the second write turned a layer at nearly full opacity from
- * red to blue in one frame, and that was the dark flash reported on the rail
- * and the player.
+ * write into. At a track change on an album page the room was sent to the
+ * page's cover and back 17ms apart, and the second write turned a layer at
+ * nearly full opacity from red to blue in one frame: the dark flash reported
+ * on the rail and the player.
  *
  * So a change during a fade does one of three things. Back to the colour being
  * left: the fade reverses, which moves only opacity. The colour already being
  * faded to: nothing. Anything else: it waits for the fade to end, and only the
  * latest such colour is applied.
  *
- * A navigation also asks for the same colour twice, once when the card hands
- * it over and once when the page offers its cover; the second is the "nothing"
- * case. Restarting the fade on it cut the first short.
+ * A navigation asks for the same colour twice, once when the card hands it
+ * over and once when the page offers its cover. The second is the "nothing"
+ * case: restarting the fade on it cut the first short.
  */
 function requestMorph(to: ArtworkColor): void {
 	const now = Date.now();
@@ -395,8 +373,8 @@ function reverseTintLayers(): void {
 
 /**
  * Equal to a tenth of a degree and a tenth of a percent, which is what is
- * written out. Hues are compared round the wheel: the room's hue is unwound
- * to take the short way, so the same colour can arrive as 128 or 488.
+ * written out. Hues are compared round the wheel: the room's hue is unwound to
+ * take the short way, so one colour can arrive as 128 or 488.
  */
 function sameColor(a: ArtworkColor, b: ArtworkColor): boolean {
 	const turn = (((a.hue - b.hue) % 360) + 360) % 360;
@@ -411,12 +389,10 @@ function sameColor(a: ArtworkColor, b: ArtworkColor): boolean {
  * Which request owns the room.
  *
  * Resolving a colour is asynchronous, and a navigation starts more than one:
- * the page being left withdraws its cover and the page arriving offers its own,
- * both in the same update. Without this the last one to *resolve* won, which is
- * not the same as the last one asked for. A cover already on the page resolves
- * in a microtask while one that has to be fetched takes hundreds of
- * milliseconds, so the loser could be the one that matters, and the room would
- * settle on the colour of a page nobody is looking at.
+ * the page being left withdraws its cover and the arriving page offers its
+ * own. Without this the last to resolve won, not the last asked for. A cover
+ * on the page resolves in a microtask and a fetched one in hundreds of
+ * milliseconds, so the room could settle on the colour of the page left.
  */
 let generation = 0;
 
@@ -432,12 +408,9 @@ export async function tintFrom(target: HTMLElement, coverArt: string | null | un
  * A colour for a page with no cover behind it.
  *
  * Only the hue is drawn. Saturation and lightness are fixed inside the bands
- * `analyse` clamps a real cover into, so the result is the kind of colour a
- * record could have produced rather than one the rest of the interface has
- * never had to stay readable over. The saturation sits in the upper half of
- * that band: at the 22% the idle default uses, a random hue is still mostly
- * grey, which is the right answer for "nothing is playing" and the wrong one
- * for "pick a colour".
+ * `analyse` clamps a real cover into, so the interface stays readable over it.
+ * The saturation is in the upper half of the band: at the idle default's 22%
+ * a random hue is still mostly grey.
  */
 export function randomArtworkColor(): ArtworkColor {
 	return { hue: Math.floor(Math.random() * 360), saturation: 30, lightness: 52 };
@@ -446,13 +419,10 @@ export function randomArtworkColor(): ArtworkColor {
 /**
  * Takes the room to a colour that did not come from a cover.
  *
- * This claims the generation, which is the whole reason it exists rather than
- * callers reaching for `applyArtworkColor`. Resolving a cover is asynchronous,
- * and a caller that wants to hold a colour is competing with whatever is
- * already in flight. On a page with no cover that is a resolve of `null`,
- * which lands a microtask later and would put the room straight back to frost.
- * Bumping the counter makes that one a loser, the same way a newer cover makes
- * an older one a loser.
+ * It claims the generation, which `applyArtworkColor` alone does not. On a
+ * page with no cover, a resolve of `null` already in flight lands a microtask
+ * later and would put the room back to frost. Bumping the counter makes that
+ * one lose, as a newer cover makes an older one lose.
  */
 export function holdArtworkColor(target: HTMLElement, color: ArtworkColor): void {
 	generation++;

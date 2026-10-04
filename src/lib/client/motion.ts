@@ -1,10 +1,9 @@
 /**
  * The motion tokens in `app.css`, for Svelte transitions and `animate:`.
  *
- * Svelte runs its own transitions in JavaScript and takes an easing function
- * rather than a CSS curve, so the curves are solved here from the same four
- * numbers the stylesheet uses. A transition written with these and a CSS
- * transition written with the tokens move identically.
+ * Svelte's transitions take an easing function, not a CSS curve, so the curves
+ * are solved here from the four numbers the stylesheet uses, and both move
+ * identically.
  */
 import { afterNavigate } from '$app/navigation';
 import { onDestroy } from 'svelte';
@@ -69,14 +68,13 @@ export function motion(duration: number): number {
 
 /**
  * Brings a page's heading block in from left to right: each line is revealed
- * by a soft edge crossing it as it slides 0.5rem into place, one line after
- * another, 60ms apart; then the controls fade and slide in the same way.
+ * by a soft edge crossing it as it slides 0.5rem into place, 60ms apart, then
+ * the controls fade and slide in the same way.
  *
  * The reveal is a mask moved across the line (a gradient three times the
- * line's width, opaque, then fading, then clear), so it applies only to
- * `lines`, which must hold no glass: a mask on an ancestor of glass drops its
- * blur. `controls` may be glass themselves and get opacity and translate on
- * their own element, which leaves their blur alone.
+ * line's width: opaque, fading, clear), so it applies only to `lines`, which
+ * must hold no glass: a mask on an ancestor of glass drops its blur.
+ * `controls` may be glass and get opacity and translate on their own element.
  *
  * Returns a function that cancels whatever is still running.
  */
@@ -162,20 +160,19 @@ function arrive(block: HTMLElement, withCover: boolean): () => void {
 
 /**
  * A page heading that sweeps in (`sweepIn`) whenever the page is reached by a
- * navigation, including from one page of its kind to another, which reuses
- * the component, and never on a server-rendered first paint. Called while
- * the component initialises; attach what it returns to the heading block.
+ * navigation, including between two pages of one kind, which reuses the
+ * component, and never on a server-rendered first paint. Called while the
+ * component initialises; attach what it returns to the heading block.
  *
  * The block's children are its lines, and the buttons and links inside its
- * `.actions` are its controls. A line holding glass (a rename form's buttons
- * and field) is left out of the sweep rather than masked, and the controls
- * are animated one by one rather than through a group around them, since
- * both a mask and opacity on an ancestor of glass drop its blur.
+ * `.actions` are its controls. A line holding glass (a rename form) is left
+ * out of the sweep, and the controls are animated one by one, since a mask or
+ * opacity on an ancestor of glass drops its blur.
  *
- * With it, the page's other parts arrive: the cover beside the heading fades
- * up from a blur (not when the sleeve has carried it in from a card: the
- * morph is its arrival), and the rows of the page's track list drop into
- * place from just above, one after another, 28ms apart for the first 14.
+ * The page's other parts arrive with it: the cover beside the heading fades
+ * up from a blur (unless the sleeve morph carried it in from a card), and the
+ * track list's rows drop into place from just above, 28ms apart for the first
+ * 14.
  */
 export function heroSweep(): (node: HTMLElement) => () => void {
 	let block: HTMLElement | null = null;
@@ -208,12 +205,12 @@ export function heroSweep(): (node: HTMLElement) => () => void {
 /*
  * ── The glyph in a pressed control ──────────────────────────────────────
  *
- * A press is answered on the icon itself, in a way that says what the control
- * did: skip throws its glyph the way the queue went and brings a fresh one in
- * from behind; shuffle turns its arrows over; repeat goes once round; a toggle
- * pops. The icon moves and the button does not, since a button in the player
- * sits on glass and the rules in `app.css` keep transforms off glass. Opacity
- * goes on the svg, which holds none.
+ * A press is answered on the icon, in a way that says what the control did:
+ * skip throws its glyph the way the queue went and brings a new one in from
+ * behind, shuffle turns its arrows over, repeat goes once round, a toggle
+ * pops. The icon moves and the button does not: a button in the player sits
+ * on glass, and `app.css` keeps transforms off glass. Opacity goes on the svg,
+ * which holds none.
  */
 
 /** The spring from `--ease-spring`, which a script cannot name as a variable. */

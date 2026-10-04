@@ -1,41 +1,43 @@
 /**
  * Getting Heddohon as an app, by whichever way suits the device.
  *
- * There are two kinds. The apps Heddohon ships with each release: a window
- * around this server for Windows (an installer and a portable .exe) and Linux
- * (an AppImage), and an APK for Android. And the page itself installed by the
- * browser, as a web app.
+ * There are two kinds: the apps shipped with each release (a window around
+ * this server for Windows, as an installer and a portable .exe, and Linux, as
+ * an AppImage, and an APK for Android), and the page installed by the browser
+ * as a web app.
  *
- *  - Windows and Linux are pointed at the release's files, in any browser.
- *    The browser's own install is no longer offered there.
- *  - Android is pointed at the APK, with the browser's install beside it
- *    where the browser offers one.
- *  - macOS, iPhone and iPad have no app of ours, so they keep the browser's:
- *    Chrome and Edge fire `beforeinstallprompt` once the manifest and the
- *    service worker qualify, and the event's `prompt()` opens their install
- *    dialog (only from a press, and once per event). Safari has no such
- *    event: on macOS 17 and later the page is added with File, Add to Dock,
- *    and on iPhone and iPad with Share, Add to Home Screen, so those get a
- *    line of instruction. Edge on a Mac gets a line for its own menu where
- *    the event has not come. Firefox there installs neither way and gets
- *    nothing.
+ *  - Windows and Linux are pointed at the release's files, in any browser,
+ *    and the browser's own install is not offered.
+ *  - Android is pointed at the APK, with the browser's install beside it where
+ *    the browser offers one.
+ *  - macOS, iPhone and iPad have no app of ours and keep the browser's. Chrome
+ *    and Edge fire `beforeinstallprompt` once the manifest and the service
+ *    worker qualify, and the event's `prompt()` opens their dialog (only from
+ *    a press, once per event). Safari has no such event: on macOS 17 and later
+ *    the page is added with File, Add to Dock, and on iPhone and iPad with
+ *    Share, Add to Home Screen, so those get a line of instruction. Edge on a
+ *    Mac gets a line for its own menu where the event has not come. Firefox
+ *    there installs neither way and gets nothing.
  *
  * `listen` runs from `hooks.client.ts`, before the first page renders: Chrome
  * fires the event once per page load, and a listener added when the layout
  * mounts can miss it.
  *
- * Whether the app is already in use is known several ways, none of them
- * complete. The page is running inside one of ours: the desktop app names
- * itself in its user agent, and the Android app opens the server with
- * `?app=android` and is the referrer of the page it opens. A reverse proxy's
- * sign-in page in between replaces the referrer, so both are read, and what
- * they say is kept in `sessionStorage` for the pages the tab loads afterwards.
- * The page is running as an installed web app (its display mode). The browser says the web app is installed (`getInstalledRelatedApps`, with
- * the manifest naming itself under `related_applications`; Chrome and Edge
- * only). Or this browser profile has done any of those before, which is kept
- * in `localStorage`: an installed web app and a tab of the same browser share
- * it, so a tab opened beside the app knows. An uninstall is not seen, so the
- * mark stays; Settings makes the offer whatever it says.
+ * Whether the app is already in use is known several ways, none complete:
+ *
+ *  - The page runs inside one of ours. The desktop app names itself in its
+ *    user agent, and the Android app opens the server with `?app=android` and
+ *    is the referrer of the page it opens. A reverse proxy's sign-in page
+ *    replaces the referrer, so both are read, and the answer is kept in
+ *    `sessionStorage` for the tab's later pages.
+ *  - The page runs as an installed web app (its display mode).
+ *  - The browser says the web app is installed (`getInstalledRelatedApps`,
+ *    with the manifest naming itself under `related_applications`; Chrome and
+ *    Edge only).
+ *  - This browser profile has done any of those before, kept in
+ *    `localStorage`, which an installed web app and a tab of the same browser
+ *    share. An uninstall is not seen, so the mark stays. Settings makes the
+ *    offer whatever it says.
  */
 
 /** Chrome's event, which TypeScript's DOM types do not have. */
@@ -104,9 +106,9 @@ function appRoute(): InstallRoute {
 /**
  * The browser from its user agent, where there is no event to go by. Other
  * browsers on iOS carry `CriOS`, `FxiOS` or `EdgiOS`, and Chromium on macOS
- * carries `Chrome`, so those are ruled out before Safari. iPadOS asks for
- * desktop sites and reports itself as a Mac, which only its touch points tell
- * apart. Add to Dock arrived in Safari 17. Edge on a desktop carries `Edg/`.
+ * carries `Chrome`, so those are ruled out before Safari. iPadOS reports
+ * itself as a Mac, told apart only by its touch points. Add to Dock arrived in
+ * Safari 17. Edge on a desktop carries `Edg/`.
  */
 function instructedRoute(): InstallRoute {
 	const ua = navigator.userAgent;

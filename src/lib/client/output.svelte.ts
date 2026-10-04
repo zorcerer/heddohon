@@ -2,23 +2,22 @@
  * Which audio output the player sends its sound to.
  *
  * `HTMLMediaElement.setSinkId` moves an element to another output, and the
- * player plays through two plain elements (see `player.svelte.ts`), so choosing
- * one is a call on each. What differs by browser is how the outputs are found:
+ * player plays through two elements (see `player.svelte.ts`), so choosing one
+ * is a call on each. How the outputs are found differs by browser:
  *
- *  - Firefox has a picker of its own, `mediaDevices.selectAudioOutput()`, which
+ *  - Firefox has its own picker, `mediaDevices.selectAudioOutput()`, which
  *    asks for no other permission. The button opens it.
  *  - Chrome and Edge list outputs by name only once the page may use the
- *    microphone. Until then the list holds the system default and nothing
- *    else, and a separate button asks for that permission. The stream it opens
- *    is stopped as soon as it is granted: nothing is recorded, and the
- *    microphone's in-use indicator shows for the moment of the request.
+ *    microphone. Until then the list holds the system default alone, and a
+ *    separate button asks for that permission. The stream it opens is stopped
+ *    as soon as it is granted: nothing is recorded, and the microphone's
+ *    in-use indicator shows for the moment of the request.
  *  - Safari and iOS have neither, and every browser withholds both on a page
  *    that is not https or localhost. The control is not shown there.
  *
- * The choice is kept in this browser's `localStorage`, as is the equaliser
- * (`processing.svelte.ts`). The rest of the settings follow the account
- * (`settings.ts`), but an output id is minted per browser and per site, so on
- * another computer it names nothing.
+ * The choice is kept in this browser's `localStorage`, as the equaliser is
+ * (`processing.svelte.ts`): an output id is minted per browser and per site,
+ * so on another computer it names nothing.
  */
 import { browser } from '$app/environment';
 import { player } from './player.svelte';
@@ -55,8 +54,8 @@ function write(output: Output) {
 
 /**
  * Forgets the output saved in this browser. Called from the sign-in page, so
- * the next account to sign in here is not moved to the previous one's
- * headset, and the device's name is not left behind after signing out.
+ * the next account here is not moved to the previous one's headset and the
+ * device's name does not outlast the sign-out.
  */
 export function forgetSavedOutput() {
 	write(DEFAULT_OUTPUT);
@@ -83,8 +82,8 @@ class AudioOutputs {
 	 * Detects support, lists what can be listed, and puts back the output this
 	 * browser used last. Called once the player has its elements.
 	 *
-	 * A saved output that is refused (Firefox forgets the grant at reload,
-	 * a Bluetooth device is off) leaves the sound on the default and the choice
+	 * A saved output that is refused (Firefox forgets the grant at reload, a
+	 * Bluetooth device is off) leaves the sound on the default and the choice
 	 * saved, so it applies again when the device is there and picked.
 	 */
 	async init() {
@@ -111,8 +110,8 @@ class AudioOutputs {
 		try {
 			const devices = await navigator.mediaDevices.enumerateDevices();
 			// Chrome adds "default" and "communications" entries that stand for
-			// whichever real device the system has in those roles. The default is
-			// offered as its own chip, and a music player has no use for the other.
+			// whichever device has those roles. The default has its own chip, and
+			// the other is not offered.
 			const outputs = devices
 				.filter((device) => device.kind === 'audiooutput' && device.deviceId && !['default', 'communications'].includes(device.deviceId))
 				.map((device) => ({ id: device.deviceId, label: device.label }));
@@ -148,10 +147,7 @@ class AudioOutputs {
 		}
 	}
 
-	/**
-	 * Chrome and Edge: asks for the microphone so the outputs have names, and
-	 * closes the stream the moment it opens.
-	 */
+	/** Chrome and Edge: asks for the microphone so the outputs have names, and closes the stream as it opens. */
 	async nameOutputs() {
 		this.problem = null;
 		this.listing = true;
@@ -172,11 +168,11 @@ class AudioOutputs {
 /**
  * Why the microphone request failed, in terms of what to do about it.
  *
- * One sentence covered every refusal, and on a computer without a microphone
- * Chrome refuses at once, with no prompt, so pressing "List outputs" appeared
- * to do nothing. The cases are told apart by the error Chrome reports and by
- * whether the page's Permissions-Policy allows the microphone: a reverse proxy
- * that adds its own `microphone=()` refuses it the same way a user does.
+ * On a computer without a microphone Chrome refuses at once, with no prompt,
+ * so "List outputs" appeared to do nothing under one sentence for every
+ * refusal. The cases are told apart by the error Chrome reports and by whether
+ * the page's Permissions-Policy allows the microphone: a reverse proxy that
+ * adds its own `microphone=()` refuses it as a user does.
  */
 function refusal(err: unknown): string {
 	const name = (err as DOMException)?.name;

@@ -4,12 +4,12 @@
  * correction ahead of them.
  *
  * Kept in this browser's `localStorage`, like the audio output, and not in the
- * account's settings: an equaliser corrects the headphones or speakers it is
- * set for, and those differ from one device to the next.
+ * account's settings: an equaliser is set for one device's headphones or
+ * speakers.
  *
- * Off by default. Turning it on routes the player's two audio elements
- * through a graph at once; turning it off takes effect at the next page load,
- * since an element cannot be taken out of a graph again (`audiochain.ts`).
+ * Off by default. Turning it on routes the player's two audio elements through
+ * a graph at once. Turning it off applies at the next page load, since an
+ * element cannot leave a graph (`audiochain.ts`).
  */
 import { browser } from '$app/environment';
 import { MAX_CORRECTION_BYTES, parseParametricEq, sanitizeCorrection, type CorrectionProfile } from '$lib/autoeq';
@@ -81,10 +81,10 @@ class AudioProcessing {
 	correction = $state<SavedCorrection | null>(null);
 	/**
 	 * Whether the ten bands are set aside: a headphone correction is in use.
-	 * The correction is worked out for a flat signal ahead of it, preamp
-	 * included, and bands on top of it would move the result off its target
-	 * and could take it past full scale. The bands keep their values and come
-	 * back when the correction is removed.
+	 * The correction, preamp included, is worked out for a flat signal, and
+	 * bands on top would move the result off its target and could take it past
+	 * full scale. The bands keep their values and return when the correction is
+	 * removed.
 	 */
 	bandsOff = $derived(this.correction !== null);
 	/** The preset the bands match, or null for bands set by hand. */
@@ -138,8 +138,8 @@ class AudioProcessing {
 	}
 
 	/**
-	 * Reads a ParametricEQ.txt chosen in Settings. False when it holds no
-	 * filter that can be used, and the correction in place is kept.
+	 * Reads a ParametricEQ.txt chosen in Settings. False when it holds no usable
+	 * filter, and the correction in place is kept.
 	 */
 	async importCorrection(file: File): Promise<boolean> {
 		if (file.size > MAX_CORRECTION_BYTES) return false;
@@ -159,9 +159,9 @@ class AudioProcessing {
 	}
 
 	/**
-	 * Asks the database again for the chosen profile once it is a day old, so
-	 * a measurement revised upstream replaces the copy kept here. A failure
-	 * keeps the copy. Called where the database is on (`+layout.svelte`).
+	 * Asks the database again for the chosen profile once it is a day old, so a
+	 * measurement revised upstream replaces the copy kept here. A failure keeps
+	 * the copy. Called where the database is on (`+layout.svelte`).
 	 */
 	async refreshCorrection() {
 		const held = this.correction;
