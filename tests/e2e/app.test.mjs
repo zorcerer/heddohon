@@ -2069,6 +2069,22 @@ describe('links to albums and playlists', () => {
 		assert.equal(preview.status, 200);
 		assert.equal(preview.headers.get('content-type'), 'image/png');
 
+		// A search engine is told to keep the page out of its index. A fetcher
+		// that draws a preview is not: told the same, Discord drew none.
+		assert.equal(response.headers.get('x-robots-tag'), 'noindex, nofollow');
+		assert.match(html, /<meta name="robots" content="noindex, nofollow"/);
+		const asDiscord = await visitor.request(made.body.path, {
+			headers: { accept: 'text/html', 'user-agent': 'Mozilla/5.0 (compatible; Discordbot/2.0; +https://discordapp.com)' }
+		});
+		assert.equal(asDiscord.headers.get('x-robots-tag'), null);
+		const drawn = await asDiscord.text();
+		assert.doesNotMatch(drawn, /name="robots"/);
+		assert.match(drawn, /property="og:title" content="Album 5"/);
+		// And it may fetch the page: robots.txt answers without a session, and allows shared links only.
+		const robots = await fetch(`${app.url}/robots.txt`, { redirect: 'manual' });
+		assert.equal(robots.status, 200);
+		assert.match(await robots.text(), /^User-agent: \*\nAllow: \/share\/\nDisallow: \/$/m);
+
 		const status = async (path) => (await visitor.request(made.body.path + path)).status;
 		assert.equal(await status('/stream/0'), 200);
 		assert.equal(await status('/stream/1'), 200);

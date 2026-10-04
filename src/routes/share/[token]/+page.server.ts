@@ -29,14 +29,27 @@ function clip(text: unknown, length = 300): string | null {
 	return text === null || text === undefined ? null : String(text).slice(0, length);
 }
 
-export const load: PageServerLoad = async ({ locals, params, setHeaders, url }) => {
+/**
+ * The fetchers that draw a preview of a pasted link, by the name each sends:
+ * Discord, Slack, Telegram, WhatsApp (which Signal also sends), Facebook's
+ * (which iMessage also sends), X, LinkedIn and Mastodon.
+ *
+ * The page tells every other reader not to index it. Told the same, Discord
+ * drew no preview of a link whose page had every tag it reads: reported on
+ * 2026-10-04, with the page answering in 250ms and the cover in 350ms. These
+ * keep no index to be left out of, so the instruction is not sent to them.
+ */
+const PREVIEWERS = /Discordbot|Slackbot|TelegramBot|WhatsApp|facebookexternalhit|Twitterbot|LinkedInBot|Mastodon/i;
+
+export const load: PageServerLoad = async ({ locals, params, request, setHeaders, url }) => {
 	const cfg = config();
 
-	// A link is a bearer token in a URL. Nothing about this page is for a crawler
-	// or a cache, and the hook already sends `private, no-store`.
-	setHeaders({ 'x-robots-tag': 'noindex, nofollow' });
+	// A link is a bearer token in a URL. Nothing about this page is for a search
+	// engine or a cache, and the hook already sends `private, no-store`.
+	const indexable = PREVIEWERS.test(request.headers.get('user-agent') ?? '');
+	if (!indexable) setHeaders({ 'x-robots-tag': 'noindex, nofollow' });
 
-	const base = { appName: cfg.appName };
+	const base = { appName: cfg.appName, noindex: !indexable };
 	if (!cfg.sharing) return { ...base, state: 'disabled' as const };
 	const access = await shareAccess(params.token);
 	if (!access) return { ...base, state: 'gone' as const };

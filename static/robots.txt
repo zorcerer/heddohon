@@ -1,0 +1,6 @@
+# Everything here is behind a sign-in except a shared link, which says for
+# itself whether it may be indexed (it may not). A crawler that draws a
+# preview of a pasted link, as Discord does, reads this file first.
+User-agent: *
+Allow: /share/
+Disallow: /
