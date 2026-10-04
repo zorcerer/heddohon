@@ -18,11 +18,10 @@ import { logKeepDays } from '$lib/server/logfile';
 import { keepCoversFilled } from '$lib/server/coverfill';
 
 /**
- * Routes reachable without a session. Everything else requires one.
+ * Routes reachable without a session.
  *
- * `/share` is here so that a song link opens for someone without an account.
- * Every route under it resolves the token itself and serves the one song the
- * link names, and nothing under it accepts a write. See `lib/server/shares.ts`.
+ * Every route under `/share` resolves the token itself, serves the one song
+ * the link names and accepts no write. See `lib/server/shares.ts`.
  */
 const PUBLIC_ROUTES = ['/login', '/healthz', '/share', '/cast', '/together', '/manifest.webmanifest', '/.well-known/assetlinks.json'];
 
@@ -33,10 +32,9 @@ function isPublic(pathname: string): boolean {
 }
 
 /**
- * Applied to every response, including the ones that return before `resolve`.
- * Those early exits — the config 500, the CSRF 403, the 401 — used to ship bare,
- * which is exactly the set an attacker probes first. The list and the reasons
- * for it are in `lib/headers.ts`.
+ * Applied to every response, including those that return before `resolve`
+ * (the config 500, the CSRF 403, the 401). The list and its reasons are in
+ * `lib/headers.ts`.
  */
 function harden(headers: Headers): void {
 	for (const [name, value] of Object.entries(SECURITY_HEADERS)) headers.set(name, value);
@@ -45,15 +43,12 @@ function harden(headers: Headers): void {
 		headers.set('content-security-policy', FALLBACK_HTML_CSP);
 	}
 
-	// Every response here is either a signed-in user's own data or an error. The
-	// media routes set their own `private, max-age=...` and keep it; everything
-	// else had no caching header at all, which leaves a shared proxy or CDN free
-	// to apply heuristic caching to a page carrying one account's username,
-	// library and playlists and hand it to the next requester.
+	// The media routes set their own `private, max-age=...`. Anything else
+	// carries one account's data, and with no caching header a shared proxy or
+	// CDN may cache it heuristically and serve it to the next requester.
 	if (!headers.has('cache-control')) headers.set('cache-control', 'private, no-store');
 
-	// The session cookie is what distinguishes one user's copy from another's.
-	// Without this, two accounts sharing a browser profile read each other's
+	// Without this, two accounts in one browser profile read each other's
 	// cached covers and streams by URL.
 	headers.set('vary', headers.has('vary') ? `${headers.get('vary')}, Cookie` : 'Cookie');
 }
@@ -68,16 +63,13 @@ function sealed(body: string, status: number, contentType: string): Response {
 }
 
 /**
- * The gate's own redirects, with the hardening headers.
- *
- * These were thrown with `redirect()`, which SvelteKit answers outside this
- * handle, so the one response every anonymous visitor to a private page got
- * carried none of the headers `harden` sets.
+ * The gate's own redirects, with the hardening headers. A thrown `redirect()`
+ * is answered by SvelteKit outside this handle, without them.
  */
 function sealedRedirect(event: RequestEvent, location: string): Response {
 	// A client-side navigation asks for `__data.json`, and SvelteKit turns a
 	// thrown redirect into the JSON its router follows. A bare 303 there would
-	// hand the router the login page's HTML, so those keep the thrown form.
+	// give the router the login page's HTML.
 	if (event.isDataRequest) redirect(303, location);
 	const response = new Response(null, { status: 303, headers: { location } });
 	harden(response.headers);
@@ -85,11 +77,8 @@ function sealedRedirect(event: RequestEvent, location: string): Response {
 }
 
 /**
- * What is running, printed once.
- *
- * On the first request rather than at module load: the module is evaluated
- * during the build as well, where there is no configuration to describe and
- * nobody to read it.
+ * What is running, printed once, on the first request. The module is also
+ * evaluated during the build, where there is no configuration.
  */
 let announced = false;
 
@@ -111,9 +100,8 @@ function announce(): void {
 			database: cfg.database.kind === 'postgres' ? `postgres=${cfg.database.label}` : 'sqlite',
 			sessionHours: cfg.sessionMaxHours,
 			cookieSecure: String(cfg.cookieSecure),
-			// The upstream host is the one thing kept off the wire; this is the
-			// operator's own log, and a deployment pointed at the wrong music
-			// server is the first thing they need to see.
+			// The upstream host is kept off the wire, not out of the operator's
+			// log: a deployment pointed at the wrong music server shows here.
 			upstreams: cfg.upstreams.map((up) => `${up.kind}=${new URL(up.url).host}`).join(',') || 'none'
 		});
 	} catch (err) {
@@ -122,10 +110,9 @@ function announce(): void {
 }
 
 /**
- * What counts as slow enough to stand out at the default level. This is the
- * time to a response object rather than to the last byte, so a track that
- * streams for four minutes is not slow; a page that took four seconds to build
- * is. `HEDDOHON_LOG_SLOW_MS=0` switches the distinction off.
+ * The threshold for a `request-slow` line at the default level, measured to
+ * the response object and not to the last byte, so a four-minute stream is not
+ * slow. `HEDDOHON_LOG_SLOW_MS=0` switches it off.
  */
 const slowMs = (() => {
 	const raw = Number(process.env.HEDDOHON_LOG_SLOW_MS);
@@ -133,17 +120,12 @@ const slowMs = (() => {
 })();
 
 /**
- * The per-request line, and what it costs.
+ * The per-request line is written at debug only.
  *
- * Writing one line for every request measured at 7 to 11 percent of throughput:
- * 636 to 709 requests per second on cached covers, 691 to 739 on the play-state
- * endpoint. A library page opens dozens of covers at once, so that is paid
- * dozens of times per page. It is worth having while working out why something
- * is slow and not worth having the rest of the time, so it lives at debug.
- *
- * Everything below it is arranged so that at the default level this wrapper
- * does almost nothing: no per-request context, no field object built, and a
- * `try` whose only job is to notice a failure.
+ * One line per request cost 7 to 11 percent of throughput: 636 to 709 requests
+ * per second on cached covers, 691 to 739 on the play-state endpoint. At the
+ * default level this wrapper builds no per-request context and no field
+ * object.
  */
 export const handle: Handle = async (input) => {
 	announce();
@@ -165,8 +147,7 @@ export const handle: Handle = async (input) => {
 			throw err;
 		} finally {
 			const ms = timed ? Math.round(performance.now() - started) : undefined;
-			// A failure, a slow request, or a trace. Nothing else is written, and
-			// nothing else is built.
+			// A failure, a slow request, or a trace. Nothing else is built.
 			if (failure || status >= 500 || traced || (ms !== undefined && ms >= slowMs && slowMs > 0)) {
 				const fields = {
 					method: event.request.method,
@@ -183,47 +164,34 @@ export const handle: Handle = async (input) => {
 		}
 	};
 
-	/*
-	 * The request id exists to tie a line written inside a backend adapter to the
-	 * request it belongs to, and those lines are all debug. Carrying an async
-	 * context through every await of every request to label lines nobody is
-	 * printing is a cost with no reader, so it is only established when they are.
-	 */
+	// The request id ties a backend adapter's lines to their request, and those
+	// lines are all debug, so the async context is set up only when tracing.
 	return traced ? withRequest({ id: newRequestId() }, run) : run();
 };
 
 const handleRequest: Handle = async ({ event, resolve }) => {
-	// Fail loudly and early on a misconfigured deployment rather than showing a
-	// login form that could never work.
+	// A misconfigured deployment fails here, before a login form that could
+	// never work.
 	try {
 		config();
 	} catch (err) {
-		// Anything that is not a ConfigError is not something this guard
-		// understands, and carrying on would serve a page built on a broken
-		// config. Fail closed.
+		// Fail closed on anything that is not a ConfigError.
 		if (!(err instanceof ConfigError)) throw err;
 
 		if (event.url.pathname === '/healthz') {
-			// The probe is the one path that has to keep working on a broken
-			// deployment: it is what reports `misconfigured` and turns the
-			// container's HEALTHCHECK red. It cannot go through the rest of this
-			// function to get there, though. Both the CSRF check and session
-			// resolution call config() themselves, so the error would be rethrown
-			// from inside them, past the route's own handler, and the probe would
-			// answer 500 with the generic upstream message and write an unhandled
-			// stack trace every HEALTHCHECK interval. Hand it straight to the route.
-			//
-			// Hardened on the way out like every other response. Returning the
-			// route's answer bare left the one response a broken deployment gives
-			// without any of the headers.
+			// The probe must work on a broken deployment: it reports
+			// `misconfigured` and fails the container's HEALTHCHECK. The CSRF
+			// check and session resolution below call config() themselves and
+			// would rethrow past the route's handler, so the probe would answer a
+			// generic 500 with a stack trace every interval. It goes straight to
+			// the route, hardened like every other response.
 			const response = await resolve(event);
 			harden(response.headers);
 			return response;
 		}
 
-		// The detail stays in the log. It names the offending variable *and its
-		// value*, and that value is usually the internal music-server address —
-		// the one thing this whole proxy design exists to keep off the wire.
+		// The detail stays in the log: it names the variable and its value, which
+		// is usually the internal music-server address.
 		log.error('config-invalid', { detail: err.message, path: redact(event.url.pathname) });
 		return sealed(
 			'Heddohon is not configured correctly. See the server log for which ' +
@@ -236,32 +204,24 @@ const handleRequest: Handle = async ({ event, resolve }) => {
 	/*
 	 * Cross-origin write protection.
 	 *
-	 * SvelteKit's built-in CSRF check only covers the content types an HTML form
-	 * can post cross-origin. A JSON request is not one of those, so it never gets
-	 * checked — and the JSON API is where every state-changing call lives,
-	 * including deleting a playlist from the music server.
+	 * SvelteKit's CSRF check covers only the content types an HTML form can
+	 * post, and every state-changing call here is JSON.
 	 *
-	 * This deliberately applies to *every* mutating request rather than to a path
-	 * prefix, and that is the whole point. It used to read
-	 * `event.url.pathname.startsWith('/api/')`, which was bypassable outright:
-	 * SvelteKit matches routes against the percent-decoded path while `event.url`
-	 * keeps the raw one, so `POST /%61pi/settings` reached the `/api/settings`
-	 * handler without the prefix ever matching. Verified before the fix — that
-	 * request returned 200 with `Origin: https://evil.example` and the write
-	 * landed. Any normalisation-based gate has the same shape of hole in it, so
-	 * there is no gate.
+	 * Every mutating request is checked, with no path condition. A check on
+	 * `event.url.pathname.startsWith('/api/')` was bypassed: SvelteKit matches
+	 * routes on the percent-decoded path while `event.url` keeps the raw one,
+	 * so `POST /%61pi/settings` with `Origin: https://evil.example` returned 200
+	 * and the write landed.
 	 *
 	 * A missing Origin is rejected too. Browsers send it on every non-GET/HEAD
-	 * request, so nothing legitimate loses out; allowing it would have left the
-	 * control in the caller's hands rather than ours.
+	 * request.
 	 */
 	if (MUTATING_METHODS.has(event.request.method)) {
 		const origin = event.request.headers.get('origin');
 		if (origin !== event.url.origin) {
-			// Worth a line of its own: a browser sends Origin on every mutating
-			// request, so this is either a deployment whose ORIGIN does not match
-			// the address it is served on, or a cross-origin write attempt. The
-			// two are told apart by whether the same origin appears every time.
+			// Either a deployment whose ORIGIN does not match the address it is
+			// served on (the same origin every time), or a cross-origin write
+			// attempt.
 			log.warn('cross-origin-blocked', {
 				method: event.request.method,
 				path: redact(event.url.pathname),
@@ -277,9 +237,7 @@ const handleRequest: Handle = async ({ event, resolve }) => {
 	}
 
 	// Every id in a path, before anything is looked up with it. SECURITY.md
-	// holds ids under 256 characters, and only the download route checked:
-	// lyrics, playlists and the album and artist pages sent any length on to
-	// the music server.
+	// holds ids under 256 characters, and only the download route checked.
 	if (Object.values(event.params).some((value) => value !== undefined && value.length >= 256)) {
 		return sealed('Not found', 404, 'text/plain; charset=utf-8');
 	}
@@ -290,9 +248,8 @@ const handleRequest: Handle = async ({ event, resolve }) => {
 	if (session) nameRequestUser(session.account.username);
 
 	if (!session && !isPublic(event.url.pathname)) {
-		// API and media endpoints must fail loudly. Redirecting them to the login
-		// page would hand an <audio> element or a fetch() a page of HTML with a
-		// 200 on it, which is far harder to debug than a plain 401.
+		// API and media endpoints get a 401. A redirect would give an <audio>
+		// element or a fetch() the login page's HTML with a 200.
 		const isApi =
 			event.url.pathname.startsWith('/api/') ||
 			event.request.headers.get('accept')?.includes('application/json');
@@ -310,15 +267,14 @@ const handleRequest: Handle = async ({ event, resolve }) => {
 	}
 
 	const response = await resolve(event, {
-		// The theme is server-known, so the correct palette is in the very first
-		// byte of HTML — no flash of the wrong theme on load.
+		// The theme is known on the server, so the first byte of HTML carries the
+		// right palette.
 		transformPageChunk: ({ html }) =>
 			html
 				.replace('data-theme="dark"', `data-theme="${event.locals.settings?.theme ?? DEFAULT_SETTINGS.theme}"`)
-				// The bars a phone paints around the page, in the theme's ground from
-				// the first byte as well: black bars above and below the light theme
-				// were the dark theme's. The manifest is asked for by theme, since it
-				// is fetched without a cookie and cannot know the account.
+				// The bars a phone paints around the page take the theme's ground
+				// too. The manifest is fetched without a cookie, so it is asked for
+				// by theme.
 				.replace(
 					'name="theme-color" content="#0b0c0f"',
 					`name="theme-color" content="${THEME_GROUND[event.locals.settings?.theme ?? DEFAULT_SETTINGS.theme]}"`
@@ -329,18 +285,16 @@ const handleRequest: Handle = async ({ event, resolve }) => {
 						? 'href="/manifest.webmanifest?theme=light"'
 						: 'href="/manifest.webmanifest"'
 				)
-				// Same reason as the theme: the scale is known on the server, so it
-				// is in the first byte rather than applied after hydration, which
-				// would resize the whole page in front of the reader.
+				// The scale and the font likewise: applied after hydration, they
+				// would resize the page in front of the reader.
 				.replace('data-scale="100"', `data-scale="${event.locals.settings?.uiScale ?? DEFAULT_SETTINGS.uiScale}"`)
 				.replace('data-font="manrope"', `data-font="${event.locals.settings?.font ?? DEFAULT_SETTINGS.font}"`)
 	});
 
 	harden(response.headers);
-	// A cast address is fetched by the receiver's own page, on another origin
-	// (a Chromecast's receiver app), and without a cookie; see `cast.ts`. The
-	// token in the path is the authority, so this one resource may be loaded
-	// and read cross-origin. Matched by route, not by a path prefix.
+	// A cast address is fetched cross-origin by a receiver (a Chromecast's
+	// receiver app) without a cookie; see `cast.ts`. The token in the path is
+	// the authority. Matched by route, not by a path prefix.
 	if (event.route.id === '/cast/[token]' && response.ok) {
 		response.headers.set('cross-origin-resource-policy', 'cross-origin');
 		response.headers.set('access-control-allow-origin', '*');
@@ -350,13 +304,10 @@ const handleRequest: Handle = async ({ event, resolve }) => {
 };
 
 export const handleError: HandleServerError = ({ error, status, event }) => {
-	// The request line records the status; this is the stack behind it, which is
-	// the one place a stack is worth the room it takes.
-	//
-	// Only for a fault on this side. A 400 for a malformed escape or a 405 for a
-	// POST to a page is the client's doing, and `/share` hands those to anyone
-	// without an account, so at error level each one was a stack trace an
-	// anonymous visitor could write into the log at will.
+	// The stack behind a 5xx. A 400 for a malformed escape or a 405 for a POST
+	// to a page is the client's doing, and `/share` gives those to anyone, so
+	// at error level an anonymous visitor could write stack traces into the log
+	// at will.
 	if (status >= 500) {
 		log.error('unhandled', { path: redact(event.url.pathname), detail: reason(error) });
 		console.error(redact(error instanceof Error ? (error.stack ?? error.message) : String(error)));
@@ -368,9 +319,8 @@ export const handleError: HandleServerError = ({ error, status, event }) => {
 			status === 404
 				? 'That page does not exist.'
 				: 'Something went wrong talking to the music server.',
-		// Only in development. In production this reached the error page verbatim,
-		// which turned any unhandled throw into free reconnaissance — a SQLite
-		// error names the data path, a fetch failure names the upstream.
+		// Development only. In production it reached the error page verbatim: a
+		// SQLite error names the data path, a fetch failure names the upstream.
 		detail: !import.meta.env.PROD && error instanceof Error ? error.message : undefined
 	};
 };

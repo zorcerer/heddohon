@@ -1,18 +1,17 @@
 /**
  * The tracks an account has played, for the history page.
  *
- * Neither music server keeps a log Heddohon could read: Subsonic's recent list
- * is of albums, and Jellyfin's `DatePlayed` is the last play of each item. So a
- * row is written here when a play passes the scrobble threshold, which the
- * player reports to `/api/playback` once per play. It is written whether or
- * not the account reports plays to the music server: it stays on this server,
- * and Settings clears it.
+ * Neither music server keeps a log to read: Subsonic's recent list is of
+ * albums, and Jellyfin's `DatePlayed` is each item's last play. A row is
+ * written here when a play passes the scrobble threshold, which the player
+ * reports to `/api/playback` once per play, whether or not the account reports
+ * plays upstream. It stays on this server, and Settings clears it.
  *
- * What the music server does keep, the last play of each song, can be brought
- * in once from Settings (`importPlays`), for the listening before Heddohon.
+ * The music server's last play of each song can be brought in once from
+ * Settings (`importPlays`).
  *
- * Plays through a shared link are not recorded. They are someone else
- * listening, and they reach no account's `/api/playback`.
+ * Plays through a shared link reach no account's `/api/playback` and are not
+ * recorded.
  */
 import { store } from './db';
 import type { Song } from '$lib/types';
@@ -20,9 +19,9 @@ import type { Song } from '$lib/types';
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
- * Plays kept per account, the oldest dropped first, by how long the account
- * keeps its history: 5000 for 90 days, 50,000 for a year, which is a year at
- * about 140 tracks a day, and no limit for 0, kept for good (the default).
+ * Plays kept per account, oldest dropped first, by how long the account keeps
+ * its history: 5000 for 90 days, 50,000 for a year (about 140 tracks a day),
+ * unlimited for 0 (the default).
  */
 function maxPlays(keepDays: number): number {
 	if (keepDays === 0) return Infinity;
@@ -38,9 +37,9 @@ export interface Play {
 /**
  * Records a play, and drops what is past either limit for the account.
  *
- * `song` is the track as the music server describes it now, kept with the
- * play so the stats page is a query over this table alone. A play recorded
- * without it (the lookup failed) still counts in the history and the totals.
+ * `song` is the track as the music server describes it now, kept with the play
+ * so the stats page reads this table alone. A play recorded without it (the
+ * lookup failed) still counts in the history and the totals.
  */
 export async function recordPlay(
 	accountId: string,
@@ -115,10 +114,10 @@ export async function clearHistory(accountId: string): Promise<number> {
 }
 
 /**
- * How far apart this server's record of a play and the music server's date
- * for it may be, beyond the song's length, and still be one play. Heddohon
- * records a play when it stops; Jellyfin dates it from the start, Navidrome
- * from the scrobble, which the player sends as it stops.
+ * How far apart, beyond the song's length, this server's record of a play and
+ * the music server's date for it may be and still be one play. Heddohon
+ * records a play when it stops, Jellyfin dates it from the start, and
+ * Navidrome from the scrobble, sent as the track stops.
  */
 const SAME_PLAY_SLACK_MS = 5 * 60 * 1000;
 
@@ -139,12 +138,11 @@ export interface ImportResult {
  * Adds the music server's last play of each song to the account's history:
  * one play per song, at the date the server kept (`getPlayedSongs`).
  *
- * A play the history already holds is skipped: one of the same song within
- * the song's length and `SAME_PLAY_SLACK_MS` of the date. That covers plays
- * made here and reported upstream, and running the import again, which
- * adds nothing. A play older than the account keeps history for is skipped
- * as well. `read` is the call to the music server. Null while an import for
- * the account is already running.
+ * Skipped: a play the history already holds (the same song within its length
+ * and `SAME_PLAY_SLACK_MS` of the date), which covers plays made here and a
+ * repeated import, and a play older than the account keeps history for. `read`
+ * is the call to the music server. Null while an import for the account is
+ * running.
  */
 export async function importPlays(
 	accountId: string,
@@ -193,9 +191,8 @@ export const STATS_PERIODS = ['month', 'quarter', 'year', 'all'] as const;
 export type StatsPeriod = (typeof STATS_PERIODS)[number];
 
 /**
- * The first moment a period covers: the last 30 or 90 days, the calendar
- * year so far (in UTC; the page is a summary, and the hour either side of
- * midnight on 1 January does not change it), or everything kept.
+ * The first moment a period covers: the last 30 or 90 days, the calendar year
+ * so far (in UTC), or everything kept.
  */
 export function periodStart(period: StatsPeriod, now = Date.now()): number {
 	if (period === 'month') return now - 30 * DAY_MS;
@@ -241,9 +238,8 @@ export interface ListeningStats {
 	newArtists: RankedArtist[];
 	/**
 	 * Plays by the hour they started in, as `[hours since the epoch, plays]`.
-	 * Hours rather than finished figures, since the hour of the day and the
-	 * day of the week are the listener's local ones, which the browser knows
-	 * and the server does not. A year is at most 8,784 entries.
+	 * The hour of the day and the day of the week are the listener's local
+	 * ones, which only the browser knows. A year is at most 8,784 entries.
 	 */
 	hours: [number, number][];
 }
@@ -358,24 +354,21 @@ export interface CalendarDate {
  * Albums played on `date` in the years before it, the most recent year first
  * and within a year the most played, for the "On this day" shelf.
  *
- * The date is the listener's, and `offsetMinutes` is their time zone's
- * distance ahead of UTC, both from the browser; the server knows neither. The
- * offset of today stands for the offset on this date in each earlier year,
- * which is the same wherever the daylight saving rules have not changed since.
- * A year in which the date does not fall (29 February) is skipped.
+ * The date and `offsetMinutes`, the listener's distance ahead of UTC, come
+ * from the browser. Today's offset stands for the offset on this date in each
+ * earlier year. A year without the date (29 February) is skipped.
  *
- * One range read of the account's index a year. Measured with SQLite on
- * 250,000 plays over five years (about 140 a day): 1ms for the five, where
- * one query with the five ranges joined by OR read the account's plays in
- * order and took 23ms.
+ * One range read of the account's index per year. With SQLite on 250,000 plays
+ * over five years (about 140 a day): 1ms for the five, where one query with
+ * the ranges joined by OR read the account's plays in order and took 23ms.
  */
 export async function onThisDay(accountId: string, date: CalendarDate, offsetMinutes: number, limit: number): Promise<RememberedAlbum[]> {
 	const database = await store();
 	const first = await database.get<{ at: number | null }>('SELECT MIN(played_at) AS at FROM plays WHERE account_id = ?', accountId);
 	if (first?.at == null) return [];
 	const years: number[] = [];
-	// From the year before the first play's in UTC, where it is still the
-	// year before in a time zone behind UTC.
+	// From the year before the first play's in UTC: in a time zone behind UTC
+	// it can still be that year.
 	for (let year = new Date(Number(first.at)).getUTCFullYear() - 1; year < date.year; year++) {
 		if (new Date(Date.UTC(year, date.month, date.day)).getUTCDate() === date.day) years.push(year);
 	}
@@ -436,14 +429,13 @@ const REDISCOVER_MIN_PLAYS = 3;
 
 /**
  * Albums the account played often and has not played for
- * `REDISCOVER_AFTER_DAYS`, most played first, for the "Rediscover" shelf.
- * An account that keeps 90 days of history has none.
+ * `REDISCOVER_AFTER_DAYS`, most played first, for the "Rediscover" shelf. An
+ * account that keeps 90 days of history has none.
  *
- * In two steps: the albums from `plays_album_idx` alone, then the name, artist
- * and cover of each from its latest play. Measured with SQLite on 250,000
- * plays of 3000 albums: 22ms, where one query that grouped the rows
- * themselves took 330ms, and better-sqlite3 holds the event loop for that
- * long on every load of the home page.
+ * In two steps: the albums from `plays_album_idx` alone, then each one's name,
+ * artist and cover from its latest play. With SQLite on 250,000 plays of 3000
+ * albums: 22ms, where one query grouping the rows took 330ms, and
+ * better-sqlite3 blocks the event loop for that long on every home page load.
  */
 export async function forgottenAlbums(accountId: string, limit: number, now = Date.now()): Promise<ForgottenAlbum[]> {
 	const database = await store();

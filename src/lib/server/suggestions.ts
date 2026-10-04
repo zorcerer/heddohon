@@ -4,14 +4,12 @@
  *
  * On Navidrome both come from its external agents (Last.fm and others), and on
  * Subsonic the album shelf is `getSimilarSongs2` folded into albums, so they
- * are usually the slowest reads on the page. What a service thinks is similar
- * to an album changes on the scale of months, and the shelf is loaded again on
- * every visit to the page.
+ * are usually the slowest reads on the page, and what they answer changes over
+ * months.
  *
- * The cost of the length is staleness in the library itself: an album removed
- * by a scan stays on a shelf until its entry expires, and opening it shows the
- * not-found page. The cards show no favourite state, so a star does not have
- * to drop anything here.
+ * An album removed by a scan stays on a shelf until its entry expires, and
+ * opening it shows the not-found page. The cards show no favourite state, so a
+ * star drops nothing here.
  *
  * `memo.ts` has how entries are held and shared.
  */
@@ -23,14 +21,13 @@ const SUGGESTION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 /**
  * An empty shelf is asked for again after an hour, so a server that gains an
- * agent or a similarity plugin (AudioMuse-AI) fills its shelves the same day
- * rather than a month later.
+ * agent or a similarity plugin (AudioMuse-AI) fills its shelves the same day.
  */
 const EMPTY_TTL_MS = 60 * 60 * 1000;
 
 /**
  * Entries held at once, oldest dropped first. A shelf is eight cards of a few
- * hundred bytes each, so 2000 entries is in the order of 10MB.
+ * hundred bytes each, so 2000 entries are about 10MB.
  */
 const MAX_SUGGESTIONS = 2000;
 

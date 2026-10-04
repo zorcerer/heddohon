@@ -1,23 +1,21 @@
 /**
  * Headphone corrections from the AutoEq database, for the equaliser.
  *
- * Off unless `HEDDOHON_AUTOEQ=true`. When on, this server fetches two things
- * from `HEDDOHON_AUTOEQ_URL` (by default the `results` directory of
- * jaakkopasanen/AutoEq on GitHub): the index of every profile, and the
- * ParametricEQ.txt of a profile someone chooses. The browser still talks only
- * to Heddohon. What the other host learns is this server's address and which
- * headphones were chosen.
+ * Off unless `HEDDOHON_AUTOEQ=true`. On, this server fetches from
+ * `HEDDOHON_AUTOEQ_URL` (by default the `results` directory of
+ * jaakkopasanen/AutoEq on GitHub) the index of every profile and the
+ * ParametricEQ.txt of a profile someone chooses. That host learns this
+ * server's address and which headphones were chosen.
  *
  * The index is 852 KB of Markdown listing about 8,850 profiles. It is held in
- * memory and in `HEDDOHON_DATA_DIR`, and asked for again once it is a day
- * old, with `If-None-Match`, so an unchanged index costs one 304. That is how
- * a headphone measured after this version was built shows up without a new
- * release. A fetch that fails leaves the copy held in use.
+ * memory and in `HEDDOHON_DATA_DIR`, and asked for again once a day old with
+ * `If-None-Match`, so an unchanged index costs one 304. A failed fetch leaves
+ * the held copy in use.
  *
- * A profile is fetched only by an id that is in the index, so nothing a
- * request carries reaches the upstream URL as free text. What comes back is
- * parsed into numbers (`$lib/autoeq`), each held to a range; none of the text
- * is passed on. Redirects are refused and both bodies are capped.
+ * A profile is fetched only by an id in the index, so no free text from a
+ * request reaches the upstream URL. The answer is parsed into numbers
+ * (`$lib/autoeq`), each held to a range. Redirects are refused and both bodies
+ * are capped.
  */
 import { readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -31,10 +29,9 @@ const TIMEOUT_MS = 10_000;
 const MAX_INDEX_BYTES = 4 * 1024 * 1024;
 const MAX_ENTRIES = 20_000;
 /**
- * An entry is about 100 characters. A longer line is not one, and is not put
- * to the pattern below: on a line of `](./` repeated it backtracks in the
- * square of the length (242 ms for 32 KB, an hour for the 4 MB the index may
- * be), with the process doing nothing else.
+ * An entry is about 100 characters. A longer line is not put to the pattern
+ * below: on a line of `](./` repeated it backtracks in the square of the
+ * length (242 ms for 32 KB, an hour for the 4 MB the index may be).
  */
 const MAX_LINE = 1000;
 const INDEX_TTL_MS = 24 * 60 * 60 * 1000;
@@ -121,7 +118,7 @@ function plainPath(id: string): boolean {
 	return id.length <= 300 && segments.length >= 2 && !segments.some((part) => part === '' || part === '.' || part === '..');
 }
 
-/** The index as it was last stored, with each entry checked again: the file is on disk, where it can be edited. */
+/** The index as last stored, each entry checked again: the file on disk can be edited. */
 async function readStored(): Promise<Index | null> {
 	try {
 		const stored = JSON.parse(await readFile(join(config().dataDir, INDEX_FILE), 'utf8')) as {
@@ -165,7 +162,7 @@ async function get(url: string, headers: Record<string, string> = {}): Promise<R
 	});
 }
 
-/** The body as text, refused past `limit` bytes while it is still arriving; see `readCapped` in `lrclib.ts`. */
+/** The body as text, refused past `limit` bytes as it arrives; see `readCapped` in `lrclib.ts`. */
 async function readCapped(response: Response, limit: number): Promise<string> {
 	const declared = Number(response.headers.get('content-length'));
 	if (Number.isFinite(declared) && declared > limit) throw new Error('AutoEq response over the size cap');
@@ -212,7 +209,7 @@ async function refresh(base: string, current: Index | null): Promise<Index | nul
 	}
 }
 
-/** The index, from memory, from the data directory, or fetched; null when it is off or there is none to serve. */
+/** The index from memory, from the data directory, or fetched. Null when off or unavailable. */
 async function index(): Promise<Index | null> {
 	const base = config().autoeqUrl;
 	if (!base) return null;

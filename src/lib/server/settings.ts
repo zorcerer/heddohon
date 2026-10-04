@@ -1,9 +1,6 @@
 /**
- * Per-account preferences and playback state, stored server-side.
- *
- * Nothing here lives in localStorage: settings follow the account, so signing
- * in from a different browser gives the same player, and an operator wiping a
- * client device does not lose anyone's configuration.
+ * Per-account preferences and playback state. Stored on the server, not in
+ * localStorage, so they follow the account to every browser.
  */
 import { now, store } from './db';
 import type { AlbumSort } from '$lib/types';
@@ -11,21 +8,16 @@ import type { AlbumSort } from '$lib/types';
 export type ThemeName = 'dark' | 'light';
 
 /**
- * Themes used to be named after the Nord palette they were drawn from. The
- * palette is gone, but accounts settled before the rename still have the old
- * value stored against them, and the sanitiser would otherwise treat it as
- * unknown and quietly put everyone back on the default — so a light-theme user
- * would find themselves in the dark one with no explanation.
+ * Themes were once named after the Nord palette. Accounts from before the
+ * rename hold the old value, which would otherwise be sanitised to the
+ * default: a light-theme user put on the dark one.
  */
 const LEGACY_THEMES: Record<string, ThemeName> = { polar: 'dark', snow: 'light' };
 type CrossfadeMode = 'off' | 'gapless' | 'crossfade';
 
 /**
- * Codecs a music server may be asked to transcode to.
- *
- * Three, all of which Navidrome ships a converter for out of the box and
- * Jellyfin can produce. Anything else would be a setting that silently does
- * nothing on most installations.
+ * Codecs a music server may be asked to transcode to: the three Navidrome
+ * ships a converter for and Jellyfin can produce.
  */
 const TRANSCODE_CODECS = ['mp3', 'opus', 'aac'] as const;
 type TranscodeCodec = (typeof TRANSCODE_CODECS)[number];
@@ -38,33 +30,28 @@ export interface UserSettings {
 	/** 0…1, applied to the audio element. */
 	volume: number;
 	/**
-	 * How consecutive tracks are joined: `off` cuts straight from one to the
-	 * next with no pre-buffering, `gapless` buffers ahead so the cut does not
-	 * wait on the network, `crossfade` overlaps them for `crossfadeSeconds`.
+	 * How consecutive tracks are joined: `off` cuts with no pre-buffering,
+	 * `gapless` buffers ahead so the cut does not wait on the network,
+	 * `crossfade` overlaps them for `crossfadeSeconds`.
 	 */
 	transition: CrossfadeMode;
 	/** Overlap length, 1–12s. Only read when `transition` is `crossfade`. */
 	crossfadeSeconds: number;
 	/**
-	 * Whether a crossfade also overlaps two tracks that follow each other on the
-	 * same album. Off by default: those get the tight handoff, since a live
-	 * album or a mix is written to run from one track into the next.
+	 * Whether a crossfade also overlaps consecutive tracks of one album. Off by
+	 * default: a live album or a mix runs from one track into the next.
 	 */
 	crossfadeWithinAlbum: boolean;
-	/** Level each track by its ReplayGain data. Off by default: it changes how loud a record plays. */
+	/** Level each track by its ReplayGain data. */
 	normalizeVolume: boolean;
 	/** Send now-playing / scrobble events upstream. */
 	reportPlayback: boolean;
-	/**
-	 * How long the listening history is kept, in days: 90, 365, or 0 for as
-	 * long as the account exists, the default. See `history.ts`.
-	 */
+	/** Days the listening history is kept, or 0 for as long as the account exists. See `history.ts`. */
 	historyDays: 0 | 90 | 365;
 	/**
-	 * The aurora behind the glass: drifting, held still, or not drawn. Moving,
-	 * it is a layer under every glass surface that changes three times a
-	 * second, and each of them draws its blur again when it does. Off by
-	 * default, and then not in the page at all. See `.aurora` in app.css.
+	 * The aurora behind the glass. Moving, it changes three times a second and
+	 * every glass surface above redraws its blur. Off, it is not in the page.
+	 * See `.aurora` in app.css.
 	 */
 	aurora: 'moving' | 'still' | 'off';
 	/** Show the technical badge (FLAC 24/96) beside the transport. */
@@ -72,48 +59,39 @@ export interface UserSettings {
 	/** Grid density on library pages. */
 	gridSize: 'compact' | 'comfortable' | 'roomy';
 	/**
-	 * Interface scale, as a percentage. Applied as the root font-size, which
-	 * every length in the interface is written against.
-	 *
-	 * Defaults to 100 rather than to a larger number: the first implementation
-	 * used `zoom` and pushed the player off the edge of an iPad, so the default
-	 * is the setting known to be right everywhere and the rest are opt-in.
+	 * Interface scale, as a percentage, applied as the root font-size. The
+	 * first implementation used `zoom` and pushed the player off the edge of an
+	 * iPad.
 	 */
 	uiScale: '100' | '110' | '125' | '150' | '175';
 	/**
-	 * The typeface for the interface, from a short list of self-hosted faces
-	 * plus the device's own. Written on the root by the server, like the theme.
-	 * See `[data-font]` in app.css.
+	 * The interface typeface: a self-hosted face or the device's own. Written
+	 * on the root by the server, like the theme. See `[data-font]` in app.css.
 	 */
 	font: 'manrope' | 'inter' | 'geist' | 'plex' | 'atkinson' | 'system';
 	/** Preload the next track's first bytes while the current one plays. */
 	preloadNext: boolean;
 	defaultAlbumSort: AlbumSort;
 	/**
-	 * Ask the music server to transcode, rather than sending the file as it is.
-	 *
-	 * Off by default, and off is the point of the player. It is here for the
-	 * cases where the original cannot be afforded: a phone on mobile data, a
-	 * connection that will not carry a 24/192 master, a browser that cannot
-	 * decode the file at all. The quality badge in the player toggles it, so it
-	 * can be turned on for one album and off again without opening settings.
+	 * Ask the music server to transcode instead of sending the file as it is,
+	 * for mobile data, a slow connection or a browser that cannot decode the
+	 * file. The quality badge in the player toggles it.
 	 */
 	transcode: boolean;
 	transcodeCodec: TranscodeCodec;
-	/** kbps. What the music server is asked for; it may cap it lower. */
+	/** kbps asked of the music server, which may cap it lower. */
 	transcodeBitrateKbps: number;
 	/**
-	 * Whether the card suggesting the app be installed was dismissed. Kept on
-	 * the account, so a dismissal on one device holds on the others; Settings
-	 * still offers the install. See `InstallCard.svelte`.
+	 * Whether the install card was dismissed. Kept on the account, so it holds
+	 * on every device. See `InstallCard.svelte`.
 	 */
 	installCardDismissed: boolean;
 }
 
 /**
  * Each theme's ground, `--bg-base` in app.css, for what is painted before the
- * stylesheet is read: `theme-color` in the served page, and the manifest's
- * colours, which an installed app's splash screen and bars are drawn in.
+ * stylesheet loads: `theme-color` in the served page and the manifest's
+ * colours.
  */
 export const THEME_GROUND: Record<ThemeName, string> = { dark: '#0b0c0f', light: '#f0e7d5' };
 
@@ -139,8 +117,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
 	installCardDismissed: false
 };
 
-/** The sorts the album list actually implements. Kept here so the stored
-    preference cannot name one that does not exist. */
+/** The sorts the album list implements, so a stored preference cannot name another. */
 const ALBUM_SORTS = [
 	'recentlyAdded',
 	'recentlyPlayed',
@@ -156,7 +133,7 @@ function clamp(value: number, min: number, max: number, fallback: number): numbe
 	return Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : fallback;
 }
 
-/** Accepts anything, returns something valid. Never trusts the client payload. */
+/** Returns valid settings from any input. The client payload is not trusted. */
 function sanitizeSettings(input: unknown, base: UserSettings = DEFAULT_SETTINGS): UserSettings {
 	const raw = (typeof input === 'object' && input !== null ? input : {}) as Record<string, unknown>;
 	const pick = <T extends string>(key: keyof UserSettings, allowed: readonly T[], fallback: T): T => {
@@ -168,9 +145,8 @@ function sanitizeSettings(input: unknown, base: UserSettings = DEFAULT_SETTINGS)
 		theme: pick(
 			'theme',
 			['dark', 'light'] as const,
-			// `hasOwnProperty`, not a bare index: `{ theme: 'constructor' }` walks
-			// the prototype chain and hands back a function, which is not a theme
-			// name and has no business reaching the HTML transform.
+			// `hasOwnProperty`, not a bare index: `{ theme: 'constructor' }` would
+			// return a function from the prototype chain.
 			Object.prototype.hasOwnProperty.call(LEGACY_THEMES, String(raw.theme))
 				? LEGACY_THEMES[String(raw.theme)]
 				: base.theme
@@ -188,19 +164,15 @@ function sanitizeSettings(input: unknown, base: UserSettings = DEFAULT_SETTINGS)
 		showQualityBadge:
 			typeof raw.showQualityBadge === 'boolean' ? raw.showQualityBadge : base.showQualityBadge,
 		gridSize: pick('gridSize', ['compact', 'comfortable', 'roomy'] as const, base.gridSize),
-		// Allowlisted like the theme: this value is interpolated into the served
-		// HTML, so it must never be an arbitrary string from the request body.
+		// Allowlisted like the theme: interpolated into the served HTML.
 		uiScale: pick('uiScale', ['100', '110', '125', '150', '175'] as const, base.uiScale),
 		font: pick('font', ['manrope', 'inter', 'geist', 'plex', 'atkinson', 'system'] as const, base.font),
 		preloadNext: typeof raw.preloadNext === 'boolean' ? raw.preloadNext : base.preloadNext,
-		// Allowlisted rather than "any string": this value is stored per account and
-		// later used as a lookup key against the backends' sort maps.
+		// Allowlisted: used as a lookup key against the backends' sort maps.
 		defaultAlbumSort: pick('defaultAlbumSort', ALBUM_SORTS, base.defaultAlbumSort as AlbumSort),
 		transcode: typeof raw.transcode === 'boolean' ? raw.transcode : base.transcode,
-		// Both of these reach an upstream URL, so neither may be an arbitrary
-		// string or number from a request body: one is allowlisted and the other
-		// is matched against the offered set rather than clamped, so a value
-		// between two steps cannot be stored.
+		// Both reach an upstream URL. The codec is allowlisted, and the bitrate
+		// is matched against the offered set, not clamped.
 		transcodeCodec: pick('transcodeCodec', TRANSCODE_CODECS, base.transcodeCodec),
 		transcodeBitrateKbps: (TRANSCODE_BITRATES as readonly number[]).includes(
 			Number(raw.transcodeBitrateKbps)
@@ -213,9 +185,8 @@ function sanitizeSettings(input: unknown, base: UserSettings = DEFAULT_SETTINGS)
 }
 
 /*
- * Settings are read on every request, like the session, so on PostgreSQL they
- * are remembered for five seconds per account and dropped the moment they are
- * saved. See the session cache in auth.ts for why five and why not on SQLite.
+ * Read on every request, so on PostgreSQL settings are remembered for five
+ * seconds per account and dropped when saved. See the session cache in auth.ts.
  */
 const SETTINGS_CACHE_MS = 5000;
 const settingsCache = new Map<string, { settings: UserSettings; until: number }>();
@@ -226,8 +197,7 @@ export async function getSettings(accountId: string): Promise<UserSettings> {
 	if (cached && cached.until > now()) return { ...cached.settings };
 
 	const database = await store();
-	// As for sessions: a save that lands while this read is out must not be
-	// undone by caching what the read saw.
+	// As for sessions: a read that began before a save is not cached.
 	const epoch = settingsEpoch;
 	const row = await database.get<{ data: string }>('SELECT data FROM settings WHERE account_id = ?', accountId);
 	let settings: UserSettings;
@@ -259,8 +229,8 @@ export async function saveSettings(accountId: string, patch: unknown): Promise<U
 }
 
 /**
- * Removes an account's settings and saved queue, for an account row that has
- * passed to a different upstream user (see `storeAccount` in auth.ts).
+ * Removes an account's settings and saved queue, when its row passes to a
+ * different upstream user (see `storeAccount` in auth.ts).
  */
 export async function clearAccountState(accountId: string): Promise<void> {
 	const database = await store();
@@ -271,9 +241,8 @@ export async function clearAccountState(accountId: string): Promise<void> {
 }
 
 /**
- * The queue is persisted as ids plus a cursor, not as full track metadata:
- * metadata is always re-fetched from the music server so it cannot go stale,
- * and the stored row stays small.
+ * The queue is stored as ids and a cursor. Track metadata is fetched from the
+ * music server each time.
  */
 export interface PersistedPlayState {
 	songIds: string[];

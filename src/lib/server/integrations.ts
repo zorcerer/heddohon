@@ -2,23 +2,20 @@
  * Where an account's plays go besides the music server.
  *
  * - A Discord channel, through a webhook the account pastes in. Each play that
- *   counts is posted there as one message, with the cover attached.
- * - ListenBrainz, with a user token of the account's own. Each account links
- *   its own, on either music server. Navidrome can also scrobble there itself
- *   (`backends/navidrome.ts`), and both at once would send each play twice,
- *   so Settings refuses the one while the other is linked.
+ *   counts is posted as one message, with the cover attached.
+ * - ListenBrainz, with the account's own user token. Navidrome can also
+ *   scrobble there itself (`backends/navidrome.ts`), and both at once would
+ *   send each play twice, so Settings refuses one while the other is linked.
  *
  * Each is off until the operator turns it on (`HEDDOHON_DISCORD`,
- * `HEDDOHON_LISTENBRAINZ`), as every other request this server makes to a host
- * that is not the music server is. Turned on, it sends the title, artist and
- * album of what an account plays, and to Discord the cover, to a third party
- * the account chose. The account's user name is not sent.
+ * `HEDDOHON_LISTENBRAINZ`). On, it sends the title, artist and album of what
+ * an account plays, and to Discord the cover, to a third party the account
+ * chose. The user name is not sent.
  *
- * What an account pastes in is a secret: a webhook address posts to its
- * channel, and a token writes to its ListenBrainz profile. Both are sealed as
- * the music-server credential is, under a key of their own, and neither is
- * sent back to a browser. Settings shows the webhook's name or the
- * ListenBrainz user and nothing else.
+ * A webhook address posts to its channel and a token writes to its profile, so
+ * both are sealed as the music-server credential is, under their own key, and
+ * neither is sent back to a browser. Settings shows the webhook's name or the
+ * ListenBrainz user.
  *
  * Both follow "Report playback": with it off, nothing leaves.
  */
@@ -54,8 +51,8 @@ const MAX_BYTES = 16 * 1024;
  * `discordapp.com`, the test and canary hosts, with or without an API version.
  *
  * Only the id and the token are kept. The request goes to the operator's
- * `HEDDOHON_DISCORD_URL` with those two in the path, so nothing an account
- * types chooses the host this server connects to.
+ * `HEDDOHON_DISCORD_URL` with those two in the path, so an account does not
+ * choose the host this server connects to.
  */
 const WEBHOOK = /^https:\/\/(?:(?:ptb|canary)\.)?discord(?:app)?\.com\/api(?:\/v\d{1,2})?\/webhooks\/(\d{15,22})\/([A-Za-z0-9_-]{40,100})\/?$/;
 
@@ -65,18 +62,17 @@ const TOKEN = /^[A-Za-z0-9-]{1,128}$/;
 /**
  * A bucket of `burst` per account that regains one every `everyMs`.
  *
- * Every request below is made by this server, from its address, when an
- * account asks: a play reported to `/api/playback`, or a link in Settings.
- * Unlimited, one account's script could post to Discord as fast as it could
- * report plays, and Discord answers an address that sends it 10,000 refused
- * requests in 10 minutes by refusing that address for every account here.
+ * Every request below leaves from this server's address when an account asks.
+ * Unlimited, one account's script could post to Discord as fast as it reported
+ * plays, and Discord refuses an address that sends it 10,000 refused requests
+ * in 10 minutes, for every account here.
  */
 function limiter(burst: number, everyMs: number): (account: string) => boolean {
 	const buckets = new Map<string, { tokens: number; at: number }>();
 	return (account) => {
 		const now = Date.now();
-		// One entry an account. Past 5000 the map is emptied, which gives every
-		// account its burst back and keeps the map from growing without end.
+		// One entry per account. Past 5000 the map is emptied, which gives every
+		// account its burst back.
 		if (buckets.size > 5000) buckets.clear();
 		const bucket = buckets.get(account) ?? { tokens: burst, at: now };
 		bucket.tokens = Math.min(burst, bucket.tokens + (now - bucket.at) / everyMs);
@@ -153,8 +149,8 @@ export async function dropIntegrations(accountId: string): Promise<void> {
 
 /**
  * One request to Discord or ListenBrainz, or null when it did not answer.
- * Redirects are refused: neither API sends one, and a followed one would take
- * the token in the path or the header to wherever it pointed.
+ * Redirects are refused: neither API sends one, and following one would carry
+ * the token in the path or the header to its target.
  */
 async function call(url: string, init: RequestInit = {}): Promise<Response | null> {
 	try {
@@ -240,9 +236,9 @@ export async function linkListenBrainz(accountId: string, token: string): Promis
 }
 
 /**
- * Text from the library, written so Discord shows it as it is. Tags are
- * written by whoever can edit the library, and an embed renders Markdown: a
- * title of `[free](https://example.com)` became a link in the channel.
+ * Library text, escaped so Discord shows it as it is. An embed renders
+ * Markdown, and a title of `[free](https://example.com)` became a link in the
+ * channel.
  */
 function plain(text: string, length: number): string {
 	return text.replace(/[\\*_~`|>[\]()#-]/g, '\\$&').slice(0, length);
@@ -259,10 +255,8 @@ export interface CoverImage {
 }
 
 /**
- * The image types attached to a post, and the name each goes under. Discord
- * draws these four in an embed. The name is fixed here: nothing from the
- * library names a file. SVG is not on the list, as it is not in the cover
- * cache's.
+ * The image types attached to a post, and the fixed name each goes under.
+ * Discord draws these four in an embed. SVG is left out, as in the cover cache.
  */
 const ATTACHED: Record<string, string> = {
 	'image/jpeg': 'cover.jpg',
@@ -277,19 +271,16 @@ export const DISCORD_COVER_SIZE = 256;
 const MAX_ATTACHED_BYTES = 1024 * 1024;
 
 /**
- * One message a play. It does not name the account: the user name is what the
- * sign-in page accepts, and a channel can have many readers. The webhook has
- * a name of its own on Discord, which its owner chose, and the message is
- * posted under that.
+ * One message per play. It does not name the account: the user name is what
+ * the sign-in page accepts, and a channel can have many readers. The message
+ * is posted under the webhook's own name.
  */
 async function postToDiscord(account: Listener, link: DiscordLink, song: Song, cover: CoverImage | null): Promise<void> {
 	const base = config().discordUrl;
 	if (!base) return;
-	/*
-	 * The cover goes up with the message, as a file. Discord shows an image in
-	 * an embed from an address anyone can fetch or from an attachment, and a
-	 * cover here is behind a session, so there is no address to give it.
-	 */
+	// The cover is attached as a file. Discord shows an embed image from an
+	// address anyone can fetch or from an attachment, and a cover here is
+	// behind a session.
 	const filename = cover && cover.body.byteLength <= MAX_ATTACHED_BYTES ? ATTACHED[cover.type.split(';')[0].trim().toLowerCase()] : undefined;
 	const payload = JSON.stringify({
 		// Nobody is pinged by a tag: an artist called `@everyone` names nobody.
@@ -375,9 +366,8 @@ async function submitListen(
  * throw: neither service may hold up or fail the report of a play.
  *
  * `position` is how far into the track the play was counted, in seconds, which
- * puts the start of the listen that far back. `cover` reads the track's cover
- * and is called only for a post to Discord, after the limit on those: it can
- * be a request to the music server.
+ * dates the listen's start. `cover` reads the track's cover, possibly from the
+ * music server, and is called only for a Discord post that is within its limit.
  */
 export async function announcePlay(
 	account: Listener,
@@ -409,9 +399,8 @@ export async function announcePlay(
 }
 
 /**
- * A track that started, for ListenBrainz's "playing now". `song` is called
- * only where the account has ListenBrainz linked, since it is a request to the
- * music server that nothing else at a track's start needs.
+ * A track that started, for ListenBrainz's "playing now". `song` is a request
+ * to the music server, called only where the account has ListenBrainz linked.
  */
 export async function announceStart(account: Listener, song: () => Promise<Song | null>): Promise<void> {
 	try {

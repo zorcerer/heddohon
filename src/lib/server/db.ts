@@ -2,16 +2,13 @@
  * Persistence: accounts, sessions, settings, play state, share links and the
  * sign-in throttle.
  *
- * SQLite in the data directory by default: one file, no external service,
- * which keeps the Docker deployment to one container and a volume. With
- * `HEDDOHON_DATABASE_URL` set it is a PostgreSQL server instead, for people who
- * already run one. The cover cache stays on disk either way.
+ * SQLite in the data directory by default, or PostgreSQL with
+ * `HEDDOHON_DATABASE_URL` set. The cover cache is on disk either way.
  *
- * Every caller goes through `store()`, which is asynchronous because
- * PostgreSQL is. The SQL is written once, with `?` placeholders and in the
- * subset both engines read the same way; the PostgreSQL store numbers the
- * placeholders. Timestamps are milliseconds, so they are BIGINT there, and the
- * driver is told to hand BIGINT back as a number rather than a string.
+ * Every caller goes through `store()`, asynchronous since PostgreSQL is. The
+ * SQL is written once, with `?` placeholders, in the subset both engines read
+ * the same way. Timestamps are milliseconds: BIGINT on PostgreSQL, returned as
+ * numbers.
  */
 import Database from 'better-sqlite3';
 import { existsSync } from 'node:fs';
@@ -147,8 +144,8 @@ CREATE TABLE IF NOT EXISTS meta (
 
 /*
  * The same tables for PostgreSQL. Millisecond timestamps pass 2^31, so every
- * INTEGER is BIGINT. The username lookup compares lower-cased, which SQLite's
- * primary key index does not need and PostgreSQL does.
+ * INTEGER is BIGINT. The index serves the lower-cased username lookup; see
+ * `usernameMatch` in auth.ts.
  */
 const POSTGRES_SCHEMA = `${SQLITE_SCHEMA.replace(/\bINTEGER\b/g, 'BIGINT')}
 DROP INDEX IF EXISTS accounts_username_idx;
@@ -156,10 +153,9 @@ CREATE INDEX IF NOT EXISTS accounts_username_ascii_idx ON accounts (backend, low
 `;
 
 /**
- * Columns added to a table after it first shipped. `CREATE TABLE IF NOT EXISTS`
- * leaves a table that is already there as it was, so a database from an
- * earlier version is given each of these when it opens. New ones go at the
- * end; each is nullable, so rows written before it read as null.
+ * Columns added after a table first shipped. `CREATE TABLE IF NOT EXISTS`
+ * leaves an existing table as it was, so each is added when the database
+ * opens. New ones go at the end and are nullable.
  */
 const ADDED_COLUMNS: { table: string; column: string; type: string }[] = [
 	{ table: 'sessions', column: 'device', type: 'TEXT' },
@@ -175,12 +171,10 @@ const ADDED_COLUMNS: { table: string; column: string; type: string }[] = [
 ];
 
 /**
- * Indexes over columns in `ADDED_COLUMNS`, created once those are there. In
- * the schema above they would run first and fail on a database from before
- * the column.
+ * Indexes over columns in `ADDED_COLUMNS`, created after those: in the schema
+ * above they would fail on a database from before the column.
  *
- * `plays_album_idx` is for the albums an account played and each one's latest
- * play; see `forgottenAlbums` in history.ts.
+ * `plays_album_idx` serves `forgottenAlbums` in history.ts.
  */
 const LATER_INDEXES = `
 CREATE INDEX IF NOT EXISTS plays_album_idx ON plays(account_id, album_id, played_at);
@@ -210,11 +204,11 @@ export interface Store {
 	all<R>(sql: string, ...params: unknown[]): Promise<R[]>;
 	run(sql: string, ...params: unknown[]): Promise<{ changes: number }>;
 	/**
-	 * Runs `work` with no other `exclusive` call for the same key running at
-	 * once, for a read and a write that must not interleave. On PostgreSQL it is
-	 * a transaction holding an advisory lock on the key; on SQLite, which runs
-	 * one statement at a time in this process, `work` has to be a single
-	 * statement, and is called as it is.
+	 * Runs `work` with no other `exclusive` call for the same key running, for
+	 * a read and a write that must not interleave. On PostgreSQL it is a
+	 * transaction holding an advisory lock on the key. On SQLite, which runs
+	 * one statement at a time in this process, `work` must be a single
+	 * statement.
 	 */
 	exclusive<T>(key: string, work: (store: Store) => Promise<T>): Promise<T>;
 }
@@ -238,9 +232,8 @@ function openSqlite(file: string): Database.Database {
 class SqliteStore implements Store {
 	readonly kind = 'sqlite' as const;
 	/*
-	 * Prepared once per SQL text and reused. better-sqlite3 compiles on every
-	 * `prepare`, and the statements that run on every request (the session, the
-	 * settings) were prepared afresh each time, several times per cover on a
+	 * Prepared once per SQL text. better-sqlite3 compiles on every `prepare`,
+	 * and the session and settings statements run several times per cover on a
 	 * library page. For fixed SQL only: the cache never evicts.
 	 */
 	#statements = new Map<string, Database.Statement>();
@@ -297,10 +290,10 @@ class PostgresStore implements Store {
 	}
 
 	/*
-	 * A single statement was not enough here. Under READ COMMITTED each
-	 * statement reads a snapshot from when it started, so of 160 link creations
-	 * sent at once, 103 counted fewer than 100 and inserted. The advisory lock
-	 * is released with the transaction, so a failure cannot leave it held.
+	 * Under READ COMMITTED each statement reads a snapshot from its own start,
+	 * so one statement is not enough: of 160 link creations sent at once, 103
+	 * counted fewer than 100 and inserted. The advisory lock is released with
+	 * the transaction.
 	 */
 	async exclusive<T>(key: string, work: (store: Store) => Promise<T>): Promise<T> {
 		if (!(this.db instanceof pg.Pool)) return work(this);
@@ -320,8 +313,7 @@ class PostgresStore implements Store {
 	}
 }
 
-// BIGINT (and COUNT(*)) as a number. Millisecond timestamps are exact up to
-// 2^53, which is the year 287396.
+// BIGINT (and COUNT(*)) as a number, exact up to 2^53 milliseconds.
 pg.types.setTypeParser(20, (value) => Number(value));
 
 let opening: Promise<Store> | null = null;
@@ -330,8 +322,8 @@ let opening: Promise<Store> | null = null;
 export function store(): Promise<Store> {
 	if (!opening) {
 		opening = open().catch((err) => {
-			// Tried again on the next request rather than cached as a failure: a
-			// database that was still starting beside this container comes up.
+			// Not cached as a failure: a database still starting beside this
+			// container is tried again on the next request.
 			opening = null;
 			throw err;
 		});
@@ -343,29 +335,25 @@ async function open(): Promise<Store> {
 	const cfg = config();
 	const database = cfg.database;
 	if (database.kind === 'sqlite') {
-		// config() created the directory and proved it writable, so a broken
-		// mount is reported as a misconfiguration rather than as SQLITE_CANTOPEN.
+		// config() has created the directory and proved it writable.
 		return new SqliteStore(openSqlite(sqliteFile()));
 	}
 
 	/*
-	 * The user, the password and the TLS mode go into the URL rather than beside
-	 * it. The driver merges a parsed URL over the options it is given, keys the
-	 * URL does not set included, so `user` and `ssl` passed alongside a URL
-	 * without them were replaced with nothing: the first connection went out
-	 * with no user name at all.
+	 * The user, the password and the TLS mode go into the URL. The driver
+	 * merges the parsed URL over its options, including keys the URL leaves
+	 * out, so `user` and `ssl` passed beside it were replaced with nothing and
+	 * the first connection had no user name.
 	 */
 	const url = new URL(database.connectionString);
 	if (database.user) url.username = database.user;
 	if (database.password) url.password = database.password;
 	if (database.sslmode) url.searchParams.set('sslmode', database.sslmode);
 	/*
-	 * A schema of Heddohon's own. The tables have common names (`accounts`,
-	 * `sessions`, `settings`), and in the default `public` schema of a database
-	 * another application also uses, `CREATE TABLE IF NOT EXISTS` would have
-	 * quietly adopted that application's table of the same name. Set at
-	 * connection start-up, so every connection in the pool has it from its
-	 * first query.
+	 * A schema of Heddohon's own. In `public`, shared with another application,
+	 * `CREATE TABLE IF NOT EXISTS` would adopt that application's `accounts`,
+	 * `sessions` or `settings`. Set at connection start-up, so every pooled
+	 * connection has it from its first query.
 	 */
 	url.searchParams.set('options', `-c search_path=${SCHEMA}`);
 
@@ -375,16 +363,14 @@ async function open(): Promise<Store> {
 		connectionTimeoutMillis: 5000,
 		idleTimeoutMillis: 30_000,
 		statement_timeout: 10_000,
-		// The server enforces `statement_timeout`, which a server that has
-		// stopped answering cannot do: with the database paused, a query on an
-		// open connection waited indefinitely and `/healthz` with it. This one is
-		// kept by the client.
+		// `statement_timeout` is enforced by the server, which cannot do so once
+		// it stops answering: with the database paused, a query (and `/healthz`)
+		// waited indefinitely. This one is kept by the client.
 		query_timeout: 8_000,
 		application_name: 'heddohon'
 	});
-	// An idle client the server drops (a restart, a proxy timeout) is reported
-	// here. Without a listener, Node throws an 'error' event nobody handles and
-	// the process exits. The pool opens a new client on the next query.
+	// Reports an idle client the server dropped (a restart, a proxy timeout).
+	// Without a listener the unhandled 'error' event ends the process.
 	pool.on('error', (err) => log.warn('database-connection-lost', { detail: reason(err) }));
 
 	await pool.query(`CREATE SCHEMA IF NOT EXISTS ${SCHEMA}`);
@@ -394,9 +380,8 @@ async function open(): Promise<Store> {
 	if (database.importSqlite) await importFromSqlite(pool);
 	log.info('database', { kind: 'postgres', at: database.label, schema: SCHEMA });
 
-	// Said once, at start-up, where an operator looks: without TLS the session
-	// and share digests, sealed credentials, settings and queues cross the
-	// network as they are. Harmless on the same host, worth knowing otherwise.
+	// Without TLS the session and share digests, sealed credentials, settings
+	// and queues cross the network as they are.
 	const tls = await pool
 		.query('SELECT ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid()')
 		.then((result) => result.rows[0]?.ssl === true)
@@ -415,16 +400,12 @@ async function open(): Promise<Store> {
  *
  * Runs on the first start against an empty PostgreSQL database, when
  * `heddohon.db` is in the data directory and `HEDDOHON_DATABASE_IMPORT` is not
- * `false`. Accounts, settings, play state, share links, plays, integrations
- * and `meta` are copied; sessions
- * and throttle counters are not, so everyone signs in once. The stored
- * credentials are copied as they are, sealed, so the same `HEDDOHON_SECRET`
- * has to be set for them to open.
+ * `false`. Sessions and throttle counters are not copied, so everyone signs in
+ * once. Credentials are copied sealed, so `HEDDOHON_SECRET` must be the same.
  *
- * One transaction: a failure leaves PostgreSQL empty and the import is tried
- * again on the next start. The SQLite file is only read. A row in `meta`
- * records that the import has run, so a database emptied later is not filled
- * from the old file again.
+ * One transaction: a failure leaves PostgreSQL empty and the next start tries
+ * again. A row in `meta` records the import, so a database emptied later is
+ * not filled from the old file again.
  */
 async function importFromSqlite(pool: pg.Pool): Promise<void> {
 	const marker = await pool.query("SELECT value FROM meta WHERE key = 'sqlite_import'");
@@ -455,10 +436,9 @@ async function importFromSqlite(pool: pg.Pool): Promise<void> {
 		await client.query('BEGIN');
 		// Accounts first: the others refer to them.
 		for (const [table, wanted] of Object.entries(tables)) {
-			// Only the columns the file has: one from before a column was added
-			// (`ADDED_COLUMNS`) is copied without it, and the column reads as null.
-			// Asked for by name, a missing column failed the whole table, and a
-			// table that fails is skipped as one that does not exist.
+			// Only the columns the file has: a file from before a column was added
+			// (`ADDED_COLUMNS`) is copied without it. Asked for by name, a missing
+			// column failed the whole table, which was then skipped as absent.
 			let present: Set<string>;
 			try {
 				present = new Set(

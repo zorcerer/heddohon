@@ -1,15 +1,13 @@
 /**
  * Lyrics from LRCLIB, for tracks the music server has none for.
  *
- * Off unless `HEDDOHON_LYRICS_LRCLIB=true`. When on, opening the lyrics of a
- * track the server has no synced lyrics for sends its artist, title, album and
- * length to LRCLIB (or to `HEDDOHON_LYRICS_LRCLIB_URL`, for a self-hosted
- * copy). The request is made by this server, like every other fetch; the
- * browser still talks only to Heddohon, and the policy on its pages is
- * unchanged.
+ * Off unless `HEDDOHON_LYRICS_LRCLIB=true`. On, opening the lyrics of a track
+ * without synced lyrics sends its artist, title, album and length to LRCLIB
+ * (or to `HEDDOHON_LYRICS_LRCLIB_URL`, for a self-hosted copy), from this
+ * server.
  *
- * What comes back is text from a third party. It is only ever rendered as text,
- * capped in size, and never followed anywhere: the fetch refuses redirects.
+ * The answer is third-party text: rendered only as text, capped in size, and
+ * fetched with redirects refused.
  */
 import type { LyricLine, Lyrics, Song } from '$lib/types';
 import { config } from './config';
@@ -47,7 +45,7 @@ export async function lrclibLyrics(song: Song): Promise<Lyrics | null> {
 	url.searchParams.set('artist_name', song.artist);
 	url.searchParams.set('track_name', song.title);
 	if (song.album) url.searchParams.set('album_name', song.album);
-	// LRCLIB matches on length within two seconds; without it a live version or
+	// LRCLIB matches on length within two seconds. Without it a live version or
 	// a remix can come back for the studio track.
 	if (duration > 0) url.searchParams.set('duration', String(duration));
 
@@ -87,10 +85,8 @@ export async function lrclibLyrics(song: Song): Promise<Lyrics | null> {
 }
 
 /**
- * The body as text, refused past `limit` bytes while it is still arriving.
- * `response.text()` read the whole body first and measured it afterwards, so
- * the cap bounded nothing: a misbehaving server could still have filled memory
- * before the check ran.
+ * The body as text, refused past `limit` bytes as it arrives.
+ * `response.text()` reads the whole body before it can be measured.
  */
 async function readCapped(response: Response, limit: number): Promise<string> {
 	const declared = Number(response.headers.get('content-length'));
@@ -138,10 +134,9 @@ const STAMP = /\[(\d{1,3}):(\d{1,2})(?:[.:](\d{1,3}))?\]/g;
 /**
  * LRC to timed lines.
  *
- * A line can carry several stamps (a chorus written once), each becoming a
- * line of its own. Tag lines such as `[ar:...]` have no numeric stamp and are
- * dropped, apart from `[offset:...]`, which shifts every stamp by the given
- * milliseconds as the format defines.
+ * A line can carry several stamps (a chorus written once), each becoming its
+ * own line. Tag lines such as `[ar:...]` are dropped, apart from
+ * `[offset:...]`, which shifts every stamp by the given milliseconds.
  */
 function parseLrc(source: string): LyricLine[] {
 	const offsetTag = /\[offset:\s*([+-]?\d+)\s*\]/i.exec(source);

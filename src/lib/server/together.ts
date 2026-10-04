@@ -2,24 +2,22 @@
  * Listening together: a host plays, and anyone with the link hears the same
  * track at the same moment, without an account.
  *
- * A session ("party") belongs to one signed-in browser session. The host's
- * browser reports what it plays (`report`), and every listener's page holds
- * a server-sent events stream (`listen`) that carries it on, with the count of
- * listeners and the reactions they send. A listener's audio comes through the
- * party's link and is only ever the track the party is on (`routes/together`).
+ * A party belongs to one signed-in browser session. The host's browser reports
+ * what it plays (`report`), and each listener's page holds a server-sent
+ * events stream (`listen`) carrying that, the listener count and reactions. A
+ * listener's audio comes through the party's link and is only the track the
+ * party is on (`routes/together`).
  *
- * A listener signed in to this Heddohon on the host's music server can join
- * as a member (`join`), is shown by name, and adds tracks to the host's
- * queue. The host's player holds the queue and decides its order. An addition
- * is kept here until the host's browser has taken it (`admit`, `enqueue`),
- * and the host's browser reports what is up next (`reportQueue`), which is
- * what everyone is shown, each addition with who made it.
+ * A listener signed in on the host's music server can join as a member
+ * (`join`), is shown by name and adds tracks to the host's queue. The host's
+ * player holds the queue and its order. An addition is kept here until the
+ * host's browser has taken it (`admit`, `enqueue`), and that browser reports
+ * what is up next (`reportQueue`), which everyone is shown.
  *
- * Everything here is in the process's memory, like the remote-control
- * registry: a restart ends every party, and a deployment of several processes
- * behind a load balancer needs `HEDDOHON_REMOTE_CONTROL` off, which turns this
- * off too. The link's token is held with the party, so the host can show the
- * link again, and looked up by its digest.
+ * All of it is in this process's memory, like the remote-control registry: a
+ * restart ends every party, and `HEDDOHON_REMOTE_CONTROL` off turns this off
+ * too. The link's token is held with the party, so the host can show the link
+ * again, and is looked up by its digest.
  */
 import { randomBytes, randomUUID } from 'node:crypto';
 import { shareDigest } from './crypto';
@@ -27,7 +25,7 @@ import type { AuthenticatedSession } from './auth';
 import { config } from './config';
 import type { Song } from '$lib/types';
 
-/** How long a party lasts at most, and never past the host's session. */
+/** The longest a party lasts. It also ends with the host's session. */
 const PARTY_TTL_MS = 12 * 60 * 60 * 1000;
 /** Listeners one party takes. */
 const MAX_LISTENERS = 50;
@@ -214,8 +212,8 @@ const rowOf = (addition: Addition): QueueRow => ({
 
 /**
  * What is up next, for everyone: the host's last report, with the additions
- * its browser has not taken yet where it will put them, after the additions
- * that lead the queue.
+ * its browser has not taken yet placed after the additions that lead the
+ * queue, where it will put them.
  */
 function queueView(party: Party): { queue: QueueRow[]; total: number } {
 	const waiting = party.additions.filter((addition) => addition.seq > party.applied);
@@ -292,9 +290,8 @@ export function endParty(session: AuthenticatedSession): boolean {
 }
 
 /**
- * Ends every party hosted by these sessions, when they end. A member's
- * session ending leaves its stream a listener's: the name goes from the
- * host's list, and adding already needs the session.
+ * Ends every party these sessions host. A member whose session ends stays as
+ * a listener: the name leaves the host's list, and adding needs the session.
  */
 export function endPartiesOf(handles: string[]): void {
 	for (const handle of handles) {
@@ -327,11 +324,11 @@ export function report(session: AuthenticatedSession, state: Omit<PartyState, 'a
  * Records what is up next in the host's queue, and tells everyone. `applied`
  * is the highest addition its browser has put in the queue.
  *
- * Additions are found in the report by song id, each once and in the order
- * they were made, so a queue restored from its ids after a reload keeps who
- * added what. One the browser has taken that the report does not hold has
- * been played or removed by the host, and is let go. The answer says, for
- * each track reported, which addition it is. Null without a party.
+ * Additions are matched to the report by song id, each once and in the order
+ * made, so a queue restored from its ids after a reload keeps who added what.
+ * A taken addition missing from the report was played or removed, and is let
+ * go. Returns, for each reported track, which addition it is. Null without a
+ * party.
  */
 export function reportQueue(
 	session: AuthenticatedSession,
@@ -363,17 +360,16 @@ export function reportQueue(
 /**
  * Who a request is to a party.
  *
- * `member` is an account that may join as one: signed in on the host's music
- * server, where the track ids are the host's too. An account on the other
- * server of a deployment with two is a `listener`, as a visitor with no
- * account is. `removed` is an account the host removed.
+ * A `member` may join: an account on the host's music server, where the track
+ * ids are the host's too. An account on a deployment's other server is a
+ * `listener`, like a visitor without one. `removed` was removed by the host.
  */
 type Standing = 'host' | 'member' | 'listener' | 'removed';
 
 function standing(party: Party, viewer: AuthenticatedSession | null): Standing {
 	if (!viewer) return 'listener';
-	// Before `removed`: the host's account can join from another browser and
-	// be removed there, which leaves the hosting session as it was.
+	// Before `removed`: the host's account can join from another browser and be
+	// removed there, which leaves the hosting session as it was.
 	if (viewer.account.id === party.accountId && viewer.handle === party.session) return 'host';
 	if (party.removed.has(viewer.account.id)) return 'removed';
 	return viewer.account.backend === party.backend ? 'member' : 'listener';
@@ -393,8 +389,8 @@ export interface PartyAccess {
 }
 
 /**
- * The party behind a link, or null for one that has ended or never was, and
- * for an account the host removed from it.
+ * The party behind a link. Null for one that has ended or never existed, and
+ * for an account the host removed.
  */
 export function partyFor(token: string, viewer: AuthenticatedSession | null): PartyAccess | null {
 	const party = behind(token);
@@ -423,9 +419,8 @@ export function removedFrom(token: string, viewer: AuthenticatedSession | null):
 /**
  * Adds a listener's stream to the party behind a token. Null when there is no
  * such party, it is full, or the host removed the account. The listener is
- * told its id, what plays, what is up next and the count; `leave` takes it
- * out. The host's own browser is also told who is here and which additions
- * it has yet to take or to drop.
+ * sent its id, what plays, what is up next and the count. The host's browser
+ * is also sent who is here and which additions it has yet to take or drop.
  */
 export function listen(
 	token: string,
@@ -471,8 +466,8 @@ export function listen(
 }
 
 /**
- * Relays a reaction from a listener of the party to everyone in it. `ok` is
- * false for an unknown listener, `limited` for a second one inside a second.
+ * Relays a listener's reaction to everyone in the party. `unknown` for a
+ * listener not in it, `limited` for a second reaction inside a second.
  */
 export function react(token: string, listenerId: string, emoji: string): 'ok' | 'unknown' | 'limited' {
 	const party = behind(token);
@@ -487,13 +482,13 @@ export function react(token: string, listenerId: string, emoji: string): 'ok' | 
 
 /**
  * Makes a listener's stream a member's: the account is shown to the host by
- * name and may add to the queue. `unknown` without such a stream in the
- * party, `refused` for an account that may not be a member of it.
+ * name and may add to the queue. `unknown` without such a stream, `refused`
+ * for an account that may not be a member.
  *
- * The stream has to be one the account opened itself. Listener ids go to
- * everyone with a reaction, and a stream joined by its id alone would let a
- * member put their name on a stranger's page, which then counted as the
- * member being here and was left open when the host removed them.
+ * The stream must be one the account opened. Listener ids go to everyone with
+ * a reaction, and joining by id alone let a member put their name on a
+ * stranger's stream, which counted as the member being here and stayed open
+ * when the host removed them.
  */
 export function join(token: string, listenerId: string, viewer: AuthenticatedSession): MemberView | 'unknown' | 'refused' {
 	const party = behind(token);
@@ -511,7 +506,7 @@ export function join(token: string, listenerId: string, viewer: AuthenticatedSes
 	return { id: member.id, name: member.name };
 }
 
-/** The party this account has joined as a member and has a page open on, for adding from the app. */
+/** The party this account is a member of with a page open, for adding from the app. */
 export function joinedBy(viewer: AuthenticatedSession): { url: string } | null {
 	for (const candidate of byDigest.values()) {
 		const party = live(candidate);
@@ -532,10 +527,10 @@ function room(party: Party, member: Member): AddRefusal | null {
 }
 
 /**
- * Whether this account may add a track to the party now, checked before the
- * track is looked up on the music server. The attempt counts against the
- * member's one every 2 seconds, so a refused track costs as much as an
- * accepted one. Answers the host's account and session, for the lookup.
+ * Whether this account may add a track now, checked before the track is looked
+ * up on the music server. The attempt counts against the member's one per 2
+ * seconds whether or not the track is accepted. Returns the host's account and
+ * session, for the lookup.
  */
 export function admit(token: string, viewer: AuthenticatedSession): { accountId: string; session: string } | AddRefusal {
 	const party = behind(token);
@@ -549,9 +544,9 @@ export function admit(token: string, viewer: AuthenticatedSession): { accountId:
 }
 
 /**
- * Adds a track `admit` let through, as the host's account reads it, and
- * sends it to the host's browser. The party is looked at again: it can have
- * ended, filled, or lost the member while the track was looked up.
+ * Adds a track `admit` let through, as the host's account reads it, and sends
+ * it to the host's browser. The party is checked again: it can have ended,
+ * filled or lost the member during the lookup.
  */
 export function enqueue(token: string, viewer: AuthenticatedSession, song: Song): { entry: string } | AddRefusal {
 	const party = behind(token);
@@ -569,8 +564,8 @@ export function enqueue(token: string, viewer: AuthenticatedSession, song: Song)
 
 /**
  * Takes back an addition, for the member who made it. One the host's browser
- * has not taken is dropped here; one in the host's queue is taken out by the
- * host's browser, which is told now and again when its stream next opens.
+ * has not taken is dropped here. One in the host's queue is removed by the
+ * host's browser, told now and again when its stream next opens.
  */
 export function withdraw(token: string, viewer: AuthenticatedSession, entry: string): boolean {
 	const party = behind(token);
@@ -588,10 +583,10 @@ export function withdraw(token: string, viewer: AuthenticatedSession, entry: str
 }
 
 /**
- * Removes a member from the party this session hosts: every stream the
- * account has open ends, joined or not, its additions the host's browser has not taken are dropped, and it is
- * refused for the rest of the party. Tracks already in the host's queue stay
- * there for the host to remove.
+ * Removes a member from the party this session hosts. Every stream the account
+ * has open ends, joined or not, its additions the host's browser has not taken
+ * are dropped, and it is refused for the rest of the party. Tracks already in
+ * the host's queue stay for the host to remove.
  */
 export function removeMember(session: AuthenticatedSession, memberId: string): boolean {
 	const party = live(bySession.get(session.handle));

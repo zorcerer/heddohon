@@ -1,21 +1,15 @@
 /**
- * Shared links, to a song, an album or a playlist, which anyone holding one
- * can open without an account.
+ * Shared links to a song, an album or a playlist, opened without an account.
  *
- * A link is a bearer capability for exactly one item. Whoever presents the
- * token gets its details, its covers and its audio, fetched with the sharer's
- * stored credential, and nothing else: the item's id is read from the row,
- * never from the request. The one thing a request names is a track's position
- * in the album or playlist (`/stream/3`), which is looked up in the item as
- * the sharer sees it, so it cannot reach outside it. No route under `/share`
- * takes an id, a path or a write. The credential stays in this process, as it
- * does for every other request.
+ * A link is a bearer capability for one item. Its holder gets the item's
+ * details, covers and audio, fetched with the sharer's stored credential. The
+ * item's id is read from the row, never from the request. A request names only
+ * a track's position (`/stream/3`), looked up in the item as the sharer sees
+ * it. No route under `/share` takes an id, a path or a write.
  *
- * The token is handled the way the session cookie is: 256 random bits in the
- * link, and only an HMAC digest in the database, under a key of its own. A
- * copy of the database therefore yields no working link. The cost is that a
- * link can be shown once, when it is made. After that its owner can see what
- * it points at and withdraw it, and cannot read it back.
+ * The token is handled as the session cookie is: 256 random bits in the link
+ * and an HMAC digest in the database, under its own key, so a copy of the
+ * database yields no working link. A link is therefore shown once, when made.
  */
 import { randomUUID } from 'node:crypto';
 import type { BackendKind, Playlist, Song } from '$lib/types';
@@ -33,16 +27,13 @@ const SHARE_LIFETIMES_DAYS = [1, 7, 30] as const;
 export type ShareLifetime = (typeof SHARE_LIFETIMES_DAYS)[number];
 export const DEFAULT_SHARE_LIFETIME: ShareLifetime = 7;
 
-/**
- * Live links one account may hold at once. Each one is a row that outlives
- * the session that made it, so this is what bounds the table.
- */
+/** Live links one account may hold. Rows outlive the session, so this bounds the table. */
 const MAX_ACTIVE_SHARES = 100;
 
 /**
- * What `randomToken` produces: 32 bytes as unpadded base64url, 43 characters.
- * Anything else in the path is refused before it is digested, so a request
- * cannot make the server HMAC a megabyte of path.
+ * What `randomToken` produces: 43 characters of base64url. Anything else is
+ * refused before it is digested, so a request cannot have a megabyte of path
+ * HMACed.
  */
 const TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 
@@ -64,9 +55,9 @@ function kindOf(row: ShareRow): ShareKind {
 }
 
 /**
- * The most tracks an album or playlist link serves, from its start. A
- * playlist can hold thousands, each one a row on the page and a position the
- * stream route answers for; 500 is about 30 hours.
+ * The most tracks an album or playlist link serves, from its start: about 30
+ * hours. Each track is a row on the page and a position the stream route
+ * answers for.
  */
 export const MAX_SHARED_TRACKS = 500;
 
@@ -93,10 +84,9 @@ export async function createShare(
 	const token = randomToken();
 	const expiresAt = timestamp + days * 24 * 60 * 60 * 1000;
 	/*
-	 * The count and the insert in one statement, under a lock on the account.
-	 * As two statements with the database behind an `await`, concurrent
-	 * requests all counted before any inserted and ran past the ceiling. See
-	 * `exclusive` in db.ts for why the lock is needed on PostgreSQL as well.
+	 * The count and the insert are one statement, under a lock on the account.
+	 * As two statements, concurrent requests all counted before any inserted
+	 * and passed the ceiling. See `exclusive` in db.ts for PostgreSQL.
 	 */
 	const inserted = await database.exclusive(`shares:${account.id}`, (tx) => tx.run(
 		`INSERT INTO shares (id, token_digest, account_id, backend, song_id, kind, created_at, expires_at)
@@ -136,10 +126,8 @@ export interface ResolvedShare {
 }
 
 /**
- * The live share a token names, or null.
- *
- * An unknown token, an expired one and a withdrawn one all come back as the
- * same null, so the page cannot be used to learn which links once existed.
+ * The live share a token names, or null. Unknown, expired and withdrawn
+ * tokens give the same null, so the page does not reveal which links existed.
  */
 async function resolveShare(token: string): Promise<ResolvedShare | null> {
 	if (!TOKEN_PATTERN.test(token)) return null;
@@ -170,8 +158,8 @@ async function resolveShare(token: string): Promise<ResolvedShare | null> {
 }
 
 /**
- * The sharer's credential, opened for one request. Null when it can no longer
- * be opened, which happens after `HEDDOHON_SECRET` changes.
+ * The sharer's credential, opened for one request. Null when it no longer
+ * opens, as after `HEDDOHON_SECRET` changes.
  */
 async function sharerCredential(share: ResolvedShare): Promise<StoredCredential | null> {
 	const row = await (await store()).get<{ credential: string }>(
@@ -187,17 +175,13 @@ async function sharerCredential(share: ResolvedShare): Promise<StoredCredential 
 }
 
 /**
- * The track at `position` in what the link is to (the song itself, for a song
- * link), as the sharer's account sees it now, or null. The position is the
- * only thing a request names, and it is looked up in the owner's own album or
- * playlist, so a request cannot reach a track outside it.
+ * The track at `position` in what the link is to, as the sharer's account sees
+ * it now, or null.
  *
- * Null covers the song having been removed and the sharer's credential having
- * stopped working upstream. Both mean the link cannot be played, and a visitor
- * is told only that. A rejected credential does not sign the sharer out from
- * here: the request may be anonymous, and the sharer's own next request finds
- * out the same thing. Any other upstream failure is thrown, so an outage reads
- * as an outage rather than as a dead link.
+ * Null covers a removed song and a sharer's credential rejected upstream. A
+ * rejected credential does not sign the sharer out from here: the request may
+ * be anonymous, and the sharer's next request finds the same. Any other
+ * upstream failure is thrown, so an outage does not read as a dead link.
  */
 export async function sharedSong(
 	share: ResolvedShare,
@@ -221,39 +205,31 @@ export interface SharedItem {
 /*
  * What each link is to, held for five minutes per link.
  *
- * The item was read from the music server on every request, and a request
- * names nothing but a position, so it cost as much as the whole album or
- * playlist. Measured against a mock Subsonic server with a playlist of 5000
- * entries: 50 parallel `HEAD /share/<token>/stream/499` from one anonymous
- * client made 100 upstream calls and fetched 59.7MB of JSON in 747ms. A
- * listener paid the same on every range request and track change.
+ * Read from the music server on every request, it cost the whole album or
+ * playlist each time. Against a mock Subsonic server with a 5000-entry
+ * playlist, 50 parallel `HEAD /share/<token>/stream/499` from one anonymous
+ * client made 100 upstream calls and fetched 59.7MB of JSON in 747ms.
  *
  * The token, the expiry and withdrawal are still checked on every request
- * (`shareAccess`); only the upstream's answer is held. The cost is that a
- * change made outside Heddohon reaches a link up to five minutes late: a
- * track taken out of the album or playlist, a reordering, and a library the
- * sharer's account can no longer see. Playlist edits made through Heddohon
- * drop the sharer's entries at once. A link that finds nothing is not held,
- * so a failure is not served from here either.
+ * (`shareAccess`). A change made outside Heddohon reaches a link up to five
+ * minutes late; playlist edits made through Heddohon drop the sharer's entries
+ * at once. A link that finds nothing is not held.
  *
- * Keyed by the sharer's account and the link, and dropped with the rest of
- * the account's entries when its credential stops working. An entry is at
- * most `MAX_SHARED_TRACKS` songs, a few hundred kilobytes, so 64 of them stay
- * in the tens of megabytes.
+ * Keyed by the sharer's account and the link, and dropped with the account's
+ * other entries when its credential stops working. An entry is at most
+ * `MAX_SHARED_TRACKS` songs, a few hundred kilobytes.
  */
 const SHARED_ITEM_TTL_MS = 5 * 60_000;
 const sharedItems = new Memo(SHARED_ITEM_TTL_MS, 64);
 
-/** Drops every link item held for an account, after it edits a playlist or its credential stops working. */
+/** Drops an account's held items, after it edits a playlist or its credential stops working. */
 export function forgetSharedItems(accountId: string): void {
 	sharedItems.forgetAccount(accountId);
 }
 
 /**
  * What a link is to, as the sharer's account saw it at most five minutes ago
- * (see `sharedItems`), or null, on the same terms as `sharedSong`. A track
- * removed from the album, or a playlist its owner has reordered or can no
- * longer see, is what the link serves from then on.
+ * (see `sharedItems`), or null on the same terms as `sharedSong`.
  */
 export function sharedItem(share: ResolvedShare, credential: StoredCredential): Promise<SharedItem | null> {
 	return sharedItems.get({ accountId: share.sharerAccountId, credential }, share.id, () => readSharedItem(share, credential), (item) =>
@@ -265,10 +241,9 @@ export function sharedItem(share: ResolvedShare, credential: StoredCredential): 
  * Whether a playlist is the sharer's own, and so one it may link to.
  *
  * Navidrome lists another user's public playlist to every account, and a link
- * made to one served that user's name and tracks, as they edited them, to
- * anyone with the link, which the other user could neither see nor withdraw.
- * Navidrome names the owner; Jellyfin does not report one (`owner` is null),
- * and lists only playlists the account may open.
+ * to one served that user's name and tracks to anyone, which that user could
+ * neither see nor withdraw. Jellyfin reports no owner (`owner` is null) and
+ * lists only playlists the account may open.
  */
 export function ownsPlaylist(playlist: Playlist, username: string): boolean {
 	const fold = (name: string) => name.replace(/[A-Z]/g, (letter) => letter.toLowerCase());
@@ -312,14 +287,14 @@ async function readSharedItem(share: ResolvedShare, credential: StoredCredential
 }
 
 /**
- * Resolves a token and opens the sharer's credential in one step, for the
- * routes that serve a link. Null for any link that cannot be played.
+ * Resolves a token and opens the sharer's credential, for the routes that
+ * serve a link. Null for any link that cannot be played.
  */
 export async function shareAccess(
 	token: string
 ): Promise<{ share: ResolvedShare; credential: StoredCredential } | null> {
-	// Checked here as well as on the page, so the media routes close with it:
-	// with `HEDDOHON_SHARING=false` no route under `/share` resolves a token.
+	// Checked here as well as on the page, so `HEDDOHON_SHARING=false` closes
+	// the media routes too.
 	if (!config().sharing) return null;
 	const share = await resolveShare(token);
 	if (!share) return null;
@@ -364,21 +339,18 @@ export interface DescribedShare extends OwnShare {
 }
 
 /**
- * An account's links with what they point at, looked up with that account's
- * own credential. Titles are not stored with the link, so the database holds
- * an id per link and nothing a reader could take as a listening history.
- *
- * A music server that fails here costs the titles and not the list: the links
- * are still shown, and can still be withdrawn.
+ * An account's links with what they point at, looked up with its own
+ * credential. Titles are not stored, so the database holds only an id per
+ * link. A failing music server costs the titles: the links are still listed
+ * and can be withdrawn.
  */
 export async function describeShares(session: AuthenticatedSession): Promise<DescribedShare[]> {
 	const shares = await listShares(session.account.id);
 	if (shares.length === 0) return [];
 
 	/*
-	 * One lookup per item. A batch fails whole on Subsonic when any one id is
-	 * gone, so a single removed track took every other link's title with it.
-	 * `mapLimited` holds this to the same fan-out as every other upstream burst.
+	 * One lookup per item. A batch fails whole on Subsonic when any id is gone,
+	 * so one removed track took every other link's title with it.
 	 */
 	const backend = backendFor(session.account.backend);
 	const cred = session.credential;
@@ -409,13 +381,11 @@ export async function describeShares(session: AuthenticatedSession): Promise<Des
 }
 
 /**
- * Streams in progress through each link, so withdrawing it can cut them off.
+ * Streams in progress through each link, so withdrawing it cuts them off.
  *
- * Checking the token on every request is not enough on its own. A browser
- * plays a track as one open-ended range, so the one request that matters was
- * checked once, at the start, and a link withdrawn a second later went on
- * sending the whole file. The registry is in memory: a restart ends every
- * stream anyway.
+ * A browser plays a track as one open-ended range, checked once at its start,
+ * so a link withdrawn a second later kept sending the file. In memory: a
+ * restart ends every stream.
  */
 const openStreams = new Map<string, Set<AbortController>>();
 
@@ -438,8 +408,8 @@ function cutShareStreams(shareId: string): void {
 }
 
 /**
- * Withdraws one link. The account is part of the match, so an id belonging to
- * somebody else deletes nothing and reads the same as an id that never existed.
+ * Withdraws one link. The account is part of the match, so another account's
+ * id deletes nothing and reads as an id that never existed.
  */
 export async function revokeShare(accountId: string, id: string): Promise<boolean> {
 	const result = await (await store()).run('DELETE FROM shares WHERE id = ? AND account_id = ?', id, accountId);
@@ -461,8 +431,8 @@ export async function revokeAllShares(accountId: string): Promise<number> {
 let lastPrune = 0;
 
 async function pruneExpiredShares(): Promise<void> {
-	// The same once-a-minute rhythm as sessions. An expired row is refused when
-	// presented whether or not it has been swept; this only keeps the table small.
+	// Once a minute, as for sessions. An expired row is refused whether swept
+	// or not; this keeps the table small.
 	const timestamp = now();
 	if (timestamp - lastPrune < 60_000) return;
 	lastPrune = timestamp;

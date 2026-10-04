@@ -1,42 +1,34 @@
 /**
  * Transcodes, read whole from the music server and served in ranges from here.
  *
- * Navidrome answers ranges of a transcode only once it has finished and
- * cached it; until then it sends the song from byte 0 whatever was asked
- * (see `rangeIgnored` in proxy.ts). A browser reads audio at the pace it
- * plays it, so a transcode read only by the browser stays unfinished for the
- * length of the song, and a stream that dropped in the middle (a phone with
- * the tab in the background, a proxy closing a connection that has idled)
- * could not be picked up again where it stopped: the player's reload came
- * back from byte 0, unseekable, and the song started over.
+ * Navidrome answers ranges of a transcode only once it has finished and cached
+ * it. Until then it sends the song from byte 0 (see `rangeIgnored` in
+ * proxy.ts). A browser reads audio at playing pace, so a transcode read only
+ * by the browser stays unfinished for the length of the song, and a stream
+ * that dropped (a backgrounded tab, a proxy closing an idle connection) could
+ * not resume: the reload came back from byte 0, and the song started over.
  *
- * So the first request for a transcode starts one read of it from the music
- * server, at the server's own speed, into memory, and every request for it is
- * answered from that. Measured against Navidrome 0.64.1 on a 16-core host, a
- * whole transcode took 2.7s (MP3, 4 minutes) to 17s (AAC, 10 minutes), with
- * the first byte in under 0.1s. Until it is whole, a request from byte 0 gets
- * a stream of it as it arrives, without a length and not cached by the
- * browser; once it is whole, every request gets exact ranges and the real
- * length. A request for a later byte, or one the player marks `whole` (a
- * track opened at a position), waits up to 30 seconds for that.
+ * The first request for a transcode starts one read of it into memory at the
+ * music server's own speed, and every request is answered from that. Against
+ * Navidrome 0.64.1 on a 16-core host a whole transcode took 2.7s (MP3, 4
+ * minutes) to 17s (AAC, 10 minutes), with the first byte in under 0.1s. Until
+ * it is whole, a request from byte 0 gets it as it arrives, without a length
+ * and not cached by the browser. Once whole, every request gets exact ranges
+ * and the real length. A request for a later byte, or one the player marks
+ * `whole` (a track opened at a position), waits up to 30 seconds for that.
  *
  * The read does not ask for an estimated length (`openStream` in
- * `subsonic.ts`). With one, Navidrome 0.64.2 closed the connection short of
- * the length it had declared on every first request, the read ended in an
- * error, and the transcode was dropped and read a second time.
+ * `subsonic.ts`). With one, Navidrome 0.64.2 closed every first request short
+ * of the declared length, and the transcode was dropped and read again.
  *
- * Keyed by account as well as song, codec and bitrate, like every other cache
- * here, and dropped with the account's sessions. Held for 15 minutes after the
- * last request, oldest dropped first.
+ * Keyed by account, song, codec and bitrate, and dropped with the account's
+ * sessions. Held for 15 minutes after the last request, oldest dropped first.
  *
- * Bounded, since a read goes on after the request that started it: a HEAD
- * request costs nothing and started a whole transcode on the music server
- * and a whole copy here, so a loop of them over a library ran the music
- * server's CPU and this process's memory without limit (found in the review
- * of 2026-09-25). At most 2 reads run per account and 4 in all; 192MB is held
- * in all, reads in progress included, and 64MB per transcode. A request
- * past any of those is relayed as it comes instead, tied to its own
- * connection, as every transcode was before this.
+ * Bounded, since a read outlives its request: a loop of HEAD requests over a
+ * library started a whole transcode upstream and a whole copy here each time
+ * (review of 2026-09-25). At most 2 reads run per account and 4 in all. 192MB
+ * is held in all, reads in progress included, and 64MB per transcode. A
+ * request past any of those is relayed as it comes, tied to its connection.
  */
 import { log, reason } from './log';
 
@@ -103,11 +95,11 @@ function wake(entry: Transcode): void {
 }
 
 /**
- * The transcode for `key`, starting its read with `open` if nothing holds it,
- * or null when a new read would go past the limits above and the caller
- * should relay the transcode instead. `open` resolves to the upstream body and
- * its already-checked content type; it runs without the browser's abort
- * signal, so the read goes on after the request that started it has gone.
+ * The transcode for `key`, starting its read with `open` if nothing holds it.
+ * Null when a new read would pass the limits above, and the caller relays the
+ * transcode instead. `open` resolves to the upstream body and its checked
+ * content type. It runs without the browser's abort signal, so the read
+ * continues after the request has gone.
  */
 export async function transcodeFor(
 	key: string,
@@ -197,8 +189,7 @@ export async function settled(entry: Transcode, ms: number): Promise<void> {
 
 /**
  * Bytes `start` to `end` inclusive, as they arrive, ending early if the read
- * fails. `end` null reads to the end of the transcode, however long it turns
- * out to be.
+ * fails. `end` null reads to the end of the transcode.
  */
 export function bytesOf(entry: Transcode, start: number, end: number | null): ReadableStream<Uint8Array> {
 	let position = start;

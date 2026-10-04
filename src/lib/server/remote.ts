@@ -4,13 +4,13 @@
  * queue to the desktop.
  *
  * Each browser holds a server-sent events stream open (`/api/remote/events`),
- * which is what makes it a peer here, and is how commands reach it. The
- * registry is in this process's memory. A restart drops every stream, and the
- * browsers reconnect by themselves; a deployment of several processes behind
- * a load balancer sees only the browsers connected to the same process.
+ * which makes it a peer and is how commands reach it. The registry is in this
+ * process's memory. A restart drops every stream and the browsers reconnect.
+ * With several processes behind a load balancer, a browser sees only the peers
+ * on its own process.
  *
  * A command goes only to a peer of the same account, and a report of what a
- * peer is playing is taken only from the session that opened its stream.
+ * peer plays is taken only from the session that opened its stream.
  */
 import { randomUUID } from 'node:crypto';
 
@@ -56,9 +56,8 @@ interface Peer extends RemotePeer {
 }
 
 /**
- * Peers one account may hold. A browser has one per open tab, and an account
- * at most 50 sessions; 20 tabs with the player open covers a household and
- * keeps a script that opens streams in a loop to a bounded cost.
+ * Peers one account may hold, one per open tab. An account has at most 50
+ * sessions. 20 bounds a script that opens streams in a loop.
  */
 const MAX_PEERS_PER_ACCOUNT = 20;
 
@@ -73,16 +72,13 @@ function announce(accountId: string): void {
 	const peers = accounts.get(accountId);
 	if (!peers) return;
 	const list = [...peers.values()].map(view);
-	// The server's clock goes with the list, so a browser can work out how far
-	// a playing peer has got since its report whatever its own clock says.
+	// The server's clock goes with the list, so a browser can work out how far a
+	// playing peer has got since its report, whatever its own clock says.
 	const now = Date.now();
 	for (const peer of peers.values()) peer.send('peers', { now, peers: list });
 }
 
-/**
- * Adds a browser whose stream has just opened, or returns null when the
- * account already holds as many as it may.
- */
+/** Adds a browser whose stream has just opened. Null when the account holds as many as it may. */
 export function join(
 	accountId: string,
 	session: string,

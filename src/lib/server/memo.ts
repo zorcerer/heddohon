@@ -3,24 +3,21 @@
  * bound. The caches in `listings.ts`, `details.ts`, `suggestions.ts` and the
  * link items in `shares.ts` are each one of these.
  *
- * What is held is the promise rather than the result, so requests that arrive
- * while the first read is still out wait for it instead of each starting their
- * own. A rejected promise is dropped as soon as it settles: a failure is never
- * served from here, and the next request asks again.
+ * The promise is held, not the result, so requests that arrive during the
+ * first read wait for it. A rejected promise is dropped when it settles: a
+ * failure is never served from here.
  *
  * Keys start with the account id and a NUL, so `forgetAccount` can drop one
- * account's entries. The key is the account, never the backend or the server
- * alone. Jellyfin decides per user which libraries an account can see, so one
- * account's answer is not another's.
+ * account's entries. Jellyfin decides per user which libraries an account
+ * sees, so one account's answer is not another's.
  *
- * The upstream user the credential belongs to is part of the key as well.
- * When a new Jellyfin user takes over a name, the account's entries are
- * dropped, but a request that resolved its session just before that went on
- * reading with the old credential, and stored the old user's answers under
- * the account for the new user to be served (a minute for details, 30 days
- * for suggestions).
+ * The upstream user the credential belongs to is part of the key too. When a
+ * new Jellyfin user takes over a name the account's entries are dropped, but a
+ * request that resolved its session just before went on reading with the old
+ * credential and stored the old user's answers for the new user (a minute for
+ * details, 30 days for suggestions).
  *
- * Callers must treat the value as read-only. Every request inside the lifetime
+ * Callers must treat the value as read-only: every request inside the lifetime
  * receives the same object.
  */
 import type { StoredCredential } from './backends';
@@ -50,9 +47,9 @@ export class Memo {
 	/**
 	 * Entries live `ttlMs` and at most `max` are held, oldest dropped first.
 	 *
-	 * One account holds at most a quarter of them. The bound was shared, so a
-	 * single request that read 300 albums of one artist dropped every other
-	 * account's details, and their next page went back to the music server.
+	 * One account holds at most a quarter of them. With a shared bound, one
+	 * request that read 300 albums of an artist dropped every other account's
+	 * details.
 	 */
 	constructor(ttlMs: number, max: number) {
 		this.#ttlMs = ttlMs;
@@ -61,10 +58,9 @@ export class Memo {
 	}
 
 	/**
-	 * The value for `scope` and `key`, from memory when it is fresh enough.
-	 *
-	 * `ttlFor`, when given, sets the lifetime from the value once it resolves,
-	 * so an empty answer can be held for less time than a full one.
+	 * The value for `scope` and `key`, from memory while fresh. `ttlFor` sets
+	 * the lifetime from the resolved value, so an empty answer can be held for
+	 * less time than a full one.
 	 */
 	get<T>(scope: MemoScope, key: string, load: () => Promise<T>, ttlFor?: (value: T) => number): Promise<T> {
 		const full = `${scope.accountId}\u0000${viewerOf(scope.credential)}\u0000${key}`;
@@ -74,8 +70,8 @@ export class Memo {
 		this.#sweep();
 		const value = load();
 		const entry = { value: value as Promise<unknown>, until: Date.now() + this.#ttlMs, accountId: scope.accountId };
-		// Deleted first so the entry moves to the end of the insertion order, which
-		// is what the eviction below reads as age.
+		// Deleted first, so the entry moves to the end of the insertion order,
+		// which the eviction below reads as age.
 		this.#delete(full);
 		this.#entries.set(full, entry);
 		this.#perAccount.set(scope.accountId, (this.#perAccount.get(scope.accountId) ?? 0) + 1);
@@ -103,11 +99,9 @@ export class Memo {
 	}
 
 	/**
-	 * Drops every entry held for an account.
-	 *
-	 * A read already in flight is dropped with the rest. Its promise was stored
-	 * when it started, so a request after this call starts a fresh one rather
-	 * than waiting on a read that may predate the write that prompted this.
+	 * Drops every entry held for an account, reads in flight included, so a
+	 * request after this call starts a fresh read and does not wait on one that
+	 * may predate the write that prompted this.
 	 */
 	forgetAccount(accountId: string): void {
 		const prefix = `${accountId}\u0000`;
@@ -135,9 +129,9 @@ export class Memo {
 	}
 
 	/*
-	 * An expired entry was only ever replaced or evicted, never removed, so a
-	 * value nobody asked for again stayed in memory until the bound pushed it
-	 * out. 256 artist listings of a large library held 170MB past their minute.
+	 * Without this an expired entry was only replaced or evicted, never
+	 * removed: 256 artist listings of a large library held 170MB past their
+	 * minute.
 	 */
 	#sweep(): void {
 		const at = Date.now();

@@ -1,36 +1,25 @@
 /**
- * Rate limiting for the sign-in door.
+ * Rate limiting for sign-in.
  *
- * Heddohon proxies every login to Navidrome or Jellyfin, which makes it the
- * front door to those servers rather than a thing in front of them. Without a
- * limiter here, a public deployment is an unmetered credential-stuffing oracle:
- * the attacker's address never reaches the upstream, so whatever fail2ban or
- * lockout the music server has sees only this container's IP and either does
- * nothing or locks out every legitimate user at once.
+ * Heddohon proxies every login to the music server, so the attacker's address
+ * never reaches it: its own lockout sees this container's IP and either does
+ * nothing or locks everybody out. Unlimited here, a public deployment is a
+ * credential-stuffing oracle.
  *
- * Two keys are counted, and this is the part worth understanding:
+ * Two keys are counted. The username key is the one that stops credential
+ * stuffing. It is throttled, not locked: the window rolls off and a successful
+ * sign-in clears it. The address key is a backstop with a high limit, counted
+ * only when the address identifies a visitor; see `perVisitorAddress`.
  *
- * The username key is the one that actually defeats credential stuffing, and it
- * is throttled rather than locked, so an attacker cannot use it to keep a real
- * user out. The window rolls off on its own and a successful sign-in clears it
- * immediately.
+ * Attempts are counted before the upstream is called. Counted afterwards, the
+ * read and the increment sat either side of a network round trip, and 500
+ * concurrent POSTs all read the same total and reached the music server: 500
+ * guesses through a limit of 10. The reservation is one upsert that returns
+ * the new count: SQLite runs one statement at a time, and PostgreSQL locks the
+ * row for the `ON CONFLICT` update. An attempt the upstream never judged is
+ * handed back by `refundLoginAttempt`.
  *
- * The address key is a backstop and is deliberately generous. It is also only
- * counted when the address identifies a visitor; see `perVisitorAddress`.
- *
- * Attempts are counted before the upstream is called rather than after it
- * answers. Counting failures afterwards read the counter and incremented it on
- * either side of an `await` that takes a network round trip, so 500 concurrent
- * POSTs all read the same pre-burst total, all passed, and all reached the
- * music server: 500 guesses through a limit of 10. The reservation below is a
- * single upsert that returns the new count, so nothing interleaves between the
- * read and the write: SQLite runs one statement at a time, and PostgreSQL locks
- * the row for the length of the `ON CONFLICT` update. The cost is that an attempt the upstream
- * never judged has to be handed back explicitly, which is what `refundLoginAttempt`
- * is for.
- *
- * State lives in SQLite rather than in memory so that restarting the container
- * is not a way to clear the counter.
+ * State is in the database, so a restart does not clear the counters.
  */
 import type { BackendKind } from '$lib/types';
 import { store } from './db';
@@ -42,7 +31,7 @@ const WINDOW_MS = 15 * 60 * 1000;
 const MAX_PER_USERNAME = 10;
 /** Attempts allowed per known device, at the account it is known for. */
 const MAX_PER_DEVICE = 10;
-/** Attempts allowed per source address. Generous, see the note above. */
+/** Attempts allowed per source address; a backstop, see above. */
 const MAX_PER_ADDRESS = 60;
 
 export interface RateVerdict {
@@ -56,15 +45,12 @@ const ALLOWED: RateVerdict = { allowed: true, retryAfter: 0 };
 /**
  * Whether `getClientAddress()` distinguishes one visitor from another.
  *
- * adapter-node returns the socket peer unless ADDRESS_HEADER names a header the
- * proxy sets. Behind a reverse proxy without it, every visitor arrives as the
- * proxy, so the address bucket is one bucket for the whole deployment: 60
- * deliberate failures in 15 minutes then refuse sign-in to everybody, and
- * `clearLoginFailures` does not clear the address key, so a user with the right
- * password cannot recover it. A proxy on the same host or the same Docker
- * network always presents a loopback or RFC1918 address, so that is the shape
- * to drop. A deployment exposed directly sees real public addresses and keeps
- * the backstop.
+ * adapter-node returns the socket peer unless ADDRESS_HEADER names a header
+ * the proxy sets. Behind a proxy without it every visitor is the proxy, so 60
+ * failures in 15 minutes refused sign-in to everybody, and a correct password
+ * does not clear the address key. A proxy on the same host or Docker network
+ * presents a loopback or RFC1918 address, so those are not counted. A
+ * deployment exposed directly sees public addresses and keeps the backstop.
  */
 function perVisitorAddress(address: string): boolean {
 	if (process.env.ADDRESS_HEADER) return true;
@@ -84,12 +70,9 @@ function perVisitorAddress(address: string): boolean {
 
 /**
  * The bucket an address is counted in: an IPv4 address as it is, an IPv6
- * address by its /64.
- *
- * A /64 is the smallest block an ISP or host routes to one customer, and every
- * address in it is the same visitor's to pick. Keyed on the full address, 300
- * attempts from one /64 with a new address each were all allowed where the
- * same 300 from one IPv4 address stopped at 60.
+ * address by its /64, the smallest block routed to one customer. Keyed on the
+ * full address, 300 attempts from one /64 were all allowed where one IPv4
+ * address stopped at 60.
  */
 function addressBucket(address: string): string {
 	const plain = (address.startsWith('::ffff:') ? address.slice(7) : address).split('%')[0];
@@ -108,15 +91,13 @@ function addressBucket(address: string): string {
 let warnedSharedAddress = false;
 
 /**
- * The keys a single attempt counts against. Usernames are lower-cased so that
- * `Alice` and `alice` cannot be used as two separate budgets against one
- * account, and prefixed so a username can never collide with an address.
+ * The keys one attempt counts against, prefixed so a username cannot collide
+ * with an address.
  *
- * The backend is part of the username key. With both servers configured,
- * `alice` on Navidrome and `alice` on Jellyfin are two accounts that may
- * belong to two people, and a success clears the key. Shared, nine guesses at
- * one followed by a correct sign-in to the other reset the count, and the
- * guessing went on without limit.
+ * The backend is part of the username key: `alice` on Navidrome and on
+ * Jellyfin can be two people, and a success clears the key. Shared, nine
+ * guesses at one and a correct sign-in to the other reset the count, without
+ * limit.
  */
 export function loginKeys(
 	backend: BackendKind,
@@ -124,15 +105,14 @@ export function loginKeys(
 	address: string,
 	device: string | null = null
 ): Array<[string, number]> {
-	// A browser that has signed in as this account before is counted on its
-	// own, and not against the username or the address, which anybody can
-	// run up. See `rememberDevice` in auth.ts.
+	// A known browser is counted on its own, not against the username or the
+	// address, which anybody can run up. See `rememberDevice` in auth.ts.
 	if (device) return [[`device:${device}`, MAX_PER_DEVICE]];
 
-	// Folded up then down, as .NET's OrdinalIgnoreCase does for Jellyfin: it
-	// takes σ, ς and Σ for one letter, and `toLowerCase()` alone keeps them
-	// apart, so a name with such letters was guessed at in several buckets.
-	// For Navidrome, which folds ASCII only, this can only join buckets.
+	// Folded up then down, as .NET's OrdinalIgnoreCase does for Jellyfin: σ, ς
+	// and Σ are one letter there, and `toLowerCase()` alone gave such a name
+	// several buckets. For Navidrome, which folds ASCII only, this can only
+	// join buckets.
 	const keys: Array<[string, number]> = [
 		[`user:${backend}:${username.toUpperCase().toLowerCase()}`, MAX_PER_USERNAME]
 	];
@@ -141,8 +121,7 @@ export function loginKeys(
 		keys.push([`addr:${addressBucket(address)}`, MAX_PER_ADDRESS]);
 	} else if (!warnedSharedAddress) {
 		warnedSharedAddress = true;
-		// Printed once. It is the line that explains why the address backstop is
-		// not in effect, and what to set to get it back.
+		// Printed once: why the address backstop is off, and what to set.
 		log.warn('login-address-backstop-off', {
 			address,
 			detail: 'every visitor reports the same address; set ADDRESS_HEADER and XFF_DEPTH to limit per visitor'
@@ -161,19 +140,16 @@ const MAX_QUICK_CONNECT_TOTAL = 100;
  * The keys a Quick Connect start counts against.
  *
  * A start guesses nothing: the secret that completes it is 32 random bytes
- * chosen by the music server. What it does hold is a 6-digit code, 900,000
- * possible values in Jellyfin 10.10, and Jellyfin grants whichever pending
- * request matches the code a signed-in user types. A user who mistypes their
- * own code approves somebody else's request if one is pending under the typo.
- * The chance of that is the number of pending requests over 900,000, so the
- * number this deployment can hold open is capped in total and not only per
- * address: one address or a thousand, at most 100 in 15 minutes, which puts a
- * mistyped code at about 1 in 9,000 at worst.
+ * from the music server. It does hold a 6-digit code (900,000 values in
+ * Jellyfin 10.10), and Jellyfin grants whichever pending request matches the
+ * code a signed-in user types, so a mistyped code approves somebody else's
+ * request if one is pending under the typo. The chance is the number of
+ * pending requests over 900,000, so the deployment's total is capped as well
+ * as each address: at most 100 in 15 minutes, about 1 in 9,000 at worst.
  *
  * The total is shared, so exhausting it stops Quick Connect for everybody
- * until the window rolls off. Password sign-in counts against other keys and
- * carries on. A Jellyfin server reachable directly takes `Initiate` from
- * anybody, and this cap says nothing about requests made there.
+ * until the window rolls off. Password sign-in uses other keys. A Jellyfin
+ * server reachable directly takes `Initiate` from anybody, outside this cap.
  */
 export function quickConnectKeys(address: string): Array<[string, number]> {
 	const keys: Array<[string, number]> = [['qc:all', MAX_QUICK_CONNECT_TOTAL]];
@@ -188,9 +164,9 @@ function retryAfterFor(windowFrom: number, timestamp: number): number {
 /**
  * Counts one attempt against every key and says whether it may proceed.
  *
- * Read and write are the same statement, so concurrent attempts cannot all see
- * the same pre-burst total. Every key is incremented even when an earlier one
- * has already refused, so that a throttled username still costs its address.
+ * Read and write are one statement, so concurrent attempts cannot see the same
+ * total. Every key is incremented even after an earlier one refused, so a
+ * throttled username still costs its address.
  */
 export async function reserveLoginAttempt(keys: Array<[string, number]>): Promise<RateVerdict> {
 	const timestamp = Date.now();
@@ -222,15 +198,12 @@ export async function reserveLoginAttempt(keys: Array<[string, number]>): Promis
 }
 
 /**
- * Hands an attempt back.
- *
- * Only a rejected credential should count. An unreachable music server is not a
- * wrong guess, and counting it would let an upstream outage lock every user out.
+ * Hands an attempt back. Only a rejected credential counts: counting an
+ * unreachable music server would let an outage lock every user out.
  */
 export async function refundLoginAttempt(keys: Array<[string, number]>): Promise<void> {
 	const database = await store();
-	// A CASE rather than SQLite's two-argument MAX(), which PostgreSQL spells
-	// GREATEST.
+	// A CASE, since SQLite's two-argument MAX() is GREATEST in PostgreSQL.
 	for (const [key] of keys) {
 		await database.run(
 			'UPDATE login_attempts SET failures = CASE WHEN failures > 0 THEN failures - 1 ELSE 0 END WHERE key = ?',
@@ -240,9 +213,8 @@ export async function refundLoginAttempt(keys: Array<[string, number]>): Promise
 }
 
 /**
- * Clears the counters for a successful sign-in. Only the username key is
- * cleared: the address key is shared by everyone behind a proxy, so one correct
- * password must not wipe the backstop for everybody else.
+ * Clears the username and device keys after a successful sign-in. The address
+ * key is shared by everyone behind a proxy and stays.
  */
 export async function clearLoginFailures(keys: Array<[string, number]>): Promise<void> {
 	const database = await store();
@@ -253,7 +225,7 @@ export async function clearLoginFailures(keys: Array<[string, number]>): Promise
 	}
 }
 
-/** Drops rows whose window has long since rolled off. */
+/** Drops rows whose window ended more than three windows ago. */
 export async function pruneLoginAttempts(): Promise<void> {
 	await (await store()).run('DELETE FROM login_attempts WHERE window_from < ?', Date.now() - WINDOW_MS * 4);
 }

@@ -1,17 +1,16 @@
 /**
  * Which addresses a station's stream may be fetched from; `radio.ts` has the
- * rules these serve. This file imports nothing of the app's own, so the e2e
- * suite loads it as it stands and tests the two functions directly.
+ * rules. This file imports nothing of the app's own, so the e2e suite loads it
+ * directly.
  */
 import { BlockList, isIP } from 'node:net';
 
 /**
  * Loopback, private, link-local, carrier-grade NAT, multicast and the
  * unspecified addresses. In IPv6 also the ranges that carry an IPv4 address
- * inside them (IPv4-compatible, NAT64, 6to4, Teredo): on a host with such a
- * tunnel they reach the IPv4 address they carry, private or not, and no
- * station is served from one. An IPv4-mapped address (`::ffff:10.0.0.1`) is
- * matched against the IPv4 rules by `BlockList` itself.
+ * (IPv4-compatible, NAT64, 6to4, Teredo): on a host with such a tunnel they
+ * reach that IPv4 address, private or not. `BlockList` matches an IPv4-mapped
+ * address (`::ffff:10.0.0.1`) against the IPv4 rules itself.
  */
 const NOT_PUBLIC = new BlockList();
 for (const [network, prefix] of [
@@ -51,15 +50,12 @@ export function isPublic(address: string, family: number): boolean {
 }
 
 /**
- * Whether the hop after this one may be on a private address: only where
- * private addresses were allowed for this one and it was itself served from
- * one. `servedFrom` is the address the connection was made to.
+ * Whether the hop after this one may be on a private address: only where this
+ * one was allowed to be and was itself served from one. `servedFrom` is the
+ * address the connection was made to.
  *
- * With `HEDDOHON_RADIO_PRIVATE=true` a station may be on the local network.
- * A station on the internet may still not send this server there: its
- * redirect, or the address in its playlist, is written by whoever runs that
- * station, and would otherwise make this server fetch from the network it
- * sits on.
+ * A station on the internet writes its own redirect and playlist, and would
+ * otherwise make this server fetch from the network it sits on.
  */
 export function privateAllowedAfter(allowedSoFar: boolean, servedFrom: string | undefined): boolean {
 	if (!allowedSoFar || !servedFrom) return false;

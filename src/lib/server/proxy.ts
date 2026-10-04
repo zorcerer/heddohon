@@ -1,16 +1,11 @@
 /**
  * Media proxying.
  *
- * This is the heart of Heddohon's security posture. Feishin and Aonsoku hand
- * the browser a direct URL to the music server, which means the browser must be
- * able to reach it — so a Navidrome on 10.0.0.10 is unreachable the moment you
- * are off that network, and the upstream credential ends up in the client.
- *
- * Here every byte is fetched by the Node process instead. The browser only ever
- * talks to Heddohon, the upstream hostname never leaves the server, and the
- * credential never enters a page. The cost is that the server carries the
- * bandwidth; the benefit is that a single reverse-proxied hostname is all that
- * has to be exposed.
+ * Every byte is fetched by this process. The browser talks only to Heddohon:
+ * the upstream hostname stays on the server and the credential never enters a
+ * page, where clients such as Feishin and Aonsoku give the browser a direct
+ * URL to the music server. The server carries the bandwidth, and one
+ * reverse-proxied hostname is all that is exposed.
  */
 import { error, type RequestEvent } from '@sveltejs/kit';
 import { backendFor, UpstreamError } from './backends';
@@ -24,16 +19,10 @@ export type MediaKind = 'stream' | 'cover';
 /**
  * The only top-level content types each endpoint may serve.
  *
- * The proxy relays the upstream's own `content-type`, which means the upstream
- * decides what the browser thinks it is being handed — from *our* origin.
- * Demonstrated before this existed: a cover declaring `text/html` was served as
- * HTML by Heddohon and its script ran with full same-origin access to the
- * signed-in API. That needs no compromise of the music server, only a file in
- * the library that it is willing to describe that way.
- *
- * Anything outside the list becomes an opaque download instead. A browser will
- * not render it, and the two things that would have been worth injecting —
- * markup and script — are exactly what falls outside.
+ * The upstream's `content-type` is relayed from this origin. A cover declared
+ * `text/html` was served as HTML and its script ran with same-origin access to
+ * the signed-in API, which takes only a file in the library the music server
+ * describes that way. Anything outside the list becomes an opaque download.
  */
 const ALLOWED_PREFIX: Record<MediaKind, string> = {
 	stream: 'audio/',
@@ -41,11 +30,9 @@ const ALLOWED_PREFIX: Record<MediaKind, string> = {
 };
 
 /**
- * SVG is an image by content type and a scriptable document by behaviour, so
- * the prefix check above lets it through. This makes every media response inert
- * when it is navigated to directly: no scripts, no plugins, no same-origin
- * anything. It costs nothing for an `<img>` or an `<audio>`, which do not
- * execute the response either way.
+ * SVG passes the prefix check above and is a scriptable document. This makes
+ * every media response inert when navigated to directly. An `<img>` or an
+ * `<audio>` does not execute the response either way.
  */
 export const MEDIA_CSP = "default-src 'none'; sandbox";
 
@@ -53,18 +40,17 @@ export const MEDIA_CSP = "default-src 'none'; sandbox";
 const MEDIA_ESSENCE = /^(audio|image)\/[a-z0-9][a-z0-9.+-]{0,62}$/;
 
 const CACHE_CONTROL: Record<MediaKind, string> = {
-	// Audio is large and immutable per id, but it is also private to the account,
-	// so it may be cached by the browser and never by a shared proxy.
+	// Audio is private to the account: cached by the browser, never by a shared
+	// proxy.
 	stream: 'private, max-age=3600',
 	cover: 'private, max-age=86400, stale-while-revalidate=604800'
 };
 
 /**
- * Allowed cover sizes, so the upstream cannot be asked to render arbitrary
- * dimensions. 1536 is here for the player panel's artwork at twice the density:
- * measured on a 2560x1440 display at devicePixelRatio 2, that panel draws its
- * cover into a box 1052x1700 device pixels, and the largest size below this one
- * would be stretched to fill it.
+ * Allowed cover sizes, so the upstream cannot be asked for arbitrary
+ * dimensions. 1536 is for the player panel at twice the density: on a
+ * 2560x1440 display at devicePixelRatio 2 its cover box is 1052x1700 device
+ * pixels.
  */
 const COVER_SIZES = [64, 96, 128, 192, 256, 384, 512, 768, 1024, 1536];
 
@@ -89,7 +75,7 @@ export async function proxyMedia(
 
 	return relay(event, kind, () => open(backendFor(session.account.backend)), async () => {
 		// The stored credential no longer works upstream (password changed,
-		// Jellyfin token revoked). Sessions built on it are worthless.
+		// Jellyfin token revoked), and neither do the sessions built on it.
 		await destroyAllSessions(session.account.id);
 		error(401, 'The music server rejected your saved credentials. Please sign in again.');
 	}, false, options);
@@ -98,10 +84,9 @@ export async function proxyMedia(
 /**
  * Media for a shared link, fetched with the sharer's credential.
  *
- * The caller has already resolved the token and decides which song or cover is
- * opened; nothing in the request names one. A rejected credential answers 404
- * and leaves the sharer's sessions alone: the visitor is anonymous, and the
- * sharer's own next request reports the rejection to the sharer.
+ * The caller has resolved the token and decides which song or cover is opened.
+ * A rejected credential answers 404 and leaves the sharer's sessions alone:
+ * the visitor is anonymous, and the sharer's next request reports it to them.
  */
 export async function proxySharedMedia(
 	event: RequestEvent,
@@ -109,8 +94,8 @@ export async function proxySharedMedia(
 	open: () => Promise<UpstreamResponse>
 ): Promise<Response> {
 	const response = await relay(event, kind, open, () => error(404, 'Not found'), true);
-	// Shorter than an account's own media: a withdrawn link should stop working
-	// in the browser that played it, not an hour or a day later from its cache.
+	// Shorter than an account's own media, so a withdrawn link stops working in
+	// the browser that played it.
 	response.headers.set('cache-control', SHARED_CACHE_CONTROL[kind]);
 	return response;
 }
@@ -126,10 +111,10 @@ async function relay(
 	open: () => Promise<UpstreamResponse>,
 	rejected: () => Promise<never> | never,
 	/**
-	 * Refuse a body of the wrong type outright instead of relaying it as a
-	 * download. For shared links: a Subsonic server answers `stream.view` with a
-	 * credential it rejects by sending its error envelope as a 200, and that is
-	 * not something to hand an anonymous visitor, even as an opaque file.
+	 * Refuse a body of the wrong type instead of relaying it as a download. For
+	 * shared links: a Subsonic server answers `stream.view` under a rejected
+	 * credential with its error envelope as a 200, which an anonymous visitor
+	 * should not be handed.
 	 */
 	strict = false,
 	options: { estimatedLength?: boolean } = {}
@@ -140,9 +125,8 @@ async function relay(
 	} catch (err) {
 		if (err instanceof UpstreamError) {
 			if (err.kind === 'auth') await rejected();
-			// A shared link's visitor may have no account, and the upstream's own
-			// wording ("Could not reach the music server: fetch failed") is detail
-			// for the log, not for them.
+			// The upstream's wording ("Could not reach the music server: fetch
+			// failed") is for the log, not for a shared link's visitor.
 			if (strict) error(err.status === 404 ? 404 : 502, err.status === 404 ? 'Not found' : 'Unavailable');
 			error(err.status === 404 ? 404 : 502, err.message);
 		}
@@ -154,10 +138,10 @@ async function relay(
 	if (upstream.status >= 400) error(502, strict ? 'Unavailable' : `Music server returned HTTP ${upstream.status}`);
 
 	/*
-	 * Reduced to one bare `type/subtype` and checked in that form, and only that
-	 * form is sent on. A prefix test on the raw value passed `image/png,
-	 * text/html`, which is what fetch makes of two `content-type` headers, and a
-	 * browser reading that header takes the last type in the list.
+	 * Reduced to one bare `type/subtype`, checked and sent on in that form. A
+	 * prefix test on the raw value passed `image/png, text/html`, which is what
+	 * fetch makes of two `content-type` headers, and a browser takes the last
+	 * type in the list.
 	 */
 	const essence = (upstream.headers.get('content-type') ?? '').split(';')[0].trim().toLowerCase();
 	const allowed = MEDIA_ESSENCE.test(essence) && essence.startsWith(ALLOWED_PREFIX[kind]);
@@ -172,8 +156,7 @@ async function relay(
 		'x-content-type-options': 'nosniff',
 		'content-type': safeType,
 		'content-security-policy': MEDIA_CSP,
-		// Nothing upstream has any business naming the file the browser saves, and
-		// a relayed filename is a place to hide a second extension.
+		// A relayed filename is a place to hide a second extension.
 		'content-disposition': 'inline'
 	});
 
@@ -187,8 +170,8 @@ async function relay(
 		return rangeIgnored(event, upstream, headers, range, options.estimatedLength === true);
 	}
 
-	// Range support is what makes seeking work: say so when the upstream did,
-	// or when it answered a range with a range.
+	// Seeking needs range support: stated when the upstream answered a range
+	// with a range.
 	if (upstream.status === 206 && !headers.has('accept-ranges')) headers.set('accept-ranges', 'bytes');
 
 	return new Response(event.request.method === 'HEAD' ? null : upstream.body, {
@@ -211,24 +194,19 @@ function parseRange(value: string | null): { start: number; end: number | null }
  * The browser asked for a range and the music server sent the whole thing
  * from byte 0.
  *
- * Navidrome does this while a transcode is still running: until it is
- * finished and cached, a `Range` header is ignored. Measured against
- * Navidrome 0.64.1 on 2026-09-25: `bytes=1500000-` asked of a transcode in
- * progress came back 200, from the first byte of the song, with an estimated
- * `Content-Length` 2.4 percent longer than what was sent. This proxy then
- * added `Accept-Ranges: bytes` on the upstream's behalf, so iOS Safari, which
- * reads media in ranges, asked for the next part of the file, was given the
- * start of the song, and played it as the continuation: the song started
- * over while the element's clock and the progress bar carried on.
+ * Navidrome ignores `Range` while a transcode is running. Against Navidrome
+ * 0.64.1 on 2026-09-25, `bytes=1500000-` asked of a transcode in progress came
+ * back 200 from the first byte, with an estimated `Content-Length` 2.4 percent
+ * too long. This proxy added `Accept-Ranges: bytes`, so iOS Safari asked for
+ * the next part, was given the start of the song and played it as the
+ * continuation: the song started over while the clock carried on.
  *
- * - From byte 0: the stream is relayed as a 200 without a claim of range
- *   support, and without the length when it is an estimate, so the browser
- *   reads it as one continuous stream and does not ask for a range of it.
+ * - From byte 0: relayed as a 200 without a claim of range support, and
+ *   without the length when it is an estimate, so the browser reads one
+ *   continuous stream.
  * - From further in: the bytes asked for are sent as a 206, by reading past
- *   the start of the upstream body. Only a browser that was told the file
- *   supports ranges asks this, and it has to get the bytes it asked for.
- *   Without an upstream length there is no valid `Content-Range`, and the
- *   answer is 416.
+ *   the start of the upstream body. Without an upstream length there is no
+ *   valid `Content-Range`, and the answer is 416.
  */
 function rangeIgnored(
 	event: RequestEvent,
@@ -307,19 +285,18 @@ export function streamRequestFrom(event: RequestEvent) {
 }
 
 /**
- * A transcode, answered from one whole read of it held in `transcodes.ts`,
- * so that a range asked of it gets exactly those bytes and a stream that
- * dropped can be picked up where it stopped.
+ * A transcode, answered from one whole read of it held in `transcodes.ts`, so
+ * a range gets exactly those bytes and a dropped stream resumes where it
+ * stopped.
  *
  * Until the read is whole, a request from byte 0 gets the transcode as it
- * arrives, as a 200 without a length or a claim of ranges, and marked not to
- * be kept by the browser: the player asks again for a position it could not
- * seek to, and the answer to that has to come from here, not from the
- * browser's copy of a stream without ranges. A range from further in waits
- * for the read to finish, which is seconds (see `transcodes.ts`). Once whole,
- * every request gets exact ranges and the real length.
+ * arrives: a 200 without a length or a claim of ranges, marked not to be kept
+ * by the browser, since a later request for a position must be answered from
+ * here and not from the browser's copy. A range from further in waits for the
+ * read to finish, which takes seconds (see `transcodes.ts`). Once whole, every
+ * request gets exact ranges and the real length.
  *
- * `fallback` answers instead for a transcode too large to hold.
+ * `fallback` answers for a transcode too large to hold.
  */
 export async function proxyTranscode(
 	event: RequestEvent,
@@ -359,13 +336,13 @@ export async function proxyTranscode(
 		throw err;
 	}
 
-	// Past the limits in `transcodes.ts`: relayed as it comes, as before.
+	// Past the limits in `transcodes.ts`: relayed as it comes.
 	if (!entry) return fallback();
 
 	const range = parseRange(event.request.headers.get('range'));
 	// `whole` in the address is the player opening a track at a position, which
-	// it cannot take up in a stream without ranges (`#srcOf` in the player). It
-	// changes when the answer is sent and nothing about what is sent.
+	// a stream without ranges cannot give it (`#srcOf` in the player). It
+	// changes when the answer is sent, not what is sent.
 	const wanted = event.url.searchParams.has('whole') || (range !== null && range.start > 0);
 	if (!entry.done && wanted) await settled(entry, 30_000);
 	if (entry.failed === 'oversize') return fallback();
