@@ -42,8 +42,7 @@
 			const id = await createPlaylist(trimmed);
 			name = '';
 			creating = false;
-			// Straight into the new playlist: an empty one is only useful once you
-			// start putting things in it.
+			// Straight into the new playlist, where things are added to it.
 			await goto(`/playlists/${id}`);
 		} catch (err) {
 			error = err instanceof Error ? err.message : 'Could not create that playlist';

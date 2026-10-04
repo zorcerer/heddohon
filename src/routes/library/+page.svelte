@@ -114,8 +114,8 @@
 
 	/*
 	 * Six doors, two across on a phone and three across wider, a lone last one
-	 * taking the width. Each is a pane of the same glass as the dock, so the
-	 * page reads as the dock's tab opened out rather than as a list of links.
+	 * taking the width. Each is a pane of the dock's glass, so the page reads as
+	 * the dock's tab opened out.
 	 */
 	.ways {
 		display: grid;

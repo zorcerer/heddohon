@@ -9,9 +9,9 @@
 
 	let { data }: { data: PageData } = $props();
 
-	// Filtering runs on the server so it searches the whole library, not just the
-	// hundred artists this page happens to hold. Debounced, and pushed through
-	// the URL so a filtered view is shareable and the back button restores it.
+	// Filtering runs on the server, so it searches the whole library and not
+	// the hundred artists on this page. Debounced, and pushed through the URL, so
+	// a filtered view is shareable and Back restores it.
 	let filter = $state(untrack(() => data.query));
 	let timer: ReturnType<typeof setTimeout> | null = null;
 
@@ -44,8 +44,8 @@
 	/**
 	 * The page's artists under their initials, as a printed index sets them.
 	 * The key skips a leading article, as Navidrome and Jellyfin do when they
-	 * sort ("The Beatles" is under B), so the groups follow the order the
-	 * server sent. Anything that does not start with a letter goes under #.
+	 * sort ("The Beatles" is under B), so the groups follow the server's order.
+	 * Anything that does not start with a letter goes under #.
 	 */
 	const ARTICLE = /^(the|a|an|el|la|los|las|le|les|os|as|o)\s+/i;
 	const groups = $derived.by(() => {
@@ -176,10 +176,8 @@
 		gap: var(--space-4);
 	}
 
-	/*
-	 * The letter in the margin, large and quiet, the way a printed index sets
-	 * its section letters; it stays beside its group while the group scrolls.
-	 */
+	/* The letter in the margin, large and quiet. It stays beside its group while
+	   the group scrolls. */
 	.group {
 		display: grid;
 		grid-template-columns: 3.5rem minmax(0, 1fr);

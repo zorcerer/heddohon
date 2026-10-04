@@ -28,11 +28,10 @@
 	const sweep = heroSweep();
 
 	/*
-	 * The sleeve turns toward the pointer, up to 9 degrees each way, as a record
-	 * sleeve does when it is held and tipped to the light; a highlight follows
-	 * the pointer across it. Mouse only, and not under reduced motion. It
-	 * settles flat on leaving, and on a press, so a click never starts a
-	 * navigation with the cover turned.
+	 * The sleeve turns toward the pointer, up to 9 degrees each way, and a
+	 * highlight follows the pointer across it. Mouse only, and not under
+	 * reduced motion. It settles flat on leaving and on a press, so a click
+	 * does not start a navigation with the cover turned.
 	 */
 	let holder = $state<HTMLDivElement | null>(null);
 	let tilting = $state(false);
@@ -53,19 +52,17 @@
 	}
 
 
-	// This album is the subject of the page, so it colours the whole room while
-	// nothing is playing. It does not override the tint on its own subtree any
-	// more: a hero in one colour inside a page in another is exactly the
-	// per-widget colouring the single root tint replaced.
+	// This album is the page's subject, so it colours the room while nothing is
+	// playing. It does not tint its own subtree: the single root tint replaced
+	// per-widget colouring.
 	$effect(() => ambience.offer(album.coverArt));
 	const totalDuration = $derived(
 		album.duration ?? album.songs.reduce((sum, song) => sum + song.duration, 0)
 	);
 
 	/**
-	 * A release is only labelled hi-res when every track qualifies — a single
-	 * 24/96 bonus track on an otherwise CD-quality album should not earn the
-	 * badge, and the reverse would be worse.
+	 * A release is labelled hi-res only when every track qualifies: one 24/96
+	 * bonus track on a CD-quality album does not earn the badge.
 	 */
 	const releaseQuality = $derived.by(() => {
 		if (album.songs.length === 0) return null;
@@ -211,8 +208,7 @@
 
 	<!--
 		The artist's back catalogue, above the suggestions: an album by the same
-		artist is a better answer to "what else" than one by a similar artist,
-		so it should not be below eight records that are only related.
+		artist answers "what else" better than one by a similar artist.
 	-->
 	{#await data.artistAlbums then artistAlbums}
 		{#if artistAlbums.length > 0 && album.artist && album.artistId}
@@ -239,17 +235,16 @@
 	{/await}
 
 	<!--
-		Awaited in the markup rather than in the loader, so the track list is in
-		the first byte of HTML and this arrives later down the same response. The
-		pending branch is empty on purpose: a row of skeletons would reserve space
-		for a shelf that is empty on any server without similarity data.
+		Awaited in the markup and not in the loader, so the track list is in the
+		first byte of HTML and this arrives later down the same response. The
+		pending branch is empty: skeletons would reserve space for a shelf that
+		is empty on a server without similarity data.
 	-->
 	{#await data.similar then similar}
 		{#if similar.length > 0}
 			<section>
 				<SectionHeader title="You might like" eyebrow="Related" />
-				<!-- Compact: a suggestion is secondary to the page it sits under, and at
-				     this size the whole shelf fits without dominating the scroll. -->
+				<!-- Compact: a suggestion is secondary to the page it is under. -->
 				<MediaGrid density="compact" wholeRows>
 					{#each similar as suggestion (suggestion.id)}
 						<MediaCard
@@ -281,11 +276,9 @@
 		gap: calc(var(--space-7) + var(--space-2));
 		/*
 		 * Centred, not bottom-aligned. The artwork is a fixed square beside a
-		 * column whose height the title decides, so hanging the row off its
-		 * bottom edge pooled every spare pixel above the sleeve — and the longer
-		 * the title, the bigger the hole. Centring splits that slack, and it also
-		 * covers the other direction: a one-line title makes the artwork the
-		 * taller item, and bottom-alignment then shoved the text down instead.
+		 * column whose height the title decides, so bottom alignment put every
+		 * spare pixel above the sleeve, more with a longer title, and with a
+		 * one-line title pushed the text down instead.
 		 */
 		align-items: center;
 		padding: var(--space-5);
@@ -300,10 +293,10 @@
 	}
 
 	/*
-	 * The turn, and a lift toward the viewer with it. While the pointer moves it
-	 * follows in 120ms; on leaving it settles flat on the spring, a little past
-	 * level and back. Only this wrapper turns: the sleeve inside carries the
-	 * view-transition name, and this is flat again before any navigation.
+	 * The turn, and a lift toward the viewer with it. It follows the pointer in
+	 * 120ms, and on leaving settles flat on the spring. Only this wrapper
+	 * turns: the sleeve inside carries the view-transition name, and this is
+	 * flat again before any navigation.
 	 */
 	.holder {
 		position: relative;
@@ -313,14 +306,14 @@
 
 	/*
 	 * The glow under the turned sleeve, following the turn, faded by opacity.
-	 * It was a `drop-shadow` filter on the holder transitioned from `none`,
-	 * which Chromium drew only once the transition had ended, so it snapped on
-	 * (see MediaCard). The filter also shaded the sleeve's own drop below it;
-	 * 24% here stands in for its 16%.
+	 * As a `drop-shadow` filter on the holder transitioned from `none`,
+	 * Chromium drew it only once the transition had ended (see MediaCard). The
+	 * filter also shaded the sleeve's own drop below it, and 24% here stands in
+	 * for its 16%.
 	 *
 	 * Kept inside the hero's 24px of padding, which clips: at 1.4rem of blur
 	 * pushed up to 0.72rem sideways, the glow reached 33px past the sleeve and
-	 * was cut off along the edge by the rail. Now at most 0.2rem sideways and
+	 * was cut off along the rail's edge. Now at most 0.2rem sideways and
 	 * 0.55rem of blur, 12px.
 	 */
 	.holder::before {
@@ -442,16 +435,13 @@
 
 	/*
 	 * A phone: glyphs only. With labels the four buttons and the heart wrapped
-	 * onto two rows, and "Add to playlist" alone took most of the first. Each
-	 * button carries its name in `aria-label` and `title`, so the label that
-	 * goes is only the painted one. 44px squares, the size a finger needs; play
-	 * stays the accent, round, to keep it the first thing to press.
+	 * onto two rows. Each button carries its name in `aria-label` and `title`.
+	 * 44px squares, the size a finger needs, with play round and in the accent.
 	 */
 	/*
-	 * On a phone the sleeve is the page: centred and as wide as it can be
-	 * while the title and the play button still show under it on arrival,
-	 * with the text centred beneath it. Left-aligned at 13rem it filled half
-	 * the width of an iPhone and left the other half empty beside it.
+	 * On a phone the sleeve is centred and as wide as it can be while the title
+	 * and the play button still show under it on arrival, with the text centred
+	 * beneath. Left-aligned at 13rem it filled half the width of an iPhone.
 	 */
 	@media (max-width: 36rem) {
 		.hero {
@@ -464,9 +454,9 @@
 			max-width: none;
 		}
 
-		/* The full width, stretched: a size container has no width of its own
-		   to shrink to, so centred it collapsed to its widest word and the
-		   year, the count and the buttons wrapped one to a line. */
+		/* The full width, stretched: a size container has no width of its own to
+		   shrink to, so centred it collapsed to its widest word, and the year,
+		   the count and the buttons wrapped one to a line. */
 		.details {
 			justify-self: stretch;
 			justify-items: center;
@@ -492,8 +482,8 @@
 			border-radius: 50%;
 		}
 
-		/* Icon sizes itself inline, so only `!important` reaches it. 16px was
-		   drawn to sit beside a word; alone in a 44px button it read as a dot. */
+		/* Icon sizes itself inline, so only `!important` reaches it. At 16px,
+		   drawn to sit beside a word, it read as a dot alone in a 44px button. */
 		.actions .hh-button :global(svg) {
 			width: 1.25rem !important;
 			height: 1.25rem !important;

@@ -25,10 +25,10 @@
 	const hoursListened = $derived(stats.seconds / 3600);
 
 	/*
-	 * The hour of the day, the day of the week and the runs of days are the
-	 * listener's own, in this browser's time zone, which the server does not
-	 * know. They are worked out here once the page is in the browser; the
-	 * server's render leaves them out, so the two renders agree.
+	 * The hour of the day, the day of the week and the runs of days are in this
+	 * browser's time zone, which the server does not know. They are worked out
+	 * in the browser, and the server's render leaves them out, so the two
+	 * renders agree.
 	 */
 	let local = $state(false);
 	onMount(() => (local = true));
@@ -368,10 +368,9 @@
 	}
 
 	/*
-	 * Columns in one hue, the room's accent: the busiest at full strength and
-	 * the rest at 40%, so the peak is the thing read first. Columns are at most
-	 * 24px, rounded 4px at the top and square at the baseline, with the gap
-	 * between them left as air.
+	 * Columns in the room's accent: the busiest at full strength and the rest
+	 * at 40%, so the peak is read first. At most 24px wide, rounded 4px at the
+	 * top and square at the baseline.
 	 */
 	.chart {
 		margin: 0;
@@ -415,7 +414,7 @@
 	}
 
 	/* Above the bar and out of the column's flow: in it, the label took height
-	   from the bar it labels, and the peak was drawn shorter than the rest. */
+	   from its bar, and the peak was drawn shorter than the rest. */
 	.value {
 		position: absolute;
 		bottom: calc(var(--h) + 0.2rem);

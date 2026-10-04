@@ -19,10 +19,9 @@
 	let submitting = $state(false);
 
 	/*
-	 * Where this page is in its own coming and going. It starts covered, which
-	 * is what the server renders, so a fresh load fades up rather than appearing
-	 * whole. Signing out is a form post to an endpoint, so it arrives here as a
-	 * browser navigation and gets the same treatment.
+	 * Where this page is in its coming and going. It starts covered, which is
+	 * what the server renders, so a fresh load fades up. Signing out is a form
+	 * post, so it arrives here as a browser navigation and fades up too.
 	 */
 	let phase = $state<'arriving' | 'idle' | 'leaving'>('arriving');
 	const leaving = $derived(phase === 'leaving');
@@ -32,24 +31,21 @@
 	/*
 	 * Going out.
 	 *
-	 * The page blurs and fades before the navigation is applied, rather than
-	 * across it. Doing it across would mean a view transition, and the root
-	 * cross-fade is switched off in `app.css` on purpose: a glass surface
-	 * painted from a snapshot of itself has no backdrop to blur, which is what
-	 * put black rectangles over the rail on iPadOS and Windows. Nothing here is
-	 * worth re-opening that.
+	 * The page blurs and fades before the navigation is applied, not across it.
+	 * Across would be a view transition, and the root cross-fade is switched
+	 * off in `app.css`: a glass surface painted from a snapshot has no backdrop
+	 * to blur, which put black rectangles over the rail on iPadOS and Windows.
 	 *
-	 * So the dissolve finishes first and the app is what is underneath when it
-	 * does. The ambient field is deliberately not part of it: the app paints the
-	 * same one, at the colour this page chose, so leaving it alone is what makes
-	 * the two pages read as one room rather than two screens.
+	 * So the dissolve finishes first, with the app underneath. The ambient
+	 * field is not part of it: the app paints the same one, at the colour this
+	 * page chose.
 	 */
 	const LEAVE_MS = 380;
 
 	async function leave(): Promise<void> {
 		phase = 'leaving';
-		// The animation is already reduced to nothing by the global motion rule,
-		// so waiting for it would only be a delay with nothing on screen.
+		// The global motion rule reduces the animation to nothing, so there is
+		// nothing to wait for.
 		if (prefersReducedMotion()) return;
 		await new Promise((resolve) => setTimeout(resolve, LEAVE_MS));
 	}
@@ -57,49 +53,41 @@
 	/*
 	 * A different colour every time this page is opened.
 	 *
-	 * The app takes its colour from whatever is playing, written onto the
-	 * document root as `--art-*`. Nothing is playing here, so the room would sit
-	 * at the same idle frost on every visit. Drawing a hue instead makes the
-	 * login page show what the app does rather than describe it, and costs
-	 * nothing to wire: the ambient field, the crest and the accent on the button
-	 * already read those properties.
+	 * The app takes its colour from what is playing, written onto the document
+	 * root as `--art-*`. Nothing plays here, so a hue is drawn. The ambient
+	 * field, the crest and the accent on the button already read those
+	 * properties.
 	 *
-	 * It goes on the document root and not on anything in this component because
-	 * `--accent` is composed at `:root`, and a custom property inherits its
-	 * substituted value. An override further down the tree reaches the ambience
-	 * and the glass, which compose their own hsl() where they are read, and
-	 * leaves every control behind.
+	 * It goes on the document root: `--accent` is composed at `:root`, and a
+	 * custom property inherits its substituted value. An override further down
+	 * reaches the ambience and the glass, which compose their own hsl() where
+	 * they are read, and misses every control.
 	 *
 	 * The root carries a 900ms transition on those properties, so the page
-	 * blooms into its colour rather than starting there.
+	 * blooms into its colour.
 	 */
 	onMount(() => {
 		forgetSavedOutput();
 		const root = document.documentElement;
 		holdArtworkColor(root, randomArtworkColor());
-		// What was actually written, which is not the hue that was drawn: the
-		// applier unwinds it so the fade takes the short way round the wheel.
+		// What was written, which is not the hue drawn: the applier unwinds it so
+		// the fade takes the short way round the wheel.
 		const held = root.style.getPropertyValue('--art-h');
 
 		return () => {
-			/*
-			 * Put the room back to frost on the way out, but only if it is still
-			 * showing this page's colour.
-			 *
-			 * Signing in destroys this component and tints from the restored
-			 * queue's cover in the same update, and the order between those two is
-			 * not worth relying on. If the cover got there first, the colour on the
-			 * root belongs to a record and is not this page's to reset.
-			 */
+			// Back to frost on the way out, only if the room still shows this
+			// page's colour. Signing in destroys this component and tints from the
+			// restored queue's cover in the same update, in either order. If the
+			// cover got there first, the colour on the root is a record's.
 			if (root.style.getPropertyValue('--art-h') === held) applyArtworkColor(root, null);
 		};
 	});
 
 	/*
-	 * Quick Connect. The server starts the request and keeps its secret; this
-	 * page only ever holds the code, and asks every 3 seconds whether it has been
+	 * Quick Connect. The server starts the request and keeps its secret. This
+	 * page holds only the code, and asks every 3 seconds whether it has been
 	 * approved. Jellyfin expires a request after 10 minutes, and the page stops
-	 * asking at the same point.
+	 * asking then.
 	 */
 	const POLL_MS = 3000;
 	type QuickConnectView =
@@ -190,10 +178,10 @@
 		fetch('/login/quick-connect', { method: 'DELETE' }).catch(() => undefined);
 	}
 
-	// Preserves the page the user was trying to reach before being redirected
-	// here. Parsed against a throwaway origin and kept only if it stayed there:
-	// a prefix test admits `/\evil.example`, which the URL parser resolves to
-	// `evil.example`. The server re-checks this, the same way, on submit.
+	// The page the user was trying to reach before being redirected here. Parsed
+	// against a throwaway origin and kept only if it stayed there: a prefix test
+	// admits `/\evil.example`, which the URL parser resolves to `evil.example`.
+	// The server checks it again, the same way, on submit.
 	const next = $derived.by(() => {
 		const raw = page.url.searchParams.get('next');
 		if (!raw) return '/';
@@ -214,34 +202,28 @@
 </svelte:head>
 
 <!--
-	The login page is the one view the layout renders bare, so the ambient field
-	the rest of the app sits in is painted here. It reads the same `--art-*` the
-	rest of the app does, which this page draws a hue for on mount.
+	The layout renders the login page bare, so the ambient field is painted
+	here. It reads the same `--art-*`, which this page draws a hue for on mount.
 -->
 <div class="hh-ambience" aria-hidden="true"></div>
 
 <!--
-	The crest at the size of the page, sitting where the panel will cover most of
-	it.
+	The crest at the size of the page, where the panel covers most of it.
 
-	This is here to give the glass a subject. Everywhere else in the app a pane
-	is translucent over artwork, which is what makes the material read as glass
-	rather than as a grey rectangle with a soft edge; the login page has no
-	artwork, so the panel was blurring an even wash and there was nothing in it
-	to see. A shape with real edges behind the panel is what the blur needs, and
-	the mark is the one shape the page already owns.
+	It gives the glass a subject. Elsewhere a pane is translucent over artwork.
+	The login page has none, so the panel blurred an even wash. A shape with
+	edges behind the panel is what the blur needs.
 -->
 {#if phase !== 'idle'}
 	<!--
 		The veil. It repeats the page's own ground, so fading it out reveals the
-		crest and the panel over a field that never moved, and fading it in takes
-		them back into the same field.
+		crest and the panel over a field that never moved.
 
-		It carries the whole opacity change for both directions. The panel is
-		glass, and an ancestor whose opacity is below 1 forms a backdrop root
-		exactly as a filter does: fading the stage would strip the pane's blur and
-		its brightness(0.5) on the first frame and hand them back on the last. A
-		sibling laid over the top leaves every surface under it at opacity 1.
+		It carries the whole opacity change, both ways. The panel is glass, and
+		an ancestor below opacity 1 is a backdrop root, as a filter is: fading
+		the stage would strip the pane's blur and its brightness(0.5) on the
+		first frame and return them on the last. A sibling over the top leaves
+		every surface under it at opacity 1.
 	-->
 	<div
 		class="veil hh-ambience"
@@ -258,20 +240,19 @@
 </div>
 
 <main class="stage">
-	<!-- The class goes on the column and not on the stage above it: the stage is
-	     the panel's ancestor, and a filter there would form a backdrop root the
-	     same way an opacity would. This column holds no glass. -->
+	<!-- The class goes on the column and not on the stage: the stage is the
+	     panel's ancestor, and a filter there would form a backdrop root. This
+	     column holds no glass. -->
 	<aside class="intro" class:leaving>
-		<!-- Crest and name set as one lockup rather than stacked. Stacked, the
-		     mark read as an illustration sitting above a heading; on the line it
-		     reads as the thing the name belongs to. -->
+		<!-- Crest and name as one lockup. Stacked, the mark read as an
+		     illustration above a heading. -->
 		<div class="lockup">
 			<Logo size={52} />
 			<h1 class="wordmark">{data.appName}</h1>
 		</div>
 		<p class="lede">Your music server, in a room lit by whatever is playing.</p>
-		<!-- The session ceiling used to be stated here as well. The settings page
-		     is where it is acted on, and it says so there. -->
+		<!-- The session ceiling is stated on the settings page, where it is
+		     acted on. -->
 		<p class="assurance">
 			<span class="hh-eyebrow">Credentials</span>
 			<span class="hh-muted">Passed straight to the music server. This browser stores none of it.</span>
@@ -296,9 +277,8 @@
 				use:enhance={() => {
 					submitting = true;
 					return async ({ result, update }) => {
-						// Only a redirect is on its way somewhere. A failed sign-in
-						// stays on this page and has an error to show, so dissolving
-						// it would blur out the thing the reader needs to read.
+						// Only a redirect is leaving. A failed sign-in stays on this page
+						// with an error to show.
 						if (result.type === 'redirect') await leave();
 						await update({ reset: false });
 						submitting = false;
@@ -323,8 +303,8 @@
 						{/each}
 					</fieldset>
 				{:else if data.servers.length === 1}
-					<!-- The server is named in the panel header instead, so this only
-					     has to carry the value. -->
+					<!-- The server is named in the panel header, so this only carries
+					     the value. -->
 					<input type="hidden" name="backend" value={data.servers[0].kind} />
 				{/if}
 
@@ -410,9 +390,9 @@
 	</div>
 
 	<footer class="colophon">
-		<!-- `noreferrer` as well as `noopener`: the referrer would otherwise carry
-		     the `next` query parameter, which names a page inside this
-		     deployment, to a third party. -->
+		<!-- `noreferrer` as well as `noopener`: the referrer would carry the
+		     `next` query parameter, which names a page inside this deployment,
+		     to a third party. -->
 		<a class="source" href={SOURCE_URL} target="_blank" rel="noopener noreferrer">
 			<Icon name="github" size={18} />
 			<span>Source on GitHub</span>
@@ -424,13 +404,10 @@
 <style>
 	/*
 	 * Two columns at rest: what the app is on the left, the way into it on the
-	 * right. The form was a single centred card before, which left the panel
-	 * carrying the name, the explanation, the fields and three footnotes at
-	 * once. Splitting them lets the panel hold nothing but the controls.
+	 * right, so the panel holds only the controls.
 	 *
-	 * Both tracks are capped rather than fractional. A form field wider than
-	 * about 26rem is harder to read back, not easier, and the stage is centred
-	 * in whatever is left over.
+	 * Both tracks are capped, not fractional. A form field wider than about
+	 * 26rem is harder to read back, and the stage is centred in what is left.
 	 */
 	.stage {
 		position: relative;
@@ -449,39 +426,32 @@
 	}
 
 	/*
-	 * Fixed, and centred on the right-hand column so the panel lands over the
-	 * middle of it. The interesting part of the crest is its edges, meaning the
-	 * ring, the band and the two earcups, and those want to fall across the
-	 * panel rather than beside it.
+	 * Fixed, and centred on the right-hand column, so the crest's edges (the
+	 * ring, the band and the two earcups) fall across the panel.
 	 *
-	 * Faint enough to read as a watermark at full strength, which also decides
-	 * how much of it survives the panel's blur: the pane carries a brightness
-	 * multiplier as well as the blur, so anything subtle enough to sit politely
-	 * on the open page nearly vanishes behind the glass. This is the level where
-	 * it is still legible through the panel.
+	 * Faint enough to read as a watermark, at the level where it is still
+	 * legible through the panel: the pane carries a brightness multiplier as
+	 * well as the blur.
 	 */
 	/*
 	 * The dissolve on the way to the app.
 	 *
-	 * The blur goes on what sits behind the glass rather than on an ancestor of
-	 * it. `filter` on an ancestor makes that ancestor the backdrop root, so the
-	 * panel would stop sampling the crest and the ambient field the moment the
-	 * animation started: it loses the brightness(0.5) its material carries and
-	 * the crest snaps into focus through 48% of transparent fill, which is a
-	 * flash on the first frame while the blur is still at zero. Softening the
-	 * backdrop instead arrives at the same picture by the material's own route,
-	 * since `backdrop-filter` samples whatever the crest layer has become.
+	 * The blur goes on what is behind the glass, not on an ancestor of it.
+	 * `filter` on an ancestor makes it the backdrop root, so the panel would
+	 * stop sampling the crest and the ambient field when the animation started:
+	 * it loses its brightness(0.5), and the crest shows in focus through 48% of
+	 * transparent fill for the first frame. Softening the backdrop reaches the
+	 * same picture, since `backdrop-filter` samples what the crest layer has
+	 * become.
 	 *
 	 * Nothing here uses a transform. The panel carries a `backdrop-filter`, and
-	 * that pairing is what this codebase has had compositing artefacts from on
-	 * iOS, which is also why `.hh-button:active` changes its surface rather than
-	 * scaling.
+	 * the pair has caused compositing artefacts on iOS, which is also why
+	 * `.hh-button:active` changes its surface instead of scaling.
 	 */
 	/*
-	 * Resting at 0 and animated from 1, in both directions. The other way round,
-	 * a browser that never ran the animation would hold an opaque sheet over the
-	 * page. The z-index has to outrank `.hh-ambience`, which sets its own, hence
-	 * naming both classes.
+	 * Resting at 0 and animated from 1, both ways, so a browser that never runs
+	 * the animation is not left under an opaque sheet. The z-index has to
+	 * outrank `.hh-ambience`, hence both classes.
 	 */
 	.veil.hh-ambience {
 		z-index: 60;
@@ -508,9 +478,9 @@
 		}
 	}
 
-	/* The two layers that carry the blur. Neither holds glass, so a filter on
-	   them costs nothing. The panel is softened by the crest going out of focus
-	   behind it, which its own `backdrop-filter` samples. */
+	/* The two layers that carry the blur. Neither holds glass. The panel is
+	   softened by the crest going out of focus behind it, which its own
+	   `backdrop-filter` samples. */
 	.crest-field.leaving,
 	.intro.leaving {
 		animation: soften var(--dur-state) var(--ease-out) both;
@@ -522,9 +492,8 @@
 		}
 	}
 
-	/* The wrapper is the viewport exactly, so the part of the crest that runs off
-	   the right-hand edge is clipped rather than left to argue with the document
-	   about whether it is scrollable. */
+	/* The wrapper is the viewport exactly, so the part of the crest past the
+	   right-hand edge is clipped and adds no scroll. */
 	.crest-field {
 		position: fixed;
 		inset: 0;
@@ -534,24 +503,20 @@
 		color: var(--accent);
 		opacity: 0.14;
 		/*
-		 * Faded out before it reaches the left-hand column. At this strength the
-		 * crest lifts the ground under it, and the text over there is the muted
-		 * tone, which is defined by sitting close to its own background: a
-		 * lighter ground costs it contrast exactly where it has least to give.
-		 * Behind the panel none of that applies, since the pane is between the
-		 * two. So the watermark blooms out of the right-hand side and is gone by
-		 * the time there is type to read.
+		 * Faded out before it reaches the left-hand column. The crest lifts the
+		 * ground under it, and the muted text there depends on sitting close to
+		 * its background, so a lighter ground costs it contrast. Behind the
+		 * panel the pane is between the two.
 		 */
 		-webkit-mask-image: linear-gradient(to right, transparent 0%, #000 38%);
 		mask-image: linear-gradient(to right, transparent 0%, #000 38%);
 	}
 
 	/*
-	 * The component writes its own width and height inline, from a pixel prop.
-	 * That is right for an icon sized by its caller and wrong for a watermark
-	 * measured against the viewport, and an inline style is only reachable from
-	 * a stylesheet with `!important`. The `size` passed in the markup is what
-	 * the server renders before this arrives.
+	 * The component writes its width and height inline, from a pixel prop,
+	 * which suits an icon and not a watermark measured against the viewport. An
+	 * inline style is reachable from a stylesheet only with `!important`. The
+	 * `size` in the markup is what the server renders before this applies.
 	 */
 	.crest-field :global(svg) {
 		position: absolute;
@@ -563,7 +528,7 @@
 	}
 
 	/* On paper the mark is a dark shape on a pale ground, and the same opacity
-	   reads considerably heavier. */
+	   reads heavier. */
 	:global([data-theme='light']) .crest-field {
 		opacity: 0.09;
 	}
@@ -576,10 +541,8 @@
 		gap: var(--space-4);
 	}
 
-	/*
-	 * The crest takes the accent, which is the artwork hue: on the login page
-	 * there is no artwork, so it takes the idle tint from the tokens.
-	 */
+	/* The crest takes the accent, the artwork hue. With no artwork here, that is
+	   the idle tint from the tokens. */
 	.lockup {
 		display: flex;
 		align-items: center;
@@ -700,9 +663,8 @@
 
 	/*
 	 * The label takes the room's colour while the field has the caret. The
-	 * input's own border already goes to the accent on focus, so this is the
-	 * same event answered twice at opposite ends of the control, which is what
-	 * makes the field read as one object rather than a caption and a box.
+	 * input's border goes to the accent on focus too, so the field reads as one
+	 * object.
 	 */
 	.label {
 		transition: color var(--transition);
@@ -713,9 +675,8 @@
 	}
 
 	/*
-	 * A ring that grows out of the border rather than a second edge drawn
-	 * outside it. Transitioning the spread from zero is what animates it; at
-	 * 20% of the accent it is a halo on the field, not a glow on the page.
+	 * A ring that grows out of the border. Transitioning the spread from zero
+	 * animates it, and at 20% of the accent it is a halo on the field.
 	 *
 	 * `box-shadow` and not `outline`: an outline is drawn outside the border box
 	 * and would sit over the field below it in the grid.
@@ -744,17 +705,12 @@
 	}
 
 	/*
-	 * Waiting on the server.
+	 * Waiting on the server: an indeterminate bar along the bottom edge, since
+	 * the page does not know how long the upstream will take.
 	 *
-	 * An indeterminate bar along the bottom edge, because the page genuinely
-	 * does not know how long the upstream will take. It is feedback rather than
-	 * decoration: both buttons that carry it spend that time with their label
-	 * changed and nothing else happening.
-	 *
-	 * Drawn on a pseudo-element and not the button, so the thing being animated
-	 * is a plain opaque bar. Animating the button itself would put a transform
-	 * on an element carrying a `backdrop-filter`, which is the combination this
-	 * codebase has had artefacts from on iOS before.
+	 * Drawn on a pseudo-element, so what is animated is a plain opaque bar.
+	 * Animating the button would put a transform on an element with a
+	 * `backdrop-filter`, a pair that has caused artefacts on iOS.
 	 */
 	.busy {
 		position: relative;
@@ -772,8 +728,8 @@
 		animation: sweep 1.15s cubic-bezier(0.65, 0, 0.35, 1) infinite;
 	}
 
-	/* On the primary button the bar sits on the accent itself, so it borrows the
-	   colour the label is already using to stay legible against it. */
+	/* On the primary button the bar sits on the accent, so it takes the label's
+	   colour. */
 	.hh-button--primary.busy::after {
 		background: var(--accent-contrast);
 		opacity: 0.6;
@@ -841,10 +797,8 @@
 		margin: 0;
 	}
 
-	/*
-	 * The colophon spans both columns rather than sitting under one of them, so
-	 * it stays put when the stage folds to a single column.
-	 */
+	/* The colophon spans both columns, so it stays put when the stage folds to
+	   one. */
 	.colophon {
 		grid-area: colophon;
 		margin: 0;
@@ -867,8 +821,7 @@
 			text-shadow var(--transition);
 	}
 
-	/* Under the source link, quieter than it: a fact for a bug report, not
-	   something to act on. */
+	/* Under the source link, quieter than it: a fact for a bug report. */
 	.version {
 		font-size: 0.6875rem;
 		color: var(--text-faint);
@@ -882,11 +835,9 @@
 	}
 
 	/*
-	 * One column below the width where two 23rem tracks plus the gap still fit.
-	 * The crest and the name stay above the panel, which is the order they are
-	 * read in anyway. The assurance stays with them rather than being dropped:
-	 * it is what the page is asking the reader to accept before typing a
-	 * password into it.
+	 * One column below the width where two 23rem tracks and the gap fit. The
+	 * crest and the name stay above the panel, and the assurance with them: it
+	 * is what the reader accepts before typing a password.
 	 */
 	@media (max-width: 56rem) {
 		.stage {
@@ -917,9 +868,8 @@
 		}
 
 		/* One column puts the panel in the middle, so the crest goes with it. It
-		   is also the whole background here rather than one side of a spread,
-		   which is more of it than the watermark wants to be. The fade turns
-		   with the layout: the type is above the panel now, not beside it. */
+		   is the whole background here, so it is fainter. The fade turns with
+		   the layout: the type is above the panel now, not beside it. */
 		.crest-field {
 			opacity: 0.1;
 			-webkit-mask-image: linear-gradient(to bottom, transparent 0%, #000 32%);

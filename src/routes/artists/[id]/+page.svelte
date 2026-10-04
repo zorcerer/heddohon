@@ -39,9 +39,9 @@
 	});
 
 	/*
-	 * The newest release leads beside the most played tracks. Only when there
-	 * are both, and more than one release: an artist with one record would
-	 * show it twice in a row.
+	 * The newest release leads beside the most played tracks. Only with both,
+	 * and with more than one release: an artist with one record would show it
+	 * twice.
 	 */
 	const latest = $derived(albums.length > 1 && artist.topSongs.length > 0 ? albums[0] : null);
 	const popular = $derived(artist.topSongs.slice(0, 5));
@@ -55,7 +55,7 @@
 
 	/*
 	 * Albums by others the artist is on, once the loader's search has answered.
-	 * Held here rather than awaited in the markup so the shelf after it can be
+	 * Held here and not awaited in the markup, so the shelf after it can be
 	 * numbered by whether this one is there.
 	 */
 	let appearing = $state<Album[]>([]);
@@ -202,10 +202,10 @@
 		container-type: inline-size;
 		/*
 		 * The whole column, whatever the hero does with its items. A size
-		 * container has no width of its own to offer: its contents do not count.
-		 * Where the hero centres its items, on a phone, or starts them, under
-		 * 46rem, this was 0 wide at that point and everything in it spilled to the
-		 * right: at 360px the biography ran to x=377 and was cut off.
+		 * container's contents do not count toward its width, so where the hero
+		 * centres its items (a phone) or starts them (under 46rem) this was 0
+		 * wide and everything in it spilled right: at 360px the biography ran
+		 * to x=377 and was cut off.
 		 */
 		justify-self: stretch;
 		min-width: 0;

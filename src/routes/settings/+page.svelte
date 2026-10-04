@@ -115,12 +115,12 @@
 
 	/*
 	 * One group of settings at a time, chosen by tab. The tabs are links to
-	 * `?tab=`, so a tab can be linked to and opens without JavaScript; with it,
+	 * `?tab=`, so a tab can be linked to and opens without JavaScript. With it,
 	 * the switch happens here without asking the server for the page again.
 	 *
-	 * Sections on other tabs are hidden rather than left out. The save form
-	 * spans Appearance and Playback, and the server reads every field of it on
-	 * each save, so a field missing from the post would be saved as its default.
+	 * Sections on other tabs are hidden, not left out. The save form spans
+	 * Appearance and Playback, and the server reads every field on each save,
+	 * so a field missing from the post would be saved as its default.
 	 */
 	const TABS = [
 		{ id: 'appearance', label: 'Appearance' },
@@ -302,9 +302,9 @@
 	}
 
 	/**
-	 * Sends the browser to last.fm. The action returns the URL rather than
-	 * redirecting to it: `form-action 'self'` refuses a redirect to another
-	 * origin after a form post, and the enhanced form's `goto` refuses one too.
+	 * Sends the browser to last.fm. The action returns the URL: `form-action
+	 * 'self'` refuses a redirect to another origin after a form post, and the
+	 * enhanced form's `goto` refuses one too.
 	 */
 	const toLastfm: SubmitFunction = () => {
 		linking = 'lastfm';
@@ -367,9 +367,9 @@
 			saving = true;
 			return async ({ update }) => {
 				await update({ reset: false });
-				// The action only returns this page's data. Settings also drive the
+				// The action returns only this page's data. Settings also drive the
 				// layout (theme, grid density, player behaviour), so the layout load
-				// has to re-run for the rest of the interface to follow the change.
+				// re-runs.
 				await invalidateAll();
 				saving = false;
 			};
@@ -585,10 +585,10 @@
 			</label>
 
 			<!--
-				Unlike the rows above, these are kept in this browser rather than on the
-				account, for the headphones or speakers it plays through, and apply as
-				they are changed rather than on save. Their inputs have no names, so
-				the save form does not post them.
+				Unlike the rows above, these are kept in this browser, for the
+				headphones or speakers it plays through, and apply as they are
+				changed. Their inputs have no names, so the save form does not post
+				them.
 			-->
 			<h3 class="subhead">Equaliser</h3>
 			<p class="hh-muted note">Kept in this browser only. Applied as you change it.</p>
@@ -861,8 +861,8 @@
 
 		<!--
 			Every browser signed in to this account, the most recently used first,
-			with this one marked. Another can be signed out from here; this one signs
-			out with the button below, which also clears its cookie.
+			with this one marked. Another can be signed out from here. This one
+			signs out with the button below, which also clears its cookie.
 		-->
 		<div class="sessions-head">
 			<h3>Signed in on</h3>
@@ -887,10 +887,9 @@
 						</span>
 					</span>
 					{#if !entry.current && !entry.endable}
-						<!-- Signed in after this browser; see `endSessions` in auth.ts. In
-						     grey where the button would be, "Sign out from that browser"
-						     was read as a button that did not work, so it says why there
-						     is none and what to do instead. -->
+						<!-- Signed in after this browser; see `endSessions` in auth.ts. A
+						     greyed "Sign out from that browser" read as a button that did
+						     not work, so this says why there is none and what to do. -->
 						<span class="hh-muted later">
 							Signed in after this browser.
 							<span class="later-how">Sign it out there, or sign in again here.</span>
@@ -1302,9 +1301,8 @@
 		<!--
 			The cache is keyed by the music server's cover id, with no account in
 			the key, so there is one copy of each cover for everyone. Any account
-			may clear it, including one the music server does not treat as an
-			administrator, and that is stated rather than enforced: what a clear
-			costs is that the next request for each cover goes upstream again.
+			may clear it: a clear costs each cover being fetched upstream once
+			more.
 		-->
 		<p class="hh-muted note">
 			Artwork is kept on the server the first time it is fetched, so a second
@@ -1337,8 +1335,8 @@
 
 		<!--
 			Offered to an account the music server lists as an administrator, and
-			refused to any other by the server. A clear costs covers fetched once
-			more; this has the music server render every cover in the library.
+			refused to any other by the server: this has the music server render
+			every cover in the library.
 		-->
 		{#if cache.limitBytes > 0 && data.isAdmin}
 			<h3 class="subhead">Cache every cover</h3>
@@ -1555,11 +1553,8 @@
 		max-width: 54ch;
 	}
 
-	/*
-	 * Fades in rather than appearing in one frame. Opacity only, on the notice
-	 * itself: it is a pane of glass, and a transform on glass is kept off
-	 * throughout (see the design notes in the wiki).
-	 */
+	/* Fades in. Opacity only, on the notice itself: it is a pane of glass, and
+	   transforms are kept off glass (see the design notes in the wiki). */
 	@keyframes saved-in {
 		from {
 			opacity: 0;
@@ -1834,8 +1829,8 @@
 		font-weight: 500;
 	}
 
-	/* A second line under a fact rather than a run-on: this one is a sentence,
-	   and the eyebrow treatment set it in tracked uppercase that wrapped. */
+	/* A second line under a fact: it is a sentence, and the eyebrow treatment
+	   set it in tracked uppercase that wrapped. */
 	.sub {
 		display: block;
 		font-size: 0.8125rem;
@@ -1982,8 +1977,8 @@
 	}
 
 	@media (max-width: 40rem) {
-		/* Less padding on a phone: at 1.5rem each side, inside the page's own,
-		   a row had 303px of a 393px screen for its words and its control. */
+		/* Less padding on a phone: at 1.5rem each side, inside the page's own, a
+		   row had 303px of a 393px screen. */
 		.group {
 			padding: var(--space-4);
 		}

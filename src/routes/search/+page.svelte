@@ -18,9 +18,9 @@
 	let sent = untrack(() => data.query);
 
 	// Back/forward navigation or a link changes the query without touching the
-	// field. Results for what was typed here leave it alone: the field may have
+	// field. Results for what was typed here leave the field alone: it may have
 	// moved on while they loaded, and writing the older query back would drop
-	// whatever was typed in between.
+	// what was typed since.
 	$effect(() => {
 		if (data.query !== sent) value = sent = data.query;
 	});
@@ -32,10 +32,7 @@
 		input?.focus();
 	});
 
-	/**
-	 * Debounced so typing does not fire a request per character, and pushed
-	 * through the URL so back/forward move between searches.
-	 */
+	/** Debounced, so typing does not send a request per character, and pushed through the URL, so back/forward move between searches. */
 	function onInput() {
 		if (timer) clearTimeout(timer);
 		const next = value;
@@ -157,8 +154,7 @@
 		-webkit-backdrop-filter: var(--field-blur);
 		backdrop-filter: var(--field-blur);
 		border: 1px solid var(--field-edge);
-		/* The search field gets the largest radius in the app — it is the one
-		   control the eye should land on first when the page opens. */
+		/* The search field has the largest radius in the app. */
 		border-radius: var(--r-xl);
 		color: var(--text-faint);
 		transition: border-color var(--transition);
@@ -213,9 +209,9 @@
 	}
 
 	/*
-	 * The genres before a search, two across on a phone and as many as fit wider. Glass
-	 * like the Library page's doors, with the name set large, as the genres
-	 * page sets its largest.
+	 * The genres before a search, two across on a phone and as many as fit
+	 * wider. Glass like the Library page's doors, with the name set large, as
+	 * the genres page sets its largest.
 	 */
 	.genres {
 		display: grid;
