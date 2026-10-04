@@ -2444,11 +2444,11 @@ describe('playback on another browser', () => {
 		await remoteApp?.stop();
 	});
 
-	async function signedInPage() {
+	async function signedInPage(username = 'testuser', password = 'testpass') {
 		const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
 		browsers.push(context);
 		const signIn = await context.request.post(`${remoteApp.url}/login`, {
-			form: { username: 'testuser', password: 'testpass', backend: 'subsonic', next: '/' },
+			form: { username, password, backend: 'subsonic', next: '/' },
 			headers: { origin: remoteApp.url, accept: 'text/html' },
 			maxRedirects: 0
 		});
@@ -2570,6 +2570,123 @@ describe('playback on another browser', () => {
 			subsonic.state.audio = null;
 		}
 		assert.deepEqual(problems, []);
+	});
+
+	/*
+	 * Two accounts on one music server. The mock's search for "Artist 0005"
+	 * finds Song 5a, Song 6b and Song 7a, and the host's account is made
+	 * unable to read the last.
+	 */
+	test("a member's tracks play after the current one in the order added, a visitor only watches, and the host removes a track and then the member", async () => {
+		const { page: hostPage, problems } = await signedInPage();
+		const { page: member, problems: memberProblems } = await signedInPage('seconduser', 'secondpass');
+		const visitorContext = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+		browsers.push(visitorContext);
+		const visitor = await visitorContext.newPage();
+		/** The host's queue from the playing track on, each row with who added it. */
+		const hostQueue = () =>
+			hostPage.evaluate(() => {
+				const rows = [...document.querySelectorAll('aside.panel .queue-list > li')];
+				return rows.slice(rows.findIndex((row) => row.querySelector('.row.current'))).map((row) => {
+					const by = /Added by (.+)$/.exec(row.querySelector('.row-sub')?.textContent.trim() ?? '');
+					return `${row.querySelector('.row-title')?.textContent.trim()}${by ? ` (${by[1]})` : ''}`;
+				});
+			});
+		/** What a party page shows as up next, each row with who added it and whether it can be taken back. */
+		const upNext = (page) =>
+			page.evaluate(() =>
+				[...document.querySelectorAll('ol.rows > li')].map((row) => {
+					const by = /Added by (.+)$/.exec(row.querySelector('.sub')?.textContent.trim() ?? '');
+					return `${row.querySelector('.title')?.textContent.trim()}${by ? ` (${by[1]})` : ''}${row.querySelector('button') ? ' [Remove]' : ''}`;
+				})
+			);
+		const settles = async (read, want, what) => {
+			const deadline = Date.now() + 5000;
+			let got;
+			do {
+				got = await read();
+				if (JSON.stringify(got) === JSON.stringify(want)) return;
+				await new Promise((done) => setTimeout(done, 100));
+			} while (Date.now() < deadline);
+			assert.deepEqual(got, want, what);
+		};
+		const add = (title) => member.getByRole('button', { name: `Add ${title} to the queue` }).click();
+		const told = (text) => member.locator('.next .note', { hasText: text }).waitFor({ timeout: 5000 });
+		/** Additions are held to one every 2 seconds per member. */
+		const gap = () => new Promise((done) => setTimeout(done, 2100));
+		subsonic.state.audio = { type: 'audio/wav', body: silentWav(60) };
+		subsonic.state.hidden.set('testuser', new Set(['s7a']));
+		try {
+			await hostPage.goto(remoteApp.url + '/albums/al17', { waitUntil: 'load' });
+			await hostPage.getByRole('button', { name: 'Play Song 17a', exact: true }).click();
+			await hostPage.waitForFunction(() => [...document.querySelectorAll('audio')].some((a) => !a.paused), null, { timeout: 5000 });
+			await hostPage.getByRole('button', { name: 'Share a link to this song' }).click();
+			await hostPage.getByRole('button', { name: 'Listen together' }).click();
+			const field = hostPage.getByRole('textbox', { name: 'Listen-together link' });
+			await field.waitFor({ timeout: 5000 });
+			const link = await field.inputValue();
+			await hostPage.locator('dialog.together').getByRole('button', { name: 'Close' }).click();
+			await hostPage.locator('aside.panel').getByRole('button', { name: 'Queue', exact: true }).click();
+			await settles(hostQueue, ['Song 17a', 'Song 17b'], "the host's queue before anyone joins");
+
+			// The visitor sees the queue, and has nothing to add with.
+			await visitor.goto(link, { waitUntil: 'load' });
+			await visitor.getByRole('button', { name: 'Join', exact: true }).click();
+			await settles(() => upNext(visitor), ['Song 17b'], 'what the visitor is shown as up next');
+
+			await member.goto(link, { waitUntil: 'load' });
+			assert.equal(await member.locator('form.search').count(), 0, 'the search is there before the member joined');
+			await member.getByRole('button', { name: 'Join as seconduser' }).click();
+			const search = member.getByRole('searchbox', { name: 'Search your library' });
+			await search.waitFor({ timeout: 5000 });
+			await hostPage.locator('aside.panel .live', { hasText: '2 listening' }).waitFor({ timeout: 5000 });
+
+			await search.fill('Artist 0005');
+			await search.press('Enter');
+			await member.getByRole('list', { name: 'Search results' }).getByRole('listitem').nth(2).waitFor({ timeout: 5000 });
+			await add('Song 5a');
+			await told('Song 5a was added.');
+			// Inside the 2 seconds.
+			await add('Song 6b');
+			await told('One track every 2 seconds.');
+			await gap();
+			await add('Song 7a');
+			await told("Not in the host's library");
+			await gap();
+			await add('Song 6b');
+			await told('Song 6b was added.');
+
+			// After the current track, in the order added, ahead of the host's own next track.
+			await settles(hostQueue, ['Song 17a', 'Song 5a (seconduser)', 'Song 6b (seconduser)', 'Song 17b'], "the host's queue after two additions");
+			await settles(() => upNext(member), ['Song 5a (you) [Remove]', 'Song 6b (you) [Remove]', 'Song 17b'], 'what the member is shown');
+			await settles(() => upNext(visitor), ['Song 5a (seconduser)', 'Song 6b (seconduser)', 'Song 17b'], 'what the visitor is shown');
+			assert.equal(await visitor.locator('form.search').count(), 0, 'a visitor has a search to add from');
+
+			await hostPage.locator('aside.panel button.step').nth(1).click();
+			await titleIs(hostPage, 'Song 5a');
+			await member.locator('h1', { hasText: 'Song 5a' }).waitFor({ timeout: 5000 });
+			await member.waitForFunction(() => /\?song=s5a$/.test(document.querySelector('audio.together-audio')?.getAttribute('src') ?? ''), null, { timeout: 5000 });
+			await settles(hostQueue, ['Song 5a (seconduser)', 'Song 6b (seconduser)', 'Song 17b'], "the host's queue after the skip");
+
+			// The host removes the member's track, and then the member.
+			await hostPage.getByRole('button', { name: 'Remove Song 6b from the queue' }).click();
+			await settles(() => upNext(member), ['Song 17b'], 'what the member is shown after the host removed their track');
+			await hostPage.locator('aside.panel .live').click();
+			await hostPage.getByRole('button', { name: 'Remove seconduser from listening together' }).click();
+			await member.locator('h1', { hasText: 'You were removed' }).waitFor({ timeout: 5000 });
+			await member.waitForFunction(() => document.querySelector('audio.together-audio')?.paused === true, null, { timeout: 5000 });
+			assert.equal(await member.locator('form.search').count(), 0);
+			assert.equal((await member.goto(link, { waitUntil: 'load' })).status(), 403, 'the removed member came back');
+			await hostPage.locator('dialog.together p.count', { hasText: '1 listening with you' }).waitFor({ timeout: 5000 });
+			assert.equal(await hostPage.locator('dialog.together .members li').count(), 0);
+			assert.equal(await visitor.locator('h1').textContent(), 'Song 5a', 'the visitor was taken out with the member');
+		} finally {
+			subsonic.state.audio = null;
+			subsonic.state.hidden.clear();
+		}
+		// The refusals above are the server's answers, which the browser logs.
+		const refused = /status of (403|404|429)/;
+		assert.deepEqual([...problems, ...memberProblems].filter((problem) => !refused.test(problem)), []);
 	});
 });
 

@@ -97,6 +97,10 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 	const state = {
 		username: 'testuser',
 		password: 'testpass',
+		/** More accounts on the same server, by name, each with its password. */
+		others: new Map([['seconduser', 'secondpass']]),
+		/** Song ids one account cannot read, by its name: `getSong` answers error 70, as for a library it has no access to. */
+		hidden: new Map(),
 		starred: new Map([
 			['s0a', '2026-01-01T00:00:00Z'],
 			['s1a', '2026-01-02T00:00:00Z']
@@ -308,8 +312,9 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 			res.end(JSON.stringify(body));
 		};
 
-		const expected = createHash('md5').update(state.password + p.get('s')).digest('hex');
-		if (p.get('u') !== state.username || p.get('t') !== expected) return send(failed(40, 'Wrong username or password'));
+		const password = p.get('u') === state.username ? state.password : state.others.get(p.get('u'));
+		const expected = createHash('md5').update(password + p.get('s')).digest('hex');
+		if (password === undefined || p.get('t') !== expected) return send(failed(40, 'Wrong username or password'));
 
 		switch (method) {
 			case 'ping':
@@ -397,7 +402,7 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 			case 'getSong': {
 				const id = p.get('id') ?? '';
 				const i = index(id);
-				if (state.missing.has(id) || !(i >= 0 && i < artistCount)) return send(failed(70, 'Song not found'));
+				if (state.missing.has(id) || state.hidden.get(p.get('u'))?.has(id) || !(i >= 0 && i < artistCount)) return send(failed(70, 'Song not found'));
 				return send(ok({ song: song(i, id.endsWith('b') ? 'b' : 'a') }));
 			}
 			case 'getStarred2': {

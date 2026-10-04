@@ -118,7 +118,8 @@
 			if (data.autoeq) void processing.refreshCorrection();
 		});
 		untrack(() => void audioOutputs.init());
-		void restoreQueue();
+		// Hosting reports what is up next only once the saved queue is back.
+		together.after(restoreQueue());
 		return () => player.detach();
 	});
 

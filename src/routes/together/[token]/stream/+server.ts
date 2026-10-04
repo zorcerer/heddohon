@@ -13,7 +13,7 @@ import { partyFor, togetherEnabled } from '$lib/server/together';
  * as a shared link's is, and the stream is cut when the host's session ends.
  */
 const handler: RequestHandler = async (event) => {
-	const party = togetherEnabled() ? partyFor(event.params.token) : null;
+	const party = togetherEnabled() ? partyFor(event.params.token, event.locals.session) : null;
 	const songId = event.url.searchParams.get('song');
 	if (!party?.state || !songId || songId !== party.state.songId) error(404, 'Not found');
 	const host = await sessionByHandle(party.accountId, party.session);

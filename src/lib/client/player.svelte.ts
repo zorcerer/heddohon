@@ -598,6 +598,27 @@ export class Player {
 		this.#persist();
 	}
 
+	/**
+	 * Queues a track a listen-together member added: after the current track
+	 * and the additions already waiting behind it, so additions play in the
+	 * order they were made, ahead of what the host had queued. Playback is left
+	 * as it is. With nothing queued, the track waits for a press on play: an
+	 * addition does not start sound in the host's browser.
+	 */
+	queueAddition(song: Song) {
+		if (this.queue.length === 0) {
+			this.queue = [song];
+			this.index = 0;
+			this.#persist();
+			return;
+		}
+		let at = this.index + 1;
+		while (this.queue[at]?.addedBy) at += 1;
+		this.queue = [...this.queue.slice(0, at), song, ...this.queue.slice(at)];
+		if (at === this.index + 1) this.#invalidatePreload();
+		this.#persist();
+	}
+
 	removeAt(position: number) {
 		if (position < 0 || position >= this.queue.length) return;
 		const wasCurrent = position === this.index;

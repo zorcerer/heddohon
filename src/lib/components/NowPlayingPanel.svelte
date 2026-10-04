@@ -357,7 +357,9 @@
 								</button>
 								<span class="row-text">
 									<span class="row-title hh-truncate">{track.title}</span>
-									<span class="row-sub hh-truncate hh-muted">{track.artist ?? 'Unknown artist'}</span>
+									<span class="row-sub hh-truncate hh-muted">
+										{track.artist ?? 'Unknown artist'}{#if track.addedBy}<span class="row-by">{` · Added by ${track.addedBy.name}`}</span>{/if}
+									</span>
 								</span>
 								<button
 									class="row-remove"
@@ -1176,6 +1178,11 @@
 
 	.row-sub {
 		font-size: 0.75rem;
+	}
+
+	/* Who added a track, while listening together. */
+	.row-by {
+		color: var(--text-default);
 	}
 
 	.row-remove {

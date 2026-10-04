@@ -7,13 +7,19 @@
 	 * "Join", since a browser plays nothing a visitor has not pressed for.
 	 * From then the audio follows each report: the track, playing or paused,
 	 * and the position, corrected when it has drifted more than 0.75 seconds.
+	 *
+	 * A visitor signed in on the host's music server joins as a member with
+	 * the same press: shown to the host by name, with a search of their own
+	 * library and an Add button on each result. Everyone sees what is up next
+	 * and who added it; a member can take back a track of their own.
 	 */
 	import { onMount, untrack } from 'svelte';
 	import { colorOfImage, DEFAULT_ARTWORK_COLOR, holdArtworkColor } from '$lib/client/artwork';
 	import { formatDuration } from '$lib/client/format';
 	import Reactions from '$lib/components/Reactions.svelte';
 	import type { FloatingReaction } from '$lib/client/together.svelte';
-	import type { PartyState } from '$lib/server/together';
+	import type { MemberView, PartyState, QueueRow } from '$lib/server/together';
+	import type { Song } from '$lib/types';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -36,6 +42,19 @@
 	let reactionKey = 0;
 	let problem = $state<string | null>(null);
 
+	// What is up next, as the host's queue has it; the event stream keeps it current.
+	let queue = $state<QueueRow[]>(untrack(() => data.queue));
+	let queueTotal = $state(untrack(() => data.queueTotal));
+	/** Whether this visitor's account may join as a member, and the member it is once it has. */
+	const mayAdd = $derived(data.viewer?.standing === 'member');
+	let member = $state<MemberView | null>(null);
+	let removed = $state(false);
+	let query = $state('');
+	let results = $state<Song[]>([]);
+	let searched = $state(false);
+	let searching = $state(false);
+	let note = $state<{ text: string; failed: boolean } | null>(null);
+
 	const base = $derived(`/together/${data.token}`);
 	const coverUrl = $derived(current?.coverArt ? `${base}/cover?song=${encodeURIComponent(current.songId)}&size=768` : null);
 
@@ -56,7 +75,7 @@
 	async function follow() {
 		const element = audio;
 		if (!joined || !element) return;
-		if (!current || ended) {
+		if (!current || ended || removed) {
 			element.pause();
 			return;
 		}
@@ -79,7 +98,62 @@
 	async function join() {
 		joined = true;
 		problem = null;
-		await follow();
+		// Started before anything is awaited: the press is what lets the sound start.
+		const following = follow();
+		await enrol();
+		await following;
+	}
+
+	/**
+	 * Makes this page's stream a member's, once the visitor has pressed Join.
+	 * Asked again when the stream reopens, since the server knows a member's
+	 * page by its stream.
+	 */
+	async function enrol() {
+		if (!joined || !mayAdd || !listenerId) return;
+		const response = await fetch(`${base}/join`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ listener: listenerId })
+		}).catch(() => null);
+		if (response?.ok) member = (await response.json()).member as MemberView;
+	}
+
+	async function search(event: SubmitEvent) {
+		event.preventDefault();
+		const wanted = query.trim();
+		if (wanted.length < 2) return;
+		searching = true;
+		note = null;
+		try {
+			const response = await fetch(`/api/search?q=${encodeURIComponent(wanted)}`);
+			if (!response.ok) throw new Error('search failed');
+			results = (await response.json()).songs as Song[];
+			searched = true;
+		} catch {
+			note = { text: 'The search did not come back. Try again.', failed: true };
+		} finally {
+			searching = false;
+		}
+	}
+
+	async function add(song: Song) {
+		const response = await fetch(`${base}/queue`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ songId: song.id })
+		}).catch(() => null);
+		note = response?.ok
+			? { text: `${song.title} was added.`, failed: false }
+			: { text: (await response?.json().catch(() => null))?.message ?? 'The track could not be added.', failed: true };
+	}
+
+	async function takeBack(row: QueueRow) {
+		await fetch(`${base}/queue`, {
+			method: 'DELETE',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ entry: row.entry })
+		}).catch(() => undefined);
 	}
 
 	async function react(emoji: string) {
@@ -94,7 +168,23 @@
 
 	onMount(() => {
 		const source = new EventSource(`${base}/events`);
-		source.addEventListener('hello', (event) => (listenerId = JSON.parse((event as MessageEvent).data).id));
+		source.addEventListener('hello', (event) => {
+			listenerId = JSON.parse((event as MessageEvent).data).id;
+			void enrol();
+		});
+		source.addEventListener('queue', (event) => {
+			const message = JSON.parse((event as MessageEvent).data) as { queue: QueueRow[]; total: number };
+			queue = message.queue;
+			queueTotal = message.total;
+		});
+		// The host removed this account: the stream is closed from the other end
+		// and is not to be opened again.
+		source.addEventListener('removed', () => {
+			removed = true;
+			member = null;
+			source.close();
+			audio?.pause();
+		});
 		source.addEventListener('state', (event) => {
 			const message = JSON.parse((event as MessageEvent).data) as { now: number; state: PartyState | null };
 			skew = Date.now() - message.now;
@@ -169,7 +259,10 @@
 	<section class="info">
 		<p class="live hh-eyebrow"><span class="dot" aria-hidden="true"></span> Listening together{listeners > 0 ? ` · ${listeners} here` : ''}</p>
 
-		{#if ended}
+		{#if removed}
+			<h1 class="hh-display">You were removed</h1>
+			<p class="hh-muted">The host removed you from this listening session.</p>
+		{:else if ended}
 			<h1 class="hh-display">It has ended</h1>
 			<p class="hh-muted">The host ended listening together, or it ran its course.</p>
 		{:else if current}
@@ -184,10 +277,15 @@
 			<p class="hh-muted">Nothing is playing yet. The page follows as soon as it does.</p>
 		{/if}
 
-		{#if !ended}
+		{#if !ended && !removed}
 			<div class="controls">
 				{#if !joined}
-					<button class="hh-button hh-button--primary join" onclick={join}>Join</button>
+					<button class="hh-button hh-button--primary join" onclick={join}>Join{mayAdd ? ` as ${data.viewer?.name}` : ''}</button>
+					{#if mayAdd}
+						<p class="hh-muted hint">Joining shows your name to the host, and to everyone here on the tracks you add.</p>
+					{:else if data.viewer?.standing === 'listener'}
+						<p class="hh-muted hint">Your account is on another music server than the host's, so you can listen here and not add tracks.</p>
+					{/if}
 				{:else}
 					<label class="volume">
 						<span class="hh-visually-hidden">Volume</span>
@@ -205,6 +303,62 @@
 
 		{#if problem}<p class="problem" role="alert">{problem}</p>{/if}
 	</section>
+
+	{#if !ended && !removed}
+		<section class="next">
+			{#if member}
+				<form class="search" role="search" onsubmit={search}>
+					<input
+						class="hh-input"
+						type="search"
+						bind:value={query}
+						maxlength="200"
+						placeholder="Search your library for a track to add"
+						aria-label="Search your library"
+					/>
+					<button class="hh-button" disabled={searching}>Search</button>
+				</form>
+				{#if note}<p class="note" class:failed={note.failed} role="status">{note.text}</p>{/if}
+				{#if results.length > 0}
+					<ul class="rows found" aria-label="Search results">
+						{#each results as song (song.id)}
+							<li>
+								<span class="text">
+									<span class="title hh-truncate">{song.title}</span>
+									<span class="sub hh-truncate hh-muted">{song.artist ?? 'Unknown artist'}</span>
+								</span>
+								<button class="hh-button" onclick={() => add(song)} aria-label="Add {song.title} to the queue">Add</button>
+							</li>
+						{/each}
+					</ul>
+				{:else if searched}
+					<p class="hh-muted empty">Nothing found.</p>
+				{/if}
+			{/if}
+
+			<h2 class="hh-eyebrow">Up next</h2>
+			{#if queue.length === 0}
+				<p class="hh-muted empty">Nothing is queued.</p>
+			{:else}
+				<ol class="rows" aria-label="Up next">
+					{#each queue as row, i (row.entry ?? `host-${i}`)}
+						<li>
+							<span class="text">
+								<span class="title hh-truncate">{row.title}</span>
+								<span class="sub hh-truncate hh-muted">
+									{row.artist ?? 'Unknown artist'}{#if row.by}{` · Added by ${row.by.id === member?.id ? 'you' : row.by.name}`}{/if}
+								</span>
+							</span>
+							{#if row.entry && member && row.by?.id === member.id}
+								<button class="hh-button" onclick={() => takeBack(row)} aria-label="Remove {row.title} from the queue">Remove</button>
+							{/if}
+						</li>
+					{/each}
+				</ol>
+				{#if queueTotal > queue.length}<p class="hh-muted empty">and {queueTotal - queue.length} more</p>{/if}
+			{/if}
+		</section>
+	{/if}
 </main>
 
 <audio class="together-audio" bind:this={audio} preload="auto"></audio>
@@ -326,6 +480,85 @@
 	.problem {
 		color: var(--danger);
 		font-size: 0.875rem;
+	}
+
+	.hint {
+		margin-top: var(--space-2) !important;
+		font-size: 0.8125rem;
+		line-height: 1.5;
+	}
+
+	/* What is up next, and a member's search, under the track and across both columns. */
+	.next {
+		grid-column: 1 / -1;
+		display: grid;
+		gap: var(--space-3);
+		min-width: 0;
+	}
+
+	.next h2,
+	.next p {
+		margin: 0;
+	}
+
+	.search {
+		display: flex;
+		gap: var(--space-2);
+	}
+
+	.search .hh-input {
+		flex: 1;
+		min-width: 0;
+	}
+
+	.rows {
+		display: grid;
+		gap: var(--space-2);
+		margin: 0;
+		padding: 0;
+		list-style: none;
+	}
+
+	/* 24 results at most: five and a half rows show, and the rest scroll, so what is up next stays in reach. */
+	.found {
+		max-height: 15rem;
+		overflow-y: auto;
+		padding-right: var(--space-2);
+	}
+
+	.rows li {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--space-3);
+		min-width: 0;
+	}
+
+	.rows .text {
+		display: grid;
+		min-width: 0;
+	}
+
+	.rows .title {
+		color: var(--text-strong);
+		font-size: 0.9375rem;
+	}
+
+	.rows .sub,
+	.note,
+	.empty {
+		font-size: 0.8125rem;
+	}
+
+	.note.failed {
+		color: var(--danger);
+	}
+
+	.next .hh-button {
+		flex: none;
+		padding: 0.4rem 0.8rem;
+		border-radius: var(--r-md);
+		font-size: 0.8125rem;
 	}
 
 	@media (max-width: 44rem) {
