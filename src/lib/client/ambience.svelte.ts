@@ -1,14 +1,10 @@
 /**
  * Which cover the whole screen takes its colour from.
  *
- * There is exactly one colour in the interface at a time, applied once at the
- * document root. Panels do not tint themselves — they are translucent, so they
- * pick up the field behind them, which is what makes the colour read as one
- * light in the room rather than as a property of each widget.
+ * The interface has one colour at a time, applied at the document root. Panels
+ * are translucent and pick up the field behind them.
  *
- * Playback wins, because a colour that follows what you are hearing is doing
- * something; when nothing is playing the page offers its own subject instead, so
- * the room still responds to where you are rather than sitting grey.
+ * Playback wins. With nothing playing, the open page offers its own subject.
  */
 class Ambience {
 	/** The cover of whatever page is open. Cleared when that page unmounts. */
@@ -17,14 +13,11 @@ class Ambience {
 	/**
 	 * The cover of a page that has been clicked but has not arrived yet.
 	 *
-	 * Without this the room could not change until the new page's data had come
-	 * back and its component had mounted: measured at 540ms after the click on a
-	 * loopback music server, and longer on a real one. The colour then swung over
-	 * the next 900ms, so a navigation read as a pause followed by a lurch.
-	 *
-	 * A clicked card already has the cover on screen and decoded, so the colour
-	 * can be resolved from it at once and the room can start moving with the
-	 * sleeve rather than after it.
+	 * Without it the room could not change until the new page's data was back
+	 * and its component mounted: 540ms after the click on a loopback music
+	 * server, followed by the 900ms move. A clicked card has the cover on
+	 * screen and decoded, so the colour is resolved at once and the room moves
+	 * with the sleeve.
 	 */
 	incoming = $state<string | null>(null);
 
@@ -40,11 +33,9 @@ class Ambience {
 	/**
 	 * Drops an offer that is not for the navigation now under way.
 	 *
-	 * Keyed on the destination rather than cleared when a navigation completes.
-	 * Completion and the arriving page's own `offer` are two different moments,
-	 * and clearing on the earlier of them puts the room back on the colour of the
-	 * page being left for as long as the gap lasts, which is the flicker this
-	 * whole mechanism exists to remove.
+	 * Keyed on the destination, not cleared when a navigation completes:
+	 * completion comes before the arriving page's own `offer`, and clearing
+	 * then puts the room back on the colour of the page left for the gap.
 	 */
 	settle(href: string | null): void {
 		if (this.#incomingFor !== href) {
@@ -53,10 +44,7 @@ class Ambience {
 		}
 	}
 
-	/**
-	 * Offer a cover for as long as the caller is mounted. Returns the teardown,
-	 * so a component can hand it straight back from an `$effect`.
-	 */
+	/** Offers a cover while the caller is mounted. Returns the teardown, for an `$effect` to return. */
 	offer(coverArt: string | null | undefined): () => void {
 		const mine = coverArt ?? null;
 		this.page = mine;
@@ -66,8 +54,7 @@ class Ambience {
 			this.#incomingFor = null;
 		}
 		return () => {
-			// Only withdraw our own offer: a faster page that has already taken
-			// over must not have its colour cleared by our teardown.
+			// Only our own offer is withdrawn: a faster page may have taken over.
 			if (this.page === mine) this.page = null;
 		};
 	}

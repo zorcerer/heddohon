@@ -1,33 +1,31 @@
 /**
  * Internet radio: the stations the music server lists, and their streams.
  *
- * Navidrome keeps a list of stations, each a name and the address of a stream
- * on some other host. The browser only talks to Heddohon (the policy on its
- * pages allows media from this origin alone), so a station is played through
- * here: this server fetches the stream and passes the bytes on.
+ * Navidrome keeps a list of stations, each a name and a stream address on
+ * another host. The browser talks only to Heddohon (its pages' policy allows
+ * media from this origin alone), so this server fetches the stream and passes
+ * the bytes on.
  *
- * That makes this the one place the server fetches an address it was not
- * configured with, so the address is held to rules before anything is sent:
+ * This is the one place the server fetches an address it was not configured
+ * with, so the address is held to rules:
  *
  *  - It comes from the music server's list for the signed-in account, looked
  *    up by the station's id. Nothing a request carries is fetched.
  *  - http or https, without a user name or password in it.
  *  - Every address its host resolves to is public, unless
- *    `HEDDOHON_RADIO_PRIVATE=true`. A station set to a host on the local
- *    network, or one that resolves there, would otherwise read whatever
- *    answers on that network back out as "audio". The check is made in the
- *    connection's own lookup, and each request dials a connection of its own,
- *    so the address checked is the address dialled.
- *  - A redirect is followed up to three times, each hop held to the same
- *    rules. A playlist file (.m3u, .pls), which many station addresses are,
- *    counts as one: its first address is where the stream is.
+ *    `HEDDOHON_RADIO_PRIVATE=true`. Otherwise a station pointed at the local
+ *    network would read whatever answers there back out as "audio". The check
+ *    is made in the connection's own lookup, and each request dials its own
+ *    connection, so the address checked is the address dialled.
+ *  - A redirect is followed up to three times, each hop under the same rules.
+ *    A playlist file (.m3u, .pls) counts as one: its first address is the
+ *    stream.
  *  - Where a hop leads is written by whoever answered it, not by the music
  *    server's administrator. So with `HEDDOHON_RADIO_PRIVATE=true` a hop
- *    served from a public address still leads only to public ones: a station
- *    on the internet cannot send this server to the network it sits on. Only
- *    a hop that was itself on a private address may lead to another.
- *  - What comes back has to say it is audio. Anything else is dropped unread.
- *    An HLS playlist is a list of segments, not a stream, and is not played.
+ *    served from a public address still leads only to public ones. Only a hop
+ *    that was itself on a private address may lead to another.
+ *  - The answer has to say it is audio. Anything else is dropped unread. An
+ *    HLS playlist is a list of segments, not a stream, and is not played.
  *
  * The stream is sent on as it arrives, with its type and no length. It ends
  * when the listener leaves, when the session ends, or when it stalls.
@@ -47,7 +45,7 @@ import { MEDIA_CSP } from './proxy';
 import { isPublic, privateAllowedAfter } from './radio-guard';
 import { APP_VERSION } from './version';
 
-/** To the first byte of the answer. A live stream has no time limit after that, only the stall below. */
+/** To the first byte of the answer. After that only the stall limit below applies. */
 const CONNECT_TIMEOUT_MS = 10_000;
 /** A stream that sends nothing for this long is cut. */
 const STALL_TIMEOUT_MS = 30_000;
@@ -94,7 +92,7 @@ export async function radioStations(session: AuthenticatedSession): Promise<Radi
 	return (await sources(session)).map((station) => ({ id: station.id, name: station.name, homePage: homePage(station.homePageUrl) }));
 }
 
-/** The address as a URL this server will fetch, or a refusal. `mayBePrivate` is whether this hop may be on a private address. */
+/** The address as a URL this server will fetch, or a refusal. `mayBePrivate`: this hop may be on a private address. */
 function allowed(raw: string, mayBePrivate: boolean): URL {
 	let url: URL;
 	try {
@@ -113,7 +111,7 @@ function allowed(raw: string, mayBePrivate: boolean): URL {
 	return url;
 }
 
-/** DNS for the connection, refusing a name with any address that is not public unless this hop may be on one. */
+/** DNS for the connection. Refuses a name with any non-public address, unless this hop may be on one. */
 const guardedLookup = (mayBePrivate: boolean): LookupFunction => (hostname, options, callback) => {
 	dnsLookup(hostname, { ...options, all: true }, (err, addresses) => {
 		if (err) return callback(err, '', 0);
@@ -132,7 +130,7 @@ function request(url: URL, signal: AbortSignal, mayBePrivate: boolean): Promise<
 			method: 'GET',
 			headers: { accept: 'audio/*', 'user-agent': `Heddohon/${APP_VERSION} (https://github.com/zorcerer/heddohon)` },
 			lookup: guardedLookup(mayBePrivate),
-			// A connection of its own: one kept from an earlier request was looked up under that request's rule.
+			// Its own connection: a kept one was looked up under an earlier request's rule.
 			agent: false,
 			signal
 		});
@@ -200,7 +198,7 @@ export async function openStation(session: AuthenticatedSession, id: string, cli
 	client.addEventListener('abort', stop, { once: true });
 
 	try {
-		// The station's own address is the administrator's; see the top of the file for the hops after it.
+		// The station's own address is the administrator's. The hops after it are not; see the top of the file.
 		let mayBePrivate = config().radioPrivate;
 		let url = allowed(station.streamUrl, mayBePrivate);
 		let response: http.IncomingMessage | null = null;

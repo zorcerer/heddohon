@@ -33,9 +33,8 @@
 	function tabHref(tab: (typeof data.tabs)[number]): string {
 		const params = new URLSearchParams();
 		params.set('tab', tab);
-		// A tab change starts at page one; carrying the page number over would
-		// land on an arbitrary point in a different list. The sort is dropped
-		// with it: each tab has its own orders.
+		// A tab change starts at page one, without the sort: each tab has its own
+		// orders, and the page number is a place in a different list.
 		return `/favourites?${params}`;
 	}
 
@@ -60,11 +59,7 @@
 		return `/favourites?${params}`;
 	}
 
-	/**
-	 * "Play tracks" queues the page you are looking at, not the whole favourites
-	 * list — queueing several thousand tracks from a button labelled like this
-	 * would be a surprise.
-	 */
+	/** "Play tracks" queues the page shown, not the whole favourites list, which can be several thousand tracks. */
 	const pageSongs = $derived(data.songs?.items ?? []);
 </script>
 

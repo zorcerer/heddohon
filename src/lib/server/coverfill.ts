@@ -1,22 +1,20 @@
 /**
  * Filling the cover cache from the library, ahead of any browser asking.
  *
- * The cache otherwise fills a cover at a time, as pages are opened, so the
- * first visit to each part of a library waits for the music server to render
- * its covers. A fill reads the albums, artists and playlists and stores each
- * cover at the sizes the pages draw.
+ * The cache otherwise fills one cover at a time as pages open. A fill reads
+ * the albums, artists and playlists and stores each cover at the sizes the
+ * pages draw.
  *
  * It is started by an account the music server lists as an administrator
- * (`routes/api/cover-fill`), and it goes on after the request that started it
- * has been answered. That makes this the one place a decrypted credential is
- * held past its request: for the length of the fill, in this module. It is
- * dropped when the fill ends, and `destroyAllSessions` ends the fill. One fill
- * runs at a time in a process, and what it reports is kept in memory until the
- * next one or a restart.
+ * (`routes/api/cover-fill`) and runs on after that request is answered. This
+ * is the one place a decrypted credential is held past its request: in this
+ * module, for the length of the fill. `destroyAllSessions` ends the fill. One
+ * fill runs at a time, and its report is kept in memory until the next one or
+ * a restart.
  *
- * An administrator can also have it kept filled (`keepFilled`). The server
- * then starts a fill itself once a day, with that account's stored credential
- * and no request behind it, as a shared link reads through its owner's.
+ * An administrator can also have it kept filled (`keepFilled`): the server
+ * then starts a fill once a day with that account's stored credential, as a
+ * shared link reads through its owner's.
  */
 import { config } from './config';
 import { backendFor, UpstreamError, type MediaBackend, type StoredCredential } from './backends';
@@ -31,14 +29,14 @@ type Kind = 'album' | 'artist' | 'playlist';
 
 /**
  * What is fetched, in this order. A fill stops at the disk budget, so the
- * sizes drawn most often come first: 384 is a card in a grid, 96 is a row in a
- * list and the copy the room's colour is sampled from, 512 is what the album
- * page's 640 snaps to (`nearestCoverSize`), and 1024 is that same cover on a
- * display of twice the density.
+ * sizes drawn most often come first: 384 is a card in a grid, 96 a row in a
+ * list and the copy the room's colour is sampled from, 512 what the album
+ * page's 640 snaps to (`nearestCoverSize`), and 1024 that cover at twice the
+ * density.
  *
- * Track covers are left out. Navidrome gives a track with embedded art a cover
- * id of its own, so a library of 100,000 tracks is 100,000 more covers, most
- * of them copies of their albums'. They are cached as they are played.
+ * Track covers are left out and cached as they are played. Navidrome gives a
+ * track with embedded art its own cover id, so 100,000 tracks are 100,000 more
+ * covers, most of them copies of their albums'.
  */
 const PASSES: { size: number; of: Kind[] }[] = [
 	{ size: 384, of: ['album', 'artist', 'playlist'] },
@@ -48,10 +46,9 @@ const PASSES: { size: number; of: Kind[] }[] = [
 ];
 
 /**
- * Covers asked of the music server at once: half of `UPSTREAM_FANOUT`, which
- * is what one request may have in flight. Not measured against a real server.
- * A fill of 5000 albums is 20,000 renders upstream, and people are using the
- * library while it runs.
+ * Covers asked of the music server at once: half of `UPSTREAM_FANOUT`, not
+ * measured against a real server. A fill of 5000 albums is 20,000 renders
+ * upstream while people are using the library.
  */
 const FILL_FANOUT = 4;
 
@@ -98,7 +95,7 @@ export function fillStatus(account: string): FillStatus {
 
 /**
  * Starts a fill with the account's credential and returns at once. Null when
- * another account's fill is running; the account's own is returned as it
+ * another account's fill is running. The account's own is returned as it
  * stands. The caller has checked that the account is an administrator.
  */
 export function startFill(
@@ -121,9 +118,9 @@ export function stopFill(account: string): void {
 
 /**
  * The account whose fill the server repeats daily, one per music server, in
- * the `meta` table under this key and the backend. One, since a second
- * administrator's fill of the same library stores the same covers; on
- * Jellyfin, where a cover is held per viewer, it is the last to switch it on.
+ * `meta` under this key and the backend. A second administrator's fill would
+ * store the same covers. On Jellyfin, where a cover is held per viewer, it is
+ * the last account to switch it on.
  */
 const KEEPER = 'cover_fill_account';
 
@@ -151,10 +148,9 @@ export async function keepFilled(backend: BackendKind, account: string | null): 
  * Stops the repeat when the account's credential is replaced: another person
  * under the name, or a changed password (`storeAccount` in `auth.ts`).
  *
- * The switch is one person's agreement to the server using their sign-in
- * unattended. Left on, the daily fill went on with whatever credential the
- * row held next, which on a reused name is that of a person who never
- * switched it on. The same person with a new password switches it on again.
+ * The switch is one person's agreement to their sign-in being used unattended.
+ * Left on, the daily fill ran with whatever credential the row held next,
+ * which on a reused name is another person's.
  */
 export async function dropKeeper(backend: BackendKind, account: string): Promise<void> {
 	if ((await filledBy(backend)) === account) await keepFilled(backend, null);
@@ -167,14 +163,13 @@ const lastKept = new Map<BackendKind, number>();
 let keeping = false;
 
 /**
- * Starts the daily fills: one look now and one an hour from then on, each
- * starting a fill for a backend whose last was 24 hours ago or more.
+ * Starts the daily fills: a look now and one every hour, each starting a fill
+ * for a backend whose last was 24 hours ago or more.
  *
- * Called on the first request (`announce` in `hooks.server.ts`), so a
- * restart is followed by a fill. That costs the reads of the library and a
- * lookup per cover when everything is held. Hourly looks, so a music server
- * that was not answering when this one started is asked again within the hour
- * and not a day later.
+ * Called on the first request (`announce` in `hooks.server.ts`), so a restart
+ * is followed by a fill. With everything held that costs the library reads and
+ * a lookup per cover. Hourly, so a music server that was down at start-up is
+ * asked again within the hour.
  */
 export function keepCoversFilled(): void {
 	if (keeping) return;
@@ -193,8 +188,8 @@ async function fillKept(): Promise<void> {
 		// Misconfigured, which `hooks.server.ts` reports on every request.
 		return;
 	}
-	// Each backend on its own: a stored credential that does not open on one
-	// ended the look, and the other backend's fill was never started.
+	// Each backend on its own: a stored credential that did not open on one
+	// ended the look before the other's fill started.
 	for (const kind of kinds) {
 		try {
 			if (Date.now() - (lastKept.get(kind) ?? 0) < 24 * HOUR_MS) continue;
@@ -211,12 +206,9 @@ async function fillKept(): Promise<void> {
 			}
 			// Throws after `HEDDOHON_SECRET` changes, until the account signs in again.
 			const credential = openJson<StoredCredential>(row.credential);
-			/*
-			 * Asked again each day: the account was an administrator when it
-			 * switched this on. One that no longer is has it switched off. No
-			 * answer (the music server is down, or the password has changed) is
-			 * left for the next look.
-			 */
+			// Asked again each day. An account that is no longer an administrator
+			// has the repeat switched off. No answer (the music server is down, or
+			// the password changed) is left for the next look.
 			const admin = await backendFor(kind).isAdmin(credential);
 			if (admin === false) await keepFilled(kind, null);
 			if (admin !== true) continue;
@@ -245,7 +237,7 @@ async function libraryCovers(
 			if (album.coverArt) covers.album.add(album.coverArt);
 		}
 		// A short page is the last one. A full page of albums already seen is a
-		// server that ignores the offset, which would otherwise be read for ever.
+		// server that ignores the offset.
 		if (page.length < LIST_PAGE || seen.size === before) break;
 	}
 	if (signal.aborted) return covers;
@@ -256,8 +248,7 @@ async function libraryCovers(
 
 /**
  * One cover from the music server, or null when it has none to store. A
- * rejected credential is thrown, which ends the fill: every cover after it
- * would be refused the same way.
+ * rejected credential is thrown and ends the fill.
  */
 async function fetchCover(
 	backend: MediaBackend,
@@ -267,7 +258,7 @@ async function fetchCover(
 	signal: AbortSignal
 ): Promise<{ type: string; body: Buffer } | null> {
 	// The upstream timeout runs to the headers. This one runs to the last byte,
-	// so a cover that stalls partway does not hold one of the four slots.
+	// so a cover that stalls does not hold one of the four slots.
 	const timed = AbortSignal.any([signal, AbortSignal.timeout(config().upstreamTimeoutMs * 2)]);
 	try {
 		const response = await backend.openCover(cred, id, size, { signal: timed });
@@ -288,9 +279,9 @@ async function fetchCover(
 
 /**
  * A cover as bytes, for a caller that is not answering a browser: from the
- * cache where it is held, and from the music server with the account's own
- * credential where it is not, stored on the way as a browser's request would
- * store it. Null where there is none or the music server refused.
+ * cache, or from the music server with the account's credential, stored on the
+ * way as a browser's request would store it. Null where there is none or the
+ * music server refused.
  */
 export async function coverBytes(
 	account: { id: string; backend: BackendKind; remoteUserId: string | null },
@@ -317,10 +308,9 @@ async function run({ status, abort }: Job, backend: MediaBackend, cred: StoredCr
 		const wanted = PASSES.flatMap(({ size, of }) => of.flatMap((kind) => [...covers[kind]].map((id) => ({ id, size }))));
 
 		/*
-		 * Counted here instead of left to the sweep. Past the budget the sweep
-		 * deletes the files used longest ago, which in a fill are the ones it
-		 * stored first: it would go on fetching the rest of the library and
-		 * deleting the start of it. It stops instead, with what fits.
+		 * Counted here, not left to the sweep. Past the budget the sweep deletes
+		 * the files used longest ago, which in a fill are the first it stored:
+		 * it would fetch the rest of the library while deleting the start.
 		 */
 		const { bytes, limitBytes } = await cacheStats();
 		let held = bytes ?? 0;
@@ -358,10 +348,9 @@ async function run({ status, abort }: Job, backend: MediaBackend, cred: StoredCr
 		}
 	} finally {
 		/*
-		 * Set here, once every slot has finished, and not where the fill was
-		 * told to end. Set there, a slot still writing its cover was left out
-		 * of the count: a poll in CI read a full fill with 24 covers stored and
-		 * 25 on disk.
+		 * Set once every slot has finished, not where the fill was told to end.
+		 * Set there, a slot still writing was left out of the count: a poll in
+		 * CI read a full fill with 24 covers stored and 25 on disk.
 		 */
 		status.state = signal.aborted ? (signal.reason as FillStatus['state']) : 'done';
 		log.info('cover-fill-finished', {

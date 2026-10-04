@@ -5,7 +5,7 @@
  * player can show the same album's songs.
  *
  * Entries are written only in the browser, from a press, so the server's copy
- * of this module stays empty and every server render uses the loaded value.
+ * of this module stays empty and server renders use the loaded value.
  */
 import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 import type { RatingKind } from '$lib/types';

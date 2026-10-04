@@ -1,8 +1,8 @@
 <script lang="ts">
 	/**
-	 * The "add to playlist" dialog. Mounted once in the root layout, because a
-	 * library page can render hundreds of track rows and one picker per row would
-	 * mean hundreds of identical requests for the same list.
+	 * The "add to playlist" dialog. Mounted once in the root layout: a library
+	 * page renders hundreds of track rows, and a picker per row would make
+	 * hundreds of requests for the same list.
 	 */
 	import { playlistPicker } from '$lib/client/playlists.svelte';
 	import { formatLongDuration } from '$lib/client/format';
@@ -46,8 +46,8 @@
 			</button>
 		</header>
 
-		<!-- The messages open and close by height, so the list below moves down
-		     and back up rather than jumping. -->
+		<!-- The messages open and close by height, so the list below moves and
+		     does not jump. -->
 		{#if playlistPicker.error}
 			<p class="alert" role="alert" transition:slide={{ duration: motion(DUR.state), easing: easeOut }}>
 				{playlistPicker.error}
@@ -192,9 +192,9 @@
 	/*
 	 * The rows come in one after another as the list appears, 24ms apart
 	 * (`--stagger` from `.hh-stagger` in app.css), and hover like a track row:
-	 * an accent wash fades in behind and the name steps right. The rows are
-	 * buttons without glass inside the dialog's glass, so opacity and movement
-	 * on them leave its blur alone.
+	 * an accent wash fades in behind and the name steps right. They are buttons
+	 * without glass inside the dialog's glass, so opacity and movement on them
+	 * leave its blur alone.
 	 */
 	.row {
 		position: relative;

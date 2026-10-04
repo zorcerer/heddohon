@@ -19,8 +19,7 @@ export const POST: RequestHandler = async (event) => {
 	}
 	const { id, rating } = body as { id: string; rating: number };
 
-	// The page offers no stars where this is missing; a request anyway is
-	// asking for something the server does not have.
+	// The page offers no stars where this is missing.
 	const backend = backendFor(session.account.backend);
 	if (!backend.setRating) error(404, 'This music server keeps no ratings');
 

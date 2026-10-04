@@ -24,11 +24,10 @@ export const GET: RequestHandler = async ({ locals }) => {
 /**
  * Makes a link to a song, an album or a playlist.
  *
- * The body is `{ kind, id, days }`; `{ songId, days }`, from before albums and
+ * The body is `{ kind, id, days }`. `{ songId, days }`, from before albums and
  * playlists could be shared, still makes a song link. The response is the only
- * place the token ever appears. It carries a path rather than an absolute URL:
- * the browser already knows the origin it is on, and the server's idea of it
- * can be wrong behind a proxy.
+ * place the token appears. It carries a path, not an absolute URL: the
+ * server's idea of the origin can be wrong behind a proxy.
  */
 export const POST: RequestHandler = async ({ locals, request }) => {
 	const session = locals.session;
@@ -48,12 +47,10 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 	const days = body?.days === undefined ? DEFAULT_SHARE_LIFETIME : body.days;
 	if (!isShareLifetime(days)) error(400, 'days must be 1, 7 or 30');
 
-	/*
-	 * The item is looked up with the sharer's own credential first. A link is
-	 * only ever made to something its owner can play, so an id guessed or
-	 * copied from elsewhere does not become a row, and a typo is reported here
-	 * rather than to whoever opens the link.
-	 */
+	// The item is looked up with the sharer's own credential first. A link is
+	// made only to something its owner can play, so a guessed or copied id does
+	// not become a row, and a typo is reported here and not to whoever opens
+	// the link.
 	const missing = `That ${kind} is not in your library`;
 	try {
 		const backend = backendFor(session.account.backend);

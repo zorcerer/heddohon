@@ -11,9 +11,8 @@ const text = (value: unknown): string | null =>
 /**
  * What is up next in the host's queue, for its listeners, and the highest
  * addition this browser has put in it. Every track's id is read, to find the
- * additions among them; the titles of the first 50 are kept, which is as far
- * as the listeners are shown. The answer says which of the tracks are
- * additions, and whose.
+ * additions among them. The titles of the first 50 are kept, as far as the
+ * listeners are shown. The answer says which tracks are additions, and whose.
  */
 export const POST: RequestHandler = async ({ locals, request }) => {
 	const session = locals.session;

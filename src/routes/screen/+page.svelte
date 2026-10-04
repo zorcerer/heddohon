@@ -1,8 +1,8 @@
 <script lang="ts">
 	/**
 	 * The living-room screen: what this browser plays, full screen, to be read
-	 * from across a room on a TV or a tablet by the speakers. It plays here; a
-	 * phone controls it through the Devices button.
+	 * from across a room on a TV or a tablet by the speakers. It plays here, and
+	 * a phone controls it through the Devices button.
 	 *
 	 * The layout draws this without the rail and the player panel
 	 * (`isScreenPage`), and leaves the keys to this page.

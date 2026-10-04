@@ -1,10 +1,9 @@
 /**
  * Administrator-supplied configuration.
  *
- * Every value here comes from the process environment. Nothing in this module
- * may ever be influenced by a request: the whole point of Heddohon's threat
- * model is that *the operator* decides which upstream servers exist, and the
- * end user only ever supplies a username and a password.
+ * Every value comes from the process environment and none can be influenced by
+ * a request: the operator decides which upstream servers exist, and a user
+ * supplies only a username and a password.
  */
 import { accessSync, constants, mkdirSync, readFileSync } from 'node:fs';
 import { building } from '$app/environment';
@@ -23,7 +22,7 @@ export interface UpstreamConfig {
  * Where accounts, sessions, settings and links are kept. SQLite in the data
  * directory unless `HEDDOHON_DATABASE_URL` names a PostgreSQL server.
  */
-export type DatabaseConfig =
+type DatabaseConfig =
 	| { kind: 'sqlite' }
 	| {
 			kind: 'postgres';
@@ -81,21 +80,20 @@ export interface AppConfig {
 export class ConfigError extends Error {}
 
 /**
- * The certificate the released Android app is signed with, as the SHA-256
- * `keytool` and `apksigner` print. Its key is held in the repository's
- * secrets and signs the APK attached to each release.
+ * The SHA-256 of the certificate the released Android app is signed with, as
+ * `keytool` and `apksigner` print it. The key is in the repository's secrets.
  */
-export const ANDROID_RELEASE_KEY =
+const ANDROID_RELEASE_KEY =
 	'3C:D0:5B:A1:45:77:D7:1F:68:4E:61:51:AF:7C:0F:3F:BE:10:15:A8:BB:52:B2:28:FA:54:B4:11:AC:14:DE:52';
 
 /** A fingerprint as 32 pairs of hex digits with colons between, upper case. */
 const FINGERPRINT = /^[0-9A-F]{2}(:[0-9A-F]{2}){31}$/;
 
 /**
- * The released app's key, and those in `HEDDOHON_ANDROID_FINGERPRINTS`: a
- * comma-separated list, for an app built and signed by someone else. One that
- * is not a fingerprint is a mistake worth stopping for, since the app would
- * open with an address bar and nothing would say why.
+ * The released app's key and those in `HEDDOHON_ANDROID_FINGERPRINTS`, a
+ * comma-separated list for an app signed by someone else. An entry that is not
+ * a fingerprint is an error: the app would open with an address bar and
+ * nothing would say why.
  */
 function androidFingerprints(): string[] {
 	const extra = (env('HEDDOHON_ANDROID_FINGERPRINTS') ?? '')
@@ -132,8 +130,8 @@ function normaliseUrl(name: string, raw: string): string {
 	if (parsed.search || parsed.hash) {
 		throw new ConfigError(`${name} must not contain a query string or fragment`);
 	}
-	// Keep any sub-path (Navidrome behind /music), drop the trailing slash so
-	// callers can always join with `${base}/rest/...`.
+	// Keeps a sub-path (Navidrome behind /music) and drops the trailing slash,
+	// so callers join with `${base}/rest/...`.
 	const path = parsed.pathname.replace(/\/+$/, '');
 	return `${parsed.origin}${path}`;
 }
@@ -167,17 +165,13 @@ function flagEnv(name: string, fallback: boolean): boolean {
 }
 
 /**
- * How long a sign-in lasts where `HEDDOHON_SESSION_HOURS` is not set: 30 days.
- * The operator chooses the lifetime, shorter or longer. The upper bound, 100
- * years, only keeps the expiry inside what a date holds.
+ * The session lifetime where `HEDDOHON_SESSION_HOURS` is not set: 30 days. The
+ * upper bound, 100 years, keeps the expiry inside what a date holds.
  */
-export const DEFAULT_SESSION_HOURS = 30 * 24;
+const DEFAULT_SESSION_HOURS = 30 * 24;
 const MAX_SESSION_HOURS = 100 * 365 * 24;
 
-/**
- * Who this process is, for a message an operator can act on. `getuid` is
- * POSIX-only and absent on Windows, where the question does not arise.
- */
+/** Who this process runs as, for an error message. `getuid` is absent on Windows. */
 function identity(): string {
 	const uid = process.getuid?.();
 	const gid = process.getgid?.();
@@ -185,26 +179,19 @@ function identity(): string {
 }
 
 /**
- * The data directory, created and proven writable before anything asks for it.
+ * The data directory, created and proven writable before anything uses it.
  *
- * The database and the cover cache both live here, and on a fresh deployment
- * the first thing to touch the database is the login rate limiter. Without this
- * check an unwritable directory surfaces as `SQLITE_CANTOPEN` thrown out of a
- * sign-in POST: a 500 whose stack names better-sqlite3 and never names the
- * mount that is actually wrong, on the one request an operator is least likely
- * to read as a permissions problem.
+ * Unchecked, an unwritable directory surfaced as `SQLITE_CANTOPEN` from the
+ * first sign-in POST (the rate limiter is the first thing to touch the
+ * database), a 500 that does not name the mount.
  *
- * `mkdirSync` on its own does not catch it, because the failing case is a
- * directory that already exists. Docker creates a missing bind-mount source
- * itself, owned by root; the image runs unprivileged, and the Unraid template
- * runs it as 99:100. The directory is then present, `recursive: true` returns
- * happily, and the first write is denied.
+ * `mkdirSync` alone does not catch it. Docker creates a missing bind-mount
+ * source owned by root, the image runs unprivileged (99:100 on Unraid), so the
+ * directory exists, `recursive: true` succeeds and the first write is denied.
  *
- * Raising it as a ConfigError puts it through the path every other
- * misconfiguration already takes: hooks.server.ts serves one plain 500 and logs
- * `config-invalid` with this message, and `/healthz` reports `misconfigured`,
- * which fails the container's HEALTHCHECK. Before this, a deployment that could
- * not write a single row still reported itself healthy.
+ * As a ConfigError it takes the path of every other misconfiguration:
+ * hooks.server.ts serves a plain 500 and logs `config-invalid`, and `/healthz`
+ * reports `misconfigured`, which fails the container's HEALTHCHECK.
  */
 function dataDirectory(): string {
 	const dir = env('HEDDOHON_DATA_DIR') ?? '/data';
@@ -219,8 +206,8 @@ function dataDirectory(): string {
 		);
 	}
 
-	// W_OK to create the database, X_OK to reach anything inside the directory.
-	// A directory can grant one without the other, and the cover cache needs both.
+	// W_OK to create the database, X_OK to reach anything inside. A directory
+	// can grant one without the other.
 	try {
 		accessSync(dir, constants.W_OK | constants.X_OK);
 	} catch {
@@ -282,8 +269,7 @@ function build(): AppConfig {
 		sessionMaxHours: intEnv('HEDDOHON_SESSION_HOURS', DEFAULT_SESSION_HOURS, 1, MAX_SESSION_HOURS),
 		cookieSecure: boolEnv('HEDDOHON_COOKIE_SECURE', 'auto'),
 		upstreamTimeoutMs: intEnv('HEDDOHON_UPSTREAM_TIMEOUT_MS', 20_000, 1_000, 120_000),
-		// Megabytes in, bytes out. 0 disables the cache; the ceiling is there so a
-		// typo cannot promise the volume more than a volume tends to have.
+		// Megabytes in, bytes out. 0 switches the cache off.
 		coverCacheBytes: intEnv('HEDDOHON_COVER_CACHE_MB', 512, 0, 65_536) * 1024 * 1024,
 		upstreams,
 		appName: env('HEDDOHON_APP_NAME') ?? 'Heddohon',
@@ -293,33 +279,33 @@ function build(): AppConfig {
 		// The browsers are known to one process only, so a deployment of several
 		// behind a load balancer turns it off.
 		remoteControl: flagEnv('HEDDOHON_REMOTE_CONTROL', true),
-		// Off unless asked for: turning it on sends the artist, title, album and
-		// length of every track whose lyrics are opened to a third party.
+		// Off unless asked for: it sends the artist, title, album and length of
+		// every track whose lyrics are opened to a third party.
 		lrclibUrl: flagEnv('HEDDOHON_LYRICS_LRCLIB', false)
 			? normaliseUrl('HEDDOHON_LYRICS_LRCLIB_URL', env('HEDDOHON_LYRICS_LRCLIB_URL') ?? 'https://lrclib.net')
 			: null,
-		// Off unless asked for: the server fetches from another host, which learns
-		// this server's address and the headphones chosen.
+		// Off unless asked for: the host fetched from learns this server's
+		// address and the headphones chosen.
 		autoeqUrl: flagEnv('HEDDOHON_AUTOEQ', false)
 			? normaliseUrl(
 					'HEDDOHON_AUTOEQ_URL',
 					env('HEDDOHON_AUTOEQ_URL') ?? 'https://raw.githubusercontent.com/jaakkopasanen/AutoEq/master/results'
 				)
 			: null,
-		// Both off unless asked for: turned on, an account can have the title,
-		// artist and album of what it plays sent to a third party it chose.
+		// Both off unless asked for: an account can then send the title, artist
+		// and album of what it plays to a third party it chose.
 		discordUrl: flagEnv('HEDDOHON_DISCORD', false)
 			? normaliseUrl('HEDDOHON_DISCORD_URL', env('HEDDOHON_DISCORD_URL') ?? 'https://discord.com')
 			: null,
 		listenbrainzUrl: flagEnv('HEDDOHON_LISTENBRAINZ', false)
 			? normaliseUrl('HEDDOHON_LISTENBRAINZ_URL', env('HEDDOHON_LISTENBRAINZ_URL') ?? 'https://api.listenbrainz.org')
 			: null,
-		// On. Off for a library whose layout on disk is not for its listeners:
-		// the page shows folder names as the music server stores them.
+		// Off for a library whose layout on disk is not for its listeners: the
+		// page shows folder names as the music server stores them.
 		folders: flagEnv('HEDDOHON_FOLDERS', true),
-		// On: the stations are the music server administrator's own list, and a
-		// stream is fetched only when a listener plays one. A station on a
-		// private address is refused unless that is asked for.
+		// The stations are the music server administrator's list, and a stream
+		// is fetched only when a listener plays one. A station on a private
+		// address is refused unless `radioPrivate` is set.
 		radio: flagEnv('HEDDOHON_RADIO', true),
 		radioPrivate: flagEnv('HEDDOHON_RADIO_PRIVATE', false),
 		androidFingerprints: androidFingerprints(),
@@ -328,12 +314,12 @@ function build(): AppConfig {
 }
 
 /**
- * `HEDDOHON_DATABASE_URL`, with the user and password from their own
- * variables when set, so a password can stay out of the URL (or come from a
- * Docker secret through `HEDDOHON_DATABASE_PASSWORD_FILE`).
+ * `HEDDOHON_DATABASE_URL`, with the user and password from their own variables
+ * when set, so a password can stay out of the URL (or come from a Docker
+ * secret through `HEDDOHON_DATABASE_PASSWORD_FILE`).
  *
- * The error messages name the variable and never echo its value: the value is
- * a URL that can hold a password.
+ * The error messages name the variable and never its value, which can hold a
+ * password.
  */
 function databaseConfig(): DatabaseConfig {
 	const raw = env('HEDDOHON_DATABASE_URL');
@@ -386,8 +372,8 @@ let cached: AppConfig | null = null;
 /** Throws ConfigError if the deployment is misconfigured. */
 export function config(): AppConfig {
 	if (building) {
-		// `vite build` imports server modules to analyse them; it must never
-		// require a live deployment's secrets to be present.
+		// `vite build` imports server modules to analyse them, without a
+		// deployment's environment.
 		return {
 			secret: 'x'.repeat(32),
 			dataDir: '/data',

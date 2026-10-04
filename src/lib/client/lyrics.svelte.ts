@@ -1,8 +1,6 @@
 /**
- * Lyrics fetching and the state behind the lyrics view.
- *
- * Results are memoised per track: the view is opened and closed far more often
- * than a track changes, and a lyric never changes under you mid-song.
+ * Lyrics fetching and the state behind the lyrics view. Results are memoised
+ * per track: the view is opened and closed more often than the track changes.
  */
 import type { Lyrics, Song } from '$lib/types';
 
@@ -35,9 +33,8 @@ class LyricsWindow {
 	/** The track the loaded lyric belongs to, so a track change refetches. */
 	songId = $state<string | null>(null);
 	/**
-	 * Set while the reader is scrolling the lyrics themselves. Following the
-	 * playhead would otherwise drag the view back every few seconds, which makes
-	 * it impossible to read ahead or look back at a verse.
+	 * False while the reader scrolls the lyrics. Following the playhead would
+	 * drag the view back every few seconds.
 	 */
 	following = $state(true);
 
@@ -64,16 +61,15 @@ class LyricsWindow {
 		}
 		if (this.songId === song.id && this.lyrics !== null) return;
 
-		// A new track starts at the top, so resume following whatever the reader
-		// was doing on the last one.
+		// A new track starts at the top and is followed again.
 		this.following = true;
 		this.songId = song.id;
 		this.loading = true;
 		this.error = null;
 		try {
 			const result = await fetchLyrics(song.id);
-			// A slower request for a track we have since moved past must not
-			// overwrite the sheet for the track now playing.
+			// A slower request for an earlier track must not overwrite the lyrics
+			// of the track now playing.
 			if (this.songId === song.id) this.lyrics = result;
 		} catch (err) {
 			if (this.songId === song.id) {
@@ -88,8 +84,8 @@ class LyricsWindow {
 export const lyricsWindow = new LyricsWindow();
 
 /**
- * The index of the line that should be highlighted at this moment, or -1.
- * Lines are in ascending time order, so this is the last line already reached.
+ * The index of the line to highlight now, or -1: the last line already
+ * reached, the lines being in ascending time order.
  */
 export function activeLineIndex(lyrics: Lyrics | null, positionSeconds: number): number {
 	if (!lyrics?.synced) return -1;

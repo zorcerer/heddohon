@@ -5,8 +5,8 @@
 	 *
 	 * Drawn as a small copy of the player panel: the cover runs to the dialog's
 	 * top corners and dissolves into the controls, with the title block under
-	 * it. The controls below borrow the login panel's: options as bordered rows
-	 * the accent fills when chosen, one primary button, and the same sweep along
+	 * it. The controls are the login panel's: options as bordered rows the
+	 * accent fills when chosen, one primary button, and the same sweep along
 	 * its bottom edge while the server answers.
 	 */
 	import { browser } from '$app/environment';
@@ -121,7 +121,7 @@
 				</form>
 
 				{#if page.data.together}
-					<!-- Live rather than a thing to keep: what this browser plays, as it
+					<!-- Live, not something to keep: what this browser plays, as it
 					     plays it, for as long as the party lasts. -->
 					<div class="together">
 						<p class="hh-muted note">
@@ -214,11 +214,10 @@
 	}
 
 	/*
-	 * The player panel's artwork, shortened. The cover is square and this box is
-	 * wider than tall, so it shows the middle band of the sleeve, and it fades
-	 * into the controls by taking the artwork away rather than painting over it,
-	 * which is what the panel does and for the same reason: the dialog's own
-	 * ground changes with the room behind it.
+	 * The player panel's artwork, shortened. The cover is square and this box
+	 * is wider than tall, so it shows the middle band of the sleeve. It fades
+	 * into the controls by taking the artwork away, as the panel does: the
+	 * dialog's ground changes with the room behind it.
 	 */
 	/* Dither over the artwork so its fade does not step; see `--grain` in app.css. */
 	.art::after {
@@ -266,7 +265,7 @@
 		gap: var(--space-4);
 		padding: 0 var(--space-5) var(--space-5);
 		/* Up into the fade, so the title sits where the artwork is dissolving,
-		   as it does in the panel. */
+		   as in the panel. */
 		margin-top: calc(var(--space-6) * -1);
 		position: relative;
 	}
@@ -373,8 +372,8 @@
 		gap: var(--space-2);
 	}
 
-	/* The login page's focus ring, on a field that holds the focus from the
-	   moment it appears. */
+	/* The login page's focus ring, on a field focused from the moment it
+	   appears. */
 	.url {
 		flex: 1;
 		min-width: 0;
@@ -456,8 +455,8 @@
 		cursor: progress;
 	}
 
-	/* The login page's indeterminate bar. Drawn on a pseudo-element so that the
-	   thing moving is an opaque bar, not a button with a backdrop-filter. */
+	/* The login page's indeterminate bar, on a pseudo-element, so what moves is
+	   an opaque bar and not a button with a backdrop-filter. */
 	.busy {
 		position: relative;
 		overflow: hidden;

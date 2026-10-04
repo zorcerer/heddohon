@@ -6,9 +6,8 @@ import { similarArtists } from '$lib/server/suggestions';
 
 /**
  * How many cards the "You might like" shelf asks the music server for. The
- * grid wraps them to the width it has, so this caps the shelf rather than
- * fixing its shape: four across beside an open player panel, seven with it
- * closed, at 1440px.
+ * grid wraps them to its width: four across beside an open player panel, seven
+ * with it closed, at 1440px.
  */
 const SUGGESTION_COUNT = 8;
 
@@ -18,8 +17,7 @@ export const load: PageServerLoad = async (event) => {
 
 	return {
 		artist,
-		// Streamed, and the rejection swallowed, for the reasons set out in the
-		// album page's loader.
+		// Streamed, and the rejection swallowed, as in the album page's loader.
 		similar: similarArtists(ctx, artist.id, SUGGESTION_COUNT).catch((err) => {
 			log.warn('similar-artists-failed', { artist: artist.id, detail: reason(err) });
 			return [];

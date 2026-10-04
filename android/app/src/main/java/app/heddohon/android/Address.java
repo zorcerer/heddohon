@@ -23,9 +23,8 @@ final class Address {
 	/**
 	 * `music.example.com` is read as https. A path, a query and a fragment are
 	 * dropped: the app opens the server, not a page of it. Anything but https
-	 * is turned down, since a Trusted Web Activity is for a secure origin and
-	 * on plain http the browser shows its address bar and says the page is not
-	 * secure.
+	 * is refused: a Trusted Web Activity is for a secure origin, and on plain
+	 * http the browser shows its address bar and a warning.
 	 */
 	static Address parse(String typed) {
 		String text = typed == null ? "" : typed.trim();

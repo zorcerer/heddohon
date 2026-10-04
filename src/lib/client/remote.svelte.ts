@@ -1,13 +1,12 @@
 /**
- * The account's other browsers, and playback on them: `server/remote.ts` has
+ * The account's other browsers, and playback on them; `server/remote.ts` has
  * how the server keeps them.
  *
  * This browser holds one `EventSource` open while signed in. It is told its
- * own id, then the list of every browser with the player open (itself
- * included, and left out of `peers` here), and the commands the others send
- * it. What it plays is reported when the track, the play state or the volume
- * changes, and every 5 seconds while it plays, so a controlling browser can
- * show a position that moves.
+ * own id, the list of every browser with the player open (itself left out of
+ * `peers` here), and the commands the others send it. What it plays is
+ * reported when the track, the play state or the volume changes, and every 5
+ * seconds while it plays, so a controlling browser shows a moving position.
  */
 import type { RemoteCommand, RemotePeer, RemoteState } from '$lib/server/remote';
 import type { Song } from '$lib/types';
@@ -47,8 +46,8 @@ class Remote {
 		this.#source = source;
 		source.addEventListener('hello', (event) => {
 			this.self = JSON.parse((event as MessageEvent).data).id;
-			// A new stream is a new peer on the server, which knows nothing of
-			// what this browser plays until told.
+			// A new stream is a new peer on the server, which knows nothing of what
+			// this browser plays until told.
 			this.#lastReport = '';
 			this.report();
 		});
@@ -61,7 +60,7 @@ class Remote {
 			void this.#apply(JSON.parse((event as MessageEvent).data) as RemoteCommand);
 		});
 		// The browser reconnects by itself and the server gives it a new id, so
-		// the list is empty until it does.
+		// the list is empty until then.
 		source.addEventListener('error', () => {
 			this.self = null;
 			this.peers = [];
@@ -88,7 +87,7 @@ class Remote {
 	 * unless `progress` asks for the position anyway.
 	 */
 	report(progress = false) {
-		// A volume drag changes the level on every frame; one report after it
+		// A volume drag changes the level every frame. One report after it
 		// settles says the same.
 		if (this.#pending) clearTimeout(this.#pending);
 		this.#pending = setTimeout(() => this.#send(progress), progress ? 0 : REPORT_SETTLE_MS);
@@ -192,7 +191,7 @@ class Remote {
 				}).catch(() => null);
 				const songs = ((await response?.json().catch(() => null))?.songs ?? []) as Song[];
 				if (songs.length === 0) return;
-				// A track deleted since leaves the list shorter; the current one is
+				// A track deleted since leaves the list shorter. The current one is
 				// found again by its id.
 				const found = songs.findIndex((song) => song.id === command.ids[command.index]);
 				player.stop();
@@ -202,9 +201,8 @@ class Remote {
 					repeat: player.repeat,
 					shuffle: false
 				});
-				// A browser that has not been clicked since it loaded may refuse to
-				// start sound on its own; the player then shows the error, and the
-				// queue is there for a press on play.
+				// A browser not clicked since it loaded may refuse to start sound. The
+				// player then shows the error, and the queue waits for a press on play.
 				if (command.playing) await player.play();
 				this.report();
 			}

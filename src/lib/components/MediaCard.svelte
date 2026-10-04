@@ -36,11 +36,10 @@
 
 	/*
 	 * Play resolves the album or artist to its tracks before anything sounds:
-	 * one upstream call for an album, one per album for an artist. Nothing on
-	 * screen said the click had landed, and a second click started a second
-	 * fetch and a second `playNow`. While it is out the button stays up, ignores
-	 * clicks and, past 150ms, turns its icon into a spinner (the delay is in the
-	 * CSS, so a fast answer does not flash one).
+	 * one upstream call for an album, one per album for an artist. A second
+	 * click during that started a second fetch and a second `playNow`. While it
+	 * is out the button stays up, ignores clicks and, past 150ms, turns its icon
+	 * into a spinner (the delay is in the CSS, so a fast answer shows none).
 	 */
 	let pending = $state(false);
 
@@ -54,10 +53,10 @@
 		}
 	}
 	/*
-	 * The sleeve tilts a few degrees toward the pointer while it is lifted, as
-	 * a record held up to the light would, and settles flat when the pointer
-	 * leaves. Written as two numbers on the art; the transform is in CSS, so a
-	 * card in flight (`launching`) can drop it before the sleeve is captured.
+	 * The sleeve tilts a few degrees toward the pointer while it is lifted, and
+	 * settles flat when the pointer leaves. Written as two numbers on the art.
+	 * The transform is in CSS, so a card in flight (`launching`) can drop it
+	 * before the sleeve is captured.
 	 */
 	let art = $state<HTMLDivElement | null>(null);
 	function tilt(event: PointerEvent) {
@@ -79,13 +78,13 @@
 	}
 
 	// Stable for this card's lifetime, so a duplicate album in another shelf
-	// cannot claim the same view-transition-name at the same moment.
+	// cannot claim the same view-transition-name.
 	const token = sleeveToken();
 
 	/**
-	 * Takes over the anchor's own navigation so the record has time to leave the
-	 * sleeve before the page changes. Modified clicks are left alone — opening in
-	 * a new tab must keep working, and an animation is no reason to break it.
+	 * Takes over the anchor's navigation, so the record has time to leave the
+	 * sleeve before the page changes. Modified clicks are left alone, so
+	 * opening in a new tab keeps working.
 	 */
 	function open(event: MouseEvent) {
 		if (!transitionId) return;
@@ -95,8 +94,8 @@
 		event.preventDefault();
 		launching = true;
 		sleeveTransition.begin(transitionId, token, location.pathname + location.search);
-		// This cover is on screen and decoded, so the room can start moving to its
-		// colour now rather than when the page it belongs to finishes loading.
+		// This cover is on screen and decoded, so the room starts moving to its
+		// colour now and not when its page has loaded.
 		ambience.arriving(coverArt, href);
 		setTimeout(() => void goto(href), LAUNCH_MS);
 	}
@@ -164,17 +163,15 @@
 		border-radius: var(--r-md);
 	}
 
-	/* The record slides out past the card's own box, so hovering has to raise the
-	   whole card above its neighbours or the disc is clipped by the next one.
-	   This changes nothing visible on its own — it is purely stacking. */
+	/* The record slides out past the card's box, so hovering raises the whole
+	   card above its neighbours, or the next one clips the disc. Stacking only. */
 	.card:hover,
 	.card.launching {
 		position: relative;
 		z-index: 3;
 	}
 
-	/* The lift and the settle back are on the spring: the sleeve is picked up a
-	   little past where it rests, and put down the same way. */
+	/* The lift and the settle back are on the spring. */
 	.art {
 		position: relative;
 		transition:
@@ -183,16 +180,15 @@
 	}
 
 	/*
-	 * The glow under a lifted cover: a shadow of its own, faded in and out by
-	 * opacity, under the cover, which is positioned and comes after it.
+	 * The glow under a lifted cover: a shadow of its own, faded by opacity,
+	 * under the cover, which is positioned and comes after it.
 	 *
-	 * It was a `drop-shadow` filter on `.art`, transitioned from `none`. Measured
-	 * in Chromium on 29 September 2026, that drew no shadow for the length of
-	 * the 340ms transition and then all of it (brightness under the cover 42,
-	 * then 65 in one frame), so the glow snapped on as the lift ended. The same
+	 * As a `drop-shadow` filter on `.art` transitioned from `none`, in Chromium
+	 * on 29 September 2026 it drew no shadow for the 340ms transition and then
+	 * all of it (brightness under the cover 42, then 65 in one frame). The same
 	 * filter at zero at rest did fade, but settled at 81 where the shadow drawn
 	 * without a transition is 65. The filter also shaded the sleeve's own drop
-	 * below it; 57% here, against its 38%, settles at 64.
+	 * below it. 57% here, against its 38%, settles at 64.
 	 */
 	.art::before {
 		content: '';
@@ -223,10 +219,9 @@
 	}
 
 	/*
-	 * The hover cue is the sleeve lifting a couple of pixels, not a grey wash
-	 * behind the card. A tinted panel under one card fights the single coloured
-	 * field the rest of the interface is lit by; moving the thing you are
-	 * pointing at does not.
+	 * The hover cue is the sleeve lifting a couple of pixels, not a wash behind
+	 * the card: a tinted panel under one card competes with the single coloured
+	 * field the interface is lit by.
 	 */
 	.card:hover .art {
 		transform: perspective(40rem) rotateY(calc(var(--tilt-x, 0) * 1deg)) rotateX(calc(var(--tilt-y, 0) * 1deg))
@@ -249,7 +244,7 @@
 	}
 
 	/*
-	 * A band of light crosses the cover as it lifts: from off its left edge to
+	 * A band of light crosses the cover as it lifts, from off its left edge to
 	 * off its right, once per hover. At rest it waits off the left edge with no
 	 * transition, so leaving and coming back sweeps again. The cover clips it.
 	 */
@@ -271,19 +266,19 @@
 
 	.card:hover .art :global(.cover::after) {
 		translate: 130% 0;
-		/* Steady across, on the colour curve: on the out curve the band had
-		   crossed most of the cover in the first 130ms. */
+		/* Steady across, on the colour curve: on the out curve the band crossed
+		   most of the cover in the first 130ms. */
 		transition: translate 1.1s var(--ease-colour);
 	}
 
-	/* A card in flight is handing its sleeve to the next page; leaving an offset
-	   on the ancestor would shift the geometry the morph is captured from. */
+	/* A card in flight hands its sleeve to the next page, and an offset on the
+	   ancestor would shift the geometry the morph is captured from. */
 	.card.launching .art {
 		transform: none;
 	}
 
-	/* The offset stays — three pixels is a position, not an animation. What goes
-	   is the travel between the two positions. */
+	/* The offset stays: three pixels is a position. The travel between the two
+	   positions goes. */
 	@media (prefers-reduced-motion: reduce) {
 		.art {
 			transition: none;
@@ -312,11 +307,11 @@
 	}
 
 	/*
-	 * The quick-play button shows for the keyboard, and while it is busy, and
-	 * not under the pointer: the cover's light and lift are the hover now, and
-	 * a click on the card opens the album, whose own Play is one press away.
-	 * Hidden, it takes no clicks, so a press on that corner of the cover opens
-	 * the album like the rest of it.
+	 * The quick-play button shows for the keyboard and while it is busy, and
+	 * not under the pointer: the cover's light and lift are the hover, and a
+	 * click on the card opens the album, whose own Play is one press away.
+	 * Hidden, it takes no clicks, so that corner of the cover opens the album
+	 * too.
 	 */
 	.play {
 		pointer-events: none;
@@ -338,11 +333,9 @@
 		display: grid;
 	}
 
-	/*
-	 * Both halves wait 150ms before they move, so an answer inside that shows
-	 * the play icon throughout. The spinner is the one the now-playing panel
-	 * uses, at the button's scale.
-	 */
+	/* Both halves wait 150ms before they move, so an answer inside that shows
+	   the play icon throughout. The spinner is the now-playing panel's, at the
+	   button's scale. */
 	.pending .glyph {
 		animation: pending-hide 0s 150ms forwards;
 	}
@@ -406,8 +399,8 @@
 		font-size: 0.8125rem;
 	}
 
-	/* Three to a row on a phone leaves each card about 110px, where the desktop
-	   padding and type took a third of that for margin and two words of title. */
+	/* Three to a row on a phone leaves each card about 110px, and the desktop
+	   padding and type took a third of that. */
 	@media (max-width: 36rem) {
 		.card {
 			gap: var(--space-2);
@@ -422,8 +415,8 @@
 			font-size: 0.75rem;
 		}
 
-		/* No hover on a phone, and at this size the button covered a third of
-		   the sleeve. Tapping the card opens the album. */
+		/* No hover on a phone, and at this size the button covered a third of the
+		   sleeve. Tapping the card opens the album. */
 		.play {
 			display: none;
 		}

@@ -19,7 +19,7 @@
 		showQuality = true,
 		groupByDisc = false,
 		/**
-		 * Two columns, reading down the first and then the second, once the list
+		 * Two columns, read down the first and then the second, once the list
 		 * has 52rem to itself. For a short list of songs from different records,
 		 * where one column at that width left most of each row empty.
 		 */
@@ -38,8 +38,8 @@
 		/**
 		 * Makes the list reorderable: each row gets a handle, dragged with a
 		 * pointer or a finger or moved one place at a time with the arrow keys,
-		 * and a drop reports the move. The list itself does not reorder; the
-		 * caller does, and passes the new order back in `songs`.
+		 * and a drop reports the move. The caller reorders and passes the new
+		 * order back in `songs`.
 		 */
 		onmove?: ((from: number, to: number) => void) | null;
 	} = $props();
@@ -54,11 +54,9 @@
 	});
 
 	/**
-	 * Starts the row, or pauses it if it is the one already playing.
-	 *
-	 * The control used to show a pause glyph on the playing row and call
-	 * `playNow` anyway, so pressing the thing that said "pause" restarted the
-	 * track from the beginning.
+	 * Starts the row, or pauses it if it is the one playing. The control showed
+	 * a pause glyph on the playing row and called `playNow` anyway, which
+	 * restarted the track.
 	 */
 	function activate(index: number) {
 		const song = songs[index];
@@ -71,12 +69,11 @@
 	}
 
 	/*
-	 * Reordering, the way the queue in the player does it: the dragged row
-	 * follows the pointer, the rows it passes step out of the way by one row,
-	 * and nothing is reported until the drop, so the caller never sees a
-	 * half-made order. The page scrolls under the pointer near either edge of
-	 * the window, so a row can be carried past what is on screen; the offset
-	 * counts that scroll, so the row stays under the pointer.
+	 * Reordering, as the queue in the player does it: the dragged row follows
+	 * the pointer, the rows it passes step aside by one row, and nothing is
+	 * reported until the drop. The page scrolls under the pointer near either
+	 * edge of the window, and the offset counts that scroll, so the row stays
+	 * under the pointer.
 	 */
 	let listEl = $state<HTMLOListElement | null>(null);
 	let drag = $state<{
@@ -172,9 +169,8 @@
 	$effect(() => () => clearInterval(autoscroll));
 
 	function onKey(event: KeyboardEvent, index: number) {
-		// The row's own keys only. Enter on a link or a button inside it is that
-		// control's: caught here, it started the row's song and the link or the
-		// heart did nothing.
+		// The row's own keys only. Enter on a link or a button inside it belongs
+		// to that control: caught here, it started the row's song instead.
 		if (event.target !== event.currentTarget) return;
 		if (event.key === 'Enter' || event.key === ' ') {
 			event.preventDefault();
@@ -209,9 +205,9 @@
 				role="button"
 				tabindex="0"
 				ondblclick={(event) => {
-					// A double press on the heart, a link or another control in the row is
-					// that control's, not the row's: `stopPropagation` on their clicks does
-					// not stop the `dblclick` that follows, and it started the row's song.
+					// A double press on a control in the row is that control's.
+					// `stopPropagation` on its clicks does not stop the `dblclick` that
+					// follows, which started the row's song.
 					if ((event.target as Element).closest('button, a')) return;
 					activate(index);
 				}}
@@ -219,10 +215,8 @@
 				aria-current={isCurrent ? 'true' : undefined}
 			>
 				{#if onmove}
-					<!--
-						Dragged by pointer or finger, or moved one place at a time with the
-						arrow keys while it has focus.
-					-->
+					<!-- Dragged by pointer or finger, or moved one place at a time with
+					     the arrow keys while it has focus. -->
 					<button
 						class="grip"
 						type="button"
@@ -246,9 +240,8 @@
 					{:else}
 						<!--
 							The number is the play control. On hover it glows in the accent
-							and swells a little, rather than turning into a play glyph: the
-							glyph was a second picture in a column of numbers. The label
-							says what a press does.
+							and swells a little: a play glyph there was a second picture in
+							a column of numbers. The label says what a press does.
 						-->
 						<button
 							class="index hh-numeric"
@@ -268,7 +261,7 @@
 					{/if}
 					{#if variant === 'artwork'}
 						<!-- The cover is the play control here, and lifts and glows on
-						     hover the way the number does in a numbered list. -->
+						     hover as the number does in a numbered list. -->
 						<button
 							class="play-overlay"
 							onclick={() => activate(index)}
@@ -373,8 +366,8 @@
 </ol>
 {/snippet}
 
-<!-- The columns are chosen by the width the list has, not the window's, so the
-     list gets a box of its own to measure. -->
+<!-- The columns follow the width the list has, not the window's, so the list
+     gets a box of its own to measure. -->
 {#if columns}
 	<div class="frame">{@render list()}</div>
 {:else}
@@ -387,10 +380,9 @@
 
 <style>
 	/*
-	 * A tracklist printed on the back of a sleeve: numbers hang in the margin,
-	 * hairline rules separate the entries, and hovering tints the row rather than
-	 * filling it. The point is that the eye reads down the titles in one column
-	 * instead of scanning a stack of buttons.
+	 * A tracklist as on the back of a sleeve: numbers hang in the margin,
+	 * hairline rules separate the entries, and hovering tints the row. The eye
+	 * reads down the titles in one column.
 	 */
 	.tracks {
 		list-style: none;
@@ -416,10 +408,10 @@
 	}
 
 	/*
-	 * The hover wash: the accent, strongest at the number and gone by two
-	 * thirds of the way across, fading in and growing a little from the left.
-	 * A layer of its own under the row's content, so only its opacity and
-	 * scale move. The rows hold no glass.
+	 * The hover wash: the accent, strongest at the number and gone two thirds
+	 * of the way across, fading in and growing a little from the left. A layer
+	 * of its own under the row's content, so only its opacity and scale move.
+	 * The rows hold no glass.
 	 */
 	.track::before {
 		content: '';
@@ -448,10 +440,8 @@
 		scale: 1;
 	}
 
-	/*
-	 * A reorderable list puts the handle in a column of its own before the rest,
-	 * as the queue does. The templates below are the ones above with it added.
-	 */
+	/* A reorderable list puts the handle in a column of its own first, as the
+	   queue does. The templates below are those above with it added. */
 	.tracks.reorderable .track {
 		grid-template-columns: 1.75rem 2.25rem minmax(0, 1fr) auto auto 3.5rem;
 	}
@@ -482,10 +472,10 @@
 		cursor: grabbing;
 	}
 
-	/* The rows being stepped past move on the spring; the one being carried
-	   follows the pointer exactly, and sits over the others. Only during a
-	   drag: on the drop the offsets and the new order land together, and a
-	   transition then would carry every row back from where it had stepped. */
+	/* The rows being stepped past move on the spring. The one being carried
+	   follows the pointer exactly, over the others. Only during a drag: on the
+	   drop the offsets and the new order land together, and a transition then
+	   would carry every row back from where it had stepped. */
 	.tracks.reorderable.dragging > li {
 		transition: translate var(--dur-state) var(--ease-out);
 	}
@@ -565,10 +555,8 @@
 	}
 
 	/* Mono, right-aligned, quiet: an index number, not a label. */
-	/*
-	 * The number and the glyph occupy the same cell and cross-fade, so the row
-	 * does not reflow by a pixel when the pointer arrives.
-	 */
+	/* The number and the glyph share one cell and cross-fade, so the row does
+	   not reflow when the pointer arrives. */
 	.index {
 		display: grid;
 		place-items: center end;
@@ -676,10 +664,8 @@
 		align-items: center;
 	}
 
-	/*
-	 * The row's actions come in one after another from the right, 35ms apart,
-	 * and all go at once when the pointer leaves.
-	 */
+	/* The row's actions come in one after another from the right, 35ms apart,
+	   and all go at once when the pointer leaves. */
 	.actions {
 		display: flex;
 		align-items: center;
@@ -743,12 +729,11 @@
 	/*
 	 * Four bars rising and falling from one baseline while the track plays.
 	 *
-	 * There were three, each scaled about its own centre while the row aligned
-	 * their bottoms, so their feet floated up and down; and all three ran one
-	 * 1-second cycle from 40 percent, which took the shortest to a 2px dot.
-	 * Each bar now grows from the baseline over a range and a period of its
-	 * own (0.7 to 1.1s, periods that do not divide into each other), so the
-	 * four never line up into a visible loop.
+	 * Each grows from the baseline over its own range and period (0.7 to 1.1s,
+	 * periods that do not divide into each other), so the four never line up
+	 * into a visible loop. Three bars scaled about their centres floated their
+	 * feet, and on one 1-second cycle from 40 percent the shortest became a 2px
+	 * dot.
 	 */
 	.bars {
 		display: flex;
@@ -841,9 +826,9 @@
 			animation: actions-in var(--dur-hover) var(--ease-out);
 		}
 
-		/* The last column whether the actions are laid out or not. Placed by
+		/* The last column whether or not the actions are laid out. Placed by
 		   order, it moved into the actions' column on every row without them,
-		   and the times stepped 60px left of the one row that had them. */
+		   60px left of the one row that had them. */
 		.duration {
 			grid-column: -2;
 		}

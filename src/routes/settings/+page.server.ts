@@ -20,9 +20,9 @@ import { describeShares, revokeAllShares, revokeShare } from '$lib/server/shares
 import { clearHistory, importPlays, recentPlays } from '$lib/server/history';
 
 /**
- * A ListenBrainz user token as ListenBrainz issues it: a UUID, 36 characters.
- * Allowed up to 128 of the same alphabet in case the format grows; it is
- * passed to the music server as a JSON string and nowhere else.
+ * A ListenBrainz user token as issued: a UUID, 36 characters. Up to 128 of the
+ * same alphabet are allowed in case the format grows. It is passed to the
+ * music server as a JSON string and nowhere else.
  */
 const LISTENBRAINZ_TOKEN = /^[A-Za-z0-9-]{1,128}$/;
 const SERVICES: ScrobblerService[] = ['lastfm', 'listenbrainz'];
@@ -48,10 +48,10 @@ export const load: PageServerLoad = async ({ locals }) => {
 	const cfg = config();
 
 	/*
-	 * Streamed rather than awaited: it is two calls to Navidrome's own API,
-	 * with a sign-in there first when no session token is held, and nothing
-	 * else on the page depends on it. Null where the server cannot link either
-	 * service, or the status could not be read.
+	 * Streamed: it is two calls to Navidrome's own API, with a sign-in there
+	 * first when no session token is held, and nothing else on the page depends
+	 * on it. Null where the server cannot link either service, or the status
+	 * could not be read.
 	 */
 	const scrobblers = backendFor(session.account.backend).scrobblers;
 	const scrobblerLinks = scrobblers
@@ -61,23 +61,20 @@ export const load: PageServerLoad = async ({ locals }) => {
 			})
 		: Promise.resolve(null);
 
-	// Independent reads, started together. They were awaited one after
-	// another, so the page waited for the sum of a directory scan, two upstream
-	// calls and two database reads rather than for the slowest of them.
+	// Independent reads, started together. Awaited in turn, the page waited for
+	// the sum of a directory scan, two upstream calls and two database reads.
 	const [coverCache, coverFillKeeper, isAdmin, settings, sessions, shares, history, linked] = await Promise.all([
 		cacheStats(),
 		filledBy(session.account.backend),
 		/*
-		 * Read here rather than stored at sign-in: this is the only page that
-		 * shows it, it costs one upstream request where a login costs none, and
-		 * an account promoted on the music server this morning should not have to
-		 * sign in again for the page to say so. Null where the server does not
-		 * answer, which changes nothing about what the page allows.
+		 * Read here, not stored at sign-in: only this page shows it, and an
+		 * account promoted on the music server since does not have to sign in
+		 * again. Null where the server does not answer, which changes nothing
+		 * the page allows.
 		 */
 		backendFor(session.account.backend).isAdmin(session.credential),
-		// Read again rather than taken from `locals`: after the save action
-		// this load runs in the same request, and `locals` still holds the
-		// settings from before the save.
+		// Read again, not taken from `locals`: after the save action this load
+		// runs in the same request, and `locals` holds the settings from before.
 		getSettings(session.account.id),
 		listSessions(session),
 		describeShares(session),
@@ -100,8 +97,8 @@ export const load: PageServerLoad = async ({ locals }) => {
 		sessions,
 		shares,
 		scrobblerLinks,
-		// Which of a Discord channel and ListenBrainz this account is offered,
-		// and the name of what it has linked. Never the webhook or the token.
+		// Which of a Discord channel and ListenBrainz this account is offered, and
+		// the name of what it has linked. Never the webhook or the token.
 		integrations: { offered: offeredIntegrations(), linked },
 		historyCount: history.total
 	};
@@ -137,15 +134,6 @@ export const actions: Actions = {
 		return { saved: true, settings };
 	},
 
-	/**
-	 * Empties the cover cache.
-	 *
-	 * Deliberately not per account: the cache holds the music server's artwork,
-	 * which is the same bytes for everyone signed in to it, and a per-account
-	 * copy of the same sleeve would be the thing this exists to avoid. Anyone
-	 * with an account can clear it, and the cost of that is that the next
-	 * request for each cover goes upstream again.
-	 */
 	/**
 	 * Signs out one of the account's other sessions, by the handle the list
 	 * shows. This browser signs out through `/logout`, which also clears its
@@ -193,8 +181,8 @@ export const actions: Actions = {
 	},
 
 	/**
-	 * Hands a ListenBrainz token to the music server. It is checked there
-	 * against ListenBrainz and stored there; Heddohon keeps nothing.
+	 * Hands a ListenBrainz token to the music server, which checks it against
+	 * ListenBrainz and stores it. Heddohon keeps nothing.
 	 */
 	linkListenBrainz: async ({ locals, request }) => {
 		const session = locals.session;
@@ -239,13 +227,13 @@ export const actions: Actions = {
 	},
 
 	/**
-	 * Returns the last.fm approval page to send the browser to. The page sends
+	 * Returns the last.fm approval page to send the browser to. That page sends
 	 * the browser back to `/settings/lastfm` with a token, which that route
 	 * hands to the music server.
 	 *
-	 * Returned for the page to navigate to rather than as a redirect. A 303
-	 * from a form post to another origin is refused by `form-action 'self'`,
-	 * and `goto` in the enhanced form refuses external URLs.
+	 * Returned for the page to navigate to, not as a redirect: a 303 from a
+	 * form post to another origin is refused by `form-action 'self'`, and
+	 * `goto` in the enhanced form refuses external URLs.
 	 *
 	 * `state` ties the return to this account: a callback that arrives with
 	 * another session, or with a link token this account was not given, is
@@ -330,6 +318,11 @@ export const actions: Actions = {
 		return { integrationUnlinked: kind };
 	},
 
+	/**
+	 * Empties the cover cache. Not per account: the cache holds the music
+	 * server's artwork, the same bytes for everyone signed in to it. Any
+	 * account can clear it, and each cover is then fetched upstream once more.
+	 */
 	clearCovers: async ({ locals }) => {
 		if (!locals.session) return fail(401, { error: 'Not signed in' });
 		await clearCache();
@@ -344,8 +337,8 @@ export const actions: Actions = {
 
 	/**
 	 * Brings the music server's last play of each song into the history, once.
-	 * See `importPlays` for what is skipped. The read walks the whole library
-	 * on Navidrome, 500 songs a request.
+	 * See `importPlays` for what is skipped. On Navidrome the read walks the
+	 * whole library, 500 songs a request.
 	 */
 	importHistory: async ({ locals }) => {
 		const session = locals.session;

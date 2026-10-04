@@ -14,7 +14,7 @@
  * filter marked `OFF` is left out.
  */
 
-export interface CorrectionFilter {
+interface CorrectionFilter {
 	type: 'peaking' | 'lowshelf' | 'highshelf';
 	/** Hz. */
 	frequency: number;
@@ -40,7 +40,7 @@ export interface CorrectionProfile extends Correction {
 }
 
 /** AutoEq writes ten filters; 20 leaves room for a hand-written file. Each is one biquad per channel. */
-export const MAX_CORRECTION_FILTERS = 20;
+const MAX_CORRECTION_FILTERS = 20;
 /** The largest file read. AutoEq's are about 500 bytes. */
 export const MAX_CORRECTION_BYTES = 16 * 1024;
 

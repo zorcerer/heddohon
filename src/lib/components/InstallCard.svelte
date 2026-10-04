@@ -5,9 +5,10 @@
 	 * browser on a Mac, an iPhone and an iPad. Mounted once in the root layout;
 	 * `client/install.svelte.ts` works out which, or whether.
 	 *
-	 * It waits until something has played in this page load, so it never
-	 * greets a first visit, and it is gone for good on the account once
-	 * dismissed, or once the account has run the installed app. Settings, Appearance keeps the same offer for later.
+	 * It waits until something has played in this page load, so it does not
+	 * greet a first visit. It is gone for good on the account once dismissed,
+	 * or once the account has run the installed app. Settings, Appearance keeps
+	 * the offer.
 	 */
 	import { APP_KINDS, APP_RELEASES, installer, INSTALL_STEPS } from '$lib/client/install.svelte';
 	import { player } from '$lib/client/player.svelte';
@@ -28,10 +29,8 @@
 	const kind = $derived(route === 'app-windows' || route === 'app-linux' || route === 'app-android' ? APP_KINDS[route] : null);
 	const shown = $derived(installer.suggested && played && !dismissed && !closed);
 
-	/*
-	 * Someone running the installed app has found it. The card is put away on
-	 * the account, so it does not come up in their other browsers either.
-	 */
+	// Someone running the installed app has found it. The card is put away on
+	// the account, so it does not come up in their other browsers.
 	$effect(() => {
 		if (installer.installed && !dismissed && !closed) dismiss();
 	});
@@ -43,7 +42,7 @@
 			headers: { 'content-type': 'application/json' },
 			body: JSON.stringify({ installCardDismissed: true })
 		})
-			// Read to its end: a response left unread holds its connection open, and
+			// Read to its end: an unread response holds its connection open, and
 			// this one can be sent as the page loads.
 			.then((response) => response.arrayBuffer())
 			.catch(() => undefined);
@@ -85,8 +84,9 @@
 <style>
 	/*
 	 * Over the foot of the content column, in the same grid cell, so it moves
-	 * with the column as the player opens and closes and never covers the rail
-	 * or the player. The content scrolls inside its cell, so the card stays put.
+	 * with the column as the player opens and closes and does not cover the
+	 * rail or the player. The content scrolls inside its cell, so the card
+	 * stays put.
 	 */
 	.install {
 		grid-area: content;
@@ -104,8 +104,7 @@
 		color: var(--text-default);
 		font-size: 0.8125rem;
 		line-height: 1.45;
-		/* Opacity on the glass element itself, not on an ancestor of it, keeps
-		   its blur through the fade. */
+		/* Opacity on the glass element itself keeps its blur through the fade. */
 		animation: arrive var(--dur-state) var(--ease-out) both;
 	}
 

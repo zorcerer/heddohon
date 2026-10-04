@@ -283,7 +283,7 @@ later, the first to sign the link token it sends through last.fm.
 - Upstream credentials are sealed with **AES-256-GCM** before they reach the database.
 - Keys are derived with **scrypt** (N = 2¹⁵, r = 8, p = 1) from `HEDDOHON_SECRET`.
   Separate keys cover encryption, session digests, share-link digests,
-  known-device cookies and pseudonyms.
+  known-device cookies, Last.fm link state and cast addresses.
 - Each seal uses a fresh 12-byte random IV. The tag is verified on open, and a
   blob with a wrong version, part count, IV length or tag length is rejected.
 - Changing `HEDDOHON_SECRET` makes every stored credential unreadable and signs

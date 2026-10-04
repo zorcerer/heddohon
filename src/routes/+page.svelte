@@ -39,10 +39,9 @@
 	);
 
 	/*
-	 * Albums played on this date in earlier years. The date is the listener's,
-	 * in this browser's time zone, which the server does not know, so the shelf
-	 * is asked for once the page is in the browser. It is not needed for the
-	 * first paint.
+	 * Albums played on this date in earlier years. The date is this browser's,
+	 * in its time zone, which the server does not know, so the shelf is asked
+	 * for once the page is in the browser. The first paint does not need it.
 	 */
 	let onThisDay = $state<{ today: Date; albums: RememberedAlbum[] } | null>(null);
 
@@ -79,8 +78,7 @@
 			<span class="hh-eyebrow">{greeting}</span>
 			<h1>Your library</h1>
 		</div>
-		<!-- On a phone, where Settings is not in the dock: the corner a phone's
-		     own apps keep the account in. -->
+		<!-- On a phone, where Settings is not in the dock. -->
 		<a class="account hh-glass" href="/settings" aria-label="Settings" title="Settings">
 			<Icon name="settings" size={19} />
 		</a>
@@ -94,8 +92,7 @@
 
 	<!--
 		The front page: the newest release as the lead, and what was played last
-		in a column beside it, the way a paper sets its briefs beside the main
-		story. Stacked where the two would not fit side by side.
+		in a column beside it. Stacked where the two do not fit side by side.
 	-->
 	{#if featured || resume.length > 0}
 		<div class="lead" class:paired={featured && resume.length > 0}>
@@ -192,8 +189,8 @@
 		gap: var(--space-5);
 		flex-wrap: wrap;
 		padding-bottom: var(--space-4);
-		/* The rule under the masthead sets up the ruled-index language that the
-		   section headers below continue. */
+		/* The rule under the masthead starts the ruled index the section headers
+		   continue. */
 		border-bottom: 1px solid var(--border-hairline);
 	}
 
@@ -223,10 +220,9 @@
 		}
 
 		/*
-		 * The title takes the whole row, short of the corner the account button
-		 * is in, and Shuffle something goes under it. Side by side, the button
-		 * sat at the foot of the row and the account button at its head, 44px
-		 * tall in a row of 70px: they overlapped by 14px at 393px wide.
+		 * The title takes the whole row, short of the account button's corner,
+		 * and Shuffle something goes under it. Side by side, the two buttons
+		 * overlapped by 14px at 393px wide.
 		 */
 		.masthead > div {
 			flex: 1 1 100%;

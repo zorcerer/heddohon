@@ -7,9 +7,9 @@ const LIMIT = 24;
 const MAX_QUERY = 200;
 
 /**
- * Songs matching a query in the account's own library, for a page that has
- * no loader to search through: a listen-together member looking for a track
- * to add. The search page itself searches in its loader.
+ * Songs matching a query in the account's own library, for a page without a
+ * loader to search through: a listen-together member looking for a track to
+ * add. The search page searches in its loader.
  */
 export const GET: RequestHandler = async (event) => {
 	const query = (event.url.searchParams.get('q') ?? '').trim().slice(0, MAX_QUERY);

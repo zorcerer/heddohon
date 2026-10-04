@@ -1,12 +1,10 @@
 <script lang="ts">
 	/**
-	 * A cover, treated as a pane that floats above the page like everything else.
+	 * A cover as a pane floating above the page, like the rest of the interface.
 	 *
-	 * This used to carry a vinyl record protruding from behind it. That detail
-	 * belonged to the printed-catalogue look; against translucent glass it read as
-	 * a hard, opaque smudge, so it is gone. What remains is the part the rest of
-	 * the app depends on: this is the element that claims the shared
-	 * view-transition name and morphs between a grid card and an album hero.
+	 * This is the element that claims the shared view-transition name and
+	 * morphs between a grid card and an album hero. The vinyl record it once
+	 * carried behind it read as an opaque smudge against translucent glass.
 	 */
 	import Cover from './Cover.svelte';
 	import { sleeveTransition } from '$lib/client/sleeve-transition.svelte';
@@ -18,9 +16,9 @@
 		/** Colour the surrounding glass from this cover. Costs one canvas read. */
 		radius = 'var(--r-lg)',
 		/**
-		 * Album id. When this cover is the one carrying a navigation it claims the
-		 * shared view-transition names, so the browser morphs it into its
-		 * counterpart on the next page — and back again.
+		 * Album id. When this cover carries a navigation it claims the shared
+		 * view-transition names, so the browser morphs it into its counterpart
+		 * on the next page, and back.
 		 */
 		transitionId = null,
 		/** Identifies this specific card when several show the same album. */
@@ -68,18 +66,17 @@
 			inset 0 1px 0 rgb(255 255 255 / 0.1),
 			var(--float-shadow);
 		/*
-		 * No `overflow: hidden`. The cover inside is rounded to the same radius
-		 * and so is its image, so this was a second rounded clip doing the first
-		 * one's job, on the element that the hover lift and the launch scale
-		 * both promote to a layer of its own. The radius stays: it shapes the
-		 * inset highlight and the drop shadow.
+		 * No `overflow: hidden`. The cover inside and its image are rounded to
+		 * the same radius, so this would be a second rounded clip on the element
+		 * that the hover lift and the launch scale promote to a layer. The
+		 * radius stays: it shapes the inset highlight and the drop shadow.
 		 */
 		transition: transform var(--transition);
 	}
 
-	/* The click gesture: the cover lifts toward the viewer and holds there while
-	   the navigation runs, so the snapshot the view transition takes is already
-	   moving in the right direction. */
+	/* The click gesture: the cover lifts toward the viewer and holds while the
+	   navigation runs, so the snapshot the view transition takes is already
+	   moving the right way. */
 	.launching .art {
 		transform: scale(1.04);
 		/* 190ms is `LAUNCH_MS`, the wait before the navigation starts. */

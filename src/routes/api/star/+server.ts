@@ -30,9 +30,8 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 			body.kind as StarKind,
 			body.starred
 		);
-		// After the write, so the next read of favourites fetches a set that
-		// includes it. Album and artist details carry the same state for the item
-		// and its songs.
+		// After the write, so the next read of favourites includes it. Album and
+		// artist details carry the same state for the item and its songs.
 		forgetListings(session.account.id, 'starred');
 		forgetDetails(session.account.id);
 		return json({ id: body.id, starred: body.starred });

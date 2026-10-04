@@ -1,17 +1,10 @@
 /**
  * An on-disk cache for cover art.
  *
- * Every cover the browser asks for is otherwise fetched from the music server,
- * which resizes it on demand. A browser caches what it has already seen, so the
- * cost falls on first sight: a new device, a cleared cache, a private window,
- * or the part of the library you have not scrolled to yet. That is the case
- * this removes. The second device in a house gets the same covers off the local
- * disk instead of asking Navidrome to render them again.
- *
- * Only cover art is cached. Audio is not: a library is far larger than any cap
- * worth setting, the browser already caches what it plays, and a local copy of
- * the music is a different thing to be responsible for than a local copy of the
- * sleeve.
+ * A cover is otherwise fetched from the music server, which resizes it on
+ * demand, every time a browser sees it first: a new device, a cleared cache, a
+ * private window. Audio is not cached: a library is larger than any cap, and
+ * the browser caches what it plays.
  */
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync } from 'node:fs';
@@ -22,14 +15,10 @@ import { log, reason } from './log';
 import type { BackendKind } from '$lib/types';
 
 /**
- * Content types kept, and the extension each is stored under.
- *
- * The stored file is named for what it is, so the directory can be read with an
- * ordinary file browser, and the extension is what the content type is
- * recovered from on the way back out. Anything not on this list is served
- * straight through and never written. The proxy already refuses to describe a
- * cover as anything but an image; SVG is an image by content type and a
- * scriptable document by behaviour, and it is absent here deliberately.
+ * Content types kept, and the extension each is stored under. The extension is
+ * what the content type is recovered from. Anything else is served through and
+ * not written. SVG is left out: an image by content type, a scriptable
+ * document by behaviour.
  */
 const EXTENSIONS: Record<string, string> = {
 	'image/jpeg': 'jpg',
@@ -44,24 +33,20 @@ const TYPES: Record<string, string> = Object.fromEntries(
 );
 
 /**
- * Largest single cover kept. Navidrome renders a 1024px sleeve at 150-400KB, so
- * this is two orders above the working case and exists to bound the buffer a
- * request holds, not to reject ordinary artwork.
+ * Largest single cover kept. Navidrome renders a 1024px sleeve at 150-400KB.
+ * This bounds the buffer a request holds.
  */
-export const MAX_ENTRY_BYTES = 8 * 1024 * 1024;
+const MAX_ENTRY_BYTES = 8 * 1024 * 1024;
 
 /**
  * How much may be written between sweeps, as a fraction of the cap, and the
  * floor under that in bytes.
  *
- * This was a count of writes (one sweep per 25) and the directory settled well
- * above the cap: measured at a 1MB cap with 19KB covers, 120 requests left
- * 1.43MB on disk, since a sweep only ran once 25 more files had landed. Bigger
- * covers would have overshot further. Sweeping on bytes written instead holds
- * the directory within max(256KB, cap/16) of the cap whatever a cover weighs:
- * the same measurement now settles at 1.20MB, and a 512MB cap sweeps every
- * 32MB. The floor is there so a very small cap does not sweep on every write,
- * and a sweep stats every file in the directory.
+ * Counting writes (one sweep per 25) let the directory settle above the cap:
+ * at a 1MB cap with 19KB covers, 120 requests left 1.43MB. Counting bytes
+ * holds it within max(256KB, cap/16) of the cap: the same run settles at
+ * 1.20MB, and a 512MB cap sweeps every 32MB. A sweep stats every file, so the
+ * floor keeps a small cap from sweeping on every write.
  */
 const SWEEP_FRACTION = 16;
 const SWEEP_MIN_BYTES = 256 * 1024;
@@ -75,30 +60,22 @@ function root(): string | null {
 }
 
 /**
- * The file name for one cover at one size.
+ * The file name for one cover at one size, readable in a file browser.
  *
- * Named for the music server's own id, so the file beside a Navidrome album is
- * that album's cover and the directory can be read directly. Ids are not
- * trusted to be file names: only this shape passes through unchanged, and
- * anything else is replaced by a hash of itself, which keeps an id from naming
- * a path and keeps two ids from claiming one file.
- *
- * The backend leads the name. A Subsonic id and a Jellyfin id are two
- * namespaces, an installation can be configured with one of each, and both are
- * 32-character hex in practice, so nothing else in the name separates them.
+ * Only an id of this shape is used as it is. Any other is replaced by a hash
+ * of itself, so an id cannot name a path and two ids cannot claim one file.
+ * The backend leads the name: Subsonic and Jellyfin ids are separate
+ * namespaces, and both are 32-character hex in practice.
  */
 const PLAIN_ID = /^[A-Za-z0-9._-]{1,128}$/;
 
 /**
  * Who a cached cover belongs to.
  *
- * The key used to be backend, id and size, on the reasoning that two accounts
- * on one music server see the same artwork so there is nothing to separate.
- * That holds for Navidrome, which serves one library to every user. It does not
- * hold for Jellyfin, which restricts libraries per user: a shared key hands a
- * restricted library's artwork to any account that can name the item id,
- * because a cache hit is answered before the upstream is consulted and so the
- * upstream's own check never runs.
+ * Navidrome serves one library to every user, so its covers are shared.
+ * Jellyfin restricts libraries per user, and a cache hit is answered before
+ * the upstream is asked: keyed without the viewer, a restricted library's
+ * artwork went to any account that could name the item id.
  */
 export interface CoverScope {
 	backend: BackendKind;
@@ -116,11 +93,10 @@ export function coverScope(account: {
 }
 
 /**
- * Always 16 hex characters, so the field has a fixed width. A variable-width
- * one would let an id of `u<16 hex>-<real id>`, which `PLAIN_ID` admits, be
- * read back as another viewer's tag and collide with their entry. The viewer is
- * an upstream user id and this becomes a filename, so it is hashed rather than
- * used verbatim.
+ * 16 hex characters, a fixed width: with a variable one, an id of
+ * `u<16 hex>-<real id>`, which `PLAIN_ID` admits, would read as another
+ * viewer's tag and collide with their entry. Hashed, since the viewer is an
+ * upstream user id and this becomes a file name.
  */
 function viewerTag(viewer: string | null): string {
 	return createHash('sha256')
@@ -129,7 +105,7 @@ function viewerTag(viewer: string | null): string {
 		.slice(0, 16);
 }
 
-export function cacheKey(scope: CoverScope, id: string, size: number): string {
+function cacheKey(scope: CoverScope, id: string, size: number): string {
 	const safe =
 		PLAIN_ID.test(id) && id !== '.' && id !== '..'
 			? id
@@ -142,23 +118,20 @@ export interface CachedCover {
 	body: Buffer;
 	contentType: string;
 	/**
-	 * Identifies this stored file to a revalidating browser. A cover is fixed
-	 * for its id and size, so the length is enough to tell one stored body from
-	 * another after a clear and a re-fetch.
+	 * For a revalidating browser. A cover is fixed for its id and size, so the
+	 * length tells one stored body from another after a clear and a re-fetch.
 	 */
 	etag: string;
 }
 
 /**
- * The stored covers, by key, with the extension each is stored under.
+ * The stored covers, by key, with each one's extension.
  *
- * A lookup tried each of the five extensions in turn until one opened, so a
- * PNG cover cost a failed open before it was read, and a cover not yet cached
- * cost five before the music server was asked. The index is read from the
- * directory once, on first use, and kept by the writes, the sweep and the
- * clear in this process. A file removed from outside is dropped from it when
- * reading it fails; one added from outside is not seen until a restart, and is
- * fetched and written again in the meantime.
+ * A lookup that tried the five extensions in turn cost a failed open before a
+ * PNG was read, and five before the music server was asked for an uncached
+ * cover. The index is read from the directory once and kept by the writes,
+ * the sweep and the clear. A file removed from outside is dropped when reading
+ * it fails. One added from outside is not seen until a restart.
  */
 let index: Promise<Map<string, string>> | null = null;
 
@@ -212,8 +185,8 @@ export async function readCover(
 }
 
 /**
- * Whether a cover is stored, by the index alone. For the fill (`coverfill.ts`),
- * which asks this of every cover in the library and reads none of them.
+ * Whether a cover is stored, by the index alone. The fill (`coverfill.ts`)
+ * asks this of every cover in the library.
  */
 export async function holdsCover(scope: CoverScope, id: string, size: number): Promise<boolean> {
 	const dir = root();
@@ -222,8 +195,8 @@ export async function holdsCover(scope: CoverScope, id: string, size: number): P
 }
 
 /**
- * Reads a stream to the end into one buffer, or gives up with null past
- * `MAX_ENTRY_BYTES` (which `writeCover` would refuse) or on a failed read.
+ * Reads a stream into one buffer. Null past `MAX_ENTRY_BYTES` (which
+ * `writeCover` would refuse) or on a failed read.
  */
 export async function collectCover(stream: ReadableStream<Uint8Array>): Promise<Buffer | null> {
 	const reader = stream.getReader();
@@ -247,8 +220,7 @@ export async function collectCover(stream: ReadableStream<Uint8Array>): Promise<
 
 /**
  * Stores a cover, and says whether it did. Failures are swallowed: a cache
- * that cannot write is a slow cache rather than a broken page, and a full disk
- * must not take the library down with it.
+ * that cannot write, or a full disk, must not break the page.
  */
 export async function writeCover(
 	scope: CoverScope,
@@ -276,8 +248,7 @@ export async function writeCover(
 		});
 		(await storedFiles(dir)).set(key, ext);
 	} catch (err) {
-		// Worth a warning rather than silence: a cache that cannot write is a
-		// cache that is not working, and the page gives no sign of it.
+		// Warned: the page gives no sign that the cache is not writing.
 		log.warn('cover-write-failed', { id, size, detail: reason(err) });
 		return false;
 	}
@@ -300,11 +271,9 @@ export interface CacheStats {
 }
 
 /**
- * Stats issued at once while listing the directory.
- *
- * One at a time, 10000 files (a full 512MB cache at 50KB a cover) took 191 to
- * 216ms to list; in batches of 64 it took 52 to 64ms, and batches of 256 were
- * no faster. Measured on Node 22 in a container.
+ * Stats issued at once while listing the directory. For 10000 files (a full
+ * 512MB cache at 50KB a cover), one at a time took 191 to 216ms, batches of 64
+ * took 52 to 64ms, and batches of 256 were no faster (Node 22, in a container).
  */
 const STAT_BATCH = 64;
 
@@ -365,10 +334,8 @@ export async function clearCache(): Promise<void> {
 }
 
 /**
- * Drops the least recently used files until the directory is back under the
- * cap. Ordered by access time where the filesystem records it and by
- * modification time where it does not, which is the case on a volume mounted
- * noatime.
+ * Drops the least recently used files until the directory is under the cap.
+ * Ordered by access time, or by modification time on a volume mounted noatime.
  */
 async function sweep(): Promise<void> {
 	const dir = root();
@@ -389,8 +356,8 @@ async function sweep(): Promise<void> {
 			try {
 				await unlink(entry.path);
 				const key = keyOf(entry.path);
-				// Only if the index still names this file, and not one written for the
-				// same cover under another type since.
+				// Only if the index still names this file, and not one written since
+				// for the same cover under another type.
 				if (entry.path.endsWith(`.${files.get(key)}`)) files.delete(key);
 				total -= entry.size;
 				removed += 1;
@@ -398,12 +365,11 @@ async function sweep(): Promise<void> {
 				// Another process got there first.
 			}
 		}
-		// Rare and consequential: this is where covers start being fetched from
-		// the music server again, and the figures say whether the cap is too low
-		// for the library.
+		// From here covers are fetched from the music server again. The figures
+		// say whether the cap is too low for the library.
 		log.info('cover-cache-swept', { removed, freed: startedAt - total, held: total, cap: coverCacheBytes });
 	} catch (err) {
-		// A sweep that fails leaves the cap unenforced until the next write.
+		// The cap stays unenforced until the next write.
 		log.warn('cover-sweep-failed', { detail: reason(err) });
 	} finally {
 		sweeping = false;

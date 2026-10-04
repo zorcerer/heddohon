@@ -22,9 +22,9 @@
 	);
 
 	/**
-	 * Every track in the folder, not only the page's. At the top there is no
-	 * id to ask by, and there the page's tracks are all of them unless the top
-	 * holds more than a page.
+	 * Every track in the folder, not only the page's. The top has no id to ask
+	 * by, and there the page's tracks are all of them unless it holds more than
+	 * a page.
 	 */
 	async function tracks() {
 		return folder.id === null ? data.songs : fetchTracks('folder', folder.id);

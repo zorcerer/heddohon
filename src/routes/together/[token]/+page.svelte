@@ -3,15 +3,15 @@
 	 * A listen-together link: what the host plays, at the same moment, for a
 	 * visitor with no account. `server/together.ts` has how it works.
 	 *
-	 * The page follows the host from the moment it opens; the sound starts on
-	 * "Join", since a browser plays nothing a visitor has not pressed for.
-	 * From then the audio follows each report: the track, playing or paused,
-	 * and the position, corrected when it has drifted more than 0.75 seconds.
+	 * The page follows the host from the moment it opens. The sound starts on
+	 * "Join", since a browser plays nothing a visitor has not pressed for. From
+	 * then the audio follows each report: the track, playing or paused, and the
+	 * position, corrected when it has drifted more than 0.75 seconds.
 	 *
-	 * A visitor signed in on the host's music server joins as a member with
-	 * the same press: shown to the host by name, with a search of their own
-	 * library and an Add button on each result. Everyone sees what is up next
-	 * and who added it; a member can take back a track of their own.
+	 * A visitor signed in on the host's music server joins as a member with the
+	 * same press: shown to the host by name, with a search of their own library
+	 * and an Add button on each result. Everyone sees what is up next and who
+	 * added it, and a member can take back a track of their own.
 	 */
 	import { onMount, untrack } from 'svelte';
 	import { colorOfImage, DEFAULT_ARTWORK_COLOR, holdArtworkColor } from '$lib/client/artwork';
@@ -106,8 +106,8 @@
 
 	/**
 	 * Makes this page's stream a member's, once the visitor has pressed Join.
-	 * Asked again when the stream reopens, since the server knows a member's
-	 * page by its stream.
+	 * Asked again when the stream reopens: the server knows a member's page by
+	 * its stream.
 	 */
 	async function enrol() {
 		if (!joined || !mayAdd || !listenerId) return;
@@ -178,7 +178,7 @@
 			queueTotal = message.total;
 		});
 		// The host removed this account: the stream is closed from the other end
-		// and is not to be opened again.
+		// and is not opened again.
 		source.addEventListener('removed', () => {
 			removed = true;
 			member = null;
@@ -219,18 +219,18 @@
 
 	/*
 	 * The room takes its colour from the cover. The first cover is in the
-	 * server's HTML and has usually loaded before this page's script runs, so
-	 * a load handler alone missed it.
+	 * server's HTML and has usually loaded before this script runs, so a load
+	 * handler alone missed it.
 	 */
 	let cover = $state<HTMLImageElement | null>(null);
 	$effect(() => {
 		const image = cover;
 		if (!image || !coverUrl) return;
-		// Held, as the shared-link page does: the layout's own tint resolves an
-		// empty cover a moment later and would put the room back to neutral.
+		// Held, as on the shared-link page: the layout's tint resolves an empty
+		// cover a moment later and would put the room back to neutral.
 		const tint = () => holdArtworkColor(document.documentElement, colorOfImage(image) ?? DEFAULT_ARTWORK_COLOR);
 		// A frame late, as on the shared-link page: the layout's tint runs after
-		// this page mounts, and a colour held sooner was taken straight back.
+		// this page mounts, and a colour held sooner was taken back.
 		const frame = requestAnimationFrame(() => {
 			if (image.complete && image.naturalWidth > 0) tint();
 		});

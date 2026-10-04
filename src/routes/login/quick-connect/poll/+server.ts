@@ -47,8 +47,8 @@ export const POST: RequestHandler = async (event) => {
 	try {
 		state = await quickConnect.state(pending.secret, pending.deviceId);
 	} catch (err) {
-		// A music server that did not answer this time may answer the next. The
-		// request stays pending until Jellyfin says otherwise or the cookie expires.
+		// A music server that did not answer may answer next time. The request
+		// stays pending until Jellyfin says otherwise or the cookie expires.
 		log.warn('quick-connect-failed', {
 			backend: pending.backend,
 			address,
@@ -73,8 +73,8 @@ export const POST: RequestHandler = async (event) => {
 		account = await signInWithQuickConnect(pending.backend, pending.secret, pending.deviceId);
 	} catch (err) {
 		// A refused secret will be refused again. Anything else, such as a timeout,
-		// leaves the approval standing, so the secret is handed back and the next
-		// poll tries again.
+		// leaves the approval standing, so the secret is handed back for the next
+		// poll.
 		const refused = err instanceof UpstreamError && err.status === 400;
 		log.warn('sign-in-rejected', {
 			backend: pending.backend,
@@ -92,9 +92,8 @@ export const POST: RequestHandler = async (event) => {
 	}
 
 	clearPending(event);
-	// A browser already signed in replaces its session rather than keeping two.
-	// The old row stayed behind and was listed in Settings as another browser
-	// until it expired.
+	// A browser already signed in replaces its session. Kept, the old row was
+	// listed in Settings as another browser until it expired.
 	await destroySession(event);
 	await createSession(event, account, event.request.headers.get('user-agent'));
 	rememberDevice(event, account);

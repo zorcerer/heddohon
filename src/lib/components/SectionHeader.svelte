@@ -19,9 +19,9 @@
 </script>
 
 <!--
-  The rule that runs from the title to the right edge is what makes a page of
-  shelves read as a printed index rather than a stack of carousels. The number
-  sits outside the text column, in the margin, in mono.
+  A rule runs from the title to the right edge, so a page of shelves reads as a
+  printed index. The number sits outside the text column, in the margin, in
+  mono.
 -->
 <header class="section-header">
 	{#if index !== null}
@@ -112,10 +112,10 @@
 		}
 
 		/*
-		 * The actions go to a line of their own under the title where the two
-		 * do not fit beside each other. Neither can shrink, so on the
-		 * favourites page, with its long eyebrow, "Play these" ran 60px past
-		 * the right-hand edge of a 393px screen.
+		 * The actions go to a line of their own under the title where the two do
+		 * not fit side by side. Neither can shrink, so on the favourites page,
+		 * with its long eyebrow, "Play these" ran 60px past the right-hand edge
+		 * of a 393px screen.
 		 */
 		.section-header {
 			flex-wrap: wrap;

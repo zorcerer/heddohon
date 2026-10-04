@@ -22,8 +22,8 @@
 
 	/*
 	 * The largest six set large, as the front of the page. Only with more than
-	 * eight genres in all, so a short list is not printed twice, and only for
-	 * genres that hold something.
+	 * eight genres, so a short list is not printed twice, and only for genres
+	 * that hold something.
 	 */
 	const TOP = 6;
 	const top = $derived(
@@ -62,8 +62,8 @@
 		{#if top.length > 0}
 			<section>
 				<SectionHeader title="Largest" index={1} />
-				<!-- Type rather than cover art: a genre has no artwork of its own, and
-				     borrowing one album's would say that album is the genre. -->
+				<!-- Type, not cover art: a genre has no artwork, and one album's
+				     would say that album is the genre. -->
 				<ul class="top hh-stagger">
 					{#each top as genre, rank (genre.id)}
 						<li class="feature">
@@ -239,9 +239,9 @@
 	}
 
 	/*
-	 * Columns of about 15rem, filled down and then across, with the letters
-	 * run in above their entries and dotted leaders out to the counts: the
-	 * whole list reads in a screen or two where tiles took several.
+	 * Columns of about 15rem, filled down and then across, with the letters run
+	 * in above their entries and dotted leaders out to the counts. The list
+	 * takes a screen or two where tiles took several.
 	 */
 	.index {
 		columns: 15rem;

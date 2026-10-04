@@ -2,22 +2,19 @@
  * The log, kept on disk as well as written to stdout and stderr.
  *
  * One file a day in `HEDDOHON_DATA_DIR/logs`, `heddohon-YYYY-MM-DD.log`, by
- * the UTC date its lines carry. `HEDDOHON_LOG_KEEP_DAYS` is how many days of
- * files are kept, 7 unless set: when the process starts and each time the
- * date changes, files whose date is more than that many days back are
- * deleted. 0 writes no files and deletes none.
+ * the UTC date its lines carry. Files dated more than
+ * `HEDDOHON_LOG_KEEP_DAYS` days back (7 unless set) are deleted when the
+ * process starts and each time the date changes. 0 writes and deletes none.
  *
- * `docker logs` already rotates by size where the daemon is told to, and is
- * gone with the container. This is for the deployment where it is not
- * configured and the log is wanted after an update replaced the container.
+ * `docker logs` is gone with the container. This is for reading the log after
+ * an update replaced it.
  *
- * The files hold the lines stdout and stderr get, at the same level, so at
- * the default level a working server writes an empty directory.
+ * The files hold the same lines at the same level, so at the default level a
+ * working server writes an empty directory.
  *
- * Read from the environment, as `log.ts` does and for its reason: a
- * configuration error is logged before `config()` can be read. A directory
- * that cannot be made or written to turns the files off for the life of the
- * process and is reported once, on stderr; logging never throws.
+ * Read from the environment, as in `log.ts`. A directory that cannot be made
+ * or written to turns the files off for the life of the process and is
+ * reported once, on stderr. Logging never throws.
  */
 import { closeSync, mkdirSync, openSync, readdirSync, unlinkSync, writeSync } from 'node:fs';
 import { join } from 'node:path';
