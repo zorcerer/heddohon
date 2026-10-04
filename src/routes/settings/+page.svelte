@@ -1068,6 +1068,7 @@
 				<p class="hh-muted">
 					Sends the title, artist and album of each track you play past half its length, or four
 					minutes, from this server to what you link here, while “Report playback” under Playback is on.
+					A Discord channel gets the cover too.
 				</p>
 			</div>
 

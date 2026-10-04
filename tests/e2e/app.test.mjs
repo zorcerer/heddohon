@@ -3202,6 +3202,14 @@ describe('plays sent to a Discord channel and to ListenBrainz', () => {
 			const [embed] = first.body.embeds;
 			assert.equal(embed.title, '\\[free\\]\\(https://evil.example\\) @everyone');
 			assert.equal(embed.description, 'Artist 0003\nAlbum 3');
+			// The cover goes with the post as a file under a name of this server's
+			// choosing, since a cover here has no address Discord could fetch.
+			assert.deepEqual(embed.thumbnail, { url: 'attachment://cover.png' });
+			assert.deepEqual(first.body.attachments, [{ id: 0, filename: 'cover.png' }]);
+			assert.deepEqual(first.files.map((file) => [file.filename, file.type]), [['cover.png', 'image/png']]);
+			const served = Buffer.from(await (await client.request('/api/cover/al-3?size=256')).arrayBuffer());
+			assert.ok(served.length > 0);
+			assert.deepEqual(first.files[0].bytes, served);
 			// The user name is what the sign-in page accepts, and is not posted.
 			assert.ok(!JSON.stringify(first.body).includes('testuser'), 'the account\'s user name was posted');
 		} finally {
@@ -3213,8 +3221,18 @@ describe('plays sent to a Discord channel and to ListenBrainz', () => {
 		await client.json('/api/settings', 'PATCH', { reportPlayback: false });
 		await play(client, 's3a');
 		await client.json('/api/settings', 'PATCH', { reportPlayback: true });
-		await play(client, 's4a');
-		assert.equal((await posts(2))[1].body.embeds[0].title, 'Song 4a');
+		// A cover the music server calls SVG is not passed on. The post goes without one.
+		subsonic.state.coverTypes.set('al-4', 'image/svg+xml');
+		try {
+			await play(client, 's4a');
+			const second = (await posts(2))[1];
+			assert.equal(second.body.embeds[0].title, 'Song 4a');
+			assert.equal(second.body.embeds[0].thumbnail, undefined);
+			assert.equal(second.body.attachments, undefined);
+			assert.deepEqual(second.files, []);
+		} finally {
+			subsonic.state.coverTypes.clear();
+		}
 
 		// Deleted on Discord: the first play that finds it gone unlinks it.
 		outside.state.webhookGone = true;

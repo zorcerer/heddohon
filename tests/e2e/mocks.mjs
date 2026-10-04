@@ -147,6 +147,8 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 		coverColors: new Map(),
 		/** Titles to answer with in place of a song's own, by song id. */
 		songTitles: new Map(),
+		/** The content type to answer a cover with in place of `image/png`, by cover id. */
+		coverTypes: new Map(),
 		/** Bytes added after every cover, for a cover of a known weight. */
 		coverPadding: 0,
 		/** What `getUser` says of the account: `adminRole`. */
@@ -496,7 +498,7 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 					res.setHeader('content-type', 'text/html');
 					return res.end('<script>parent.stolen = document.cookie</script>');
 				}
-				res.setHeader('content-type', 'image/png');
+				res.setHeader('content-type', state.coverTypes.get(id) ?? 'image/png');
 				const cover = state.coverColors.has(id) ? solidPng(state.coverColors.get(id)) : PNG;
 				return res.end(state.coverPadding ? Buffer.concat([cover, Buffer.alloc(state.coverPadding)]) : cover);
 			}
@@ -836,7 +838,8 @@ export const OUTSIDE = {
  * Discord and ListenBrainz, as far as `integrations.ts` asks of them: a
  * webhook that can be read and posted to, and a user token that can be checked
  * and scrobbled with. `posts` holds what was posted, in order, as
- * `{ to: 'discord' | 'listenbrainz', body }`.
+ * `{ to: 'discord' | 'listenbrainz', body }`, and for a Discord post sent as a
+ * form, the `files` that came with it as `{ filename, type, bytes }`.
  */
 export async function startOutside() {
 	const calls = counter();
@@ -850,15 +853,29 @@ export async function startOutside() {
 			res.setHeader('content-type', 'application/json');
 			res.end(JSON.stringify(body));
 		};
-		let raw = '';
-		req.on('data', (chunk) => (raw += chunk));
+		const chunks = [];
+		req.on('data', (chunk) => chunks.push(chunk));
 		req.on('end', () => {
 			calls.hit(`${req.method} ${url.pathname}`);
+			const whole = Buffer.concat(chunks);
+			let raw = whole.toString('utf8');
+			const files = [];
+			// A form: `payload_json` is the message, and every other part is a file.
+			const boundary = /^multipart\/form-data; boundary=(.+)$/.exec(req.headers['content-type'] ?? '')?.[1];
+			if (boundary) {
+				for (const part of whole.toString('latin1').split(`--${boundary}`).slice(1, -1)) {
+					const [head, ...rest] = part.split('\r\n\r\n');
+					const content = rest.join('\r\n\r\n').replace(/\r\n$/, '');
+					const filename = /filename="([^"]*)"/.exec(head)?.[1];
+					if (/name="payload_json"/.test(head)) raw = Buffer.from(content, 'latin1').toString('utf8');
+					else files.push({ filename, type: /content-type: (.+)/i.exec(head)?.[1]?.trim(), bytes: Buffer.from(content, 'latin1') });
+				}
+			}
 			const token = req.headers.authorization === `Token ${OUTSIDE.listenBrainzToken}`;
 			if (url.pathname.startsWith('/api/webhooks/')) {
 				if (url.pathname !== OUTSIDE.webhook || state.webhookGone) return send({ message: 'Unknown Webhook', code: 10015 }, 404);
 				if (req.method === 'GET') return send({ id: '123456789012345678', name: 'Now playing' });
-				posts.push({ to: 'discord', body: JSON.parse(raw) });
+				posts.push({ to: 'discord', body: JSON.parse(raw), files });
 				res.statusCode = 204;
 				return res.end();
 			}

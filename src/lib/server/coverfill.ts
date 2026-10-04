@@ -21,7 +21,7 @@
 import { config } from './config';
 import { backendFor, UpstreamError, type MediaBackend, type StoredCredential } from './backends';
 import { mapLimited } from './backends/http';
-import { cacheStats, collectCover, coverScope, holdsCover, writeCover, type CoverScope } from './covercache';
+import { cacheStats, collectCover, coverScope, holdsCover, readCover, writeCover, type CoverScope } from './covercache';
 import { openJson } from './crypto';
 import { store } from './db';
 import { log, reason } from './log';
@@ -284,6 +284,28 @@ async function fetchCover(
 		if (err instanceof UpstreamError && err.kind === 'auth') throw err;
 		return null;
 	}
+}
+
+/**
+ * A cover as bytes, for a caller that is not answering a browser: from the
+ * cache where it is held, and from the music server with the account's own
+ * credential where it is not, stored on the way as a browser's request would
+ * store it. Null where there is none or the music server refused.
+ */
+export async function coverBytes(
+	account: { id: string; backend: BackendKind; remoteUserId: string | null },
+	credential: StoredCredential,
+	coverId: string,
+	size: number
+): Promise<{ type: string; body: Buffer } | null> {
+	const scope = coverScope(account);
+	const held = await readCover(scope, coverId, size);
+	if (held) return { type: held.contentType, body: held.body };
+	const fetched = await fetchCover(backendFor(account.backend), credential, coverId, size, AbortSignal.timeout(config().upstreamTimeoutMs)).catch(
+		() => null
+	);
+	if (fetched) void writeCover(scope, coverId, size, fetched.type, fetched.body);
+	return fetched;
 }
 
 async function run({ status, abort }: Job, backend: MediaBackend, cred: StoredCredential, scope: CoverScope) {
