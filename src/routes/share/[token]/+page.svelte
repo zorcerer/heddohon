@@ -279,7 +279,9 @@
 
 <svelte:head>
 	<title>{song ? `${song.title}${song.artist ? ` · ${song.artist}` : ''}` : 'Shared link'} · {data.appName}</title>
-	<meta name="robots" content="noindex, nofollow" />
+	{#if data.noindex}
+		<meta name="robots" content="noindex, nofollow" />
+	{/if}
 	<!--
 		What a messaging app shows of the link when it is pasted: the title, the
 		artist and the cover, in place of the bare address. The page already

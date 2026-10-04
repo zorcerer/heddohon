@@ -459,6 +459,12 @@ library's id listed every track in the library.
   and the cover as any holder of the link can, and keeps its own copy of the
   title and the image. Withdrawing the link does not reach that copy. The
   audio is not part of a preview.
+- **Kept out of search indexes.** The page answers `noindex, nofollow`, as a
+  header and as a tag, to every reader but the fetchers that draw a preview,
+  known by the name they send (Discord, Slack, Telegram, WhatsApp, Facebook, X,
+  LinkedIn, Mastodon). Those keep no index, and Discord draws no preview of a
+  page that says `noindex`. `/robots.txt` allows `/share/` and nothing else,
+  so a search engine that finds a link can read the page and its `noindex`.
 - **Every stream request is checked three ways.** The token is resolved, and
   the track is looked up in the owner's song, album or playlist as the owner's
   credential returned it at most five minutes before, so a track the owner can
