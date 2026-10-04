@@ -1501,6 +1501,94 @@ describe('resuming a transcode', () => {
 		}
 		assert.deepEqual(problems, []);
 	});
+
+	/*
+	 * Firefox reports nothing seekable in a stream without ranges for as long
+	 * as the element holds it, which is the rest of the track, and ignores a
+	 * position set on it. Chromium seeks in one by waiting for the bytes, so
+	 * this test gives its elements Firefox's answers until the page has learnt
+	 * from the server that the transcode is whole.
+	 */
+	test('a seek in a transcode that began as a stream is made once the server has it whole', async () => {
+		const origin = { origin: app.url, 'content-type': 'application/json' };
+		await context.request.patch(`${app.url}/api/settings`, { headers: origin, data: { transcode: true } });
+		subsonic.state.audio = { type: 'audio/wav', body: silentWav(180) };
+		subsonic.state.ignoreRange = true;
+		// The server's read of the transcode takes this long, and the seek is made inside it.
+		subsonic.state.streamSlowMs = 3000;
+		const { page, problems } = await watchedPage();
+		try {
+			await page.addInitScript(() => {
+				let whole = false;
+				const seekable = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'seekable');
+				const time = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'currentTime');
+				const none = { length: 0, start: () => 0, end: () => 0 };
+				Object.defineProperty(HTMLMediaElement.prototype, 'seekable', {
+					get() {
+						return whole ? seekable.get.call(this) : none;
+					}
+				});
+				Object.defineProperty(HTMLMediaElement.prototype, 'currentTime', {
+					get() {
+						return time.get.call(this);
+					},
+					set(value) {
+						if (whole) time.set.call(this, value);
+					}
+				});
+				const fetched = window.fetch;
+				window.__heads = 0;
+				window.fetch = async (...args) => {
+					const response = await fetched(...args);
+					if (args[1]?.method === 'HEAD') {
+						window.__heads += 1;
+						if (response.headers.get('accept-ranges') === 'bytes') whole = true;
+					}
+					return response;
+				};
+			});
+			const streams = [];
+			page.on('request', (request) => {
+				if (request.method() === 'GET' && request.url().includes('/api/stream/')) streams.push(request.url());
+			});
+			await page.goto(app.url + '/albums/al6', { waitUntil: 'domcontentloaded' });
+			await page.getByRole('button', { name: 'Play', exact: true }).first().click();
+			const position = () =>
+				page.evaluate(() => Math.max(0, ...[...document.querySelectorAll('audio')].filter((a) => !a.paused).map((a) => a.currentTime)));
+			await page.waitForFunction(() => [...document.querySelectorAll('audio')].some((a) => !a.paused && a.currentTime > 0.3), null, { timeout: 15_000 });
+			const before = streams.length;
+
+			const bar = await page.locator('aside.panel [role=slider][aria-label="Seek within track"]').boundingBox();
+			await page.mouse.click(bar.x + bar.width * 0.6, bar.y + bar.height / 2);
+			// Not there yet, and the music has not stopped to wait for it.
+			await page.waitForTimeout(700);
+			const waiting = await position();
+			assert.ok(waiting > 0.5 && waiting < 30, `at ${waiting.toFixed(1)}s while the transcode is being read`);
+
+			// 60% of three minutes is 1:48.
+			await page.waitForFunction(
+				() => [...document.querySelectorAll('audio')].some((a) => !a.paused && a.currentTime >= 108),
+				null,
+				{ timeout: 15_000 }
+			);
+			const after = await position();
+			assert.ok(after < 125, `landed at ${after.toFixed(1)}s`);
+			assert.ok(streams.length > before, 'the track was not asked for again');
+			assert.ok((await page.evaluate(() => window.__heads)) >= 1);
+			assert.equal(await page.locator('aside.panel .times .hh-numeric').first().textContent(), `1:${String(Math.floor(after) - 60).padStart(2, '0')}`);
+		} finally {
+			subsonic.state.audio = null;
+			subsonic.state.ignoreRange = false;
+			subsonic.state.streamSlowMs = 0;
+			await context.request.patch(`${app.url}/api/settings`, { headers: origin, data: { transcode: false } });
+			await context.request.put(`${app.url}/api/play-state`, {
+				headers: origin,
+				data: { songIds: [], index: 0, position: 0, repeat: 'off', shuffle: false }
+			});
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
 });
 
 describe('the album heading', () => {
