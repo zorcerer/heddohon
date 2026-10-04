@@ -41,9 +41,9 @@ function commandOf(raw: unknown): RemoteCommand | null {
 }
 
 /**
- * Sends a command to another browser of the same account. The peer ids are
- * random and handed only to the account's own browsers, and the lookup is by
- * account as well, so a browser of another account is never reached.
+ * Sends a command to another browser of the same account. Peer ids are random
+ * and given only to the account's own browsers, and the lookup is by account
+ * too, so another account's browser is never reached.
  */
 export const POST: RequestHandler = async ({ locals, request }) => {
 	const session = locals.session;

@@ -11,10 +11,9 @@ const SORTS: PlaylistSort[] = [
 ];
 
 /**
- * Sorting happens here rather than upstream: neither Subsonic's `getPlaylists`
- * nor Jellyfin's playlist listing takes a sort parameter, and both return the
- * whole set in one response anyway. Doing it in the loader also means both
- * backends order identically.
+ * Sorted here: neither Subsonic's `getPlaylists` nor Jellyfin's playlist
+ * listing takes a sort parameter, and both return the whole set. Both backends
+ * then order identically.
  */
 function sortPlaylists(playlists: Playlist[], sort: PlaylistSort): Playlist[] {
 	const byName = (a: Playlist, b: Playlist) =>

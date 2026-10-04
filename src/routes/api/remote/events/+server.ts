@@ -6,16 +6,16 @@ import { deviceLabel } from '$lib/server/device';
 import { join, leave } from '$lib/server/remote';
 
 /**
- * A comment line this often keeps the stream open through a reverse proxy
- * that closes an idle connection (nginx's `proxy_read_timeout` is 60s by
- * default), and is also when `tiedToSession` checks the session's expiry.
+ * A comment line this often keeps the stream open through a reverse proxy that
+ * closes an idle connection (nginx's `proxy_read_timeout` defaults to 60s),
+ * and is when `tiedToSession` checks the session's expiry.
  */
 const KEEPALIVE_MS = 25_000;
 
 /**
- * This browser's stream of what the account's other browsers are playing, and
+ * This browser's stream of what the account's other browsers are playing and
  * of the commands they send it; see `remote.ts`. It ends with the session:
- * signing out, being signed out from Settings and the session expiring all cut it.
+ * signing out, being signed out from Settings and expiry all cut it.
  */
 export const GET: RequestHandler = async ({ locals, request }) => {
 	const session = locals.session;
@@ -45,8 +45,8 @@ export const GET: RequestHandler = async ({ locals, request }) => {
 				write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
 			);
 			if (!peer) {
-				// A browser reconnects after a closed stream, so it is told to wait
-				// a minute rather than try again at once.
+				// A browser reconnects after a closed stream, so it is told to wait a
+				// minute first.
 				write('retry: 60000\nevent: full\ndata: {}\n\n');
 				controller.close();
 				return;
@@ -62,8 +62,8 @@ export const GET: RequestHandler = async ({ locals, request }) => {
 		headers: {
 			'content-type': 'text/event-stream; charset=utf-8',
 			'cache-control': 'private, no-store',
-			// nginx buffers a response unless told not to, which holds every event
-			// until the buffer fills.
+			// nginx buffers a response unless told not to, holding every event until
+			// the buffer fills.
 			'x-accel-buffering': 'no'
 		}
 	});

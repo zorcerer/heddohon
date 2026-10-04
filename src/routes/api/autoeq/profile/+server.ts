@@ -3,8 +3,8 @@ import type { RequestHandler } from './$types';
 import { autoEqEnabled, autoEqProfile } from '$lib/server/autoeq';
 
 /**
- * The correction for one profile, by the id a search returned. An id the
- * index does not list answers 404 and is never asked for upstream.
+ * The correction for one profile, by the id a search returned. An id the index
+ * does not list answers 404 without an upstream request.
  */
 export const GET: RequestHandler = async ({ locals, url }) => {
 	if (!locals.session) error(401, 'Not signed in');

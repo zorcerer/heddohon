@@ -10,15 +10,15 @@ export const GET: RequestHandler = async ({ locals, params }) => {
 	const backend = backendFor(session.account.backend);
 
 	try {
-		// The lookup needs artist and title as well as the id, because the older
-		// Subsonic endpoint searches by name rather than by track.
+		// The lookup needs artist and title too: the older Subsonic endpoint
+		// searches by name.
 		const [song] = await backend.getSongs(session.credential, [params.id]);
 		if (!song) error(404, 'Track not found');
 
 		let lyrics = await backend.getLyrics(session.credential, song);
-		// The server's own lyrics win when they are synced. Otherwise LRCLIB is
-		// asked, when it is on, and its synced lyrics replace the server's plain
-		// ones; plain from LRCLIB only fills a gap.
+		// The server's lyrics win when synced. Otherwise LRCLIB is asked, when on:
+		// its synced lyrics replace the server's plain ones, and its plain ones
+		// only fill a gap.
 		if (!lyrics?.synced) {
 			const fallback = await lrclibLyrics(song);
 			if (fallback && (fallback.synced || !lyrics)) lyrics = fallback;
@@ -30,8 +30,7 @@ export const GET: RequestHandler = async ({ locals, params }) => {
 		);
 	} catch (err) {
 		if (err instanceof UpstreamError) {
-			// A server with no lyrics support should read as "no lyrics", not as a
-			// broken page.
+			// A server without lyrics support reads as "no lyrics".
 			if (err.kind === 'not_found' || err.kind === 'protocol') return json({ lyrics: null });
 			error(err.status === 401 ? 401 : 502, err.message);
 		}

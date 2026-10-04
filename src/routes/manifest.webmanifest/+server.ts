@@ -3,22 +3,21 @@ import { config } from '$lib/server/config';
 import { THEME_GROUND } from '$lib/server/settings';
 
 /**
- * The web app manifest, which is what lets a browser install Heddohon as an
- * app: its own window, its own icon, and no address bar.
+ * The web app manifest, which lets a browser install Heddohon as an app: its
+ * own window and icon, and no address bar.
  *
- * A route rather than a file in `static/`, so that the name is the
- * deployment's `HEDDOHON_APP_NAME` and not always "Heddohon".
+ * A route, not a file in `static/`, so the name is the deployment's
+ * `HEDDOHON_APP_NAME`.
  *
- * It is on the public list in `hooks.server.ts`. Browsers fetch a manifest
- * without cookies unless the link asks otherwise, so behind the session gate
- * every fetch was answered with the redirect to the sign-in page. It carries
- * the name and nothing about any account.
+ * On the public list in `hooks.server.ts`: browsers fetch a manifest without
+ * cookies, so behind the session gate every fetch got the redirect to the
+ * sign-in page. It carries the name and nothing about any account.
  *
- * The colours are a theme's ground (`--bg-base`): the splash screen and the
- * bars of an installed app are painted in them before the page is read. The
- * manifest is fetched without a cookie, so it cannot know the account's
- * theme; the page asks for it by theme instead (`?theme=light`, written by
- * `hooks.server.ts`), and without that it is the dark theme's.
+ * The colours are a theme's ground (`--bg-base`), which an installed app's
+ * splash screen and bars are painted in before the page is read. Fetched
+ * without a cookie, it cannot know the account's theme, so the page asks for
+ * it by theme (`?theme=light`, written by `hooks.server.ts`). Without that it
+ * is the dark theme's.
  */
 export const GET: RequestHandler = ({ url }) => {
 	const { appName } = config();
@@ -35,9 +34,9 @@ export const GET: RequestHandler = ({ url }) => {
 		background_color: ground,
 		theme_color: ground,
 		categories: ['music', 'entertainment'],
-		// Names this manifest as its own related app, which is what lets a tab ask
-		// the browser whether the app is installed (`getInstalledRelatedApps`), so
-		// the install card is not shown beside an installed app.
+		// Names this manifest as its own related app, so a tab can ask the browser
+		// whether the app is installed (`getInstalledRelatedApps`) and the install
+		// card is not shown beside an installed app.
 		related_applications: [{ platform: 'webapp', url: `${url.origin}/manifest.webmanifest` }],
 		icons: [
 			{ src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },

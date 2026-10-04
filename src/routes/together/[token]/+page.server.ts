@@ -5,7 +5,7 @@ import { partyFor, REACTIONS, removedFrom, togetherEnabled } from '$lib/server/t
 /**
  * A listen-together link, for anyone who has it. A visitor signed in on the
  * host's music server is told they can join as a member, under the account's
- * name; anyone else listens.
+ * name. Anyone else listens.
  */
 export const load: PageServerLoad = async ({ params, locals }) => {
 	if (togetherEnabled() && removedFrom(params.token, locals.session)) error(403, 'The host removed you from this listening session.');

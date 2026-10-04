@@ -15,9 +15,9 @@ export const load: PageServerLoad = async (event) => {
 	if (page !== requested) ({ plays, total } = await recentPlays(accountId, PAGE_SIZE, (page - 1) * PAGE_SIZE));
 
 	/*
-	 * The tracks, each looked up once however many times it was played. On
-	 * Subsonic that is a call per track, 8 at a time, which is why a page is
-	 * 100 plays. A track removed from the library since is left out.
+	 * The tracks, each looked up once however often it was played. On Subsonic
+	 * that is a call per track, 8 at a time, which is why a page is 100 plays.
+	 * A track removed from the library since is left out.
 	 */
 	const ids = [...new Set(plays.map((play) => play.songId))];
 	const songs = ids.length

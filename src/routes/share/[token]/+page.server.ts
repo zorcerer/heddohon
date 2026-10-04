@@ -9,21 +9,20 @@ import { log } from '$lib/server/log';
  * `/share` is a public route, so this runs with or without a session, and
  * everything the page shows is fetched with the sharer's credential.
  *
- * What goes to the browser is chosen field by field. The song's id, its album,
- * artist and cover ids are left out: they are handles into the sharer's
+ * What goes to the browser is chosen field by field. The song's id and its
+ * album, artist and cover ids are left out: they are handles into the sharer's
  * library, and the page reaches the audio and the cover through this link's
- * own routes instead. The sharer's username is sent only to a visitor who is
- * signed in here. Shown to anyone with the link, it would hand out a username
- * the sign-in page accepts.
+ * own routes. The sharer's username is sent only to a visitor signed in here:
+ * it is a name the sign-in page accepts.
  */
 /**
  * Library text is written by whoever can edit the library, and this page is
  * served to anyone with a link. A 4 MB title made a 12 MB page, since the
- * title is written three times; 300 characters is longer than any real one.
+ * title is written three times.
  *
  * Coerced first: the adapters pass some fields through as the server sent
- * them, and a title that arrived as an object made this page a 500, and one
- * that arrived as an array of long strings was clipped to 300 of them.
+ * them. A title that arrived as an object made this page a 500, and an array
+ * of long strings was clipped to 300 of them.
  */
 function clip(text: unknown, length = 300): string | null {
 	return text === null || text === undefined ? null : String(text).slice(0, length);
@@ -35,17 +34,17 @@ function clip(text: unknown, length = 300): string | null {
  * (which iMessage also sends), X, LinkedIn and Mastodon.
  *
  * The page tells every other reader not to index it. Told the same, Discord
- * drew no preview of a link whose page had every tag it reads: reported on
- * 2026-10-04, with the page answering in 250ms and the cover in 350ms. These
- * keep no index to be left out of, so the instruction is not sent to them.
+ * drew no preview of a link whose page had every tag it reads (reported on
+ * 2026-10-04, the page answering in 250ms and the cover in 350ms). These keep
+ * no index, so the instruction is not sent to them.
  */
 const PREVIEWERS = /Discordbot|Slackbot|TelegramBot|WhatsApp|facebookexternalhit|Twitterbot|LinkedInBot|Mastodon/i;
 
 export const load: PageServerLoad = async ({ locals, params, request, setHeaders, url }) => {
 	const cfg = config();
 
-	// A link is a bearer token in a URL. Nothing about this page is for a search
-	// engine or a cache, and the hook already sends `private, no-store`.
+	// A link is a bearer token in a URL, not for a search engine or a cache. The
+	// hook already sends `private, no-store`.
 	const indexable = PREVIEWERS.test(request.headers.get('user-agent') ?? '');
 	if (!indexable) setHeaders({ 'x-robots-tag': 'noindex, nofollow' });
 
@@ -71,12 +70,10 @@ export const load: PageServerLoad = async ({ locals, params, request, setHeaders
 		expiresAt: share.expiresAt,
 		// Relative to the page, which is the only place the token is written.
 		media: `/share/${params.token}`,
-		/*
-		 * The cover's whole address, for the preview a messaging app draws of
-		 * the link (`og:image` in the page). A preview is fetched by the app's
-		 * own servers, which resolve nothing against the page. It names the
-		 * token a second time, to a reader that was handed the link to get here.
-		 */
+		// The cover's whole address, for the preview a messaging app draws
+		// (`og:image`). The app's servers fetch it and resolve nothing against
+		// the page. It names the token again, to a reader that was given the
+		// link.
 		previewImage: item.coverArt ?? item.tracks[0]?.coverArt ? `${url.origin}/share/${params.token}/cover?size=512` : null,
 		item: {
 			kind: item.kind,

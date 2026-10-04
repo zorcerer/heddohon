@@ -39,8 +39,8 @@ const handler: RequestHandler = async (event) => {
 				(backend) => backend.openStream(session.credential, grant.songId, { method: 'GET', whole: true }, transcode),
 				relayed
 			);
-	// A receiver has no reason to keep a copy, and one kept would outlive the
-	// session that the address belongs to.
+	// A copy kept by the receiver would outlive the session the address
+	// belongs to.
 	response.headers.set('cache-control', 'private, no-store');
 	return tiedToSession(session, event.request.signal, response);
 };

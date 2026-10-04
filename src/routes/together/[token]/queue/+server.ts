@@ -17,12 +17,12 @@ function refuse(refusal: AddRefusal): never {
 /**
  * A member adds a track to the host's queue.
  *
- * The id is looked up twice. First with the member's own credential: a
- * member adds what their account can read, so an id cannot be used to ask
- * what the host's account holds. Then with the host's: the audio comes
- * through the host's account for everyone, so a track it cannot read is
- * refused here instead of failing when its turn comes. The track goes to the
- * host's browser as the host's account reads it.
+ * The id is looked up twice. First with the member's own credential: a member
+ * adds what their account can read, so an id cannot be used to probe the
+ * host's library. Then with the host's: everyone's audio comes through the
+ * host's account, so a track it cannot read is refused here and not when its
+ * turn comes. The track goes to the host's browser as the host's account
+ * reads it.
  */
 export const POST: RequestHandler = async (event) => {
 	if (!togetherEnabled()) error(404, 'Not found');

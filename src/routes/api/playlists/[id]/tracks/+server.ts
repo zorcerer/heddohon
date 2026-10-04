@@ -29,20 +29,17 @@ export const POST: RequestHandler = async ({ locals, params, request }) => {
 };
 
 /**
- * Removal is by position, because that is the only identity both music servers
- * agree on — and because the same track can legitimately appear twice in one
- * playlist, so a song id would be ambiguous.
+ * Removal is by position, the one identity both music servers agree on. The
+ * same track can be in a playlist twice, so a song id would be ambiguous.
  */
 export const DELETE: RequestHandler = async ({ locals, params, request }) => {
 	const session = locals.session;
 	if (!session) error(401, 'Not signed in');
 
 	const body = (await request.json().catch(() => null)) as { indices?: unknown } | null;
-	/*
-	 * Deduplicated and bounded like the songs above. Unbounded, 60,000 indices
-	 * became 60,000 `songIndexToRemove` parameters in one Subsonic URL, which the
-	 * music server refused for its length.
-	 */
+	// Deduplicated and bounded like the songs above. Unbounded, 60,000 indices
+	// became 60,000 `songIndexToRemove` parameters in one Subsonic URL, which
+	// the music server refused for its length.
 	const indices = Array.isArray(body?.indices)
 		? [
 				...new Set(

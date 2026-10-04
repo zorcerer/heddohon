@@ -8,8 +8,8 @@ const KEEPALIVE_MS = 25_000;
 /**
  * A listener's stream: what the host plays, what is up next, how many are
  * listening, the reactions, and `ended`. Refused when the party has ended or
- * is full, and for an account the host removed. The host's own browser is
- * known by its session, and is also sent the members and their additions.
+ * is full, and for an account the host removed. The host's own browser, known
+ * by its session, is also sent the members and their additions.
  */
 export const GET: RequestHandler = async ({ params, request, locals }) => {
 	if (!togetherEnabled()) error(404, 'Not found');

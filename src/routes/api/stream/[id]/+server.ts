@@ -4,13 +4,11 @@ import { proxyMedia, proxyTranscode, streamRequestFrom } from '$lib/server/proxy
 import type { TranscodeRequest } from '$lib/server/backends/types';
 
 /**
- * Audio, as the file sits on disk unless the account has asked for otherwise.
+ * Audio, as the file is on disk unless the account has asked otherwise.
  *
- * What is sent is decided here from the account's stored settings, never from
- * the request. The client does put the mode in the query string, and that value
- * is read for exactly one purpose: a browser caches a stream response per URL,
- * so switching between the original and a transcode has to be a different URL
- * or the first one answers for both. It is a cache key, not an instruction.
+ * What is sent is decided from the account's stored settings, never from the
+ * request. The mode in the query string is a cache key only: a browser caches
+ * a stream per URL, so the original and a transcode need different URLs.
  */
 const handler: RequestHandler = async (event) => tiedToSession(event.locals.session!, event.request.signal, await respond(event));
 
@@ -35,8 +33,8 @@ const respond = async (event: Parameters<RequestHandler>[0]): Promise<Response> 
 	if (!transcode) return relayed();
 
 	// Read whole and answered in ranges from Heddohon; see `transcodes.ts`. The
-	// read asks for the whole transcode and does not carry the browser's
-	// headers or its abort signal: it goes on after the request that started it.
+	// read carries neither the browser's headers nor its abort signal: it goes
+	// on after the request that started it.
 	const key = [session.account.id, event.params.id, transcode.codec, transcode.bitrateKbps].join('\u0000');
 	return proxyTranscode(
 		event,

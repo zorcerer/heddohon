@@ -10,10 +10,9 @@ export const load: PageServerLoad = async (event) => {
 	if (id.length === 0 || id.length > 200) error(404, 'That genre does not exist.');
 	const page = Math.max(1, Number(event.url.searchParams.get('page')) || 1);
 
-	// The list is read alongside for the name and the counts: on Jellyfin the
-	// id in the path is an item id, and the name is not in it. It is the listing
-	// the genres page holds for 30 seconds, so a page turn or a genre opened
-	// from that page asks the music server only for the albums.
+	// The list is read alongside for the name and the counts: on Jellyfin the id
+	// in the path is an item id. It is the listing the genres page holds for 30
+	// seconds, so a page turn asks the music server only for the albums.
 	const [genres, albums] = await library(event, ({ backend, credential, accountId }) =>
 		Promise.all([
 			remembered({ accountId, credential }, 'genres', () => backend.getGenres(credential)),
