@@ -2,7 +2,7 @@
  * Where an account's plays go besides the music server.
  *
  * - A Discord channel, through a webhook the account pastes in. Each play that
- *   counts is posted there as one message.
+ *   counts is posted there as one message, with the cover attached.
  * - ListenBrainz, with a user token of the account's own. Each account links
  *   its own, on either music server. Navidrome can also scrobble there itself
  *   (`backends/navidrome.ts`), and both at once would send each play twice,
@@ -11,8 +11,8 @@
  * Each is off until the operator turns it on (`HEDDOHON_DISCORD`,
  * `HEDDOHON_LISTENBRAINZ`), as every other request this server makes to a host
  * that is not the music server is. Turned on, it sends the title, artist and
- * album of what an account plays to a third party the account chose. The
- * account's user name is not sent.
+ * album of what an account plays, and to Discord the cover, to a third party
+ * the account chose. The account's user name is not sent.
  *
  * What an account pastes in is a secret: a webhook address posts to its
  * channel, and a token writes to its ListenBrainz profile. Both are sealed as
@@ -252,33 +252,73 @@ interface Listener {
 	id: string;
 }
 
+/** A cover's bytes and the type the music server gave them. */
+export interface CoverImage {
+	type: string;
+	body: Buffer;
+}
+
+/**
+ * The image types attached to a post, and the name each goes under. Discord
+ * draws these four in an embed. The name is fixed here: nothing from the
+ * library names a file. SVG is not on the list, as it is not in the cover
+ * cache's.
+ */
+const ATTACHED: Record<string, string> = {
+	'image/jpeg': 'cover.jpg',
+	'image/png': 'cover.png',
+	'image/webp': 'cover.webp',
+	'image/gif': 'cover.gif'
+};
+
+/** Asked of the music server at this size, one of `COVER_SIZES`. Discord draws a thumbnail at 80px. */
+export const DISCORD_COVER_SIZE = 256;
+/** The largest cover attached. One at 256px is 10 to 40 KB. */
+const MAX_ATTACHED_BYTES = 1024 * 1024;
+
 /**
  * One message a play. It does not name the account: the user name is what the
  * sign-in page accepts, and a channel can have many readers. The webhook has
  * a name of its own on Discord, which its owner chose, and the message is
  * posted under that.
  */
-async function postToDiscord(account: Listener, link: DiscordLink, song: Song): Promise<void> {
+async function postToDiscord(account: Listener, link: DiscordLink, song: Song, cover: CoverImage | null): Promise<void> {
 	const base = config().discordUrl;
 	if (!base) return;
+	/*
+	 * The cover goes up with the message, as a file. Discord shows an image in
+	 * an embed from an address anyone can fetch or from an attachment, and a
+	 * cover here is behind a session, so there is no address to give it.
+	 */
+	const filename = cover && cover.body.byteLength <= MAX_ATTACHED_BYTES ? ATTACHED[cover.type.split(';')[0].trim().toLowerCase()] : undefined;
+	const payload = JSON.stringify({
+		// Nobody is pinged by a tag: an artist called `@everyone` names nobody.
+		allowed_mentions: { parse: [] },
+		embeds: [
+			{
+				title: plain(song.title, 256),
+				description: [song.artist, song.album]
+					.filter((part): part is string => Boolean(part))
+					.map((part) => plain(part, 300))
+					.join('\n'),
+				...(filename ? { thumbnail: { url: `attachment://${filename}` } } : {}),
+				footer: { text: config().appName },
+				timestamp: new Date().toISOString()
+			}
+		],
+		...(filename ? { attachments: [{ id: 0, filename }] } : {})
+	});
+	let body: string | FormData = payload;
+	if (cover && filename) {
+		body = new FormData();
+		body.set('payload_json', payload);
+		body.set('files[0]', new Blob([new Uint8Array(cover.body)], { type: cover.type.split(';')[0].trim().toLowerCase() }), filename);
+	}
 	const response = await call(`${base}/api/webhooks/${link.id}/${link.token}`, {
 		method: 'POST',
-		headers: { 'content-type': 'application/json' },
-		body: JSON.stringify({
-			// Nobody is pinged by a tag: an artist called `@everyone` names nobody.
-			allowed_mentions: { parse: [] },
-			embeds: [
-				{
-					title: plain(song.title, 256),
-					description: [song.artist, song.album]
-						.filter((part): part is string => Boolean(part))
-						.map((part) => plain(part, 300))
-						.join('\n'),
-					footer: { text: config().appName },
-					timestamp: new Date().toISOString()
-				}
-			]
-		})
+		// A form sets its own type, with the boundary it was written with.
+		headers: typeof body === 'string' ? { 'content-type': 'application/json' } : {},
+		body
 	});
 	await response?.body?.cancel().catch(() => undefined);
 	if (!response || response.ok) return;
@@ -335,9 +375,16 @@ async function submitListen(
  * throw: neither service may hold up or fail the report of a play.
  *
  * `position` is how far into the track the play was counted, in seconds, which
- * puts the start of the listen that far back.
+ * puts the start of the listen that far back. `cover` reads the track's cover
+ * and is called only for a post to Discord, after the limit on those: it can
+ * be a request to the music server.
  */
-export async function announcePlay(account: Listener, song: Song, position: number): Promise<void> {
+export async function announcePlay(
+	account: Listener,
+	song: Song,
+	position: number,
+	cover: (coverId: string) => Promise<CoverImage | null>
+): Promise<void> {
 	try {
 		const offered = offeredIntegrations();
 		if (!offered.discord && !offered.listenbrainz) return;
@@ -345,7 +392,13 @@ export async function announcePlay(account: Listener, song: Song, position: numb
 		if (!found.discord && !found.listenbrainz) return;
 		if (!mayAnnouncePlay(account.id)) return;
 		await Promise.all([
-			offered.discord && found.discord ? postToDiscord(account, found.discord, song) : null,
+			// The cover is read inside the post's own promise, so a slow music
+			// server does not hold the listen back.
+			offered.discord && found.discord
+				? Promise.resolve(song.coverArt ? cover(song.coverArt).catch(() => null) : null).then((image) =>
+						postToDiscord(account, found.discord!, song, image)
+					)
+				: null,
 			offered.listenbrainz && found.listenbrainz
 				? submitListen(account, found.listenbrainz, song, Math.floor(Date.now() / 1000 - position))
 				: null

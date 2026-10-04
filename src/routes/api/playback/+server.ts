@@ -3,7 +3,8 @@ import type { RequestHandler } from './$types';
 import { backendFor, UpstreamError } from '$lib/server/backends';
 import { getSettings } from '$lib/server/settings';
 import { recordPlay } from '$lib/server/history';
-import { announcePlay, announceStart } from '$lib/server/integrations';
+import { coverBytes } from '$lib/server/coverfill';
+import { announcePlay, announceStart, DISCORD_COVER_SIZE } from '$lib/server/integrations';
 import { log, reason } from '$lib/server/log';
 
 /**
@@ -54,7 +55,11 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 		);
 		// To a Discord channel and ListenBrainz, where the account linked them.
 		// Under the same switch as the report to the music server.
-		if (song && settings.reportPlayback) void announcePlay(session.account, song, position);
+		if (song && settings.reportPlayback) {
+			void announcePlay(session.account, song, position, (coverId) =>
+				coverBytes(session.account, session.credential, coverId, DISCORD_COVER_SIZE)
+			);
+		}
 	}
 
 	if (!settings.reportPlayback) {

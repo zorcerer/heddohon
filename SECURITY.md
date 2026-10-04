@@ -110,7 +110,7 @@ playing at the start of a track and a listen when the play counts. Navidrome
 can also scrobble to ListenBrainz itself: Settings refuses to link the one
 while the other is linked, since both would send each play twice. What each
 service learns is this server's address and the title, artist and album of the
-track. The account's user name is not sent: it is what the sign-in page
+track, and Discord its cover. The account's user name is not sent: it is what the sign-in page
 accepts, and a channel can have many readers.
 
 - **The account chooses the channel, not the host.** A webhook address must
@@ -134,6 +134,13 @@ accepts, and a channel can have many readers.
   whoever can edit the library. Markdown in them is escaped, so a title cannot
   become a link in the channel, and `allowed_mentions` is empty, so none of
   them pings anyone.
+- **The cover is sent as a file.** A cover here is behind a session, so there
+  is no address to give Discord. The server reads it at 256px with the
+  account's own credential, from the cover cache where it is held, and attaches
+  it to the post. Only JPEG, PNG, WebP and GIF are attached, up to 1 MB, under
+  a file name this server sets. A cover of another type, SVG included, is left
+  out and the post goes without one. Discord keeps the image with the message,
+  where unlinking does not reach it.
 - **Under "Report playback".** With that setting off, nothing is sent.
 - **Dropped with the credential.** When another user signs in under the
   account's name, or its password changes, what it had linked is removed, so
