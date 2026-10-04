@@ -17,7 +17,13 @@
  * the first byte in under 0.1s. Until it is whole, a request from byte 0 gets
  * a stream of it as it arrives, without a length and not cached by the
  * browser; once it is whole, every request gets exact ranges and the real
- * length.
+ * length. A request for a later byte, or one the player marks `whole` (a
+ * track opened at a position), waits up to 30 seconds for that.
+ *
+ * The read does not ask for an estimated length (`openStream` in
+ * `subsonic.ts`). With one, Navidrome 0.64.2 closed the connection short of
+ * the length it had declared on every first request, the read ended in an
+ * error, and the transcode was dropped and read a second time.
  *
  * Keyed by account as well as song, codec and bitrate, like every other cache
  * here, and dropped with the account's sessions. Held for 15 minutes after the

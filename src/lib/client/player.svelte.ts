@@ -57,17 +57,10 @@ const SCROBBLE_MIN_SECONDS = 30;
  */
 const RECOVERY_ATTEMPTS = 4;
 const RECOVERY_BACKOFF_MS = 600;
-/** How often, and how many times, a resume asks again for a position it cannot seek to yet. */
+/** How often, and how many times, a seek asks whether the server has the transcode whole yet. */
 const SEEK_HOLD_MS = 1000;
 const SEEK_HOLD_ATTEMPTS = 30;
 
-/** Whether `time` is inside a range the element can seek to. */
-function seekableTo(element: HTMLMediaElement, time: number): boolean {
-	for (let i = 0; i < element.seekable.length; i++) {
-		if (element.seekable.start(i) <= time && time <= element.seekable.end(i)) return true;
-	}
-	return false;
-}
 /**
  * Largest body sent with `keepalive`, in bytes. Half the 64KB the browser
  * allows across every in-flight keepalive request, so a play-state write and a
@@ -268,14 +261,6 @@ export class Player {
 	 * the queue, so it survives a reload.
 	 */
 	#unshuffledIds: string[] | null = null;
-	/**
-	 * Set while a resume waits for the position to become seekable; see
-	 * `#holdForSeek`. The retries on `canplay` and on the tab coming back leave
-	 * the element alone while it is set, or they would play it from the start.
-	 */
-	#holding = false;
-	#seekHolds = 0;
-	#holdTimer: ReturnType<typeof setTimeout> | null = null;
 	/** Consecutive attempts to pick the current track back up after a drop. */
 	#recoveries = 0;
 	#recoveryTimer: ReturnType<typeof setTimeout> | null = null;
@@ -471,10 +456,39 @@ export class Player {
 		return true;
 	}
 
-	/** Where the element fetches a track from: its cast address while casting. */
-	#srcOf(song: Song): string {
+	/**
+	 * Where the element fetches a track from: its cast address while casting.
+	 *
+	 * `whole` is for a track opened at a position (a restored queue, a stream
+	 * that dropped, transcoding switched on mid-track). A transcode is read
+	 * whole on the server before it can be answered in ranges
+	 * (`transcodes.ts`), which takes seconds; until then it arrives as a stream
+	 * without ranges, and a position cannot be taken up in one. Measured on
+	 * 2026-10-04 against Navidrome 0.64.2, resuming at 1:00 in such a stream:
+	 * Chromium waited for the bytes and played from 1:00. Firefox gave an MP3 a
+	 * duration of what had arrived so far (1.5s), which put 1:00 past the end,
+	 * and played from 0:00. WebKit reported Opus and AAC seekable to Infinity,
+	 * took the seek and played from 0:00.
+	 *
+	 * The player used to pause and ask again every second until the element
+	 * reported the position seekable, and those two reports got past it. So the
+	 * address says the track is wanted whole, and the server answers once its
+	 * read is done, in ranges (`proxyTranscode`). The server reads the mark for
+	 * a transcode only; the original file is answered in ranges by the music
+	 * server from the first request.
+	 */
+	#srcOf(song: Song, whole = false): string {
 		if (song.live) return radioStreamUrl(song.id);
-		return this.#castUrls?.get(song.id) ?? streamUrl(song.id, this.deliveryMode);
+		const src = this.#castUrls?.get(song.id) ?? streamUrl(song.id, this.deliveryMode);
+		if (!whole || !this.settings?.transcode) return src;
+		return `${src}${src.includes('?') ? '&' : '?'}whole=1`;
+	}
+
+	/** Asks for `song` again in `element`, to be taken up at `position` once it has loaded. */
+	#openAt(element: HTMLAudioElement, song: Song, position: number) {
+		this.#pendingSeek = position;
+		element.src = this.#srcOf(song, position > 1);
+		element.load();
 	}
 
 	/**
@@ -531,7 +545,6 @@ export class Player {
 		this.#lifecycleOff = [];
 		if (this.#progressTimer) clearInterval(this.#progressTimer);
 		if (this.#positionTimer) clearInterval(this.#positionTimer);
-		this.#cancelHold();
 		this.#cancelRecovery();
 		this.#abandonCrossfade();
 		// Clearing the debounce timer on its own threw away whatever the last
@@ -804,7 +817,6 @@ export class Player {
 
 	stop() {
 		this.engaged = false;
-		this.#cancelHold();
 		this.#abandonCrossfade();
 		if (this.#primary) {
 			this.#primary.pause();
@@ -1104,7 +1116,6 @@ export class Player {
 		if (!song || !this.#primary) return;
 
 		if (!resume) this.#pendingSeek = null;
-		this.#cancelHold();
 
 		// The ramp addresses `#primary` and `#secondary` by reference, and the
 		// swap below exchanges them. A timer that outlived that swap would go on
@@ -1115,7 +1126,9 @@ export class Player {
 		this.#recoveries = 0;
 		this.#scrobbled = false;
 		this.#startReported = false;
-		this.currentTime = 0;
+		// A position waiting to be taken up stays on the bar while the track
+		// loads, and is where a stream that drops in that time is picked up.
+		this.currentTime = this.#pendingSeek ?? 0;
 		this.duration = song.duration || 0;
 		this.error = null;
 
@@ -1132,7 +1145,7 @@ export class Player {
 				await this.#ensureCastUrls();
 				if (this.current !== song || !this.#primary) return;
 			}
-			this.#primary.src = this.#srcOf(song);
+			this.#primary.src = this.#srcOf(song, (this.#pendingSeek ?? 0) > 1);
 			this.#primary.load();
 		}
 
@@ -1279,48 +1292,6 @@ export class Player {
 	}
 
 	/**
-	 * Waits, silent, for a position the element cannot seek to yet, and asks
-	 * for the track again.
-	 *
-	 * A transcode is read whole on the server before it can be answered in
-	 * ranges (`transcodes.ts`), which takes seconds; until then it arrives as a
-	 * stream without ranges, and a seek into it lands nowhere. Resuming a track
-	 * at a position (after a dropped stream, a restored queue, or transcoding
-	 * switched on mid-track) then played it from the start: heard as the song
-	 * starting over, most often with the tab in the background, where a stream
-	 * is most often dropped. So the element is paused and asked again every
-	 * second, up to 30 times (a 10-minute AAC transcode was read whole in 17s),
-	 * with a query the server ignores so that the browser does not answer from
-	 * its own copy. After that it plays from the start, as it did.
-	 */
-	#cancelHold() {
-		if (this.#holdTimer !== null) clearTimeout(this.#holdTimer);
-		this.#holdTimer = null;
-		this.#holding = false;
-		this.#seekHolds = 0;
-	}
-
-	#holdForSeek(element: HTMLAudioElement) {
-		const song = this.current;
-		if (!song) return;
-		this.#holding = true;
-		this.loading = true;
-		element.pause();
-		if (this.#holdTimer !== null) clearTimeout(this.#holdTimer);
-		this.#holdTimer = setTimeout(() => {
-			this.#holdTimer = null;
-			if (this.#primary !== element || this.current !== song || this.#pendingSeek === null || !this.engaged) {
-				this.#holding = false;
-				return;
-			}
-			this.#seekHolds += 1;
-			const src = this.#srcOf(song);
-			element.src = `${src}${src.includes('?') ? '&' : '?'}attempt=${this.#seekHolds}`;
-			element.load();
-		}, SEEK_HOLD_MS);
-	}
-
-	/**
 	 * A seek the element cannot make, in a transcode that began to arrive
 	 * before the server had read it whole.
 	 *
@@ -1354,10 +1325,8 @@ export class Player {
 			if (!wanted()) return;
 			if (whole) {
 				this.#abandonCrossfade();
-				this.#pendingSeek = target;
 				this.currentTime = target;
-				element.src = this.#srcOf(song);
-				element.load();
+				this.#openAt(element, song, target);
 				if (this.engaged) void element.play().catch(() => undefined);
 				return;
 			}
@@ -1392,9 +1361,7 @@ export class Player {
 			this.#recoveryTimer = null;
 			// The listener pressed pause while we were waiting. Their call wins.
 			if (!this.engaged || this.#primary !== element) return;
-			this.#pendingSeek = position;
-			element.src = this.#srcOf(song);
-			element.load();
+			this.#openAt(element, song, position);
 			void element.play().catch(() => undefined);
 		}, RECOVERY_BACKOFF_MS * this.#recoveries);
 	}
@@ -1468,15 +1435,8 @@ export class Player {
 			// seek can only happen once the element knows how long the file is.
 			if (this.#pendingSeek !== null) {
 				const target = this.#pendingSeek;
-				const wanted = target > 1 && target < this.duration - 1;
-				if (wanted && !seekableTo(element, target) && this.#seekHolds < SEEK_HOLD_ATTEMPTS) {
-					this.#holdForSeek(element);
-					return;
-				}
 				this.#pendingSeek = null;
-				this.#seekHolds = 0;
-				this.#holding = false;
-				if (wanted) this.seek(target);
+				if (target > 1 && target < this.duration - 1) this.seek(target);
 				if (this.engaged && element.paused) void element.play().catch(() => undefined);
 			}
 		});
@@ -1527,7 +1487,7 @@ export class Player {
 		on('canplay', () => {
 			// The track is ready but we are not playing and the user never asked us
 			// to stop: an earlier play() was refused, so try again now.
-			if (this.engaged && element.paused && !this.#holding) void element.play().catch(() => undefined);
+			if (this.engaged && element.paused) void element.play().catch(() => undefined);
 		});
 
 		on('ended', () => {
@@ -1717,7 +1677,7 @@ export class Player {
 		const resume = () => {
 			if (!this.engaged || document.hidden) return;
 			const element = this.#primary;
-			if (element && element.src && element.paused && !this.#holding) {
+			if (element && element.src && element.paused) {
 				void element.play().catch(() => undefined);
 			}
 		};
@@ -1882,9 +1842,7 @@ export class Player {
 		const position = this.currentTime;
 		const wasPlaying = this.playing;
 		this.loading = true;
-		this.#pendingSeek = position;
-		element.src = this.#srcOf(song);
-		element.load();
+		this.#openAt(element, song, position);
 		if (wasPlaying) await element.play().catch(() => undefined);
 	}
 

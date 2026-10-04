@@ -41,7 +41,7 @@ const respond = async (event: Parameters<RequestHandler>[0]): Promise<Response> 
 	return proxyTranscode(
 		event,
 		key,
-		(backend) => backend.openStream(session.credential, event.params.id, { method: 'GET' }, transcode),
+		(backend) => backend.openStream(session.credential, event.params.id, { method: 'GET', whole: true }, transcode),
 		relayed
 	);
 };

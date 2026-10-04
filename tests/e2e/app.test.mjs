@@ -1815,6 +1815,46 @@ describe('playing things', () => {
 			assert.equal(first.headers.get('accept-ranges'), 'bytes');
 			await first.arrayBuffer();
 		});
+
+		/*
+		 * The player opening a track at a position (a restored queue, a stream
+		 * that dropped) cannot take the position up in a stream without ranges:
+		 * Firefox and WebKit played the song from the start. Its address says so,
+		 * and the answer waits for the read.
+		 */
+		test('asked for whole, is answered once the read is done, in ranges', async () => {
+			subsonic.state.streamSlowMs = 400;
+			try {
+				const started = Date.now();
+				const response = await user.request('/api/stream/s9a?mode=mp3-192&whole=1', { headers: { range: 'bytes=0-' } });
+				assert.ok(Date.now() - started >= 350, 'answered before the read was done');
+				assert.equal(response.status, 206);
+				assert.equal(response.headers.get('content-range'), 'bytes 0-999/1000');
+				assert.equal(response.headers.get('accept-ranges'), 'bytes');
+				assert.deepEqual(Buffer.from(await response.arrayBuffer()), body);
+			} finally {
+				subsonic.state.streamSlowMs = 0;
+			}
+		});
+
+		/*
+		 * Asked for an estimated length, Navidrome 0.64.2 declares one and closes
+		 * the connection when the transcode comes to another size. The read ended
+		 * in an error each time and what had arrived was dropped.
+		 */
+		test('is read to its end from a music server whose estimated length is off', async () => {
+			subsonic.state.estimateOff = true;
+			try {
+				const first = await user.request('/api/stream/s10a?mode=mp3-192');
+				assert.deepEqual(Buffer.from(await first.arrayBuffer()), body);
+				const again = await user.request('/api/stream/s10a?mode=mp3-192', { headers: { range: 'bytes=0-1' } });
+				assert.equal(again.status, 206, 'the read was not kept');
+				assert.equal(again.headers.get('content-range'), 'bytes 0-1/1000');
+				await again.arrayBuffer();
+			} finally {
+				subsonic.state.estimateOff = false;
+			}
+		});
 	});
 
 	/* A music server that ignores `Range` for an original file gets the same honesty. */
