@@ -2058,6 +2058,17 @@ describe('links to albums and playlists', () => {
 		for (const text of ['Album 5', 'Song 5a', 'Song 5b']) assert.match(html, new RegExp(text));
 		assert.ok(!html.includes('al5') && !html.includes('s5a'), 'an upstream id reached the page');
 
+		// What a messaging app draws of the link: the title, the artist, and a
+		// cover it can fetch with no session and no page to resolve it against.
+		const meta = (name) => html.match(new RegExp(`<meta (?:property|name)="${name}" content="([^"]*)"`))?.[1];
+		assert.equal(meta('og:title'), 'Album 5');
+		assert.equal(meta('og:description'), 'Artist 0005 · Album, 2 tracks');
+		assert.equal(meta('og:type'), 'music.album');
+		assert.equal(meta('og:image'), `${app.url}${made.body.path}/cover?size=512`);
+		const preview = await fetch(meta('og:image'));
+		assert.equal(preview.status, 200);
+		assert.equal(preview.headers.get('content-type'), 'image/png');
+
 		const status = async (path) => (await visitor.request(made.body.path + path)).status;
 		assert.equal(await status('/stream/0'), 200);
 		assert.equal(await status('/stream/1'), 200);
@@ -2070,6 +2081,8 @@ describe('links to albums and playlists', () => {
 		// Withdrawn: every position stops.
 		assert.equal((await user.request(`/api/shares/${made.body.id}`, { method: 'DELETE' })).status, 200);
 		assert.equal(await status('/stream/1'), 404);
+		// And the page no longer says what the link was to.
+		assert.doesNotMatch((await visitor.page(made.body.path)).html, /og:title|Album 5/);
 	});
 
 	test('a playlist link plays the playlist as its owner has it', async () => {

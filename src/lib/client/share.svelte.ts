@@ -85,6 +85,18 @@ class ShareComposer {
 		}, 200);
 	}
 
+	/**
+	 * Hands the link to the device's own share sheet, where it has one. A
+	 * sheet closed without a choice rejects, and that is not an error.
+	 */
+	async share() {
+		if (!this.link || !this.subject) return;
+		const { title, subtitle } = this.subject;
+		await navigator
+			.share({ title: subtitle ? `${title} · ${subtitle}` : title, url: this.link.url })
+			.catch(() => undefined);
+	}
+
 	async create() {
 		if (!this.subject || this.busy) return;
 		const subject = this.subject;

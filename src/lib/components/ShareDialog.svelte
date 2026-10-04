@@ -9,6 +9,7 @@
 	 * the accent fills when chosen, one primary button, and the same sweep along
 	 * its bottom edge while the server answers.
 	 */
+	import { browser } from '$app/environment';
 	import { page } from '$app/state';
 	import { shareComposer, SHARE_LIFETIMES } from '$lib/client/share.svelte';
 	import { together } from '$lib/client/together.svelte';
@@ -22,6 +23,8 @@
 	/** "a song", "an album" or "a playlist", as the dialog's words say it. */
 	const aNoun = $derived(subject?.kind === 'album' ? 'an album' : `a ${subject?.kind ?? 'song'}`);
 	const link = $derived(shareComposer.link);
+	// Phones, and Chrome, Edge and Safari on a desktop. Not Firefox, and not the desktop app.
+	const canShare = browser && typeof navigator.share === 'function';
 
 	$effect(() => {
 		if (!dialog) return;
@@ -175,6 +178,13 @@
 						Works until {expires}. This is the only time the link is shown: the server keeps a
 						fingerprint of it, not the link. Withdraw it at any time from Settings.
 					</p>
+
+					{#if canShare}
+						<button class="hh-button hh-button--primary submit" type="button" onclick={() => void shareComposer.share()}>
+							<Icon name="link" size={16} />
+							Share…
+						</button>
+					{/if}
 
 					<button class="hh-button submit" type="button" onclick={() => shareComposer.close()}>
 						Done
