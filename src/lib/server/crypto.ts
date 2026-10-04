@@ -42,7 +42,7 @@ function keyFor(purpose: string): Buffer {
 }
 
 /** Encrypts a UTF-8 string. Output is safe to store in a TEXT column. */
-export function seal(plaintext: string, purpose = 'credential'): string {
+function seal(plaintext: string, purpose = 'credential'): string {
 	const iv = randomBytes(IV_LENGTH);
 	const cipher = createCipheriv('aes-256-gcm', keyFor(purpose), iv);
 	const ciphertext = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
@@ -51,7 +51,7 @@ export function seal(plaintext: string, purpose = 'credential'): string {
 }
 
 /** Reverses `seal`. Throws if the blob was tampered with or the secret changed. */
-export function open(blob: string, purpose = 'credential'): string {
+function open(blob: string, purpose = 'credential'): string {
 	const parts = blob.split('.');
 	if (parts.length !== 4 || parts[0] !== VERSION) {
 		throw new Error('Sealed value has an unrecognised format');
@@ -104,11 +104,6 @@ export function shareDigest(token: string): string {
  */
 export function deviceDigest(value: string): string {
 	return createHmac('sha256', keyFor('device')).update(value).digest('base64url');
-}
-
-/** Stable pseudonymous digest, used for audit fields that must not be reversible. */
-export function pseudonym(value: string): string {
-	return createHmac('sha256', keyFor('pseudonym')).update(value).digest('base64url').slice(0, 22);
 }
 
 export function constantTimeEquals(a: string, b: string): boolean {

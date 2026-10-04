@@ -29,7 +29,7 @@ import { log, reason } from './log';
 import { Memo } from './memo';
 
 /** The lifetimes a link can be given, in days. Anything else is refused. */
-export const SHARE_LIFETIMES_DAYS = [1, 7, 30] as const;
+const SHARE_LIFETIMES_DAYS = [1, 7, 30] as const;
 export type ShareLifetime = (typeof SHARE_LIFETIMES_DAYS)[number];
 export const DEFAULT_SHARE_LIFETIME: ShareLifetime = 7;
 
@@ -37,7 +37,7 @@ export const DEFAULT_SHARE_LIFETIME: ShareLifetime = 7;
  * Live links one account may hold at once. Each one is a row that outlives
  * the session that made it, so this is what bounds the table.
  */
-export const MAX_ACTIVE_SHARES = 100;
+const MAX_ACTIVE_SHARES = 100;
 
 /**
  * What `randomToken` produces: 32 bytes as unpadded base64url, 43 characters.
@@ -51,7 +51,7 @@ export function isShareLifetime(value: unknown): value is ShareLifetime {
 }
 
 /** What a link can be to. */
-export const SHARE_KINDS = ['song', 'album', 'playlist'] as const;
+const SHARE_KINDS = ['song', 'album', 'playlist'] as const;
 export type ShareKind = (typeof SHARE_KINDS)[number];
 
 export function isShareKind(value: unknown): value is ShareKind {
@@ -141,7 +141,7 @@ export interface ResolvedShare {
  * An unknown token, an expired one and a withdrawn one all come back as the
  * same null, so the page cannot be used to learn which links once existed.
  */
-export async function resolveShare(token: string): Promise<ResolvedShare | null> {
+async function resolveShare(token: string): Promise<ResolvedShare | null> {
 	if (!TOKEN_PATTERN.test(token)) return null;
 
 	const database = await store();
@@ -173,7 +173,7 @@ export async function resolveShare(token: string): Promise<ResolvedShare | null>
  * The sharer's credential, opened for one request. Null when it can no longer
  * be opened, which happens after `HEDDOHON_SECRET` changes.
  */
-export async function sharerCredential(share: ResolvedShare): Promise<StoredCredential | null> {
+async function sharerCredential(share: ResolvedShare): Promise<StoredCredential | null> {
 	const row = await (await store()).get<{ credential: string }>(
 		'SELECT credential FROM accounts WHERE id = ?',
 		share.sharerAccountId
@@ -327,7 +327,7 @@ export async function shareAccess(
 	return credential ? { share, credential } : null;
 }
 
-export interface OwnShare {
+interface OwnShare {
 	id: string;
 	kind: ShareKind;
 	itemId: string;
@@ -336,7 +336,7 @@ export interface OwnShare {
 }
 
 /** An account's own live links, newest first. Never another account's. */
-export async function listShares(accountId: string): Promise<OwnShare[]> {
+async function listShares(accountId: string): Promise<OwnShare[]> {
 	const rows = await (await store()).all<ShareRow>(
 		'SELECT * FROM shares WHERE account_id = ? AND expires_at > ? ORDER BY created_at DESC',
 		accountId,
@@ -352,7 +352,7 @@ export async function listShares(accountId: string): Promise<OwnShare[]> {
 }
 
 /** What a link is to, for the list in Settings. */
-export interface ShareSubject {
+interface ShareSubject {
 	title: string;
 	subtitle: string | null;
 	coverArt: string | null;

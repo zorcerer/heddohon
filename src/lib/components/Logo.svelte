@@ -19,7 +19,7 @@
 	 * Everything is drawn on a 32-unit box. The surrounding tile is the caller's
 	 * to draw, which is why there is no background here.
 	 */
-	let { size = 24, title }: { size?: number; title?: string } = $props();
+	let { size = 24 }: { size?: number } = $props();
 </script>
 
 <!-- Sized in rem so the crest follows the interface scale, the same as Icon. -->
@@ -27,9 +27,8 @@
 	style="width: {size / 16}rem; height: {size / 16}rem"
 	viewBox="0 0 32 32"
 	fill="none"
-	role={title ? 'img' : 'presentation'}
-	aria-label={title}
-	aria-hidden={title ? undefined : 'true'}
+	role="presentation"
+	aria-hidden="true"
 >
 	<circle cx="16" cy="16" r="13.6" stroke="currentColor" stroke-width="1.8" />
 	<path

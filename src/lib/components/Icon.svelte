@@ -36,10 +36,7 @@
 		| 'chevron-left'
 		| 'chevron-right'
 		| 'chevron-down'
-		| 'waveform'
 		| 'trash'
-		| 'expand'
-		| 'collapse'
 		| 'lyrics'
 		| 'info'
 		| 'share'
@@ -62,9 +59,8 @@
 	let {
 		name,
 		size = 20,
-		strokeWidth = 1.6,
-		label
-	}: { name: IconName; size?: number; strokeWidth?: number; label?: string } = $props();
+		strokeWidth = 1.6
+	}: { name: IconName; size?: number; strokeWidth?: number } = $props();
 
 	const PATHS: Record<IconName, string> = {
 		play: 'M8 5.2v13.6a.7.7 0 0 0 1.07.6l11-6.8a.7.7 0 0 0 0-1.2l-11-6.8A.7.7 0 0 0 8 5.2Z',
@@ -102,14 +98,9 @@
 		'chevron-left': 'M14.5 5.5 8 12l6.5 6.5',
 		'chevron-right': 'M9.5 5.5 16 12l-6.5 6.5',
 		'chevron-down': 'M5.5 9.5 12 16l6.5-6.5',
-		waveform: 'M4 11v2M8 7.5v9M12 4.5v15M16 8.5v7M20 10.5v3',
 		lyrics:
 			'M4.5 6.5h9M4.5 11h11M4.5 15.5h6M17.5 14.2V7.4l3-.9v6.8M17.5 15.8a1.6 1.6 0 1 1-1.7-1.6M20.5 13.3a1.6 1.6 0 1 1-1.7-1.6',
 		trash: 'M5 7h14M9.5 7V5.4A1.4 1.4 0 0 1 10.9 4h2.2a1.4 1.4 0 0 1 1.4 1.4V7M6.8 7l.8 11.2A1.4 1.4 0 0 0 9 19.5h6a1.4 1.4 0 0 0 1.4-1.3L17.2 7',
-		// Arrows out of / into opposite corners: the pair reads as one control
-		// that flips, rather than two unrelated buttons.
-		expand: 'M14 4.5h5.5V10M19.5 4.5 13.8 10.2M10 19.5H4.5V14M4.5 19.5l5.7-5.7',
-		collapse: 'M19.5 9.5H14V4M14 9.5l5.5-5.5M4.5 14.5H10V20M10 14.5 4.5 20',
 		// The dot is drawn as a hairline stroke rather than a fill, so it keeps
 		// the same weight as every other glyph in the set.
 		info: 'M12 4.2a7.8 7.8 0 1 0 0 15.6 7.8 7.8 0 0 0 0-15.6ZM12 10.8v5.4M12 7.9v.5',
@@ -171,9 +162,8 @@
 	stroke-width={FILLED.has(name) ? 0 : strokeWidth}
 	stroke-linecap="round"
 	stroke-linejoin="round"
-	role={label ? 'img' : 'presentation'}
-	aria-label={label}
-	aria-hidden={label ? undefined : 'true'}
+	role="presentation"
+	aria-hidden="true"
 >
 	{#if name === 'pause' || name === 'more' || name === 'grip'}
 		<!-- These two are drawn from bare strokes rather than closed shapes, so

@@ -7,7 +7,7 @@
  */
 import type { Playlist, Song } from '$lib/types';
 
-export interface AddRequest {
+interface AddRequest {
 	songIds: string[];
 	/** What the user thinks they are adding, for the dialog's heading. */
 	label: string;
@@ -26,7 +26,7 @@ async function send(url: string, method: string, body?: unknown): Promise<unknow
 	return response.json().catch(() => ({}));
 }
 
-export async function fetchPlaylists(): Promise<Playlist[]> {
+async function fetchPlaylists(): Promise<Playlist[]> {
 	const payload = (await send('/api/playlists', 'GET')) as { playlists?: Playlist[] };
 	return payload.playlists ?? [];
 }
@@ -44,7 +44,7 @@ export async function deletePlaylist(id: string): Promise<void> {
 	await send(`/api/playlists/${encodeURIComponent(id)}`, 'DELETE');
 }
 
-export async function addTracks(id: string, songIds: string[]): Promise<void> {
+async function addTracks(id: string, songIds: string[]): Promise<void> {
 	await send(`/api/playlists/${encodeURIComponent(id)}/tracks`, 'POST', { songIds });
 }
 

@@ -26,7 +26,7 @@ const DRIFT_S = 1;
 const CHECK_MS = 1000;
 const HEARTBEAT_MS = 15_000;
 /** How long a reaction floats on screen. */
-export const REACTION_MS = 2400;
+const REACTION_MS = 2400;
 /** What the server reads of the queue, and how many of its titles it keeps; see `server/together.ts`. */
 const MAX_UPCOMING = 1000;
 const QUEUE_SHOWN = 50;

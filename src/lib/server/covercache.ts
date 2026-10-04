@@ -48,7 +48,7 @@ const TYPES: Record<string, string> = Object.fromEntries(
  * this is two orders above the working case and exists to bound the buffer a
  * request holds, not to reject ordinary artwork.
  */
-export const MAX_ENTRY_BYTES = 8 * 1024 * 1024;
+const MAX_ENTRY_BYTES = 8 * 1024 * 1024;
 
 /**
  * How much may be written between sweeps, as a fraction of the cap, and the
@@ -129,7 +129,7 @@ function viewerTag(viewer: string | null): string {
 		.slice(0, 16);
 }
 
-export function cacheKey(scope: CoverScope, id: string, size: number): string {
+function cacheKey(scope: CoverScope, id: string, size: number): string {
 	const safe =
 		PLAIN_ID.test(id) && id !== '.' && id !== '..'
 			? id

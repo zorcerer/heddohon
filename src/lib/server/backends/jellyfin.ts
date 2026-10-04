@@ -617,18 +617,9 @@ export const jellyfinBackend: MediaBackend = {
 
 	quickConnect,
 
-	async verify(cred) {
-		try {
-			await call(cred, `/Users/${seg(creds(cred).userId)}`);
-			return true;
-		} catch {
-			return false;
-		}
-	},
-
 	/**
-	 * Jellyfin states this on the user record, which `verify` above already
-	 * fetches, so reading it costs one request and no special permission.
+	 * Jellyfin states this on the user record, so reading it costs one request
+	 * and no special permission.
 	 */
 	async isAdmin(cred) {
 		try {

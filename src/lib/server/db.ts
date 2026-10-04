@@ -32,16 +32,6 @@ export interface AccountRow {
 	device_epoch: number | null;
 }
 
-export interface SessionRow {
-	token_digest: string;
-	account_id: string;
-	created_at: number;
-	expires_at: number;
-	last_seen_at: number;
-	client_pseudonym: string | null;
-	device: string | null;
-}
-
 export interface ShareRow {
 	id: string;
 	token_digest: string;
@@ -230,7 +220,7 @@ export interface Store {
 }
 
 /** Where the SQLite database lives, and where an import reads it from. */
-export function sqliteFile(): string {
+function sqliteFile(): string {
 	return join(config().dataDir, 'heddohon.db');
 }
 

@@ -284,7 +284,6 @@
 	--accent-contrast: #0b0c0e;
 
 	--positive: #7fc8a9;
-	--warning: #e0c07e;
 	--danger: #e0777f;
 	/* The hi-res badge. From the artwork like everything else, one step
 	   brighter than the lossless badge's accent; the badge adds a fill and a
@@ -428,7 +427,6 @@
 	--accent-contrast: #fbf6ec;
 
 	--positive: #4f6b3a;
-	--warning: #7a5c2e;
 	--danger: #9c2b1b;
 	--highres: var(--accent-strong);
 

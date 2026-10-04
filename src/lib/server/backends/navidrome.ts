@@ -25,7 +25,7 @@ import type { StoredCredential } from './types';
 export type ScrobblerService = 'lastfm' | 'listenbrainz';
 
 /** One service as this account sees it. `available` is false where the server has it turned off. */
-export type ServiceLink = { available: false } | { available: true; linked: boolean };
+type ServiceLink = { available: false } | { available: true; linked: boolean };
 
 export type ScrobblerLinks = Record<ScrobblerService, ServiceLink>;
 

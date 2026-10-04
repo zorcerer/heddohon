@@ -28,9 +28,9 @@ import { config } from './config';
 import type { Song } from '$lib/types';
 
 /** How long a party lasts at most, and never past the host's session. */
-export const PARTY_TTL_MS = 12 * 60 * 60 * 1000;
+const PARTY_TTL_MS = 12 * 60 * 60 * 1000;
 /** Listeners one party takes. */
-export const MAX_LISTENERS = 50;
+const MAX_LISTENERS = 50;
 /** Parties held at once across the process. */
 const MAX_PARTIES = 200;
 /** One reaction a second per listener. */
@@ -368,7 +368,7 @@ export function reportQueue(
  * server of a deployment with two is a `listener`, as a visitor with no
  * account is. `removed` is an account the host removed.
  */
-export type Standing = 'host' | 'member' | 'listener' | 'removed';
+type Standing = 'host' | 'member' | 'listener' | 'removed';
 
 function standing(party: Party, viewer: AuthenticatedSession | null): Standing {
 	if (!viewer) return 'listener';

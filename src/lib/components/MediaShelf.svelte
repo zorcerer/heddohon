@@ -18,8 +18,6 @@
 		index = null,
 		eyebrow = null,
 		href = null,
-		/** The shelf's name for the buttons, when the title alone would repeat. */
-		label = title,
 		density = 'comfortable',
 		children
 	}: {
@@ -27,7 +25,6 @@
 		index?: number | null;
 		eyebrow?: string | null;
 		href?: string | null;
-		label?: string;
 		density?: 'compact' | 'comfortable';
 		children: Snippet;
 	} = $props();
@@ -67,7 +64,7 @@
 						class="hh-button step"
 						onclick={() => page(-1)}
 						disabled={atStart}
-						aria-label="Scroll {label} back"
+						aria-label="Scroll {title} back"
 					>
 						<Icon name="chevron-left" size={16} />
 					</button>
@@ -75,7 +72,7 @@
 						class="hh-button step"
 						onclick={() => page(1)}
 						disabled={atEnd}
-						aria-label="Scroll {label} on"
+						aria-label="Scroll {title} on"
 					>
 						<Icon name="chevron-right" size={16} />
 					</button>

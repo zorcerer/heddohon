@@ -36,7 +36,7 @@ import { forgetSharedItems, revokeAllShares } from './shares';
 import { foldName } from './names';
 import { endPartiesOf } from './together';
 
-export const SESSION_COOKIE = 'heddohon_session';
+const SESSION_COOKIE = 'heddohon_session';
 
 /**
  * The name used wherever the cookie is `Secure`.
@@ -53,7 +53,7 @@ export const SESSION_COOKIE = 'heddohon_session';
  * `Domain`, so nothing but this exact host can write one. The prefix requires
  * `Secure`, which is why the bare name is still used where the cookie is not.
  */
-export const SESSION_COOKIE_HOST = `__Host-${SESSION_COOKIE}`;
+const SESSION_COOKIE_HOST = `__Host-${SESSION_COOKIE}`;
 
 /** What the cookie helpers need from a request. */
 export interface CookieContext {
@@ -627,15 +627,6 @@ async function pruneExpiredSessions(): Promise<void> {
 	await (await store()).run('DELETE FROM sessions WHERE expires_at <= ?', timestamp);
 }
 
-export async function activeSessionCount(accountId: string): Promise<number> {
-	const row = await (await store()).get<{ count: number }>(
-		'SELECT COUNT(*) AS count FROM sessions WHERE account_id = ? AND expires_at > ?',
-		accountId,
-		now()
-	);
-	return Number(row?.count ?? 0);
-}
-
 /**
  * The name a session goes by in Settings, where each one can be signed out.
  *
@@ -644,7 +635,7 @@ export async function activeSessionCount(accountId: string): Promise<number> {
  * itself an HMAC of the token, so a handle leads back to neither. A request to
  * end one is matched against the account's own sessions only.
  */
-export function sessionHandle(digest: string): string {
+function sessionHandle(digest: string): string {
 	return createHash('sha256').update(`session-handle:${digest}`).digest('hex').slice(0, 16);
 }
 

@@ -143,7 +143,7 @@ const STAMP = /\[(\d{1,3}):(\d{1,2})(?:[.:](\d{1,3}))?\]/g;
  * dropped, apart from `[offset:...]`, which shifts every stamp by the given
  * milliseconds as the format defines.
  */
-export function parseLrc(source: string): LyricLine[] {
+function parseLrc(source: string): LyricLine[] {
 	const offsetTag = /\[offset:\s*([+-]?\d+)\s*\]/i.exec(source);
 	const offset = offsetTag ? Number(offsetTag[1]) : 0;
 	const lines: LyricLine[] = [];

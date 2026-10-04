@@ -27,7 +27,7 @@ import { AudioChain } from './audiochain';
 import { coverUrl, streamUrl } from './format';
 import { radioStreamUrl } from './radio';
 
-export type RepeatMode = 'off' | 'all' | 'one';
+type RepeatMode = 'off' | 'all' | 'one';
 
 /**
  * A single silent sample. Played and immediately paused on the first real user
@@ -96,14 +96,14 @@ const DUCK_MS = 150;
  * A sleep timer: pause at a time on the clock, or when the current track ends.
  * Transient, like `queueOpen`: a reload drops it.
  */
-export type SleepTimer = { kind: 'at'; at: number; minutes: number } | { kind: 'track' };
+type SleepTimer = { kind: 'at'; at: number; minutes: number } | { kind: 'track' };
 
 /**
  * Whether `next` comes straight after `current` on the same album: the next
  * track on the same disc, or the first track of the next disc. A file without
  * a disc number is on disc 1.
  */
-export function followsOnAlbum(current: Song, next: Song): boolean {
+function followsOnAlbum(current: Song, next: Song): boolean {
 	if (!current.albumId || current.albumId !== next.albumId || current.track === null || next.track === null) return false;
 	const disc = current.disc ?? 1;
 	const nextDisc = next.disc ?? 1;
@@ -157,7 +157,7 @@ interface PersistPayload {
 	orderIds?: string[];
 }
 
-export class Player {
+class Player {
 	/** The queue in play order. Shuffling rewrites this, so it is always literal. */
 	queue = $state<Song[]>([]);
 	index = $state(0);
@@ -585,22 +585,6 @@ export class Player {
 		this.#persist();
 	}
 
-	/** Queues songs directly after the current track. */
-	playNext(songs: Song[]) {
-		if (songs.length === 0) return;
-		if (this.queue.length === 0) {
-			void this.playNow(songs);
-			return;
-		}
-		this.queue = [
-			...this.queue.slice(0, this.index + 1),
-			...songs,
-			...this.queue.slice(this.index + 1)
-		];
-		this.#invalidatePreload();
-		this.#persist();
-	}
-
 	addToQueue(songs: Song[]) {
 		if (songs.length === 0) return;
 		if (this.queue.length === 0) {
@@ -985,10 +969,6 @@ export class Player {
 		// The new track starts from its top, at full level.
 		this.#lift(true);
 		await loading;
-	}
-
-	seekByFraction(fraction: number) {
-		if (this.duration > 0) this.seek(fraction * this.duration);
 	}
 
 	setVolume(value: number) {

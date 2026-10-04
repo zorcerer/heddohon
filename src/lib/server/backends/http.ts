@@ -225,7 +225,7 @@ async function fetchWithinOrigin(url: string, init: RequestInit, path: string): 
  * `Promise.all` opened 1000 concurrent `getSong.view` calls for one request from
  * any signed-in account.
  */
-export const UPSTREAM_FANOUT = 8;
+const UPSTREAM_FANOUT = 8;
 
 /**
  * `Promise.all` over `items` with at most `limit` calls running at once. Results

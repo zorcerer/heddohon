@@ -23,7 +23,7 @@ export interface UpstreamConfig {
  * Where accounts, sessions, settings and links are kept. SQLite in the data
  * directory unless `HEDDOHON_DATABASE_URL` names a PostgreSQL server.
  */
-export type DatabaseConfig =
+type DatabaseConfig =
 	| { kind: 'sqlite' }
 	| {
 			kind: 'postgres';
@@ -85,7 +85,7 @@ export class ConfigError extends Error {}
  * `keytool` and `apksigner` print. Its key is held in the repository's
  * secrets and signs the APK attached to each release.
  */
-export const ANDROID_RELEASE_KEY =
+const ANDROID_RELEASE_KEY =
 	'3C:D0:5B:A1:45:77:D7:1F:68:4E:61:51:AF:7C:0F:3F:BE:10:15:A8:BB:52:B2:28:FA:54:B4:11:AC:14:DE:52';
 
 /** A fingerprint as 32 pairs of hex digits with colons between, upper case. */
@@ -171,7 +171,7 @@ function flagEnv(name: string, fallback: boolean): boolean {
  * The operator chooses the lifetime, shorter or longer. The upper bound, 100
  * years, only keeps the expiry inside what a date holds.
  */
-export const DEFAULT_SESSION_HOURS = 30 * 24;
+const DEFAULT_SESSION_HOURS = 30 * 24;
 const MAX_SESSION_HOURS = 100 * 365 * 24;
 
 /**

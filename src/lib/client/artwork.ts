@@ -181,7 +181,7 @@ export function colorOfImage(image: HTMLImageElement): ArtworkColor | null {
 }
 
 /** Memoised so re-visiting an album does not re-decode its cover. */
-export async function artworkColor(coverArt: string | null | undefined): Promise<ArtworkColor | null> {
+async function artworkColor(coverArt: string | null | undefined): Promise<ArtworkColor | null> {
 	if (!coverArt || typeof document === 'undefined') return null;
 
 	const cached = cache.get(coverArt);

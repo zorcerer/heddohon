@@ -68,7 +68,7 @@ export interface RadioStationSource {
 	homePageUrl: string | null;
 }
 
-export interface PlaylistMove {
+interface PlaylistMove {
 	from: number;
 	to: number;
 	/** The song the caller saw at `from`. */
@@ -124,7 +124,7 @@ export interface QuickConnect {
  * Subsonic backend, where `status` answers null for a server that is not
  * Navidrome. `backends/navidrome.ts` has the details.
  */
-export interface Scrobblers {
+interface Scrobblers {
 	status(cred: StoredCredential): Promise<ScrobblerLinks | null>;
 	/** False when ListenBrainz says the token is not valid. */
 	linkListenBrainz(cred: StoredCredential, token: string): Promise<boolean>;
@@ -151,9 +151,6 @@ export interface MediaBackend {
 
 	/** Present only where the server can link Last.fm and ListenBrainz. */
 	readonly scrobblers?: Scrobblers;
-
-	/** Cheap liveness/authorisation check for an existing credential. */
-	verify(cred: StoredCredential): Promise<boolean>;
 
 	/**
 	 * Whether this account administers the music server, or null when the

@@ -53,8 +53,6 @@
 	}
 
 
-	const isPlayingThisAlbum = $derived(player.current?.albumId === album.id && player.playing);
-
 	// This album is the subject of the page, so it colours the whole room while
 	// nothing is playing. It does not override the tint on its own subtree any
 	// more: a hero in one colour inside a page in another is exactly the

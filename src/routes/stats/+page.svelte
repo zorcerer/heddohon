@@ -20,7 +20,6 @@
 	] as const;
 
 	const HOUR_MS = 60 * 60 * 1000;
-	const DAY_MS = 24 * HOUR_MS;
 
 	const plural = (count: number, noun: string) => `${count.toLocaleString()} ${noun}${count === 1 ? '' : 's'}`;
 	const hoursListened = $derived(stats.seconds / 3600);

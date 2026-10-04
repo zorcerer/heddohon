@@ -42,7 +42,7 @@ import { log, reason } from './log';
 
 const IDLE_MS = 15 * 60_000;
 const MAX_TOTAL_BYTES = 192 * 1024 * 1024;
-export const MAX_ENTRY_BYTES = 64 * 1024 * 1024;
+const MAX_ENTRY_BYTES = 64 * 1024 * 1024;
 const MAX_READING = 4;
 const MAX_READING_PER_ACCOUNT = 2;
 

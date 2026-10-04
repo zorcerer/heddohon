@@ -20,7 +20,7 @@ import type { AuthenticatedSession } from './auth';
  * browser asks again for tracks it reaches after this. Never past the
  * session's own expiry.
  */
-export const CAST_TTL_MS = 6 * 60 * 60 * 1000;
+const CAST_TTL_MS = 6 * 60 * 60 * 1000;
 
 export interface CastGrant {
 	accountId: string;

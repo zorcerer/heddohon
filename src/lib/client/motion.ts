@@ -80,7 +80,7 @@ export function motion(duration: number): number {
  *
  * Returns a function that cancels whatever is still running.
  */
-export function sweepIn(lines: HTMLElement[], controls: HTMLElement[] = []): () => void {
+function sweepIn(lines: HTMLElement[], controls: HTMLElement[] = []): () => void {
 	if (prefersReducedMotion()) return () => {};
 	const running: Animation[] = [];
 	const mask = 'linear-gradient(90deg, #000 33.3%, transparent 66.6%)';

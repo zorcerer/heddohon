@@ -467,15 +467,6 @@ export const subsonicBackend: MediaBackend = {
 		return { credential: cred, remoteUserId: username };
 	},
 
-	async verify(cred) {
-		try {
-			await call(cred, 'ping.view');
-			return true;
-		} catch {
-			return false;
-		}
-	},
-
 	/**
 	 * `getUser` for the caller's own account. Navidrome answers this for the
 	 * account asking, and reserves other usernames for administrators, so no

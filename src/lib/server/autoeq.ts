@@ -43,7 +43,7 @@ const RETRY_MS = 5 * 60 * 1000;
 const PROFILE_TTL_MS = 24 * 60 * 60 * 1000;
 const MAX_PROFILES = 500;
 const INDEX_FILE = 'autoeq-index.json';
-export const MAX_RESULTS = 20;
+const MAX_RESULTS = 20;
 export const MAX_QUERY_LENGTH = 80;
 
 export interface AutoEqEntry {
@@ -84,7 +84,7 @@ const fold = (text: string) =>
 const ENTRY = /^- \[(.+)\]\(\.\/(.+)\) by (.+?)(?: on (.+))?$/;
 
 /** The profiles listed in INDEX.md: `- [Name](./source/rig/Name) by Source on Rig`. */
-export function parseIndex(markdown: string): AutoEqEntry[] {
+function parseIndex(markdown: string): AutoEqEntry[] {
 	const entries: AutoEqEntry[] = [];
 	const seen = new Set<string>();
 	for (const line of markdown.split(/\r?\n/)) {

@@ -24,7 +24,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
  * keeps its history: 5000 for 90 days, 50,000 for a year, which is a year at
  * about 140 tracks a day, and no limit for 0, kept for good (the default).
  */
-export function maxPlays(keepDays: number): number {
+function maxPlays(keepDays: number): number {
 	if (keepDays === 0) return Infinity;
 	return keepDays > 90 ? 50_000 : 5000;
 }
@@ -204,14 +204,14 @@ export function periodStart(period: StatsPeriod, now = Date.now()): number {
 	return 0;
 }
 
-export interface RankedArtist {
+interface RankedArtist {
 	id: string | null;
 	name: string;
 	plays: number;
 	coverArt: string | null;
 }
 
-export interface RankedAlbum {
+interface RankedAlbum {
 	id: string;
 	name: string;
 	artist: string | null;
@@ -219,7 +219,7 @@ export interface RankedAlbum {
 	coverArt: string | null;
 }
 
-export interface RankedTrack {
+interface RankedTrack {
 	id: string;
 	title: string;
 	artist: string | null;
@@ -426,7 +426,7 @@ export interface ForgottenAlbum {
 }
 
 /** How long an album has gone unplayed before "Rediscover" offers it. */
-export const REDISCOVER_AFTER_DAYS = 180;
+const REDISCOVER_AFTER_DAYS = 180;
 
 /**
  * Plays an album needs to count as played often. An imported history has one

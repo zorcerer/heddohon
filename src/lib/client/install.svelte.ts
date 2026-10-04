@@ -48,7 +48,7 @@ interface BeforeInstallPromptEvent extends Event {
  * How this device gets the app: one of ours from the release (`app-*`), the
  * browser's own dialog, a line of instruction, or not at all.
  */
-export type InstallRoute = 'app-windows' | 'app-linux' | 'app-android' | 'prompt' | 'safari-mac' | 'safari-ios' | 'edge' | null;
+type InstallRoute = 'app-windows' | 'app-linux' | 'app-android' | 'prompt' | 'safari-mac' | 'safari-ios' | 'edge' | null;
 
 /** The line shown where there is no button to press. */
 export const INSTALL_STEPS: Record<'safari-mac' | 'safari-ios' | 'edge', string> = {

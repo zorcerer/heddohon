@@ -18,7 +18,7 @@ export type ThemeName = 'dark' | 'light';
  * would find themselves in the dark one with no explanation.
  */
 const LEGACY_THEMES: Record<string, ThemeName> = { polar: 'dark', snow: 'light' };
-export type CrossfadeMode = 'off' | 'gapless' | 'crossfade';
+type CrossfadeMode = 'off' | 'gapless' | 'crossfade';
 
 /**
  * Codecs a music server may be asked to transcode to.
@@ -27,11 +27,11 @@ export type CrossfadeMode = 'off' | 'gapless' | 'crossfade';
  * Jellyfin can produce. Anything else would be a setting that silently does
  * nothing on most installations.
  */
-export const TRANSCODE_CODECS = ['mp3', 'opus', 'aac'] as const;
-export type TranscodeCodec = (typeof TRANSCODE_CODECS)[number];
+const TRANSCODE_CODECS = ['mp3', 'opus', 'aac'] as const;
+type TranscodeCodec = (typeof TRANSCODE_CODECS)[number];
 
 /** Bitrates offered, in kbps. */
-export const TRANSCODE_BITRATES = [96, 128, 192, 256, 320] as const;
+const TRANSCODE_BITRATES = [96, 128, 192, 256, 320] as const;
 
 export interface UserSettings {
 	theme: ThemeName;
@@ -157,7 +157,7 @@ function clamp(value: number, min: number, max: number, fallback: number): numbe
 }
 
 /** Accepts anything, returns something valid. Never trusts the client payload. */
-export function sanitizeSettings(input: unknown, base: UserSettings = DEFAULT_SETTINGS): UserSettings {
+function sanitizeSettings(input: unknown, base: UserSettings = DEFAULT_SETTINGS): UserSettings {
 	const raw = (typeof input === 'object' && input !== null ? input : {}) as Record<string, unknown>;
 	const pick = <T extends string>(key: keyof UserSettings, allowed: readonly T[], fallback: T): T => {
 		const value = raw[key];
@@ -312,7 +312,7 @@ export async function getPlayState(accountId: string): Promise<PersistedPlayStat
 	}
 }
 
-export function sanitizePlayState(input: unknown): PersistedPlayState {
+function sanitizePlayState(input: unknown): PersistedPlayState {
 	const raw = (typeof input === 'object' && input !== null ? input : {}) as Record<string, unknown>;
 	const ids = (value: unknown) =>
 		Array.isArray(value)

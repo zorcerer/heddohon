@@ -60,7 +60,7 @@ interface Peer extends RemotePeer {
  * at most 50 sessions; 20 tabs with the player open covers a household and
  * keeps a script that opens streams in a loop to a bounded cost.
  */
-export const MAX_PEERS_PER_ACCOUNT = 20;
+const MAX_PEERS_PER_ACCOUNT = 20;
 
 const accounts = new Map<string, Map<string, Peer>>();
 

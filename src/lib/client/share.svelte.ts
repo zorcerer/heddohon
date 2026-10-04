@@ -16,10 +16,10 @@ export const SHARE_LIFETIMES = [
 	{ days: 30, label: '30 days' }
 ] as const;
 
-export type ShareDays = (typeof SHARE_LIFETIMES)[number]['days'];
+type ShareDays = (typeof SHARE_LIFETIMES)[number]['days'];
 
 /** What the dialog is making a link to. */
-export interface ShareSubject {
+interface ShareSubject {
 	kind: 'song' | 'album' | 'playlist';
 	id: string;
 	title: string;
@@ -28,7 +28,7 @@ export interface ShareSubject {
 	coverArt: string | null;
 }
 
-export interface MadeLink {
+interface MadeLink {
 	url: string;
 	expiresAt: number;
 }
