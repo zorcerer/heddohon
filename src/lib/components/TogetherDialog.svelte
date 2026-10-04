@@ -2,9 +2,9 @@
 	/**
 	 * The listen-together link and who is listening, for the host: the count,
 	 * and the members by name, each with a button that removes them. Mounted
-	 * once in the root layout; `client/together.svelte.ts` holds the state.
-	 * The line under the dialog is what "Add to listen together" on a track
-	 * came to, for a member adding from the app.
+	 * once in the root layout; `client/together.svelte.ts` holds the state. The
+	 * line under the dialog is what "Add to listen together" on a track came
+	 * to, for a member adding from the app.
 	 */
 	import { together } from '$lib/client/together.svelte';
 	import Icon from './Icon.svelte';

@@ -17,11 +17,9 @@
 	} = $props();
 
 	/*
-	 * What is being delivered, not what is in the library.
-	 *
-	 * While the music server is converting, the file's own depth and rate are
-	 * not what is coming down the wire, and a badge that kept saying FLAC 24/96
-	 * over a 192kbps MP3 would be the one piece of the interface that lies.
+	 * What is being delivered, not what is in the library. While the music
+	 * server is converting, the badge shows the conversion and not the file's
+	 * own depth and rate.
 	 */
 	const label = $derived(
 		transcode ? `${transcode.codec.toUpperCase()} ${transcode.bitrateKbps}` : formatQuality(quality)
@@ -53,8 +51,7 @@
 				<span class="dot" aria-hidden="true"></span>
 			{/if}
 			<!-- Keyed: pressing it swaps "FLAC 16/44.1" for "OPUS 160" and back,
-			     and the new words rise into place rather than replacing the old
-			     in one frame. -->
+			     and the new words rise into place. -->
 			{#key label}
 				<span class="swap">{label}</span>
 			{/key}
@@ -113,7 +110,7 @@
 	}
 
 	/* Both from the artwork: lossless as an outline in the accent, hi-res as a
-	   filled badge in the stronger accent. Both stay well short of a glow. */
+	   filled badge in the stronger accent. */
 	.lossless {
 		border-color: color-mix(in srgb, var(--accent) 45%, transparent);
 		color: var(--accent);
@@ -133,11 +130,8 @@
 		background: currentColor;
 	}
 
-	/*
-	 * Neither of the two quality treatments: a converted stream is not lossless
-	 * and certainly not high resolution, and dressing it in either would undo
-	 * the point of the badge. A dashed edge says the same thing the label does.
-	 */
+	/* Neither quality treatment: a converted stream is not lossless or high
+	   resolution. The dashed edge says what the label does. */
 	.transcoded {
 		border-style: dashed;
 		border-color: var(--text-faint);

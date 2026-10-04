@@ -5,10 +5,9 @@
 	import { warmAlbumCover } from '$lib/client/format';
 
 	/**
-	 * An album at list size: a small cover beside its title and artist. For a
-	 * column of places to go back to, where a full card would take a screen for
-	 * six of them. It opens the album; playing is on the album page, one press
-	 * away, as on the cards.
+	 * An album at list size: a small cover beside its title and artist, for a
+	 * column of places to go back to, where six full cards would take a screen.
+	 * It opens the album. Playing is on the album page, as on the cards.
 	 */
 	let { album }: { album: Album } = $props();
 

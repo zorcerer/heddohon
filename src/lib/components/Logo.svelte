@@ -2,22 +2,20 @@
 	/**
 	 * The mark.
 	 *
-	 * Heddohon is ヘッドホン — the Japanese word for headphones — so the mark is
-	 * built the way a *kamon* is: a family crest, drawn inside an enclosing ring
-	 * (the 丸に "within a circle" convention), strictly symmetric about the
-	 * vertical, made of solid forms separated by even negative space, and
-	 * carrying no detail that dies at 16px.
+	 * Heddohon is ヘッドホン, the Japanese word for headphones, so the mark is
+	 * built as a *kamon*, a family crest: drawn inside an enclosing ring (the
+	 * 丸に "within a circle" convention), symmetric about the vertical, made of
+	 * solid forms separated by even negative space, with no detail lost at
+	 * 16px.
 	 *
-	 * The subject is the thing the name says. A headband arc concentric with the
-	 * ring, two solid earcups hanging from its ends. The proportions are not
-	 * free: the gap between the band and the ring is what makes it read as a
-	 * crest rather than as an icon in a circle, and it was settled by rendering
-	 * the alternatives side by side at 64, 32 and 16px rather than on paper.
-	 * Closing that gap turns the interior into a solid mass; opening it further
-	 * leaves the ring looking unrelated to what it encloses.
+	 * A headband arc concentric with the ring, with two solid earcups hanging
+	 * from its ends. The gap between the band and the ring was settled by
+	 * rendering the alternatives at 64, 32 and 16px: closed, the interior
+	 * becomes a solid mass, and wider, the ring looks unrelated to what it
+	 * encloses.
 	 *
-	 * Everything is drawn on a 32-unit box. The surrounding tile is the caller's
-	 * to draw, which is why there is no background here.
+	 * Drawn on a 32-unit box. The surrounding tile is the caller's to draw, so
+	 * there is no background here.
 	 */
 	let { size = 24 }: { size?: number } = $props();
 </script>

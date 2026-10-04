@@ -10,7 +10,7 @@
 		/**
 		 * Show only as many cards as fill whole rows. For a section that is a
 		 * capped selection (the album page's "More from" and "You might like",
-		 * eight each), not for a list whose every entry counts. Eight in rows of
+		 * eight each), not a list whose every entry counts. Eight in rows of
 		 * three left two cards and an empty third of a row on every phone.
 		 */
 		wholeRows?: boolean;
@@ -18,27 +18,22 @@
 	} = $props();
 
 	/*
-	 * Pixels, not rem, so these do not follow the interface scale.
+	 * Pixels, not rem, so these do not follow the interface scale. A cover made
+	 * half again as large is no more legible, and fewer fit in the row: at 150%
+	 * in rem, a 1366px iPad showed two comfortable columns beside the player
+	 * against four at 100%.
 	 *
-	 * Everything else is rem and grows with the scale, and for type and controls
-	 * that is the point. A cover is a picture: making it half again as large
-	 * does not make it more legible, it just fits fewer in the row. Measured at
-	 * 150% when these were rem: a 1366px iPad showed two comfortable columns
-	 * beside the player against four at 100%.
-	 *
-	 * The values are the rem sizes these were, resolved against the 16px root
-	 * the design was drawn at: 9, 11.5 and 14.5rem. The row still rounds down to
-	 * whole cards and `1fr` shares out the remainder, so the count is not fixed,
-	 * but it no longer falls away as the scale rises.
+	 * The values are the former rem sizes at the 16px root the design was drawn
+	 * at: 9, 11.5 and 14.5rem. The row still rounds down to whole cards and
+	 * `1fr` shares out the remainder.
 	 */
 	const MIN_WIDTH = { compact: '144px', comfortable: '184px', roomy: '232px' };
 
 	/*
-	 * The column count is whatever `auto-fill` makes of the width, so it is read
-	 * back from the grid, which lists every track it laid out, filled or not,
-	 * and read again when the width changes or cards arrive. A single short row
-	 * is kept whole: fewer cards than columns is a row of its own. On a phone
-	 * the CSS below has already done this for the first paint.
+	 * The column count is whatever `auto-fill` makes of the width, so it is
+	 * read back from the grid, which lists every track it laid out, and read
+	 * again when the width changes or cards arrive. A single short row is kept
+	 * whole. On a phone the CSS below has done this for the first paint.
 	 */
 	function trim(grid: HTMLElement) {
 		const apply = () => {
@@ -77,10 +72,10 @@
 	}
 
 	/*
-	 * A phone: a fixed count rather than a minimum width. At 184px an iPhone 16,
-	 * with 361px of content, fitted one card per row, so a library of 300 albums
-	 * was 300 screens of scrolling. Three to a row puts each sleeve at about
-	 * 110px, which still reads as a cover. Roomy keeps its meaning at two.
+	 * A phone: a fixed count, not a minimum width. At 184px an iPhone 16, with
+	 * 361px of content, fitted one card per row, so 300 albums were 300 screens
+	 * of scrolling. Three to a row puts each sleeve at about 110px. Roomy keeps
+	 * its meaning at two.
 	 */
 	@media (max-width: 36rem) {
 		.grid {

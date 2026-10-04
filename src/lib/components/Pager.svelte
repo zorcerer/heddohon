@@ -25,8 +25,8 @@
 	const counted = $derived(typeof pageCount === 'number' && typeof total === 'number');
 </script>
 
-<!-- Somewhere to go in either direction is the only reason to render this. A
-     counted listing with one page has neither, so this also covers that. -->
+<!-- Rendered only when there is somewhere to go in either direction, which
+     also covers a counted listing of one page. -->
 {#if hasPrevious || hasNext}
 	<nav class="pager" aria-label={label}>
 		{#if hasPrevious}
@@ -68,10 +68,9 @@
 	}
 
 	/*
-	 * Both ends have to be pinned. A grid item with no `justify-self` stretches
-	 * to fill its track, so pinning only the right one left Previous spanning a
-	 * whole `1fr` column — a button several hundred pixels wide next to a
-	 * content-width Next.
+	 * Both ends are pinned. A grid item with no `justify-self` stretches to
+	 * fill its track, so with only the right one pinned Previous spanned a
+	 * whole `1fr` column beside a content-width Next.
 	 */
 	.previous {
 		justify-self: start;

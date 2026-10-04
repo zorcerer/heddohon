@@ -13,9 +13,9 @@
 	/** Set by a press that favourites, for the one-off pop below. */
 	let popped = $state(false);
 
-	// Optimistic: the heart flips immediately and reverts if the server
-	// disagrees. The state is kept per item in favourites.svelte.ts, not here,
-	// since the player passes this one instance a new `id` at each track change.
+	// Optimistic: the heart flips at once and reverts if the server refuses. The
+	// state is kept per item in favourites.svelte.ts, since the player passes
+	// this one instance a new `id` at each track change.
 	const active = $derived(isStarred(kind, id, starred));
 
 	// A pop started for one item does not carry over to the next.
@@ -74,10 +74,9 @@
 	}
 
 	/*
-	 * The heart swells and settles as it fills, so the press is answered on the
-	 * glyph rather than only by a change of colour. The glyph moves and the
-	 * button does not: in the player panel this button carries a
-	 * backdrop-filter, and transforms stay off glass in this codebase.
+	 * The heart swells and settles as it fills. The glyph moves and the button
+	 * does not: in the player panel this button carries a backdrop-filter, and
+	 * transforms stay off glass.
 	 */
 	.fav.popped :global(svg) {
 		animation: heart-pop var(--dur-state) var(--ease-out);

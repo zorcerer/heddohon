@@ -8,10 +8,10 @@
 	 * numbered and ruled header as a grid section.
 	 *
 	 * A grid of 11 albums wrapped to three rows at 1440px with the player open,
-	 * about 800px of the page for one shelf. In one line the shelf is 310px and
-	 * the next one starts on the first screen. The card past the edge is cut,
-	 * which is what says the line goes on; the buttons in the header page it by
-	 * most of its width for a mouse, and a trackpad or a finger scrolls it.
+	 * about 800px of the page. In one line the shelf is 310px. The card past
+	 * the edge is cut, which shows the line goes on. The buttons in the header
+	 * page it by most of its width for a mouse, and a trackpad or a finger
+	 * scrolls it.
 	 */
 	let {
 		title,
@@ -97,17 +97,16 @@
 	/*
 	 * A grid item sizes to its content's minimum, and a line of cards is as
 	 * wide as all of them: without this the shelf widened the page to fit the
-	 * whole line and pushed everything beside it out of the column.
+	 * line and pushed everything beside it out of the column.
 	 */
 	.shelf {
 		min-width: 0;
 	}
 
 	/*
-	 * Pixels for the card width, as in `MediaGrid`: a cover does not get more
-	 * legible at a larger interface scale. 176 and 136 are a little under the
-	 * grid's minimums, which a grid stretches to fill its row and a line does
-	 * not.
+	 * Pixels for the card width, as in `MediaGrid`. 176 and 136 are a little
+	 * under the grid's minimums, which a grid stretches to fill its row and a
+	 * line does not.
 	 */
 	.track {
 		--card: 176px;
@@ -123,10 +122,9 @@
 		 * Room inside the scroller for what a card does on hover: the sleeve
 		 * lifts 4px and casts a 24px shadow 12px down, and a scroller clips on
 		 * both axes once it scrolls on one. The glow reaches 16px past a card's
-		 * box; at 12px of room the first card's was cut off along the rail. 16px
-		 * is also the least padding the content column has, on a phone. The
-		 * negative margins give the room back to the layout, so the first card
-		 * lines up with the header.
+		 * box, and 16px is also the least padding the content column has, on a
+		 * phone. The negative margins give the room back to the layout, so the
+		 * first card lines up with the header.
 		 */
 		padding: var(--space-2) var(--space-4) var(--space-6);
 		margin: calc(-1 * var(--space-2)) calc(-1 * var(--space-4)) calc(-1 * var(--space-5));
@@ -134,11 +132,11 @@
 		/*
 		 * The line runs to the edge of the content column, where a cover and its
 		 * title were cut off square beside the player. An edge with more cards
-		 * past it fades out over `--fade` instead; an edge the line ends at is
-		 * left whole, so the first and last card are never dimmed. The two widths
-		 * are registered lengths (`app.css`), which is what lets them ease as the
-		 * line reaches an end. No card holds glass, which a mask on an ancestor
-		 * would leave without its blur.
+		 * past it fades out over `--fade`. An edge the line ends at is left
+		 * whole, so the first and last card are never dimmed. The two widths are
+		 * registered lengths (`app.css`), so they ease as the line reaches an
+		 * end. No card holds glass, which a mask on an ancestor would leave
+		 * without its blur.
 		 */
 		--fade: 3rem;
 		-webkit-mask-image: linear-gradient(

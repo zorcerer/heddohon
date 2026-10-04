@@ -25,8 +25,8 @@
 	/*
 	 * Where the rail points: the page being opened while it loads, then that
 	 * page. Following the address alone, the marker waited for the next page's
-	 * data before it moved, and on a slow one it sat for 46 frames and then
-	 * jumped. An abandoned navigation clears `navigating`, and it goes back.
+	 * data, and on a slow one sat for 46 frames and then jumped. An abandoned
+	 * navigation clears `navigating`, and it goes back.
 	 */
 	const path = $derived(navigating.to?.url.pathname ?? page.url.pathname);
 
@@ -38,15 +38,14 @@
 	}
 
 	/*
-	 * The active marker slides from one destination to the next on the spring,
-	 * instead of disappearing from one and appearing at the other.
+	 * The active marker slides from one destination to the next on the spring.
 	 *
 	 * The server cannot measure, so the first paint keeps the marker each link
 	 * draws for itself, and this one takes over once it has a position
 	 * (`measured`), placed without travel the first time. It moves by
-	 * `translate` inside the rail's glass, holding none of its own, so the
-	 * rail's blur is untouched. Settings is below the list, so on that page the
-	 * marker fades out here and Settings draws its own.
+	 * `translate` inside the rail's glass and holds none, so the rail's blur is
+	 * untouched. Settings is below the list, so on that page the marker fades
+	 * out here and Settings draws its own.
 	 */
 	let list = $state<HTMLUListElement | null>(null);
 	let anchors = $state<Array<HTMLAnchorElement | null>>([]);
@@ -82,10 +81,10 @@
 	}
 
 	/*
-	 * The bar draws out along its path as it travels, to about twice its
-	 * length a third of the way, and gathers back as it lands, so the move reads
-	 * as a slide rather than a hop. Scale on the bar itself, apart from the
-	 * `translate` that carries it, so the two do not interrupt each other.
+	 * The bar draws out along its path as it travels, to about twice its length
+	 * a third of the way, and gathers back as it lands. Scale on the bar
+	 * itself, apart from the `translate` that carries it, so the two do not
+	 * interrupt each other.
 	 */
 	function stretch(from: { x: number; y: number }, to: { x: number; y: number }) {
 		const duration = motion(DUR.travel);
@@ -111,14 +110,11 @@
 </script>
 
 <!--
-	Icons only. The glyphs carry six destinations on their own, and a column of
-	labels beside them was 11rem of rail that the content and the player could
-	use instead.
+	Icons only. A column of labels beside them was 11rem of rail.
 
-	The labels stay in the markup, clipped rather than `display: none`. A
-	removed label takes the accessible name with it, which would leave the whole
-	of the primary navigation as unnamed links; `title` then gives a pointer the
-	same word on hover.
+	The labels stay in the markup, clipped and not `display: none`: a removed
+	label takes the accessible name with it, leaving the primary navigation as
+	unnamed links. `title` gives a pointer the same word on hover.
 -->
 <nav class="rail hh-glass hh-tint-morph hh-float" class:measured aria-label="Primary">
 	<a class="brand" href="/" title={appName}>
@@ -170,11 +166,8 @@
 			<span class="hh-visually-hidden">Settings</span>
 		</a>
 
-		<!--
-			Styled as one of the rail's links rather than as a control of its own:
-			it belongs to the same column, and it inherits the collapse-to-icon
-			behaviour the links already have at narrow widths for free.
-		-->
+		<!-- Styled as one of the rail's links: it is in the same column, and gets
+		     their collapse-to-icon behaviour at narrow widths. -->
 		<form method="POST" action="/logout">
 			<button class="link signout" type="submit" title="Sign out">
 				<Icon name="logout" size={19} />
@@ -202,17 +195,13 @@
 		display: grid;
 		place-items: center;
 		padding: 0 0 var(--space-4);
-		/* The rail reads as three things — identity, where you can go, your
-		   account — and the rule is what says the first one has ended. */
+		/* The rail is three things: identity, where you can go, your account. The
+		   rule ends the first. */
 		border-bottom: 1px solid var(--border-hairline);
 	}
 
-	/*
-	 * Glass with the crest in the accent, not a filled accent tile. A solid
-	 * block of colour is the one thing in the chrome that was not made of the
-	 * same material as everything else, and it is the first thing your eye hits
-	 * on every page.
-	 */
+	/* Glass with the crest in the accent, not a filled accent tile, so the mark
+	   is made of the same material as the rest of the chrome. */
 	.mark {
 		display: grid;
 		place-items: center;
@@ -227,13 +216,9 @@
 	}
 
 	/*
-	 * Set as a label, not a headline.
-	 *
-	 * It was the display face at 1.45rem and weight 800 — the same treatment an
-	 * album title gets, in the corner of every page, competing with the actual
-	 * headline three inches to its right. Mono, small and widely tracked reads
-	 * as a marking on a piece of equipment instead, which is what a name in a
-	 * corner is for, and it stops fighting the content.
+	 * Set as a label, not a headline. In the display face at 1.45rem and weight
+	 * 800 it had an album title's treatment in the corner of every page, beside
+	 * the page's own headline. Mono, small and widely tracked.
 	 */
 	.wordmark {
 		font-family: var(--font-mono);
@@ -255,11 +240,8 @@
 		align-content: start;
 	}
 
-	/*
-	 * A square target rather than a row. The glyph is centred in it, which is
-	 * what stops a column of icons reading as a column of left-aligned text
-	 * that lost its words.
-	 */
+	/* A square target with the glyph centred in it, so a column of icons does
+	   not read as left-aligned text without its words. */
 	.link {
 		display: grid;
 		place-items: center;
@@ -279,9 +261,9 @@
 		text-shadow: var(--glow-text);
 	}
 
-	/* The glyph cannot take a text-shadow, so it gets the same halo as a filter.
-	   Applied to the svg rather than the link, which would drop-shadow the
-	   label as well and double it up with the text-shadow above. */
+	/* The glyph cannot take a text-shadow, so it gets the same halo as a filter,
+	   on the svg: on the link it would also shadow the label, over the
+	   text-shadow above. */
 	.link:hover :global(svg),
 	.link.active :global(svg) {
 		filter: var(--glow-icon);
@@ -298,14 +280,14 @@
 		background: var(--bg-hover);
 	}
 
-	/* A short accent bar on the active item rather than a filled pill: less
-	   visual weight in a list that is always on screen. */
+	/* A short accent bar on the active item, not a filled pill: less weight in a
+	   list that is always on screen. */
 	.link.active {
 		position: relative;
 	}
 
-	/* Hard against the rail's own left edge, so the marker reads as being in the
-	   margin rather than as part of the icon. */
+	/* Hard against the rail's left edge, so the marker sits in the margin and
+	   not on the icon. */
 	.link.active::before {
 		content: '';
 		position: absolute;
@@ -319,9 +301,9 @@
 	}
 
 	/*
-	 * The sliding marker. Same bar as the per-link one below, placed from the
-	 * active link's centre (`--marker-x`, `--marker-y`). It travels on the
-	 * spring and fades where there is nothing in the list to mark.
+	 * The sliding marker: the same bar as the per-link one below, placed from
+	 * the active link's centre (`--marker-x`, `--marker-y`). It travels on the
+	 * spring and fades where the list has nothing to mark.
 	 */
 	.marker {
 		position: absolute;
@@ -366,11 +348,8 @@
 		color: var(--danger);
 	}
 
-	/*
-	 * On a phone the dock at the foot of the screen (`PhoneDock.svelte`) is the
-	 * navigation. This rail folded into a bar of nine icons across the top
-	 * there, at the end of the screen furthest from the thumb, and is not shown.
-	 */
+	/* On a phone the dock at the foot of the screen (`PhoneDock.svelte`) is the
+	   navigation, and this rail is not shown. */
 	@media (max-width: 60rem) {
 		.rail {
 			display: none;

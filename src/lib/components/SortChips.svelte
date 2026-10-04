@@ -1,8 +1,7 @@
 <script lang="ts" generics="T extends string">
 	/**
-	 * The sort selector used by the library listings. Links rather than buttons,
-	 * so a sorted view is a real URL: shareable, bookmarkable, and restored by the
-	 * back button.
+	 * The sort selector of the library listings. Links, not buttons, so a
+	 * sorted view is a URL: shareable, bookmarkable and restored by Back.
 	 */
 	let {
 		sorts,
@@ -47,9 +46,9 @@
 		background: var(--control-face);
 		-webkit-backdrop-filter: var(--control-blur);
 		backdrop-filter: var(--control-blur);
-		/* Translucent face, so the label takes the tone meant to survive one —
-		   `--text-muted` on a see-through chip is decided by the field behind it,
-		   and measured 4.53:1 against a 4.5 floor before this. */
+		/* The tone for text on a translucent face. `--text-muted` on a
+		   see-through chip depends on the field behind it, and measured 4.53:1
+		   against a 4.5 floor. */
 		color: var(--text-muted-through);
 		font-size: 0.8125rem;
 		font-weight: 500;
@@ -76,8 +75,8 @@
 		text-shadow: none;
 	}
 
-	/* After the rules above, not with the glass primitives: source order is all
-	   that separates two single-class selectors. */
+	/* After the rules above, not with the glass primitives: only source order
+	   separates two single-class selectors. */
 	@media (prefers-reduced-transparency: reduce) {
 		.chip {
 			background: var(--bg-surface);

@@ -1,8 +1,8 @@
 <script lang="ts">
 	/**
-	 * A pointer-driven scrub bar. It deliberately does not use <input range>:
-	 * the buffered-ahead band and the oversized hit area are hard to express
-	 * there, and keyboard support is easy enough to add by hand.
+	 * A pointer-driven scrub bar. Not an <input range>: the buffered-ahead band
+	 * and the oversized hit area are hard to express there, and keyboard support
+	 * is added by hand.
 	 */
 	import { DUR } from '$lib/client/motion';
 
@@ -22,10 +22,10 @@
 		ariaLabel?: string;
 		formatValue?: (value: number) => string;
 		/**
-		 * The smallest change in `value` worth drawing, on top of one pixel. The
-		 * track scrubber passes 1, for whole seconds. The volume slider, whose
-		 * value runs from 0 to 1, passes nothing: with a floor of one it drew
-		 * every level below full as 0.
+		 * The smallest change in `value` drawn, on top of one pixel. The track
+		 * scrubber passes 1, for whole seconds. The volume slider, whose value
+		 * runs from 0 to 1, passes nothing: with a floor of one it drew every
+		 * level below full as 0.
 		 */
 		unit?: number;
 	} = $props();
@@ -41,18 +41,18 @@
 	 * where a unit is longer than a pixel (whole seconds on the track scrubber).
 	 *
 	 * `timeupdate` sets `value` about four times a second, and each change
-	 * repainted the player panel, which redraws its backdrop blur. A three
-	 * minute track on a 300px bar moves 0.4px per update, so most of those
-	 * repaints changed nothing visible. Measured in Chromium at 1440x900 while
-	 * playing: the browser used 10 to 17 percent of a core with the blur and 2
-	 * to 3 percent without it. On whole seconds the bar changes in the same
-	 * frame as the elapsed and remaining times, which change once a second.
+	 * repainted the player panel and its backdrop blur. A three minute track on
+	 * a 300px bar moves 0.4px per update, so most repaints changed nothing
+	 * visible. In Chromium at 1440x900 while playing, the browser used 10 to 17
+	 * percent of a core with the blur and 2 to 3 percent without it. On whole
+	 * seconds the bar changes in the same frame as the elapsed and remaining
+	 * times.
 	 */
 	const step = $derived(width > 0 && max > 0 ? Math.max(unit, max / width) : unit);
 	const ticked = $derived(step > 0 ? Math.floor(value / step) * step : value);
 
-	// While dragging, the thumb follows the pointer rather than the element's
-	// clock, so it does not jump back on every timeupdate.
+	// While dragging, the thumb follows the pointer and not the element's clock,
+	// so it does not jump back on every timeupdate.
 	const shown = $derived(dragging ? dragValue : ticked);
 	const percent = $derived(max > 0 ? Math.min(100, Math.max(0, (shown / max) * 100)) : 0);
 	// The same for the buffered band, which `progress` moves while the file loads.
@@ -62,11 +62,10 @@
 
 	/*
 	 * The fill and the thumb glide to a new position when it jumps (a click, a
-	 * key, a new track going back to 0, the volume muted to nothing and back),
-	 * over the state length, rather than cutting to it. The whole-second ticks of
-	 * playback do not glide: a transition on each would repaint the player
-	 * panel and its blur for a third of every second, which is what drawing on
-	 * whole seconds exists to avoid. A drag follows the pointer exactly.
+	 * key, a new track going back to 0, the volume muted and back), over the
+	 * state length. The whole-second ticks of playback do not glide: a
+	 * transition on each would repaint the player panel and its blur for a
+	 * third of every second. A drag follows the pointer exactly.
 	 */
 	let gliding = $state(false);
 	let glideTimer: ReturnType<typeof setTimeout> | undefined;

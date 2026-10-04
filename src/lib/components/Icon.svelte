@@ -1,9 +1,8 @@
 <script lang="ts">
 	/**
-	 * A single inline sprite. Icons are drawn on a 24-unit grid with a 1.6 stroke
-	 * and rounded caps, so they sit alongside the type without shouting. Keeping
-	 * them here rather than pulling an icon package keeps the bundle honest and
-	 * means the whole set shares one visual language.
+	 * A single inline sprite. Icons are drawn on a 24-unit grid with a 1.6
+	 * stroke and rounded caps. Kept here instead of an icon package, so the
+	 * bundle holds only the glyphs used.
 	 */
 	type IconName =
 		| 'play'
@@ -67,7 +66,7 @@
 		pause: 'M9 5v14M15 5v14',
 		next: 'M6 5.5v13l9-6.5-9-6.5ZM18 5v14',
 		// Two triangles, the skip mark. The mini player on a phone uses it beside
-		// play: `next` there draws only its triangle, and read as a second play.
+		// play: `next` there draws only its triangle and read as a second play.
 		skip: 'M3.2 6.2v11.6l8.4-5.8L3.2 6.2ZM12.4 6.2v11.6l8.4-5.8-8.4-5.8Z',
 		previous: 'M18 5.5v13L9 12l9-6.5ZM6 5v14',
 		shuffle: 'M17 4l3 3-3 3M17 14l3 3-3 3M4 7h3.5l9 10H20M20 7h-3.5l-2 2.2M4 17h3.5l2-2.2',
@@ -101,8 +100,8 @@
 		lyrics:
 			'M4.5 6.5h9M4.5 11h11M4.5 15.5h6M17.5 14.2V7.4l3-.9v6.8M17.5 15.8a1.6 1.6 0 1 1-1.7-1.6M20.5 13.3a1.6 1.6 0 1 1-1.7-1.6',
 		trash: 'M5 7h14M9.5 7V5.4A1.4 1.4 0 0 1 10.9 4h2.2a1.4 1.4 0 0 1 1.4 1.4V7M6.8 7l.8 11.2A1.4 1.4 0 0 0 9 19.5h6a1.4 1.4 0 0 0 1.4-1.3L17.2 7',
-		// The dot is drawn as a hairline stroke rather than a fill, so it keeps
-		// the same weight as every other glyph in the set.
+		// The dot is a hairline stroke, not a fill, so it has the weight of the
+		// other glyphs.
 		info: 'M12 4.2a7.8 7.8 0 1 0 0 15.6 7.8 7.8 0 0 0 0-15.6ZM12 10.8v5.4M12 7.9v.5',
 		// Three nodes and the two lines between them, the common share mark.
 		share:
@@ -135,11 +134,9 @@
 		// the volume glyph that says how loud.
 		output:
 			'M7 3.5h10a1.5 1.5 0 0 1 1.5 1.5v14a1.5 1.5 0 0 1-1.5 1.5H7A1.5 1.5 0 0 1 5.5 19V5A1.5 1.5 0 0 1 7 3.5ZM12 11a3.2 3.2 0 1 0 0 6.4 3.2 3.2 0 0 0 0-6.4ZM12 6.8h.01',
-		// The one glyph in this set not drawn to the rules above. It is GitHub's
-		// mark, and a mark redrawn as a 1.6 stroke is a different mark, so it is
-		// carried as the filled original. It is also the only icon here that
-		// names something outside the app, which is why the exception stops at
-		// this entry rather than opening the set to other brands.
+		// GitHub's mark, carried as the filled original: redrawn as a 1.6 stroke
+		// it would be a different mark. The only glyph not drawn to the rules
+		// above, and the only one that names something outside the app.
 		github:
 			'M12 .5a11.5 11.5 0 0 0-3.64 22.41c.58.1.79-.25.79-.55v-2.13c-3.2.66-3.88-1.4-3.88-1.4-.53-1.28-1.29-1.63-1.29-1.63-1.04-.69.08-.68.08-.68 1.16.08 1.77 1.16 1.77 1.16 1.03 1.7 2.7 1.21 3.36.93.1-.73.4-1.22.73-1.5-2.55-.28-5.24-1.24-5.24-5.53 0-1.23.45-2.23 1.18-3.01-.12-.28-.51-1.42.11-2.96 0 0 .96-.3 3.15 1.15a11.1 11.1 0 0 1 5.74 0c2.19-1.45 3.15-1.15 3.15-1.15.62 1.54.23 2.68.11 2.96.74.78 1.18 1.78 1.18 3.01 0 4.3-2.69 5.25-5.25 5.52.41.35.78 1.04.78 2.1v3.12c0 .3.21.66.8.55A11.5 11.5 0 0 0 12 .5Z'
 	};
@@ -148,11 +145,10 @@
 </script>
 
 <!--
-	Sized in rem rather than px so the glyphs follow the interface scale, which
-	is a root font-size. The prop stays in pixels, since that is what every call
-	site reads as, and is divided by the 16px root the design was drawn against.
-	The size goes in `style` rather than the `width` attribute: SVG presentation
-	attributes do not take rem everywhere, CSS does.
+	Sized in rem, so the glyphs follow the interface scale, which is a root
+	font-size. The prop stays in pixels and is divided by the 16px root the
+	design was drawn against. The size goes in `style`: SVG presentation
+	attributes do not take rem everywhere.
 -->
 <svg
 	style="width: {size / 16}rem; height: {size / 16}rem"
@@ -166,9 +162,8 @@
 	aria-hidden="true"
 >
 	{#if name === 'pause' || name === 'more' || name === 'grip'}
-		<!-- These two are drawn from bare strokes rather than closed shapes, so
-		     they need more weight than the outline icons to match them. A caller
-		     asking for something heavier still is honoured. -->
+		<!-- Drawn from bare strokes, not closed shapes, so they need more weight
+		     than the outline icons. A caller asking for more still gets it. -->
 		<path d={PATHS[name]} stroke-width={Math.max(strokeWidth, name === 'pause' ? 2 : 2.4)} />
 	{:else}
 		<path d={PATHS[name]} />

@@ -1,15 +1,14 @@
 <script lang="ts" module>
 	/*
 	 * Copies of each cover that have loaded in this browser, the largest per
-	 * cover. A cover asked for at a size nobody has loaded yet shows one of
-	 * these underneath while it arrives.
+	 * cover. A cover asked for at a size not loaded yet shows one of these
+	 * underneath while it arrives.
 	 *
 	 * The album hero asks for 640px and the card that opened it holds 384px, so
 	 * opening an album waited for a second copy of a cover already on screen:
-	 * measured against a music server taking 800ms per cover, 1167ms from the
-	 * click to the hero. A real Navidrome resizing a large cover takes longer.
-	 * The smaller copy is in the browser's memory, so it shows at once, and the
-	 * sharp one crossfades over it when it lands.
+	 * against a music server taking 800ms per cover, 1167ms from the click to
+	 * the hero. The smaller copy shows at once, and the sharp one crossfades
+	 * over it.
 	 *
 	 * Filled only from load events, which run only in the browser, so the
 	 * server never holds one.
@@ -46,20 +45,18 @@
 		radius?: string;
 		rounded?: boolean;
 		/**
-		 * Fill the container instead of holding a square. The image already
-		 * crops rather than stretches, so this is what turns a cover into a
-		 * full-bleed, slightly zoomed backdrop. The container decides the shape.
+		 * Fill the container instead of holding a square. The image crops and
+		 * does not stretch, so the container decides the shape.
 		 */
 		fill?: boolean;
 		/**
-		 * Offer a second copy at twice the density. `size` stays the size a 1x
-		 * display gets, so this costs nothing there.
+		 * Offer a second copy at twice the density. `size` stays what a 1x
+		 * display gets.
 		 *
-		 * Worth it where the drawn cover is large: the panel's artwork was asking
-		 * for one 512px copy and stretching it across 1700 device pixels. It is
-		 * not on by default, since a grid of forty cards would double both the
-		 * bytes on the wire and the files in the server's cover cache to sharpen
-		 * something already close to its drawn size.
+		 * For a cover drawn large: the panel's artwork asked for one 512px copy
+		 * and stretched it across 1700 device pixels. Off by default: a grid of
+		 * forty cards would double the bytes on the wire and the files in the
+		 * server's cover cache.
 		 */
 		hidpi?: boolean;
 		/** Keep the images on compositor layers of their own; see `.layered` below. On with `hidpi`. */
@@ -69,37 +66,25 @@
 	let failed = $state(false);
 	const src = $derived(coverUrl(coverArt, size));
 	/*
-	 * Density descriptors rather than widths: the browser then picks by the
-	 * screen alone. Widths would need a `sizes` hint in CSS pixels, and these
-	 * covers are cropped to fill a box whose height is what usually decides how
-	 * much detail is needed, which `sizes` has no way to express.
+	 * Density descriptors, not widths, so the browser picks by the screen
+	 * alone. Widths would need a `sizes` hint in CSS pixels, and these covers
+	 * are cropped to fill a box whose height usually decides the detail needed,
+	 * which `sizes` cannot express.
 	 */
 	const srcset = $derived(hidpi && coverArt ? `${src} 1x, ${coverUrl(coverArt, size * 2)} 2x` : undefined);
 
 	/*
-	 * Listens for a failed load, and catches one that happened before hydration.
-	 *
-	 * Not `onerror`. For an `onerror` on an element that can fail before the
-	 * script arrives, Svelte writes an inline `onerror="this.__e=event"` into
-	 * the server-rendered markup so it can replay the event later, and the
-	 * Content-Security-Policy refuses inline handlers. The attribute was blocked
-	 * on every page, and a cover that failed before hydration kept its broken
-	 * image instead of the placeholder. A broken image reports `complete` with
-	 * no natural width, which is what is checked here.
-	 */
-	/*
 	 * Arriving, and changing.
 	 *
-	 * A cover used to appear the moment its bytes did, top to bottom, and a
-	 * change of cover (the next track in the player, another record opened from
-	 * an album page, which reuses this component) was a hard cut to an empty
-	 * square and then to the new image. Now the image is held back until it has
-	 * loaded, then comes in from a blur, and a new cover crossfades over the one
-	 * it replaces, which stays underneath until the new one is showing.
+	 * The image is held back until it has loaded, then comes in from a blur,
+	 * and a new cover crossfades over the one it replaces, which stays
+	 * underneath until the new one shows. Before, a cover appeared top to
+	 * bottom as its bytes did, and a change of cover (the next track, another
+	 * record opened from an album page) cut to an empty square first.
 	 *
-	 * `pending` is only ever set from the browser. The server renders the image
-	 * visible, so a page is whole before its script runs, and an image that has
-	 * already loaded by then is left alone rather than faded in again.
+	 * `pending` is set only in the browser. The server renders the image
+	 * visible, so a page is whole before its script runs, and an image loaded
+	 * by then is not faded in again.
 	 */
 	let pending = $state(false);
 	let previous = $state<{ src: string; srcset: string | undefined } | null>(null);
@@ -117,9 +102,8 @@
 		pending = false;
 		shown = { src, srcset };
 		if (coverArt) rememberCopy(coverArt, size, src);
-		// The fade is 420ms; the old cover goes once it is covered, and a
-		// transitionend that never fires (reduced motion, a hidden tab) cannot
-		// leave it there.
+		// The fade is 420ms. The old cover goes once it is covered, on a timer:
+		// a transitionend may never fire (reduced motion, a hidden tab).
 		clearTimeout(settle);
 		settle = setTimeout(() => (previous = null), 480);
 	}
@@ -128,12 +112,11 @@
 	 * Listens for the load and for a failure, and catches both when they
 	 * happened before hydration.
 	 *
-	 * Not `onload` or `onerror`. For those on an element that can fire before
-	 * the script arrives, Svelte writes an inline `onload="this.__e=event"` into
-	 * the server-rendered markup so it can replay the event later, and the
-	 * Content-Security-Policy refuses inline handlers: a cover that failed
-	 * before hydration kept its broken image instead of the placeholder. A
-	 * broken image reports `complete` with no natural width.
+	 * Not `onload` or `onerror`. For those, Svelte writes an inline
+	 * `onload="this.__e=event"` into the server-rendered markup to replay the
+	 * event later, and the Content-Security-Policy refuses inline handlers: a
+	 * cover that failed before hydration kept its broken image instead of the
+	 * placeholder. A broken image reports `complete` with no natural width.
 	 */
 	function watch(image: HTMLImageElement) {
 		const fail = () => (failed = true);
@@ -156,7 +139,7 @@
 		};
 	}
 
-	// A new cover: keep the old one underneath, and hold the new one back
+	// A new cover: the old one stays underneath, and the new one is held back
 	// until it has loaded.
 	$effect(() => {
 		const next = src;
@@ -166,9 +149,8 @@
 				shown = null;
 				previous = null;
 			} else if (shown && shown.src !== next) {
-				// The new cover at another size, when one has loaded, rather than
-				// the old cover: opening a record from an album page shows it at
-				// once instead of the one being left.
+				// The new cover at another size, when one has loaded, in place of
+				// the old cover: a record opened from an album page shows at once.
 				previous = standIn() ?? shown;
 				pending = true;
 			}
@@ -208,17 +190,15 @@
 	}
 
 	/*
-	 * The image carries the radius itself rather than relying on the clip above
+	 * The image carries the radius itself and does not rely on the clip above
 	 * it.
 	 *
-	 * `overflow: hidden` plus a radius is a clip, and a clip is applied by the
-	 * compositor. Every time a layer is built or thrown away around one of these
-	 * (a card lifting on hover, a sleeve taking a `view-transition-name`, a
-	 * panel with a `backdrop-filter` being recomposited on navigation) there is
-	 * a frame where the layer exists and the rounding has not been applied to
-	 * it, and a square corner of opaque image shows in a round one. Rounding the
-	 * painted content makes the clip redundant rather than load-bearing: it
-	 * stays as a backstop, and a frame without it now looks the same.
+	 * `overflow: hidden` with a radius is a clip applied by the compositor.
+	 * Each time a layer is built or dropped around one of these (a card lifting
+	 * on hover, a sleeve taking a `view-transition-name`, a panel with a
+	 * `backdrop-filter` recomposited on navigation) there is a frame where the
+	 * rounding is not applied, and a square corner of opaque image shows. With
+	 * the painted content rounded, the clip is only a backstop.
 	 */
 	img {
 		position: absolute;
@@ -229,11 +209,9 @@
 		border-radius: inherit;
 	}
 
-	/*
-	 * In from a blur. Opacity leads so the cover is recognisable early, and the
-	 * blur clears over a little longer. Blur on an image, which carries no
-	 * glass, so none of the backdrop-root trouble applies.
-	 */
+	/* In from a blur. Opacity leads, so the cover is recognisable early, and the
+	   blur clears over a little longer. An image carries no glass, so blur on
+	   it is safe. */
 	.current {
 		transition:
 			opacity var(--dur-state) var(--ease-out),
@@ -242,27 +220,27 @@
 
 	/*
 	 * The large covers (the album hero, and the player, which asks for a hidpi
-	 * copy) keep their images on compositor layers of their own throughout.
-	 * Otherwise WebKit builds the layer when the fade starts, and for two
-	 * frames drew neither the stand-in underneath nor the arriving image:
-	 * recorded in Playwright's WebKit as the player's artwork going from 80
-	 * to 40 and back in brightness as a restored queue's cover arrived. The
-	 * card grids hold dozens of covers and do not take a layer each.
+	 * copy) keep their images on compositor layers of their own. Otherwise
+	 * WebKit builds the layer when the fade starts, and for two frames drew
+	 * neither the stand-in nor the arriving image: recorded in Playwright's
+	 * WebKit as the player's artwork going from 80 to 40 and back in brightness
+	 * as a restored queue's cover arrived. The card grids hold dozens of covers
+	 * and do not take a layer each.
 	 */
 	.layered img {
 		will-change: opacity, filter;
 	}
 
-	/* Hidden at once: the element already holds the new source, so there is
-	   nothing on it worth fading out. The old cover is underneath. */
+	/* Hidden at once: the element already holds the new source, and the old
+	   cover is underneath. */
 	.current.pending {
 		opacity: 0;
 		filter: blur(14px);
 		transition: none;
 	}
 
-	/* No square to hold, and no hairline either: an edge in the middle of a
-	   full-bleed image is a seam, not a frame. */
+	/* No square to hold and no hairline: an edge in the middle of a full-bleed
+	   image is a seam. */
 	.cover.fill {
 		aspect-ratio: auto;
 		height: 100%;
