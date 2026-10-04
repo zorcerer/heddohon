@@ -2,21 +2,19 @@
  * Favourite state changed in this tab, shared by every heart that shows the
  * same item.
  *
- * Each button used to keep its own override. The player's button is one
- * instance that is handed a new song at every track change, so the override
- * from the previous song stayed and the heart showed that song's state. A
- * track row and the player showing the same song also disagreed after either
- * was pressed. Keying the state by item fixes both.
+ * Keyed by item, not kept per button. The player's button is one instance
+ * handed a new song at every track change, so its own override showed the
+ * previous song's state, and a track row and the player disagreed about one
+ * song after either was pressed.
  *
  * Entries are written only in the browser, from a press, so the server's copy
- * of this module stays empty and every server render uses the loaded value.
+ * of this module stays empty and server renders use the loaded value.
  *
- * They last until the next page has loaded (`settleStarred`), not until a
- * reload. They lasted until a reload, and a tab is kept open for days: a heart
- * pressed here and changed later in the music server's own app, or in
- * another player, went on showing the press here, and read as favourites not
- * syncing. A page loaded after a press already has it, since `/api/star`
- * drops the server's held copies once the write is done.
+ * They last until the next page has loaded (`settleStarred`). Kept until a
+ * reload, in a tab open for days, a heart pressed here and changed later in
+ * another player went on showing the press. A page loaded after a press
+ * already has it, since `/api/star` drops the server's held copies after the
+ * write.
  */
 import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 import type { StarKind } from '$lib/types';
@@ -47,8 +45,8 @@ export async function setStarred(kind: StarKind, id: string, starred: boolean): 
 
 	const settle = (value: boolean) => {
 		changed.set(key, value);
-		// The player's heart reads the queue's copy of the song, which no page
-		// load refreshes, so the copy is changed with the press.
+		// The player's heart reads the queue's copy of the song, which no page load
+		// refreshes, so the copy is changed with the press.
 		if (kind === 'song') player.markStarred(id, value);
 	};
 	settle(starred);

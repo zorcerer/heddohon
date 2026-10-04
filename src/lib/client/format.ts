@@ -36,9 +36,9 @@ export function formatBytes(bytes: number | null): string {
 }
 
 /**
- * The badge shown next to the transport controls: "FLAC 24/96" for lossless,
- * "MP3 320" for lossy. Sample rates are rendered in kHz because that is how
- * every mastering spec and every hi-res store writes them.
+ * The badge next to the transport controls: "FLAC 24/96" for lossless,
+ * "MP3 320" for lossy. Sample rates are in kHz, as mastering specs and hi-res
+ * stores write them.
  */
 export function formatQuality(quality: AudioQuality): string {
 	const format = quality.format?.toUpperCase() ?? '';
@@ -85,9 +85,9 @@ const warmed = new Set<string>();
  * Fetches an album's hero-size cover into the browser cache ahead of the page.
  *
  * The card holds a smaller copy, and the hero's is a separate file the music
- * server has to resize, which on Navidrome can take longer than the page
- * itself. Started when a card is hovered, focused or pressed, the moments
- * SvelteKit starts loading the page's data; once per cover per page load.
+ * server has to resize, which on Navidrome can take longer than the page.
+ * Started when a card is hovered, focused or pressed, when SvelteKit starts
+ * loading the page's data. Once per cover per page load.
  */
 export function warmAlbumCover(coverArt: string | null | undefined): void {
 	const url = coverUrl(coverArt, ALBUM_HERO_COVER_SIZE);
@@ -101,10 +101,10 @@ export function warmAlbumCover(coverArt: string | null | undefined): void {
 /**
  * The stream URL, carrying the delivery mode.
  *
- * The server decides what to send from the account's settings and ignores this
- * value. It is in the URL because a browser caches a stream per URL: without it
- * the original file, already fetched and held, would answer the request made
- * after transcoding was switched on.
+ * The server decides what to send from the account's settings and ignores
+ * this value. A browser caches a stream per URL: without it the original file,
+ * already held, would answer the request made after transcoding was switched
+ * on.
  */
 export function streamUrl(songId: string, mode: string = 'raw'): string {
 	return `/api/stream/${encodeURIComponent(songId)}?mode=${encodeURIComponent(mode)}`;

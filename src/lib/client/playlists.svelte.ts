@@ -1,9 +1,9 @@
 /**
  * Playlist mutations, and the state behind the "add to playlist" picker.
  *
- * The picker is a single dialog mounted once in the root layout rather than one
- * per track row: a library page can render hundreds of rows, and each carrying
- * its own copy of the playlist list would mean hundreds of identical fetches.
+ * The picker is one dialog mounted in the root layout, not one per track row:
+ * a library page renders hundreds of rows, each of which would fetch the
+ * playlist list.
  */
 import type { Playlist, Song } from '$lib/types';
 
@@ -55,7 +55,7 @@ export async function removeTracks(id: string, indices: number[]): Promise<void>
 
 /**
  * Moves one entry. `songId` and `count` are what the page shows, so a playlist
- * changed in another player since is refused rather than overwritten.
+ * changed in another player since is refused, not overwritten.
  */
 export async function moveTrack(
 	id: string,
@@ -74,9 +74,9 @@ class PlaylistPicker {
 	done = $state<string | null>(null);
 
 	/**
-	 * Whether the dialog is showing. Separate from `request`, which is kept
-	 * until the closing fade has finished: clearing it on close emptied the
-	 * dialog on the first frame of its fade-out.
+	 * Whether the dialog is showing. `request` is kept until the closing fade
+	 * has finished: cleared on close, it emptied the dialog on the first frame
+	 * of its fade-out.
 	 */
 	visible = $state(false);
 	#clearTimer: ReturnType<typeof setTimeout> | undefined;
