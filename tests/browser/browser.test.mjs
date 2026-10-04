@@ -1503,6 +1503,68 @@ describe('resuming a transcode', () => {
 	});
 
 	/*
+	 * The server no longer holding the transcode (15 minutes after it was last
+	 * asked for) is the case that began as a stream. Chromium takes a position
+	 * up in one; Firefox and WebKit played from the start. So the track is
+	 * asked for whole, and the element is never given the stream.
+	 */
+	test('a restored queue asks for the transcode whole, and waits at its saved position', async () => {
+		const origin = { origin: app.url, 'content-type': 'application/json' };
+		await context.request.patch(`${app.url}/api/settings`, { headers: origin, data: { transcode: true } });
+		subsonic.state.audio = { type: 'audio/wav', body: silentWav(60) };
+		subsonic.state.ignoreRange = true;
+		subsonic.state.streamSlowMs = 2000;
+		await context.request.put(`${app.url}/api/play-state`, {
+			headers: origin,
+			data: { songIds: ['s8a', 's8b'], index: 0, position: 25, repeat: 'off', shuffle: false }
+		});
+		const { page, problems } = await watchedPage();
+		try {
+			const streams = [];
+			page.on('response', (response) => {
+				const url = new URL(response.url());
+				if (response.request().method() !== 'GET' || url.pathname !== '/api/stream/s8a') return;
+				streams.push({ whole: url.searchParams.has('whole'), ranges: response.headers()['accept-ranges'] ?? null });
+			});
+			await page.goto(app.url + '/albums', { waitUntil: 'networkidle' });
+			const shown = () => page.locator('aside.panel .times .hh-numeric').first().textContent();
+			await page.waitForFunction(
+				() => document.querySelector('aside.panel .times .hh-numeric')?.textContent === '0:25',
+				null,
+				{ timeout: 5000 }
+			);
+			await page.locator('aside.panel button.play').click();
+			// The read is a second from done: nothing plays, and the bar has not gone to 0:00.
+			await page.waitForTimeout(1000);
+			assert.equal(await shown(), '0:25');
+			assert.equal(await page.evaluate(() => [...document.querySelectorAll('audio')].some((a) => a.currentTime > 0)), false);
+
+			await page.waitForFunction(
+				() => [...document.querySelectorAll('audio')].some((a) => !a.paused && a.currentTime > 0),
+				null,
+				{ timeout: 15_000 }
+			);
+			const at = await page.evaluate(() =>
+				Math.max(...[...document.querySelectorAll('audio')].filter((a) => !a.paused).map((a) => a.currentTime))
+			);
+			assert.ok(at >= 24, `playback started at ${at.toFixed(1)}s instead of 25s`);
+			assert.ok(streams.length > 0);
+			assert.deepEqual(streams.filter((s) => !s.whole || s.ranges !== 'bytes'), [], 'the element was given a stream without ranges');
+		} finally {
+			subsonic.state.audio = null;
+			subsonic.state.ignoreRange = false;
+			subsonic.state.streamSlowMs = 0;
+			await context.request.patch(`${app.url}/api/settings`, { headers: origin, data: { transcode: false } });
+			await context.request.put(`${app.url}/api/play-state`, {
+				headers: origin,
+				data: { songIds: [], index: 0, position: 0, repeat: 'off', shuffle: false }
+			});
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+
+	/*
 	 * Firefox reports nothing seekable in a stream without ranges for as long
 	 * as the element holds it, which is the rest of the track, and ignores a
 	 * position set on it. Chromium seeks in one by waiting for the bytes, so

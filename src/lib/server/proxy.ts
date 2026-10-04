@@ -363,7 +363,11 @@ export async function proxyTranscode(
 	if (!entry) return fallback();
 
 	const range = parseRange(event.request.headers.get('range'));
-	if (!entry.done && range && range.start > 0) await settled(entry, 30_000);
+	// `whole` in the address is the player opening a track at a position, which
+	// it cannot take up in a stream without ranges (`#srcOf` in the player). It
+	// changes when the answer is sent and nothing about what is sent.
+	const wanted = event.url.searchParams.has('whole') || (range !== null && range.start > 0);
+	if (!entry.done && wanted) await settled(entry, 30_000);
 	if (entry.failed === 'oversize') return fallback();
 
 	const headers = new Headers({

@@ -37,6 +37,8 @@ export interface StreamRequest {
 	ifModifiedSince?: string | null;
 	method?: 'GET' | 'HEAD';
 	signal?: AbortSignal;
+	/** The body is read to its end here (`transcodes.ts`), so a length the music server would have to guess is not asked for. */
+	whole?: boolean;
 }
 
 /**

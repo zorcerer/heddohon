@@ -141,6 +141,13 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 		ignoreRange: false,
 		/** Milliseconds between the first and second half of a `stream` body, to keep a read in progress. */
 		streamSlowMs: 0,
+		/**
+		 * With `ignoreRange`: asked for an estimated length, declare 64 bytes more
+		 * than the body and close the connection after it, and asked without one,
+		 * send no length. Navidrome 0.64.2 does both on the first request for a
+		 * transcode.
+		 */
+		estimateOff: false,
 		/** OpenSubsonic `releaseTypes` by album id, such as `['EP']`. An album without an entry sends none. */
 		releaseTypes: new Map(),
 		/** Fields to put over an album's own, by id: `{ songCount, duration, isCompilation }`. */
@@ -512,6 +519,11 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 				const range = /^bytes=(\d+)-(\d*)$/.exec(req.headers.range ?? '');
 				res.setHeader('content-type', state.audio?.type ?? 'audio/flac');
 				if (state.ignoreRange) {
+					if (state.estimateOff) {
+						if (p.get('estimateContentLength') !== 'true') return res.end(body);
+						res.setHeader('content-length', body.length + 64);
+						return res.write(body, () => res.socket?.destroy());
+					}
 					res.setHeader('content-length', body.length);
 					if (state.streamSlowMs > 0) {
 						const half = Math.floor(body.length / 2);

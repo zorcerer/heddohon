@@ -36,7 +36,7 @@ const handler: RequestHandler = async (event) => {
 		: await proxyTranscode(
 				event,
 				[session.account.id, grant.songId, transcode.codec, transcode.bitrateKbps].join('\u0000'),
-				(backend) => backend.openStream(session.credential, grant.songId, { method: 'GET' }, transcode),
+				(backend) => backend.openStream(session.credential, grant.songId, { method: 'GET', whole: true }, transcode),
 				relayed
 			);
 	// A receiver has no reason to keep a copy, and one kept would outlive the

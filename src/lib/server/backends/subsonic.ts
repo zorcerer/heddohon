@@ -1033,11 +1033,19 @@ export const subsonicBackend: MediaBackend = {
 		// A named format and a bitrate ask Navidrome to convert instead. Both
 		// values come from an allowlist in `settings.ts` rather than from a
 		// request, and go through `URLSearchParams` like every other parameter.
+		//
+		// Asked for an estimated length, Navidrome declares one worked out from
+		// the bitrate and closes the connection when the transcode comes to
+		// another size. Measured against 0.64.2 at 128kbps, first requests for
+		// an MP3, an Opus and an AAC transcode each ended short of the length
+		// declared (2911365 of 2980905 bytes for the MP3), and the same three
+		// asked without it each arrived whole. A read that has to reach the end
+		// (`transcodes.ts`) therefore does not ask for one.
 		const url = endpoint(cred, 'stream.view', {
 			id: songId,
 			format: transcode ? transcode.codec : 'raw',
 			maxBitRate: transcode ? transcode.bitrateKbps : 0,
-			estimateContentLength: 'true'
+			estimateContentLength: req.whole ? 'false' : 'true'
 		});
 		const response = await upstreamFetch(url, {
 			method: req.method ?? 'GET',
