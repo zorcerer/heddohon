@@ -62,10 +62,9 @@ async function watchedPage() {
 describe('the policy', () => {
 	/*
 	 * A CSP violation is reported on the console and nowhere else: the page
-	 * renders, and the thing that was refused (a font subset inlined as a
-	 * `data:` URL, an inline `onerror`, a `data:` audio sample) quietly does not
-	 * work. Each of those shipped once. An empty console on every page is what
-	 * catches the next one.
+	 * renders, and what was refused (a font subset inlined as a `data:` URL, an
+	 * inline `onerror`, a `data:` audio sample) does not work. Each of those
+	 * shipped once. An empty console on every page catches the next one.
 	 */
 	test('no page logs an error', async () => {
 		const { page, problems } = await watchedPage();
@@ -116,9 +115,9 @@ describe('playing from a card', () => {
 				};
 			});
 
-		// Not hovered, for the same reason: hovering preloads the album page. The
-		// wait stays: the timings below are measured from a page that has settled,
-		// and on a CI runner a page just loaded let 60ms stretch past the 150ms.
+		// Not hovered, since hovering preloads the album page. The wait stays: the
+		// timings below are measured from a settled page, and on a CI runner a
+		// page just loaded let 60ms stretch past the 150ms.
 		await page.waitForTimeout(600);
 		subsonic.state.delays.set('getAlbum', 1500);
 		subsonic.calls.reset();
@@ -128,8 +127,8 @@ describe('playing from a card', () => {
 			await button.focus();
 			await page.keyboard.press('Enter');
 			await page.waitForTimeout(60);
-			// The button fades in on the press now (hover no longer shows it), so its
-			// own opacity is checked at the next step, once the fade is over.
+			// The button fades in on the press, so its own opacity is checked at the
+			// next step, once the fade is over.
 			const early = await state();
 			assert.deepEqual({ ...early, button: undefined }, { busy: 'true', spinner: '0', glyph: '1', button: undefined }, 'no spinner before 150ms');
 
@@ -157,9 +156,9 @@ describe('playing from a card', () => {
 		const card = page.locator('a.card:has(button.play)').first();
 		const button = card.locator('button.play');
 		await card.hover();
-		// Hovering preloads the album page. Clicking while that is still loading
-		// put the tracks request behind it, past 150ms on a CI runner once, and
-		// the spinner the test says never shows did.
+		// Hovering preloads the album page. A click while that was loading put the
+		// tracks request behind it, past 150ms on a CI runner once, and the spinner
+		// showed.
 		await page.waitForTimeout(600);
 		await button.focus();
 		await page.keyboard.press('Enter');
@@ -279,8 +278,8 @@ describe('the sleep timer', () => {
 describe('crossfade where the volume cannot be set', () => {
 	/*
 	 * iOS ignores a `volume` written from script and reads back 1. A crossfade
-	 * there started the next track at full level while the current one still
-	 * had its last seconds to play. Here `volume` is made to behave that way.
+	 * there started the next track at full level over the current one's last
+	 * seconds. Here `volume` is made to behave that way.
 	 */
 	test('the next track starts when the current one ends, not over it', async () => {
 		subsonic.state.audio = { type: 'audio/wav', body: silentWav(6) };
@@ -384,8 +383,8 @@ describe('crossfade and the album', () => {
 
 	/*
 	 * With audio processing on, the ramps are gains in a Web Audio graph, which
-	 * iOS applies although it ignores `volume`. Here `volume` is made to behave
-	 * as it does on iOS, and the crossfade happens all the same.
+	 * iOS applies although it ignores `volume`. `volume` is made to behave as
+	 * on iOS, and the crossfade still happens.
 	 */
 	test('with audio processing on, a crossfade happens where `volume` is ignored', async () => {
 		try {
@@ -1189,11 +1188,11 @@ describe('the bars a phone paints around the page', () => {
 
 describe('the tint on the rail and the player', () => {
 	/*
-	 * Each surface cross-fades two washes. When the one on screen was hidden and
-	 * the other shown in the same frame, a GPU that drew the second a frame late
-	 * showed neither, which was reported as a dark flash on every colour change.
-	 * Headless Chromium draws in step, so the flash cannot be seen here; what
-	 * can be checked is that no layer jumps between frames.
+	 * Each surface cross-fades two washes. When the one on screen was hidden
+	 * and the other shown in the same frame, a GPU that drew the second a frame
+	 * late showed neither: a dark flash on every colour change. Headless
+	 * Chromium draws in step, so this checks that no layer jumps between
+	 * frames.
 	 */
 	test('a colour change fades both layers, without a jump', async () => {
 		subsonic.state.coverColors.set('al-21', [200, 40, 40]);
@@ -1208,9 +1207,9 @@ describe('the tint on the rail and the player', () => {
 				const rail = document.querySelector('nav.rail');
 				const frames = [];
 				window.__tintFrames = frames;
-				// The frame's own time, which is what the transition is sampled at.
-				// `performance.now()` in the callback runs late behind a busy frame,
-				// and a 0.60 step between two callbacks 30ms apart on that clock was
+				// The frame's own time, which the transition is sampled at.
+				// `performance.now()` in the callback runs late behind a busy frame:
+				// a 0.60 step between two callbacks 30ms apart on that clock was
 				// 450ms of transition on this one (CI run 36150657301).
 				const sample = (time) => {
 					frames.push([
@@ -1229,9 +1228,9 @@ describe('the tint on the rail and the player', () => {
 			await page.waitForFunction(() => window.__tintFrames.length >= 120, null, { timeout: 10_000 });
 			const frames = await page.evaluate(() => window.__tintFrames);
 
-			// Only between frames under 50ms apart, by frame time. A CI runner drops frames, and a
-			// 900ms fade covers 0.66 across one gap of a few hundred milliseconds
-			// (seen once). The reset this guards against moved 1.0 in a 16ms frame.
+			// Only between frames under 50ms apart, by frame time. A CI runner
+			// drops frames, and a 900ms fade covers 0.66 across one gap of a few
+			// hundred milliseconds (seen once). The reset moved 1.0 in a 16ms frame.
 			let jump = 0;
 			for (let i = 1; i < frames.length; i++) {
 				if (frames[i][2] - frames[i - 1][2] > 50) continue;
@@ -1257,9 +1256,9 @@ describe('the tint on the rail and the player', () => {
 
 describe('the tint under the player', () => {
 	/*
-	 * The two washes were positioned at `z-index: 0`, among the panel's
-	 * contents in document order, and the second one comes after all of them:
-	 * whenever it was the wash on screen, it lay over the cover.
+	 * The two washes were at `z-index: 0`, among the panel's contents in
+	 * document order, and the second comes after all of them: whenever it was
+	 * the wash on screen, it lay over the cover.
 	 */
 	test('neither wash is painted over the cover', async () => {
 		subsonic.state.audio = { type: 'audio/wav', body: silentWav(30) };
@@ -1378,9 +1377,9 @@ describe('the tint through changes that come close together', () => {
 		try {
 			// Albums no other test opens. A cover fetched before its colour was set
 			// is held in the server's cover cache and the browser's, as the 1px PNG.
-			// The queue is album 23's last track, then album 24; the page open at
-			// the change is album 25. The tracks are 8s long, so the change comes
-			// after the observer below is watching.
+			// The queue is album 23's last track, then album 24, and the page open
+			// at the change is album 25. The tracks are 8s long, so the change
+			// comes after the observer below is watching.
 			await page.goto(app.url + '/albums/al23', { waitUntil: 'networkidle' });
 			await page.getByRole('button', { name: 'Play Song 23b', exact: true }).click();
 			await page.waitForFunction(() =>
@@ -1457,7 +1456,7 @@ describe('resuming a transcode', () => {
 	/*
 	 * A transcode arrives as a stream without ranges until the server has read
 	 * it whole, and a seek into that lands nowhere: resuming at a position
-	 * played the song from the start. The player now waits for the position.
+	 * played the song from the start. The player waits for the position.
 	 */
 	test('a restored queue picks up at its saved position', async () => {
 		const origin = { origin: app.url, 'content-type': 'application/json' };
@@ -1471,10 +1470,10 @@ describe('resuming a transcode', () => {
 		try {
 			await page.goto(app.url + '/albums', { waitUntil: 'networkidle' });
 			await page.waitForFunction(() => document.querySelector('aside.panel h2.title')?.textContent === 'Song 5a');
-			// The position restored, before anything plays. A page closed by the test
-			// before this one saves its own queue on the way out, and a slow runner
-			// once delivered that after the state above was written; checked here,
-			// such a run fails as a restore rather than as a seek.
+			// The position restored, before anything plays. A page closed by the
+			// test before this one saves its queue on the way out, and a slow runner
+			// once delivered that after the state above was written. Checked here,
+			// such a run fails as a restore and not as a seek.
 			await page.waitForFunction(
 				() => document.querySelector('aside.panel .times .hh-numeric')?.textContent === '0:25',
 				null,
@@ -1505,7 +1504,7 @@ describe('resuming a transcode', () => {
 	/*
 	 * The server no longer holding the transcode (15 minutes after it was last
 	 * asked for) is the case that began as a stream. Chromium takes a position
-	 * up in one; Firefox and WebKit played from the start. So the track is
+	 * up in one, and Firefox and WebKit played from the start. So the track is
 	 * asked for whole, and the element is never given the stream.
 	 */
 	test('a restored queue asks for the transcode whole, and waits at its saved position', async () => {
@@ -1566,10 +1565,10 @@ describe('resuming a transcode', () => {
 
 	/*
 	 * Firefox reports nothing seekable in a stream without ranges for as long
-	 * as the element holds it, which is the rest of the track, and ignores a
-	 * position set on it. Chromium seeks in one by waiting for the bytes, so
-	 * this test gives its elements Firefox's answers until the page has learnt
-	 * from the server that the transcode is whole.
+	 * as the element holds it, and ignores a position set on it. Chromium seeks
+	 * in one by waiting for the bytes, so this test gives its elements
+	 * Firefox's answers until the page has learnt from the server that the
+	 * transcode is whole.
 	 */
 	test('a seek in a transcode that began as a stream is made once the server has it whole', async () => {
 		const origin = { origin: app.url, 'content-type': 'application/json' };
@@ -1981,13 +1980,13 @@ describe('a shared album\'s transport', () => {
 
 describe('playing across page changes', () => {
 	/*
-	 * Playback stopped on a page change, now and then, for three causes so far.
-	 * An effect in the layout that read what `player.attach` reads detached and
-	 * re-attached the player on navigation; every attach restores the queue
-	 * from `/api/play-state`, so a second request there is a re-attach. And
+	 * Playback stopped on a page change for three causes so far. An effect in
+	 * the layout that read what `player.attach` reads detached and re-attached
+	 * the player on navigation: every attach restores the queue from
+	 * `/api/play-state`, so a second request there is a re-attach. And
 	 * SvelteKit turns a page change into a full page load, which tears down the
 	 * audio, when the page's code is gone after an image update or its data
-	 * request fails; a second `load` event is a full page load.
+	 * request fails: a second `load` event is a full page load.
 	 */
 	async function playAndWatch(page) {
 		const restores = [];
@@ -2287,10 +2286,10 @@ describe('presses, cards and arriving at an album', () => {
 		try {
 			await page.goto(app.url + '/albums', { waitUntil: 'networkidle' });
 			const card = page.locator('a.card:has(button.play)').first();
-			// The glow's opacity on every frame from before the hover. It has to pass
-			// through values between 0 and 1: a `drop-shadow` transitioned from `none`
-			// drew nothing until it ended and then all of it. Sampled rather than read
-			// at a fixed time: a CI runner had not started the hover 100ms after it.
+			// The glow's opacity on every frame from before the hover. It has to
+			// pass through values between 0 and 1: a `drop-shadow` transitioned from
+			// `none` drew nothing until it ended and then all of it. Sampled, not
+			// read at a fixed time: a CI runner had not started the hover 100ms in.
 			await card.evaluate((el) => {
 				const glow = getComputedStyle(el.querySelector('.art'), '::before');
 				window.__glow = [];
@@ -2449,9 +2448,9 @@ describe('the aurora', () => {
 
 describe('the heart in the player', () => {
 	/*
-	 * The player keeps one heart and hands it each new song. It kept the state
-	 * from the last press instead, so a song starred in the player showed as
-	 * starred on every song after it.
+	 * The player keeps one heart and hands it each new song. When it kept the
+	 * state from the last press, a song starred in the player showed as starred
+	 * on every song after it.
 	 */
 	test('follows the song on a skip, and agrees with the track row', async () => {
 		const { page, problems } = await watchedPage();
@@ -2756,8 +2755,8 @@ describe('casting', () => {
 	/*
 	 * No receiver answers in a headless browser, so the Remote Playback API is
 	 * stood in for: a device is always available, a prompt connects, and
-	 * `__disconnect()` ends it. What is checked is Heddohon's side: the
-	 * addresses the element plays from, and the one element.
+	 * `__disconnect()` ends it. This checks Heddohon's side: the addresses the
+	 * element plays from, and the one element.
 	 */
 	async function castingContext() {
 		const casting = await browser.newContext({ viewport: { width: 1440, height: 900 } });
@@ -3026,9 +3025,9 @@ describe('star ratings', () => {
 
 describe('Jellyfin favourites changed elsewhere', () => {
 	/*
-	 * A heart pressed in a tab was shown as pressed until the tab was
-	 * reloaded, and a tab is kept open for days: taken off in Jellyfin's own
-	 * app, it stayed on here, which read as favourites not syncing.
+	 * A heart pressed in a tab was shown as pressed until the tab was reloaded,
+	 * and a tab is kept open for days: taken off in Jellyfin's own app, it
+	 * stayed on here.
 	 */
 	test('a page loaded after a press shows what Jellyfin has, and the player keeps the press', async () => {
 		const jf = await browser.newContext({ viewport: { width: 1440, height: 900 } });
@@ -3235,8 +3234,8 @@ describe('sliders and the playlist picker', () => {
 describe('the volume slider', () => {
 	/*
 	 * The seek bar draws in whole seconds to save repaints, and the volume
-	 * slider is the same component with values from 0 to 1. With the
-	 * one-second floor applied to it, every level below full drew as 0.
+	 * slider is the same component with values from 0 to 1. With the one-second
+	 * floor applied to it, every level below full drew as 0.
 	 */
 	test('draws the level the player is at', async () => {
 		const { page, problems } = await watchedPage();
@@ -3344,8 +3343,8 @@ describe('motion', () => {
 describe('moving between pages', () => {
 	/*
 	 * In Safari and Firefox the rail and the player went dark on every page
-	 * change while the veil faded behind them. The glass cannot be watched
-	 * from here, so what is checked is that the veil is never behind it.
+	 * change while the veil faded behind them. The glass cannot be watched from
+	 * here, so this checks that the veil is never behind it.
 	 */
 	test('the veil never goes behind the rail or the player', async () => {
 		const { page, problems } = await watchedPage();
@@ -3481,7 +3480,7 @@ describe('on a phone', () => {
 	 * document's own scroll, and fills the strip under the status bar and the
 	 * band behind the toolbar with the page's background colour. With the
 	 * content column scrolling inside a box one screen tall, an iPhone showed
-	 * the page ending at the top of the toolbar with a dark band below it.
+	 * the page ending at the top of the toolbar with a dark band below.
 	 */
 	let phone;
 
@@ -3511,15 +3510,15 @@ describe('on a phone', () => {
 	}
 
 	/*
-	 * A tap rather than `click()`. Playwright scrolls a target into view
-	 * before clicking it, and with the dock pinned that moved a scrolled page,
-	 * which a finger on the dock does not do.
+	 * A tap, not `click()`: Playwright scrolls a target into view before
+	 * clicking, and with the dock pinned that moved a scrolled page, which a
+	 * finger on the dock does not.
 	 *
 	 * Tapped once the target has held still for a frame. After a scroll the
 	 * dock folds its tabs and `#dock-open` slides 56px down over about 200ms
-	 * (measured at 393x641); measured at the start of that and tapped at the
-	 * end, the tap landed above the button and the sheet did not open, which
-	 * failed CI twice on 2026-09-28.
+	 * (at 393x641). Measured at the start of that and tapped at the end, the
+	 * tap landed above the button and the sheet did not open, which failed CI
+	 * twice on 2026-09-28.
 	 */
 	async function tap(page, locator) {
 		let box = await locator.boundingBox();
@@ -3535,7 +3534,7 @@ describe('on a phone', () => {
 
 	/*
 	 * A drag from the middle of `locator`, by the mouse. Playwright's
-	 * touchscreen only taps; the mouse sends the same pointer events a finger
+	 * touchscreen only taps, and the mouse sends the pointer events a finger
 	 * does, which is all the dock and the sheet listen to.
 	 *
 	 * One step a frame, 16ms apart, as a finger's events arrive. Sent as fast
@@ -3565,9 +3564,10 @@ describe('on a phone', () => {
 		// Under the sleeve, below the fold of a 641px screen: brought to the
 		// middle, clear of the dock, as a thumb would scroll it.
 		await row.evaluate((el) => el.scrollIntoView({ block: 'center', behavior: 'instant' }));
-		// The queue is saved 1.2 seconds after it changes. A test that loads another
-		// page straight after this one counts on the saved queue being this one: in
-		// CI the load has twice come first, and the dock came back empty.
+		// The queue is saved 1.2 seconds after it changes. A test that loads
+		// another page straight after this one counts on the saved queue being
+		// this one: in CI the load has twice come first, and the dock came back
+		// empty.
 		const saved = page.waitForResponse((response) => response.url().endsWith('/api/play-state') && response.request().method() === 'PUT');
 		await tap(page, row);
 		await page.waitForFunction(
@@ -3948,9 +3948,9 @@ describe('the sleeve', () => {
 	/*
 	 * In a view transition the root is painted as an image of itself, and
 	 * Firefox draws the glass in that image without the room behind it: the
-	 * rail and the player went from 40 to 31 for the length of the transition
-	 * and back with a bright frame (recorded, not in this suite). Only the
-	 * sleeve may be captured.
+	 * rail and the player went from 40 to 31 for the transition and back with a
+	 * bright frame (recorded, not in this suite). Only the sleeve may be
+	 * captured.
 	 */
 	test('a card click morphs the sleeve and captures nothing else', async () => {
 		const { page, problems } = await watchedPage();
@@ -4184,11 +4184,11 @@ describe('restoring the queue', () => {
 	});
 
 	/*
-	 * A play pressed while the saved queue's current track was still being
-	 * looked up was replaced by the saved queue when the lookup answered: the
-	 * dock showed the new track for a moment, then the old one, and the next
-	 * save wrote the old queue back. It surfaced in CI as phone tests that
-	 * came back to the previous test's album after a page load.
+	 * A play pressed while the saved queue's current track was being looked up
+	 * was replaced by the saved queue when the lookup answered: the dock showed
+	 * the new track, then the old one, and the next save wrote the old queue
+	 * back. It surfaced in CI as phone tests that came back to the previous
+	 * test's album after a page load.
 	 */
 	test('a track played while the saved queue is being looked up stays, and is what is saved', async () => {
 		await context.request.put(`${app.url}/api/play-state`, {
@@ -4349,9 +4349,9 @@ describe('the audio output', () => {
 
 	/*
 	 * Chrome refuses the microphone at once, without a prompt, on a computer
-	 * with none connected. One sentence covered every refusal, so pressing
-	 * "List outputs" there looked like nothing happened. The browser's own
-	 * answers are stubbed here: headless Chromium has no outputs to name.
+	 * with none connected. One sentence covered every refusal, so "List
+	 * outputs" there looked like nothing happened. The browser's answers are
+	 * stubbed: headless Chromium has no outputs to name.
 	 */
 	async function outputPanel(stub, arg) {
 		const { page, problems } = await watchedPage();

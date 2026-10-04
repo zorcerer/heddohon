@@ -40,9 +40,9 @@ function explain(message) {
 }
 
 /**
- * Signs in a new client as `username`, an account nothing is remembered for
- * yet, and runs `run` with it and the call counts reset. The mock serves one
- * user at a time, so it is switched for the length of `run` and put back.
+ * Signs in a new client as `username`, an account with nothing remembered,
+ * and runs `run` with it and the call counts reset. The mock serves one user
+ * at a time, so it is switched for `run` and put back.
  */
 async function asFreshAccount(username, run) {
 	subsonic.state.username = username;
@@ -495,9 +495,9 @@ describe('Jellyfin albums by play', () => {
 	const albumOrder = (html) => [...new Set([...html.matchAll(/href="\/albums\/(b\d)"/g)].map((m) => m[1]))];
 
 	test('are ranked from their songs\' plays, which is where Jellyfin keeps them', async () => {
-		// Jellyfin leaves an album's own play count and date unset however often
-		// its songs are played. Sorted by those, every album tied and came back
-		// in name order: First, Second, Third, Compilation.
+		// Jellyfin leaves an album's own play count and date unset. Sorted by
+		// those, every album tied and came back in name order: First, Second,
+		// Third, Compilation.
 		jellyfin.state.played = [
 			{ Id: 't1', AlbumId: 'b2', PlayCount: 4, LastPlayedDate: '2026-09-20T10:00:00.0000000Z' },
 			{ Id: 't2', AlbumId: 'b2', PlayCount: 3, LastPlayedDate: '2026-09-21T10:00:00.0000000Z' },
@@ -1712,10 +1712,10 @@ describe('playing things', () => {
 	});
 
 	/*
-	 * Navidrome ignores `Range` while a transcode is still running and sends
-	 * the song from byte 0. Relayed as it came, with range support claimed on
-	 * its behalf, iOS Safari played the start of the song as the continuation;
-	 * and a stream that dropped could not be picked up where it stopped.
+	 * Navidrome ignores `Range` while a transcode is running and sends the song
+	 * from byte 0. Relayed with range support claimed, iOS Safari played the
+	 * start of the song as the continuation, and a dropped stream could not
+	 * resume.
 	 */
 	describe('a transcode', () => {
 		const body = Buffer.from(Array.from({ length: 1000 }, (_, i) => i % 251));
@@ -1763,10 +1763,10 @@ describe('playing things', () => {
 		});
 
 		/*
-		 * A read goes on after its request, so a loop of HEAD requests started a
-		 * transcode on the music server and a copy here for every one, without
-		 * limit (review of 2026-09-25). Past 2 reads in progress for an account,
-		 * a request is relayed as it comes, tied to its own connection.
+		 * A read outlives its request, so a loop of HEAD requests started a
+		 * transcode upstream and a copy here each time (review of 2026-09-25).
+		 * Past 2 reads in progress for an account, a request is relayed as it
+		 * comes.
 		 */
 		test('an account has at most 2 reads in progress; past that it is relayed', async () => {
 			subsonic.state.streamSlowMs = 1500;
@@ -1817,10 +1817,10 @@ describe('playing things', () => {
 		});
 
 		/*
-		 * The player opening a track at a position (a restored queue, a stream
-		 * that dropped) cannot take the position up in a stream without ranges:
-		 * Firefox and WebKit played the song from the start. Its address says so,
-		 * and the answer waits for the read.
+		 * The player opening a track at a position (a restored queue, a dropped
+		 * stream) cannot take it up in a stream without ranges: Firefox and
+		 * WebKit played from the start. Its address says so, and the answer
+		 * waits for the read.
 		 */
 		test('asked for whole, is answered once the read is done, in ranges', async () => {
 			subsonic.state.streamSlowMs = 400;
@@ -1838,9 +1838,9 @@ describe('playing things', () => {
 		});
 
 		/*
-		 * Asked for an estimated length, Navidrome 0.64.2 declares one and closes
-		 * the connection when the transcode comes to another size. The read ended
-		 * in an error each time and what had arrived was dropped.
+		 * Asked for an estimated length, Navidrome 0.64.2 declares one and
+		 * closes the connection when the transcode comes to another size. The
+		 * read then ended in an error and what had arrived was dropped.
 		 */
 		test('is read to its end from a music server whose estimated length is off', async () => {
 			subsonic.state.estimateOff = true;
@@ -2168,8 +2168,8 @@ describe('linking Last.fm and ListenBrainz', () => {
 		assert.equal(unlinked.type, 'success');
 		assert.equal(nd().linked.listenbrainz, false);
 		// Navidrome allows 5 sign-ins per 20s from one address, so the session
-		// token is reused across these calls (and may already be held from the
-		// settings page loaded earlier in this file).
+		// token is reused across these calls (and may be held from the settings
+		// page loaded earlier in this file).
 		assert.ok(subsonic.calls.get('/auth/login') <= 1, `${subsonic.calls.get('/auth/login')} sign-ins`);
 	});
 
@@ -2549,7 +2549,7 @@ describe('signed in on', () => {
 		assert.match(html, /Safari on iPhone/);
 		assert.match(html, /This browser/);
 		// A browser signs out only sessions older than its own: the iPhone, signed
-		// in second, is offered the phone; the phone is told to use the iPhone.
+		// in second, is offered the phone, and the phone is told to use the iPhone.
 		assert.ok((await handles(iphone)).length >= 1);
 		assert.match(html, /Signed in after this browser\.\s*<span class="later-how[^"]*">Sign it out there, or sign in again here\.</);
 		assert.ok(!html.includes('Mozilla/5.0'), 'the whole user agent reached the page');

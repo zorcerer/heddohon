@@ -1,10 +1,10 @@
 /**
  * Mock music servers for the end-to-end suite.
  *
- * Each one answers the endpoints the app calls with the shapes Navidrome and
- * Jellyfin return, over a library small enough to reason about in a test and
- * large enough to page. Both run in the test process, so a test reads the call
- * counts and changes the state directly rather than over HTTP.
+ * Each answers the endpoints the app calls with the shapes Navidrome and
+ * Jellyfin return, over a library small enough to reason about and large
+ * enough to page. Both run in the test process, so a test reads the call
+ * counts and changes the state directly.
  */
 import { createHash } from 'node:crypto';
 import http from 'node:http';
@@ -65,12 +65,6 @@ function solidPng([r, g, b]) {
 }
 
 /**
- * A Subsonic server with `artistCount` artists. Artist `ar{i}` has album
- * `al{i}`, which holds songs `s{i}a` and `s{i}b`; `ar0` has a second album,
- * `al0x`. Songs `s0a` and `s1a` start starred, a day apart; `starred` maps each
- * starred id to the time of its star.
- */
-/**
  * Enough genres for the genres page to set its six largest apart from the
  * A to Z (it does past eight). Jazz is left out: a test asks for it and
  * expects the page for a genre the server does not have.
@@ -92,6 +86,12 @@ const GENRES = [
 	['80s', 1, 11]
 ].map(([value, albumCount, songCount]) => ({ value, albumCount, songCount }));
 
+/**
+ * A Subsonic server with `artistCount` artists. Artist `ar{i}` has album
+ * `al{i}`, which holds songs `s{i}a` and `s{i}b`, and `ar0` has a second
+ * album, `al0x`. Songs `s0a` and `s1a` start starred, a day apart. `starred`
+ * maps each starred id to the time of its star.
+ */
 export async function startSubsonic({ artistCount = 250 } = {}) {
 	const calls = counter();
 	const state = {
@@ -108,9 +108,9 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 		/**
 		 * The libraries `getMusicFolders` lists. Each holds a folder per artist
 		 * (`d-ar{i}`) and one empty folder, `d-empty`, under a top folder
-		 * `d-lib`; an artist's folder holds its album's (`d-al{i}`), which
-		 * holds the album's two songs and a video. With two, the second holds
-		 * only `d-ar2`.
+		 * `d-lib`. An artist's folder holds its album's (`d-al{i}`), which holds
+		 * the album's two songs and a video. With two, the second holds only
+		 * `d-ar2`.
 		 */
 		musicFolders: [{ id: 1, name: 'Music' }],
 		/** Ratings by song or album id, 1 to 5, as `setRating` leaves them. */
@@ -134,18 +134,17 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 		 */
 		audio: null,
 		/**
-		 * Answer `stream` with a 200 from byte 0 whatever `Range` asks for, and
-		 * without `Accept-Ranges`, as Navidrome does while a transcode is still
-		 * running.
+		 * Answer `stream` with a 200 from byte 0 whatever `Range` asks, without
+		 * `Accept-Ranges`, as Navidrome does while a transcode is running.
 		 */
 		ignoreRange: false,
 		/** Milliseconds between the first and second half of a `stream` body, to keep a read in progress. */
 		streamSlowMs: 0,
 		/**
-		 * With `ignoreRange`: asked for an estimated length, declare 64 bytes more
-		 * than the body and close the connection after it, and asked without one,
-		 * send no length. Navidrome 0.64.2 does both on the first request for a
-		 * transcode.
+		 * With `ignoreRange`: asked for an estimated length, declare 64 bytes
+		 * more than the body and close the connection after it, and asked
+		 * without one, send no length. Navidrome 0.64.2 does both on the first
+		 * request for a transcode.
 		 */
 		estimateOff: false,
 		/** OpenSubsonic `releaseTypes` by album id, such as `['EP']`. An album without an entry sends none. */
@@ -190,9 +189,9 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 		mixSize: 0,
 		/**
 		 * Navidrome's own API (`/auth/login`, `/api/lastfm/link`,
-		 * `/api/listenbrainz/link`). Null makes this a Subsonic server that is not
-		 * Navidrome, which answers those paths with 404. Session tokens numbered
-		 * below `acceptFrom` are refused, as expired ones are.
+		 * `/api/listenbrainz/link`). Null makes this a Subsonic server that is
+		 * not Navidrome, which answers those paths with 404. Session tokens
+		 * numbered below `acceptFrom` are refused, as expired ones are.
 		 */
 		navidrome: {
 			enabled: { lastfm: true, listenbrainz: true },
