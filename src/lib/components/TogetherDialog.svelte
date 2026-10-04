@@ -1,7 +1,10 @@
 <script lang="ts">
 	/**
-	 * The listen-together link and who is listening, for the host. Mounted once
-	 * in the root layout; `client/together.svelte.ts` holds the state.
+	 * The listen-together link and who is listening, for the host: the count,
+	 * and the members by name, each with a button that removes them. Mounted
+	 * once in the root layout; `client/together.svelte.ts` holds the state.
+	 * The line under the dialog is what "Add to listen together" on a track
+	 * came to, for a member adding from the app.
 	 */
 	import { together } from '$lib/client/together.svelte';
 	import Icon from './Icon.svelte';
@@ -49,6 +52,10 @@
 				you do. They need no account, and can send a reaction. It ends at {ends}, when you end it, or when you
 				sign out.
 			</p>
+			<p class="hh-muted note">
+				Someone signed in to this Heddohon on the same music server as you can join by name and add tracks
+				to your queue. Their tracks play after the current one, in the order they were added.
+			</p>
 			<p class="hh-muted note">Only share music you have the right to share.</p>
 
 			<span class="link-row">
@@ -66,10 +73,32 @@
 					: `${together.listeners} listening with you`}
 			</p>
 
+			{#if together.members.length > 0}
+				<ul class="members" aria-label="Members">
+					{#each together.members as member (member.id)}
+						<li>
+							<span class="hh-truncate">{member.name}</span>
+							<button
+								class="hh-button"
+								type="button"
+								onclick={() => void together.remove(member)}
+								aria-label="Remove {member.name} from listening together"
+							>
+								Remove
+							</button>
+						</li>
+					{/each}
+				</ul>
+			{/if}
+
 			<button class="hh-button end" type="button" onclick={() => void together.end()}>End listening together</button>
 		</div>
 	{/if}
 </dialog>
+
+{#if together.notice}
+	<p class="notice" class:failed={together.notice.failed} role="status">{together.notice.text}</p>
+{/if}
 
 <style>
 	.together {
@@ -155,6 +184,52 @@
 		height: 0.5rem;
 		border-radius: 50%;
 		background: var(--danger);
+	}
+
+	.members {
+		display: grid;
+		gap: var(--space-2);
+		margin: 0;
+		padding: 0;
+		list-style: none;
+	}
+
+	.members li {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--space-3);
+		font-size: 0.875rem;
+		color: var(--text-strong);
+	}
+
+	.members .hh-button {
+		flex: none;
+		padding: 0.3rem 0.7rem;
+		border-radius: var(--r-md);
+		font-size: 0.75rem;
+	}
+
+	/* Above the dock on a phone, clear of the player column on a wide screen. */
+	.notice {
+		position: fixed;
+		left: 50%;
+		bottom: calc(var(--edge-bottom, 1rem) + var(--dock-space, 0rem) + 1rem);
+		translate: -50% 0;
+		z-index: 70;
+		max-width: min(26rem, calc(100vw - 2rem));
+		margin: 0;
+		padding: 0.55rem 0.9rem;
+		border: 1px solid var(--border-hairline);
+		border-radius: var(--r-md);
+		background: var(--bg-raised);
+		box-shadow: var(--shadow-high);
+		color: var(--text-strong);
+		font-size: 0.8125rem;
+	}
+
+	.notice.failed {
+		color: var(--danger);
 	}
 
 	.end {

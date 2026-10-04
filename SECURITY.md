@@ -584,7 +584,56 @@ plays, as it plays, without an account. What it is limited to:
 - **The token is kept out of the log,** as share tokens are.
 
 What a listener learns is what plays and when: title, artist, album, cover
-and position, for as long as they hold the link.
+and position, for as long as they hold the link. They are also shown what is
+up next in the host's queue: the title and artist of the next 50 tracks, and
+for a track a member added, the member's name.
+
+### Members and the shared queue
+
+A listener signed in to this Heddohon on the host's music server can join as a
+member and add tracks to the host's queue. A visitor with no account, and an
+account on the other server of a deployment with two, listen as before and add
+nothing.
+
+- **Joining is a press, and it shows a name.** The page says "Join as
+  <name>" and that the name is shown. Until then the visitor's stream is a
+  listener's. `POST /together/<token>/join` needs the session, and names a
+  stream the same account opened: listener ids go to everyone with a
+  reaction, so a stream is not joined by its id alone. The name is the
+  account's user name on the music server. The host sees the members whose
+  page is open; everyone with the link sees the name on the tracks a member
+  added. Other accounts are given an id made for the party, never the
+  account's id.
+- **A track is looked up twice before it is accepted,** by the id the member
+  sends. With the member's credential first: a member adds what their own
+  account can read, so a track id cannot be used to ask what the host's
+  account holds. Then with the host's credential, since the audio for everyone
+  comes through the host's account: a track it cannot read answers "Not in
+  the host's library". The track is sent to the host's browser as the host's
+  account reads it. Only the host's browser is sent the track's id; listeners
+  are sent a title and an artist, and the audio route still answers only for
+  the track that is playing.
+- **The host's player holds the queue.** An addition goes into the host's
+  browser queue after the current track and earlier additions, and does not
+  start or stop playback. The host removes or moves any track there. What
+  listeners are shown is what the host's browser reports, with additions found
+  in it by track id.
+- **A member takes back only their own additions.**
+- **The host removes a member for the rest of the party.** Every stream the
+  account has open ends, its additions not yet in the host's queue are
+  dropped, and every `/together` route for that party refuses the account's
+  sessions, the audio and the cover included. The link itself still opens
+  without a session, as it does for anyone: removal ends what the account
+  could do as a member, and ending the party is what closes the link.
+- **Bounds:** one addition every 2 seconds per member, counted before the
+  lookups and whether or not the track is accepted, so a refused track costs
+  as much as an accepted one; 50 additions waiting per member; 500 per party.
+- **A member's session ending** leaves its stream a listener's, and adding
+  needs the session on every request.
+
+`GET /api/search?q=` answers a signed-in account with the songs its own
+library holds for a query, 24 at most. It is what a member's search box calls;
+the search page reads the same through its loader.
 
 ## Cross-origin writes
 
@@ -784,6 +833,9 @@ Covers are cached under `$HEDDOHON_DATA_DIR/covers` (see
 | Cast address lifetime | 6 hours, never past the session |
 | Listen-together session | 12 hours, never past the host's session; 50 listeners; 200 sessions a process |
 | Listen-together reaction | one of five emoji, one a second per listener |
+| Listen-together addition | a track id of 1 to 255 characters; one every 2 seconds per member; 50 waiting per member, 500 per party |
+| Listen-together queue report | 1000 tracks; titles and artists kept for the first 50, 300 characters each, cut |
+| `/api/search` query | 2 to 200 characters, cut; 24 songs |
 | Genre id in a path | 200 characters; on Jellyfin a GUID, since `GenreIds` takes a list |
 | Cover size | one of ten, 64 to 1536 |
 | "On this day" date and time zone | a real `YYYY-MM-DD` within a year of the server's; an offset of -720 to 840 minutes |

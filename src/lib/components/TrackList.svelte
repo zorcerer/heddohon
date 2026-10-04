@@ -4,6 +4,7 @@
 	import { formatDuration } from '$lib/client/format';
 	import { addSongsToPlaylist } from '$lib/client/playlists.svelte';
 	import { shareComposer } from '$lib/client/share.svelte';
+	import { together } from '$lib/client/together.svelte';
 	import { page } from '$app/state';
 	import Cover from './Cover.svelte';
 	import FavouriteButton from './FavouriteButton.svelte';
@@ -323,6 +324,20 @@
 					>
 						<Icon name="plus" size={16} />
 					</button>
+					<!-- While the account is a member of someone's listen-together session. -->
+					{#if together.joined && !song.live}
+						<button
+							class="row-action"
+							onclick={(event) => {
+								event.stopPropagation();
+								void together.add(song);
+							}}
+							aria-label="Add {song.title} to listen together"
+							title="Add to listen together"
+						>
+							<Icon name="radio" size={15} />
+						</button>
+					{/if}
 					{#if page.data.sharing}
 						<button
 							class="row-action"

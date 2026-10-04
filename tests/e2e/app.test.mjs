@@ -964,6 +964,219 @@ describe('playback on another browser', () => {
 			assert.equal((await new Client(app.url).request(`${second.party.url}/stream?song=s4a`)).status, 404);
 			assert.equal((await new Client(app.url).json('/api/together', 'POST', {})).status, 401);
 		});
+
+		/** An account on the host's music server with the party's stream open, joined as a member. */
+		const member = async (party, username = 'seconduser', password = 'secondpass') => {
+			const client = await signedIn(username, password);
+			const stream = await listen(client, `${party.url}/events`);
+			const joined = await client.json(`${party.url}/join`, 'POST', { listener: stream.id });
+			assert.equal(joined.status, 200, explain('joining as a member was refused'));
+			return { client, stream, member: (await joined.json()).member };
+		};
+		const add = (client, party, songId) => client.json(`${party.url}/queue`, 'POST', { songId });
+		const upcoming = (client, applied, ids) =>
+			client.json('/api/together/queue', 'POST', {
+				applied,
+				upcoming: ids.map((id) => ({ songId: id, title: `Song ${id.slice(1)}`, artist: 'Artist' }))
+			});
+		/** The next `queue` event that `matches`. */
+		const queued = async (stream, matches) => {
+			for (;;) {
+				const event = await stream.next('queue');
+				if (matches(event)) return event;
+			}
+		};
+		/** Additions are held to one every 2 seconds per member. */
+		const gap = () => new Promise((done) => setTimeout(done, 2100));
+
+		test("a member's track reaches the host's browser, and is shown as theirs where the host's queue has it", async () => {
+			const { client, party } = await host();
+			const hosting = await listen(client, `${party.url}/events`);
+			const guest = await listen(new Client(app.url), `${party.url}/events`);
+			const second = await member(party);
+			try {
+				assert.deepEqual(await hosting.next('host'), { applied: 0, waiting: [], withdrawn: [] });
+				for (;;) {
+					const { members } = await hosting.next('members');
+					if (members.some((entry) => entry.id === second.member.id && entry.name === 'seconduser')) break;
+				}
+				assert.equal((await (await second.client.request('/api/together')).json()).joined.url, party.url);
+
+				const added = await add(second.client, party, 's5a');
+				assert.equal(added.status, 200, explain('the addition was refused'));
+				const { entry } = await added.json();
+				const event = await hosting.next('add');
+				assert.deepEqual(
+					{ seq: event.seq, entry: event.entry, song: event.song.id, title: event.song.title, by: event.by },
+					{ seq: 1, entry, song: 's5a', title: 'Song 5a', by: second.member }
+				);
+				// Before the host's browser has taken it, it leads what is up next.
+				const waiting = await queued(guest, (shown) => shown.queue.length > 0);
+				assert.deepEqual(waiting, { queue: [{ entry, title: 'Song 5a', artist: event.song.artist, by: second.member }], total: 1 });
+
+				// In the host's queue, after an earlier track of the host's own.
+				const report = await upcoming(client, 1, ['s3b', 's5a', 's5a']);
+				assert.deepEqual((await report.json()).added, [null, { entry, name: 'seconduser' }, null]);
+				const shown = await queued(guest, (now) => now.queue.length === 3);
+				assert.deepEqual(
+					shown.queue.map((row) => [row.title, row.by?.name ?? null]),
+					[
+						['Song 3b', null],
+						['Song 5a', 'seconduser'],
+						['Song 5a', null]
+					]
+				);
+				// Played or removed by the host, it is let go.
+				await upcoming(client, 1, ['s3b']);
+				assert.deepEqual((await queued(guest, (now) => now.queue.length === 1)).queue[0].by, null);
+				assert.equal((await second.client.json(`${party.url}/queue`, 'DELETE', { entry })).status, 404);
+			} finally {
+				hosting.cancel();
+				guest.cancel();
+				second.stream.cancel();
+				await client.json('/api/together', 'DELETE', {});
+			}
+		});
+
+		test('a visitor with no account, an account on the other server and one that has not joined cannot add', async () => {
+			const { client, party } = await host();
+			const visitor = new Client(app.url);
+			const anonymous = await listen(visitor, `${party.url}/events`);
+			const other = new Client(app.url);
+			await other.signIn({ username: 'jfuser', password: 'jfpass', backend: 'jellyfin' });
+			const elsewhere = await listen(other, `${party.url}/events`);
+			const second = await signedIn('seconduser', 'secondpass');
+			subsonic.calls.reset();
+			try {
+				assert.equal((await visitor.json(`${party.url}/join`, 'POST', { listener: anonymous.id })).status, 401);
+				assert.equal((await add(visitor, party, 's5a')).status, 401);
+				assert.equal((await visitor.json(`${party.url}/queue`, 'DELETE', { entry: 'x' })).status, 401);
+
+				assert.equal((await other.page(party.url)).response.status, 200, 'the other server does not listen');
+				assert.equal((await other.json(`${party.url}/join`, 'POST', { listener: elsewhere.id })).status, 403);
+				assert.equal((await add(other, party, 't1')).status, 403);
+
+				assert.equal((await add(second, party, 's5a')).status, 403, 'an account that has not joined adds');
+				// Another listener's stream is not one to join through without it being there.
+				assert.equal((await second.json(`${party.url}/join`, 'POST', { listener: 'nobody' })).status, 404);
+				assert.equal((await second.json(`${party.url}/join`, 'POST', { listener: anonymous.id })).status, 404, "a visitor's stream was joined by its id");
+				// From another site, with the member's cookie: the origin check refuses it.
+				const joined = await member(party);
+				const forged = await joined.client.json(`${party.url}/queue`, 'POST', { songId: 's5a' }, { origin: 'https://elsewhere.example' });
+				joined.stream.cancel();
+				assert.equal(forged.status, 403);
+				assert.equal((await second.json('/api/together/queue', 'POST', { applied: 0, upcoming: [] })).status, 404, 'a browser that is not the host reports the queue');
+				assert.equal((await second.json('/api/together/members', 'DELETE', { member: 'x' })).status, 404);
+				assert.equal(subsonic.calls.get('getSong'), 0, 'a refused addition was looked up');
+			} finally {
+				anonymous.cancel();
+				elsewhere.cancel();
+				await client.json('/api/together', 'DELETE', {});
+			}
+		});
+
+		test("a track the host's account cannot read is refused, and so is one the member's cannot", async () => {
+			const { client, party } = await host();
+			const second = await member(party);
+			subsonic.state.hidden.set('testuser', new Set(['s6a']));
+			subsonic.state.hidden.set('seconduser', new Set(['s7a']));
+			try {
+				const unread = await add(second.client, party, 's6a');
+				assert.equal(unread.status, 404);
+				assert.equal((await unread.json()).message, "Not in the host's library");
+				await gap();
+				const own = await add(second.client, party, 's7a');
+				assert.equal(own.status, 404);
+				assert.equal((await own.json()).message, 'Not in your library');
+				assert.equal((await add(second.client, party, 'x'.repeat(256))).status, 400);
+			} finally {
+				subsonic.state.hidden.clear();
+				second.stream.cancel();
+				await client.json('/api/together', 'DELETE', {});
+			}
+		});
+
+		test('additions are held to one every 2 seconds, and a refused one counts', async () => {
+			const { client, party } = await host();
+			const second = await member(party);
+			try {
+				assert.equal((await add(second.client, party, 's8a')).status, 200);
+				assert.equal((await add(second.client, party, 's8b')).status, 429);
+				await gap();
+				assert.equal((await add(second.client, party, 'gone')).status, 404);
+				assert.equal((await add(second.client, party, 's8b')).status, 429);
+				await gap();
+				assert.equal((await add(second.client, party, 's8b')).status, 200);
+				assert.equal((await upcoming(client, 0, Array.from({ length: 1001 }, () => 's1a'))).status, 400);
+			} finally {
+				second.stream.cancel();
+				await client.json('/api/together', 'DELETE', {});
+			}
+		});
+
+		test('a member takes back their own track only, and a member the host removes is out for the rest of the party', async () => {
+			subsonic.state.others.set('thirduser', 'thirdpass');
+			const { client, party } = await host();
+			const hosting = await listen(client, `${party.url}/events`);
+			const second = await member(party);
+			const third = await member(party, 'thirduser', 'thirdpass');
+			// The account's other page, open and not joined.
+			const idle = await listen(second.client, `${party.url}/events`);
+			try {
+				const first = (await (await add(second.client, party, 's9a')).json()).entry;
+				assert.equal((await third.client.json(`${party.url}/queue`, 'DELETE', { entry: first })).status, 404, "another member's track was taken back");
+				// Not in the host's queue yet: it is dropped where it waits.
+				assert.equal((await second.client.json(`${party.url}/queue`, 'DELETE', { entry: first })).status, 200);
+				assert.equal((await queued(third.stream, (now) => now.total === 0)).queue.length, 0);
+
+				await gap();
+				const kept = (await (await add(second.client, party, 's9b')).json()).entry;
+				const waits = (await (await add(third.client, party, 's9a')).json()).entry;
+				await upcoming(client, 2, ['s9b']);
+				// In the host's queue: the host's browser is told to take it out.
+				assert.equal((await second.client.json(`${party.url}/queue`, 'DELETE', { entry: kept })).status, 200);
+				assert.deepEqual(await hosting.next('remove'), { entry: kept });
+
+				assert.equal((await third.client.json('/api/together/members', 'DELETE', { member: second.member.id })).status, 404, 'a member removed a member');
+				assert.equal((await client.json('/api/together/members', 'DELETE', { member: second.member.id })).status, 200);
+				await second.stream.next('removed');
+				await idle.next('removed');
+				await Promise.race([
+					Promise.all([second.stream.closed, idle.closed]),
+					new Promise((_, reject) => setTimeout(() => reject(new Error('a stream of the removed account stayed open')), 3000))
+				]);
+				await report(client, song('s9a'));
+				assert.equal((await second.client.page(party.url)).response.status, 403);
+				assert.equal((await second.client.request(`${party.url}/events`)).status, 404);
+				assert.equal((await second.client.request(`${party.url}/stream?song=s9a`)).status, 404);
+				assert.equal((await second.client.request(`${party.url}/cover?song=s9a`)).status, 404);
+				assert.equal((await second.client.json(`${party.url}/join`, 'POST', { listener: third.stream.id })).status, 404);
+				assert.equal((await add(second.client, party, 's9a')).status, 403);
+				assert.equal((await (await second.client.request('/api/together')).json()).joined, null);
+				// The other member is as they were, and their waiting track with them.
+				assert.equal((await third.client.request(`${party.url}/stream?song=s9a`, { headers: { range: 'bytes=0-9' } })).status, 206);
+				const reopened = await listen(client, `${party.url}/events`);
+				const told = await reopened.next('host');
+				reopened.cancel();
+				assert.deepEqual([told.applied, told.waiting.map((addition) => addition.entry), told.withdrawn], [2, [waits], [kept]]);
+			} finally {
+				subsonic.state.others.delete('thirduser');
+				hosting.cancel();
+				second.stream.cancel();
+				third.stream.cancel();
+				idle.cancel();
+				await client.json('/api/together', 'DELETE', {});
+			}
+		});
+
+		test('a search for a member answers with songs of their own library, to an account only', async () => {
+			assert.equal((await new Client(app.url).request('/api/search?q=Artist%200003')).status, 401);
+			const client = await signedIn('seconduser', 'secondpass');
+			const found = await (await client.request('/api/search?q=Artist%200003')).json();
+			assert.deepEqual(Object.keys(found), ['songs']);
+			assert.equal(found.songs[0].id, 's3a');
+			assert.deepEqual(await (await client.request('/api/search?q=a')).json(), { songs: [] });
+		});
 	});
 });
 
