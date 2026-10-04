@@ -6,11 +6,10 @@
  *  2. A session is an opaque random token. The database stores its HMAC
  *     digest and an absolute expiry, set at sign-in and never extended.
  */
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import type { Cookies } from '@sveltejs/kit';
 import type { BackendKind } from '$lib/types';
 import { config } from './config';
-import { randomBytes } from 'node:crypto';
 import {
 	constantTimeEquals,
 	deviceDigest,

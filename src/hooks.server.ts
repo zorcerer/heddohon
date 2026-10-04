@@ -266,22 +266,23 @@ const handleRequest: Handle = async ({ event, resolve }) => {
 		return sealedRedirect(event, '/');
 	}
 
+	const theme = event.locals.settings?.theme ?? DEFAULT_SETTINGS.theme;
 	const response = await resolve(event, {
 		// The theme is known on the server, so the first byte of HTML carries the
 		// right palette.
 		transformPageChunk: ({ html }) =>
 			html
-				.replace('data-theme="dark"', `data-theme="${event.locals.settings?.theme ?? DEFAULT_SETTINGS.theme}"`)
+				.replace('data-theme="dark"', `data-theme="${theme}"`)
 				// The bars a phone paints around the page take the theme's ground
 				// too. The manifest is fetched without a cookie, so it is asked for
 				// by theme.
 				.replace(
 					'name="theme-color" content="#0b0c0f"',
-					`name="theme-color" content="${THEME_GROUND[event.locals.settings?.theme ?? DEFAULT_SETTINGS.theme]}"`
+					`name="theme-color" content="${THEME_GROUND[theme]}"`
 				)
 				.replace(
 					'href="/manifest.webmanifest"',
-					(event.locals.settings?.theme ?? DEFAULT_SETTINGS.theme) === 'light'
+					theme === 'light'
 						? 'href="/manifest.webmanifest?theme=light"'
 						: 'href="/manifest.webmanifest"'
 				)

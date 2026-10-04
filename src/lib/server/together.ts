@@ -518,6 +518,11 @@ export function joinedBy(viewer: AuthenticatedSession): { url: string } | null {
 	return null;
 }
 
+/** The viewer's membership of the party, if it may add to it. */
+function memberOf(party: Party, viewer: AuthenticatedSession): Member | undefined {
+	return standing(party, viewer) === 'member' ? party.members.get(viewer.account.id) : undefined;
+}
+
 export type AddRefusal = 'unknown' | 'not_member' | 'limited' | 'member_full' | 'party_full';
 
 function room(party: Party, member: Member): AddRefusal | null {
@@ -535,7 +540,7 @@ function room(party: Party, member: Member): AddRefusal | null {
 export function admit(token: string, viewer: AuthenticatedSession): { accountId: string; session: string } | AddRefusal {
 	const party = behind(token);
 	if (!party) return 'unknown';
-	const member = standing(party, viewer) === 'member' ? party.members.get(viewer.account.id) : undefined;
+	const member = memberOf(party, viewer);
 	if (!member) return 'not_member';
 	const now = Date.now();
 	if (now - member.lastAdd < ADD_GAP_MS) return 'limited';
@@ -551,7 +556,7 @@ export function admit(token: string, viewer: AuthenticatedSession): { accountId:
 export function enqueue(token: string, viewer: AuthenticatedSession, song: Song): { entry: string } | AddRefusal {
 	const party = behind(token);
 	if (!party) return 'unknown';
-	const member = standing(party, viewer) === 'member' ? party.members.get(viewer.account.id) : undefined;
+	const member = memberOf(party, viewer);
 	if (!member) return 'not_member';
 	const full = room(party, member);
 	if (full) return full;

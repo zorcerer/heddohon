@@ -292,6 +292,11 @@ class Player {
 	#castUrls: Map<string, string> | null = null;
 	#castUrlsAt = 0;
 
+	/** The track after this one, wrapping to the first under repeat-all. */
+	get #following(): Song | null {
+		return this.upNext ?? (this.repeat === 'all' ? this.queue[0] : null);
+	}
+
 	/** Called once from the root layout after the audio elements are mounted. */
 	attach(primary: HTMLAudioElement, secondary: HTMLAudioElement, settings: UserSettings) {
 		this.#primary = primary;
@@ -1131,7 +1136,7 @@ class Player {
 		const incoming = this.#secondary;
 		if (!outgoing || !incoming || !this.playing) return;
 
-		const next = this.upNext ?? (this.repeat === 'all' ? this.queue[0] : null);
+		const next = this.#following;
 		if (!next || this.#preloadedFor !== next.id) return;
 		// Two tracks written to run into each other (a live album, a mix) get the
 		// tight handoff, unless the account asks for a fade there too.
@@ -1308,7 +1313,7 @@ class Player {
 	 */
 	#warmNext() {
 		if (!browser || !this.settings?.transcode) return;
-		const next = this.upNext ?? (this.repeat === 'all' ? this.queue[0] : null);
+		const next = this.#following;
 		if (!next || next.id === this.current?.id || next.live) return;
 		void fetch(streamUrl(next.id, this.deliveryMode), { method: 'HEAD' }).catch(() => undefined);
 	}
@@ -1318,7 +1323,7 @@ class Player {
 		if (!this.settings?.preloadNext || this.settings.transition === 'off') return;
 		// Casting follows one element; see `#beginCast`.
 		if (this.#castUrls) return;
-		const next = this.upNext ?? (this.repeat === 'all' ? this.queue[0] : null);
+		const next = this.#following;
 		if (!next || !this.#secondary || next.live || this.current?.live) return;
 		if (this.#preloadedFor === next.id) return;
 		// Only within 20 seconds of the end.

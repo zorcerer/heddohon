@@ -21,6 +21,7 @@ import { openJson, randomToken, shareDigest } from './crypto';
 import { now, store, type ShareRow } from './db';
 import { log, reason } from './log';
 import { Memo } from './memo';
+import { foldName } from './names';
 
 /** The lifetimes a link can be given, in days. Anything else is refused. */
 const SHARE_LIFETIMES_DAYS = [1, 7, 30] as const;
@@ -246,8 +247,7 @@ export function sharedItem(share: ResolvedShare, credential: StoredCredential): 
  * lists only playlists the account may open.
  */
 export function ownsPlaylist(playlist: Playlist, username: string): boolean {
-	const fold = (name: string) => name.replace(/[A-Z]/g, (letter) => letter.toLowerCase());
-	return playlist.owner === null || fold(playlist.owner) === fold(username);
+	return playlist.owner === null || foldName(playlist.owner) === foldName(username);
 }
 
 async function readSharedItem(share: ResolvedShare, credential: StoredCredential): Promise<SharedItem | null> {

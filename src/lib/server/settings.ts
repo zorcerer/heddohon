@@ -133,12 +133,18 @@ function clamp(value: number, min: number, max: number, fallback: number): numbe
 	return Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : fallback;
 }
 
+type FlagKey = { [K in keyof UserSettings]: UserSettings[K] extends boolean ? K : never }[keyof UserSettings];
+
 /** Returns valid settings from any input. The client payload is not trusted. */
 function sanitizeSettings(input: unknown, base: UserSettings = DEFAULT_SETTINGS): UserSettings {
 	const raw = (typeof input === 'object' && input !== null ? input : {}) as Record<string, unknown>;
 	const pick = <T extends string>(key: keyof UserSettings, allowed: readonly T[], fallback: T): T => {
 		const value = raw[key];
 		return allowed.includes(value as T) ? (value as T) : fallback;
+	};
+	const flag = (key: FlagKey): boolean => {
+		const value = raw[key];
+		return typeof value === 'boolean' ? value : base[key];
 	};
 
 	return {
@@ -154,23 +160,21 @@ function sanitizeSettings(input: unknown, base: UserSettings = DEFAULT_SETTINGS)
 		volume: clamp(Number(raw.volume ?? base.volume), 0, 1, base.volume),
 		transition: pick('transition', ['off', 'gapless', 'crossfade'] as const, base.transition),
 		crossfadeSeconds: clamp(Number(raw.crossfadeSeconds ?? base.crossfadeSeconds), 1, 12, base.crossfadeSeconds),
-		crossfadeWithinAlbum:
-			typeof raw.crossfadeWithinAlbum === 'boolean' ? raw.crossfadeWithinAlbum : base.crossfadeWithinAlbum,
-		normalizeVolume: typeof raw.normalizeVolume === 'boolean' ? raw.normalizeVolume : base.normalizeVolume,
+		crossfadeWithinAlbum: flag('crossfadeWithinAlbum'),
+		normalizeVolume: flag('normalizeVolume'),
 		aurora: pick('aurora', ['moving', 'still', 'off'] as const, base.aurora),
-		reportPlayback: typeof raw.reportPlayback === 'boolean' ? raw.reportPlayback : base.reportPlayback,
+		reportPlayback: flag('reportPlayback'),
 		historyDays:
 			raw.historyDays === 0 || raw.historyDays === 90 || raw.historyDays === 365 ? raw.historyDays : base.historyDays,
-		showQualityBadge:
-			typeof raw.showQualityBadge === 'boolean' ? raw.showQualityBadge : base.showQualityBadge,
+		showQualityBadge: flag('showQualityBadge'),
 		gridSize: pick('gridSize', ['compact', 'comfortable', 'roomy'] as const, base.gridSize),
 		// Allowlisted like the theme: interpolated into the served HTML.
 		uiScale: pick('uiScale', ['100', '110', '125', '150', '175'] as const, base.uiScale),
 		font: pick('font', ['manrope', 'inter', 'geist', 'plex', 'atkinson', 'system'] as const, base.font),
-		preloadNext: typeof raw.preloadNext === 'boolean' ? raw.preloadNext : base.preloadNext,
+		preloadNext: flag('preloadNext'),
 		// Allowlisted: used as a lookup key against the backends' sort maps.
 		defaultAlbumSort: pick('defaultAlbumSort', ALBUM_SORTS, base.defaultAlbumSort as AlbumSort),
-		transcode: typeof raw.transcode === 'boolean' ? raw.transcode : base.transcode,
+		transcode: flag('transcode'),
 		// Both reach an upstream URL. The codec is allowlisted, and the bitrate
 		// is matched against the offered set, not clamped.
 		transcodeCodec: pick('transcodeCodec', TRANSCODE_CODECS, base.transcodeCodec),
@@ -179,8 +183,7 @@ function sanitizeSettings(input: unknown, base: UserSettings = DEFAULT_SETTINGS)
 		)
 			? Number(raw.transcodeBitrateKbps)
 			: base.transcodeBitrateKbps,
-		installCardDismissed:
-			typeof raw.installCardDismissed === 'boolean' ? raw.installCardDismissed : base.installCardDismissed
+		installCardDismissed: flag('installCardDismissed')
 	};
 }
 
