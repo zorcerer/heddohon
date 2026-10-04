@@ -145,6 +145,8 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 		radio: [],
 		/** Cover ids answered with a solid colour, as `[r, g, b]`, instead of the 1px PNG. */
 		coverColors: new Map(),
+		/** Titles to answer with in place of a song's own, by song id. */
+		songTitles: new Map(),
 		/** Bytes added after every cover, for a cover of a known weight. */
 		coverPadding: 0,
 		/** What `getUser` says of the account: `adminRole`. */
@@ -192,7 +194,7 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 	const name = (i) => `Artist ${String(i).padStart(4, '0')}`;
 	const song = (i, side) => ({
 		id: `s${i}${side}`,
-		title: `Song ${i}${side}`,
+		title: state.songTitles.get(`s${i}${side}`) ?? `Song ${i}${side}`,
 		album: `Album ${i}`,
 		albumId: `al${i}`,
 		artist: name(i),
@@ -822,4 +824,54 @@ export async function startStationHost() {
 		}
 	});
 	return { ...server, calls, state };
+}
+
+/** The one webhook and the one user token the mock below knows. */
+export const OUTSIDE = {
+	webhook: '/api/webhooks/123456789012345678/' + 'w'.repeat(68),
+	listenBrainzToken: '0b6a6f3e-1111-4222-8333-444455556666'
+};
+
+/**
+ * Discord and ListenBrainz, as far as `integrations.ts` asks of them: a
+ * webhook that can be read and posted to, and a user token that can be checked
+ * and scrobbled with. `posts` holds what was posted, in order, as
+ * `{ to: 'discord' | 'listenbrainz', body }`.
+ */
+export async function startOutside() {
+	const calls = counter();
+	/** `webhookGone` answers the webhook with 404, as Discord does once it is deleted. */
+	const state = { webhookGone: false };
+	const posts = [];
+	const server = await listen((req, res) => {
+		const url = new URL(req.url, 'http://x');
+		const send = (body, status = 200) => {
+			res.statusCode = status;
+			res.setHeader('content-type', 'application/json');
+			res.end(JSON.stringify(body));
+		};
+		let raw = '';
+		req.on('data', (chunk) => (raw += chunk));
+		req.on('end', () => {
+			calls.hit(`${req.method} ${url.pathname}`);
+			const token = req.headers.authorization === `Token ${OUTSIDE.listenBrainzToken}`;
+			if (url.pathname.startsWith('/api/webhooks/')) {
+				if (url.pathname !== OUTSIDE.webhook || state.webhookGone) return send({ message: 'Unknown Webhook', code: 10015 }, 404);
+				if (req.method === 'GET') return send({ id: '123456789012345678', name: 'Now playing' });
+				posts.push({ to: 'discord', body: JSON.parse(raw) });
+				res.statusCode = 204;
+				return res.end();
+			}
+			if (url.pathname === '/1/validate-token') {
+				return send(token ? { code: 200, message: 'Token valid.', valid: true, user_name: 'listener' } : { code: 200, message: 'Token invalid.', valid: false });
+			}
+			if (url.pathname === '/1/submit-listens' && req.method === 'POST') {
+				if (!token) return send({ code: 401, error: 'Invalid authorization token.' }, 401);
+				posts.push({ to: 'listenbrainz', body: JSON.parse(raw) });
+				return send({ status: 'ok' });
+			}
+			send({}, 404);
+		});
+	});
+	return { ...server, calls, state, posts };
 }

@@ -135,6 +135,17 @@ CREATE TABLE IF NOT EXISTS plays (
 );
 CREATE INDEX IF NOT EXISTS plays_account_idx ON plays(account_id, played_at);
 
+-- What an account has linked outside the music server: a Discord webhook, a
+-- ListenBrainz token. The secret is sealed as a credential is; see
+-- integrations.ts.
+CREATE TABLE IF NOT EXISTS integrations (
+  account_id  TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  kind        TEXT NOT NULL,
+  secret      TEXT NOT NULL,
+  created_at  INTEGER NOT NULL,
+  PRIMARY KEY (account_id, kind)
+);
+
 -- Values the server keeps for itself, not for an account: whose cover fill is
 -- repeated daily (coverfill.ts) and, on PostgreSQL, whether the SQLite import
 -- has run.
@@ -414,8 +425,8 @@ async function open(): Promise<Store> {
  *
  * Runs on the first start against an empty PostgreSQL database, when
  * `heddohon.db` is in the data directory and `HEDDOHON_DATABASE_IMPORT` is not
- * `false`. Accounts, settings, play state, share links, plays and `meta` are
- * copied; sessions
+ * `false`. Accounts, settings, play state, share links, plays, integrations
+ * and `meta` are copied; sessions
  * and throttle counters are not, so everyone signs in once. The stored
  * credentials are copied as they are, sealed, so the same `HEDDOHON_SECRET`
  * has to be set for them to open.
@@ -444,6 +455,7 @@ async function importFromSqlite(pool: pg.Pool): Promise<void> {
 		play_state: ['account_id', 'data', 'updated_at'],
 		shares: ['id', 'token_digest', 'account_id', 'backend', 'song_id', 'created_at', 'expires_at', 'kind'],
 		plays: ['account_id', 'song_id', 'played_at', 'title', 'artist', 'artist_id', 'album', 'album_id', 'cover_art', 'duration'],
+		integrations: ['account_id', 'kind', 'secret', 'created_at'],
 		meta: ['key', 'value']
 	} as const;
 	const counts: Record<string, number> = {};

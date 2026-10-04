@@ -36,11 +36,14 @@ a request to the music server. The one host you expose is Heddohon.
 Heddohon also contacts a PostgreSQL server when `HEDDOHON_DATABASE_URL` names
 one (see [PostgreSQL](#postgresql)). The other hosts it contacts are LRCLIB, only with
 `HEDDOHON_LYRICS_LRCLIB=true`, and the AutoEq results on GitHub, only with
-`HEDDOHON_AUTOEQ=true`; both are off by default. And the hosts of the internet
+`HEDDOHON_AUTOEQ=true`, Discord, only with `HEDDOHON_DISCORD=true`, and
+ListenBrainz, only with `HEDDOHON_LISTENBRAINZ=true`; all four are off by
+default. And the hosts of the internet
 radio stations the music server lists, when a listener plays one; that is on
 unless `HEDDOHON_RADIO=false`. See [Lyrics from
 LRCLIB](#lyrics-from-lrclib), [Headphone corrections from
-AutoEq](#headphone-corrections-from-autoeq) and [Internet
+AutoEq](#headphone-corrections-from-autoeq), [Plays sent to Discord and
+ListenBrainz](#plays-sent-to-discord-and-listenbrainz) and [Internet
 radio](#internet-radio).
 
 ## PostgreSQL
@@ -96,6 +99,57 @@ sent.
   so reopening lyrics does not ask again.
 - **Treated as text.** The lines are rendered escaped like every other string,
   and the view labels them "LRCLIB".
+
+## Plays sent to Discord and ListenBrainz
+
+With `HEDDOHON_DISCORD=true`, an account can paste a Discord webhook address
+in Settings, and each play that counts (past half the track, or four minutes)
+is posted to that channel. With `HEDDOHON_LISTENBRAINZ=true`, each account can
+paste a ListenBrainz user token of its own, and the server sends what is
+playing at the start of a track and a listen when the play counts. Navidrome
+can also scrobble to ListenBrainz itself: Settings refuses to link the one
+while the other is linked, since both would send each play twice. What each
+service learns is this server's address and the title, artist and album of the
+track. The account's user name is not sent: it is what the sign-in page
+accepts, and a channel can have many readers.
+
+- **The account chooses the channel, not the host.** A webhook address must
+  match Discord's own form. Only its id and token are kept, and the request
+  goes to `HEDDOHON_DISCORD_URL` with those two in the path, so nothing typed
+  into the form decides where the server connects.
+- **Checked before it is kept.** The webhook is read from Discord, and the
+  token is put to ListenBrainz's `validate-token`. One that is refused is not
+  stored.
+- **Sealed, and not sent back.** A webhook address posts to its channel and a
+  token writes to its profile, so both are sealed with AES-256-GCM under a key
+  of their own (`integration`). Settings shows the webhook's name or the
+  ListenBrainz user. Neither secret is in any page or log line: a test links
+  both with the log at `debug`, plays a track, and searches every answer the
+  server gave, its output, and every file in the data directory for them.
+- **Sent to one place.** A token goes in the `Authorization` header of a
+  request to `HEDDOHON_LISTENBRAINZ_URL` and nowhere else, with redirects
+  refused. That address is the operator's: an `http://` one sends tokens
+  unencrypted.
+- **Library text is shown as text.** Titles, artists and albums are written by
+  whoever can edit the library. Markdown in them is escaped, so a title cannot
+  become a link in the channel, and `allowed_mentions` is empty, so none of
+  them pings anyone.
+- **Under "Report playback".** With that setting off, nothing is sent.
+- **Dropped with the credential.** When another user signs in under the
+  account's name, or its password changes, what it had linked is removed, so
+  a name given to someone else does not send that person's plays to the
+  previous holder's channel or profile.
+- **Limited per account.** Posts for counted plays: a burst of 5, then one
+  every 20 seconds. "Playing now": 5, then one every 5 seconds. Attempts to
+  link that reach either service: 5, then one every 2 minutes. Every request
+  leaves from this server's address, and Discord refuses an address that sends
+  it 10,000 failed requests in 10 minutes, for every account behind it.
+- **A bare address in a tag is still an address.** Discord turns one into a
+  link wherever it appears in a message, and escaping does not prevent it.
+- **Bounded.** 5 seconds, 16 KB read of an answer, redirects refused. A
+  webhook Discord answers with 401 or 404, or a token ListenBrainz answers
+  with 401, is unlinked. Failures are logged as `integration-failed` and do
+  not hold up or fail the play.
 
 ## Headphone corrections from AutoEq
 
@@ -723,6 +777,7 @@ Covers are cached under `$HEDDOHON_DATA_DIR/covers` (see
 | Transcode codec | `mp3`, `opus`, `aac` |
 | Transcode bitrate | 96, 128, 192, 256, 320 kbps |
 | ListenBrainz token | 1 to 128 of `A-Z a-z 0-9 -` (ListenBrainz issues 36) |
+| Discord webhook address | 300 characters; `https://`, `discord.com` or `discordapp.com` (or their `ptb` and `canary` hosts), an id of 15 to 22 digits and a token of 40 to 100 of `A-Z a-z 0-9 _ -` |
 | Last.fm callback `uid` / `token` / `state` | 2048 / 256 / 64 characters |
 | Upstream timeout | 20 s to headers, and 20 s more for a JSON body (`HEDDOHON_UPSTREAM_TIMEOUT_MS`) |
 | Upstream JSON answer | 64 MB, refused while it arrives |
