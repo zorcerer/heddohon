@@ -2,17 +2,16 @@
  * Heddohon for the desktop, Linux and Windows: a window around a server you run.
  *
  * Nothing of the web app is in this package. The first run asks for the
- * server's address, checks that a Heddohon answers there, and from then on
- * the window shows that server, so a server upgrade needs no new app. What
- * the app adds is a launcher entry, a window of its own, and Chromium's
- * Media Session, which the desktop's own media controls read: MPRIS on Linux
- * (media keys, `playerctl`), the system media controls on Windows. Nothing
- * here is written for either.
+ * server's address, checks that a Heddohon answers there, and from then on the
+ * window shows that server, so a server upgrade needs no new app. The app adds
+ * a launcher entry, a window of its own, and Chromium's Media Session, which
+ * the desktop's media controls read: MPRIS on Linux (media keys, `playerctl`),
+ * the system media controls on Windows.
  *
- * The page is a remote one, so it is given nothing: context isolation and
- * the sandbox are on, there is no Node in it, and the preload exposes its
- * calls to the app's own two screens alone. The window stays on the
- * server's origin; any other address opens in the default browser.
+ * The page is a remote one, so it is given nothing: context isolation and the
+ * sandbox are on, there is no Node in it, and the preload exposes its calls to
+ * the app's own two screens alone. The window stays on the server's origin,
+ * and any other address opens in the default browser.
  *
  * A server behind a proxy that asks who you are first (Authelia, Authentik,
  * oauth2-proxy, Cloudflare Access, plain basic auth) is reached three ways:
@@ -22,8 +21,8 @@
  *    the window may move between those and back. A link on one of the
  *    server's own pages to anywhere else still opens in the browser.
  *  - Headers typed at the address screen are sent with every request to the
- *    server's origin, and to no other: a service token, for a proxy that
- *    takes one in place of a sign-in.
+ *    server's origin, and to no other: a service token, for a proxy that takes
+ *    one in place of a sign-in.
  *  - A basic-auth challenge from the server's origin is answered from a
  *    prompt.
  */
@@ -70,16 +69,15 @@ function readConfig() {
 let config = {};
 
 /**
- * Software rendering, for a machine whose graphics driver Chromium cannot
- * use: a virtual machine, a remote desktop, some driver and compositor pairs.
- * There the GPU process fails as it starts (`AllocateRingBuffer() failed` is
- * one way it says so) and takes the window with it. The second failure in a
- * run switches hardware acceleration off for good and starts the app again,
- * and that start says so in a dialog, once: software rendering is slower, and
- * a switch nobody was told of leaves a slow window with no stated cause.
- * Software rendering in the Heddohon menu switches it by hand, and
- * `HEDDOHON_DESKTOP_NO_GPU=1` or `--disable-gpu` does it for one run. It has
- * to be decided before the app is ready, so the profile is read here.
+ * Software rendering, for a machine whose graphics driver Chromium cannot use:
+ * a virtual machine, a remote desktop, some driver and compositor pairs. There
+ * the GPU process fails as it starts (`AllocateRingBuffer() failed` is one way
+ * it says so) and takes the window with it. The second failure in a run
+ * switches hardware acceleration off for good and starts the app again, and
+ * that start says so in a dialog, once. Software rendering in the Heddohon
+ * menu switches it by hand, and `HEDDOHON_DESKTOP_NO_GPU=1` or `--disable-gpu`
+ * does it for one run. It is decided before the app is ready, so the profile
+ * is read here.
  */
 config = readConfig();
 if (config.softwareRendering || process.env.HEDDOHON_DESKTOP_NO_GPU) app.disableHardwareAcceleration();
@@ -106,9 +104,8 @@ function saveConfig() {
 		fs.mkdirSync(path.dirname(configPath()), { recursive: true });
 		// Readable by its owner only: it can hold the headers below. On Windows the
 		// mode means nothing, and the profile is under the user's own AppData.
-		// Written beside and renamed over, so the file is never seen half written:
-		// the window's size is saved as it is dragged, and a read in the middle of a
-		// write found an empty file.
+		// Written beside and renamed over: the window's size is saved as it is
+		// dragged, and a read in the middle of a write found an empty file.
 		const beside = `${configPath()}.tmp`;
 		fs.writeFileSync(beside, JSON.stringify(config, null, '\t'), { mode: 0o600 });
 		fs.chmodSync(beside, 0o600);
@@ -123,9 +120,8 @@ let headers = {};
 
 /**
  * Whether the desktop has a keyring to seal with: on Windows always, the
- * user's own data protection key. On Linux without one, Chromium falls back
- * to a fixed password (`basic_text`), which is the plain text with a step
- * added.
+ * user's data protection key. On Linux without one, Chromium falls back to a
+ * fixed password (`basic_text`), which is no better than plain text.
  */
 const canSeal = () => safeStorage.isEncryptionAvailable() && safeStorage.getSelectedStorageBackend?.() !== 'basic_text';
 
@@ -186,9 +182,9 @@ function isSavedServer(url) {
 }
 
 /**
- * Whether `url` is this file of the package: the address screen or the
- * prompt, and not another file on the disk that carries its name. The page
- * that passes gets the calls in `preload.js`, the saved headers among them.
+ * Whether `url` is this file of the package (the address screen or the
+ * prompt) and not another file on the disk with its name. The page that passes
+ * gets the calls in `preload.js`, the saved headers among them.
  */
 function isOwnFile(url, file) {
 	try {
@@ -262,11 +258,11 @@ async function check(origin) {
 }
 
 /**
- * The same question asked from the page the window has reached, once a
- * sign-in is behind it: there it carries whatever the sign-in left, a cookie
- * or an answered challenge, which a request of this process's own would not.
- * Until it says yes the address is not saved, and the page is given no
- * permissions (`isSavedServer`).
+ * The same question asked from the page the window has reached, once a sign-in
+ * is behind it: there it carries what the sign-in left, a cookie or an
+ * answered challenge, which a request from this process would not. Until it
+ * says yes the address is not saved, and the page is given no permissions
+ * (`isSavedServer`).
  */
 async function verifyPending(contents) {
 	const origin = pending;
@@ -278,7 +274,7 @@ async function verifyPending(contents) {
 				.catch(() => false)`
 		)
 		.catch(() => false);
-	// Not yet is not no: a proxy's own sign-in page can be on the server's origin
+	// Not yet is not no: a proxy's sign-in page can be on the server's origin
 	// (oauth2-proxy's is), and the next page the window reaches is asked again.
 	if (ok !== true || pending !== origin) return;
 	config.server = origin;
@@ -287,14 +283,14 @@ async function verifyPending(contents) {
 }
 
 /*
- * A window stays on the server and on the sign-in pages in front of it.
- * From a sign-in page it may go on to another (a proxy's page hands over to
- * an identity provider's with a form or a script, not always a redirect),
- * and that one becomes a sign-in origin too. From one of the server's own
- * pages, anywhere else is the default browser's.
+ * A window stays on the server and on the sign-in pages in front of it. From a
+ * sign-in page it may go on to another (a proxy hands over to an identity
+ * provider with a form or a script, not always a redirect), and that one
+ * becomes a sign-in origin too. From one of the server's own pages, anywhere
+ * else is the default browser's.
  *
- * Every window, not the first alone: a page on the server may open another
- * (`window.open` to its own origin), and that one is held to the same.
+ * Every window, not only the first: a page on the server may open another
+ * (`window.open` to its own origin), which is held to the same.
  */
 function confine(contents) {
 	contents.on('will-navigate', (event, url) => {
@@ -425,9 +421,9 @@ function buildMenu(update = null) {
 }
 
 /**
- * Says that the app switched itself to software rendering, at the start that
- * follows the switch and once. Use the graphics card again undoes it, for a
- * failure that was the driver being replaced and not the machine.
+ * Says that the app switched itself to software rendering, once, at the start
+ * that follows the switch. "Use the graphics card again" undoes it, for a
+ * failure that was the driver being replaced.
  */
 async function saySwitched() {
 	if (!config.softwareRendering || !config.softwareRenderingSwitched || !win || win.isDestroyed()) return;
@@ -452,14 +448,13 @@ async function saySwitched() {
  * updates is chosen from the menu. A newer one goes in the menu, where it
  * stays, and is said in a dialog whose Get it opens its page: once per release
  * for the check at the start, since the menu bar is hidden until Alt is
- * pressed, and every time for one that was asked for. Asked for, it also
- * says when this is the latest, or that GitHub could not be reached.
+ * pressed, and every time for one that was asked for. Asked for, it also says
+ * when this is the latest, or that GitHub could not be reached.
  *
- * The app does not update itself: an AppImage, an installer or a portable
- * .exe is a file the person replaces.
+ * The app does not update itself: an AppImage, an installer or a portable .exe
+ * is a file the person replaces.
  *
- * `HEDDOHON_DESKTOP_RELEASES` points the question somewhere else, which the
- * suite uses.
+ * `HEDDOHON_DESKTOP_RELEASES` points the question elsewhere, for the suite.
  */
 async function checkForUpdate(asked = false) {
 	if (!asked && process.env.HEDDOHON_DESKTOP_NO_UPDATE_CHECK) return;
@@ -537,9 +532,9 @@ ipcMain.handle('setup:connect', async (event, raw, headerText) => {
 });
 
 /*
- * A basic-auth challenge: asked for in a small window over the main one. One
- * prompt per challenge at a time, since a page and what it loads can each be
- * challenged before the first answer is in.
+ * A basic-auth challenge, asked for in a small window over the main one. One
+ * prompt at a time: a page and what it loads can each be challenged before the
+ * first answer is in.
  */
 let asking = null;
 let answerLogin = null;
@@ -604,12 +599,11 @@ if (!app.requestSingleInstanceLock()) {
 
 		/*
 		 * Electron has no prompt of its own: what is granted here is granted
-		 * without a word. `media` is two things. Asked for, it is the microphone
-		 * and the camera (`getUserMedia`), which the player never uses, so it is
+		 * silently. `media` is two things. Asked for, it is the microphone and
+		 * the camera (`getUserMedia`), which the player never uses, so it is
 		 * refused: until 0.5.0 a page on the server could record from either.
 		 * Checked, it is whether the page may read the names of the audio
-		 * devices, which the list of outputs in the player shows, so that is
-		 * answered yes.
+		 * devices, which the player's list of outputs shows, so that is allowed.
 		 */
 		const onServer = (contents) => isSavedServer(contents?.getURL() ?? '');
 		session.defaultSession.setPermissionRequestHandler((contents, permission, callback) => callback(ALLOWED_PERMISSIONS.has(permission) && onServer(contents)));

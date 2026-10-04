@@ -20,9 +20,8 @@ final class Server {
 	/**
 	 * `SIGN_IN` is a proxy in front of the server asking who is asking first
 	 * (Authelia, Authentik, Cloudflare Access, basic auth). The app cannot
-	 * answer it: the sign-in is the browser's, which keeps what it is given.
-	 * So the address is offered as it stands, to be opened and signed in to
-	 * there.
+	 * answer it: the sign-in is the browser's, which keeps what it is given. So
+	 * the address is offered as it stands, to be opened and signed in to there.
 	 */
 	enum Answer { HEDDOHON, SIGN_IN, NOT_HEDDOHON, UNREACHABLE }
 

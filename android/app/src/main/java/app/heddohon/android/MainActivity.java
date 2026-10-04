@@ -15,17 +15,16 @@ import com.google.androidbrowserhelper.trusted.TwaLauncher;
  * Heddohon for Android: the server someone runs, opened as a Trusted Web
  * Activity.
  *
- * Nothing of the web app is in this package. The page runs in the phone's
- * own browser, full screen, so playback with the screen off, the media
- * notification, the lock-screen controls and the codecs are the browser's,
- * the same as in a tab. A WebView would stop the audio soon after the app
- * left the screen.
+ * Nothing of the web app is in this package. The page runs in the phone's own
+ * browser, full screen, so playback with the screen off, the media
+ * notification, the lock-screen controls and the codecs are the browser's, as
+ * in a tab. A WebView would stop the audio soon after the app left the screen.
  *
  * The browser hides its address bar only for a server that vouches for this
  * app: `/.well-known/assetlinks.json` on the server, naming this package and
- * the key it is signed with. Heddohon serves that file itself. A server that
- * does not, or an app built with another key, still opens, in a Custom Tab
- * with the address bar showing.
+ * its signing key, which Heddohon serves itself. A server that does not, or an
+ * app built with another key, still opens, in a Custom Tab with the address
+ * bar showing.
  */
 public class MainActivity extends Activity {
 	private TwaLauncher launcher;
