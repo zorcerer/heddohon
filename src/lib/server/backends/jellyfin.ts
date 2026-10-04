@@ -1,9 +1,9 @@
 /**
  * Jellyfin adapter.
  *
- * Unlike Subsonic, Jellyfin issues a long-lived access token at login, so the
- * password is used exactly once and then discarded — only the token is sealed
- * and stored. Quick Connect ends at the same token without a password at all.
+ * Jellyfin issues a long-lived access token at login. The password is used
+ * once and discarded, and the token is sealed and stored. Quick Connect ends
+ * at the same token without a password.
  */
 import { upstreamFor } from '../config';
 import {
@@ -16,16 +16,16 @@ import {
 } from './http';
 
 /**
- * An id as a path segment. `encodeURIComponent` alone is not enough — it leaves
- * `..` intact, which `new URL()` then resolves upward — so every interpolation
- * goes through the guard as well as the encoder.
+ * An id as a path segment. `encodeURIComponent` leaves `..` intact, which
+ * `new URL()` resolves upward, so every interpolation also goes through the
+ * guard.
  */
 const seg = (id: string) => encodeURIComponent(assertSafeId(id));
 
 /**
- * A genre id for the `GenreIds` query parameter. Jellyfin reads that as a
- * comma-separated list, so an id is held to the GUID shape the server issues
- * and one request cannot widen itself to several genres.
+ * A genre id for the `GenreIds` query parameter, which Jellyfin reads as a
+ * comma-separated list. Held to the GUID shape the server issues, so one
+ * request cannot widen itself to several genres.
  */
 function genreIdOf(id: string): string {
 	if (!/^[0-9a-fA-F-]{32,36}$/.test(id)) throw new UpstreamError('Not found', 404, 'not_found');
@@ -61,8 +61,7 @@ import { randomUUID } from 'node:crypto';
 import { APP_VERSION } from '../version';
 
 const CLIENT = 'Heddohon';
-// From `package.json`. It was a literal here and had to be bumped by hand with
-// every release, which two release commits did separately.
+// From `package.json`. As a literal it had to be bumped by hand each release.
 const CLIENT_VERSION = APP_VERSION;
 
 /** Fields Jellyfin only returns when explicitly asked for. */
@@ -77,13 +76,12 @@ function creds(cred: StoredCredential) {
 /**
  * An item, refused as not found unless it is a `type`.
  *
- * Read before anything that lists by it, and on its own. The lists take the
- * id as `ParentId`, `AlbumArtistIds` or `ArtistIds`, and Jellyfin answers
- * any id it can resolve: an album link made with a library's id listed every
- * track in the library, and an id Jellyfin's list binder drops as malformed
- * leaves the list unfiltered, so `{"source":"artist","id":"x"}` read every
- * album. Run in parallel, the listing still ran on the server after the item
- * lookup had failed.
+ * Read on its own, before anything that lists by it. The lists take the id as
+ * `ParentId`, `AlbumArtistIds` or `ArtistIds`, and Jellyfin answers any id it
+ * can resolve: an album link made with a library's id listed every track in
+ * the library. An id its list binder drops as malformed leaves the list
+ * unfiltered, so `{"source":"artist","id":"x"}` read every album. Run in
+ * parallel, the listing still ran after the item lookup had failed.
  */
 async function itemOf(cred: StoredCredential, id: string, type: string): Promise<JellyfinItem> {
 	const item = await call<JellyfinItem>(cred, `/Items/${seg(id)}`, { userId: creds(cred).userId, Fields: ITEM_FIELDS });
@@ -93,8 +91,8 @@ async function itemOf(cred: StoredCredential, id: string, type: string): Promise
 
 /**
  * Jellyfin identifies clients through this header. The device id is generated
- * per account at login and kept with the credential so the server sees a stable
- * device rather than a new one on every request.
+ * per account at login and kept with the credential, so the server sees one
+ * device and not a new one per request.
  */
 function authHeader(deviceId: string, token?: string): string {
 	const parts = [
@@ -121,8 +119,7 @@ function base(): string {
 
 /**
  * The container each transcoded codec is delivered in. Opus in Ogg and AAC in
- * ADTS are what Jellyfin produces for these and what browsers decode; naming
- * the container leaves nothing for either end to guess at.
+ * ADTS are what Jellyfin produces for these and what browsers decode.
  */
 const TRANSCODE_CONTAINERS: Record<'mp3' | 'opus' | 'aac', string> = {
 	mp3: 'mp3',
@@ -251,9 +248,8 @@ function quality(item: JellyfinItem): AudioQuality {
 }
 
 /**
- * Cover art in Jellyfin hangs off an item id, not a separate art id. We encode
- * `itemId` (optionally with an image tag) as the portable cover handle so the
- * rest of the app can stay backend-agnostic.
+ * Jellyfin's cover art belongs to an item id, not to an art id of its own. The
+ * portable cover handle is `itemId`, optionally with an image tag.
  */
 function coverHandle(item: JellyfinItem): string | null {
 	if (item.ImageTags?.Primary) return `${item.Id}:${item.ImageTags.Primary}`;
@@ -279,14 +275,14 @@ function toSong(item: JellyfinItem): Song {
 		genre: item.Genres?.[0] ?? null,
 		coverArt: coverHandle(item),
 		starred: Boolean(item.UserData?.IsFavorite),
-		// Jellyfin records that an item is a favourite and not when it became
-		// one, so the favourites page offers no "recently starred" order here.
+		// Jellyfin records that an item is a favourite and not when, so the
+		// favourites page offers no "recently starred" order here.
 		starredAt: null,
 		playCount: item.UserData?.PlayCount ?? null,
 		rating: null,
 		quality: quality(item),
-		// Jellyfin 10.9 and later measure each track against its own loudness
-		// target and report the correction as one number; there is no peak.
+		// Jellyfin 10.9 and later report one correction per track against its own
+		// loudness target, and no peak.
 		replayGain:
 			typeof item.NormalizationGain === 'number'
 				? { trackGain: item.NormalizationGain, albumGain: null, trackPeak: null, albumPeak: null }
@@ -327,8 +323,8 @@ function toArtist(item: JellyfinItem): Artist {
 
 function toPlaylist(item: JellyfinItem): Playlist {
 	const created = item.DateCreated ? Date.parse(item.DateCreated) : NaN;
-	// Jellyfin does not report a modification time for playlists, so the two
-	// dates are the same; the playlist sort falls back accordingly.
+	// Jellyfin reports no modification time for playlists, so the two dates are
+	// the same.
 	return {
 		id: item.Id,
 		name: item.Name ?? 'Untitled playlist',
@@ -350,7 +346,7 @@ interface ItemsResponse {
 
 /**
  * The server's own folders above every library, which `/Items/{id}/Ancestors`
- * ends with. They are not the listener's, and the trail stops below them.
+ * ends with. The trail stops below them.
  */
 const SERVER_ROOTS = new Set(['UserRootFolder', 'AggregateFolder']);
 
@@ -364,9 +360,8 @@ function toFolderRef(item: JellyfinItem): FolderRef {
 }
 
 /**
- * What a folder holds, as it is on disk: folders (a folder of tracks is its
- * album) and tracks. Anything else a mixed library keeps there, a video or a
- * book, is left out.
+ * What a folder holds on disk: folders (a folder of tracks is its album) and
+ * tracks. A video or a book in a mixed library is left out.
  */
 async function folderContents(cred: StoredCredential, parentId: string): Promise<Pick<Folder, 'folders' | 'songs'>> {
 	const body = await call<ItemsResponse>(cred, '/Items', {
@@ -398,8 +393,8 @@ const SORT_BY: Record<Exclude<AlbumQuery['sort'], PlayedSort>, { sortBy: string;
 type PlayedSort = 'recentlyPlayed' | 'mostPlayed';
 
 /**
- * Played songs read to rank albums by play. Enough for the home page and the
- * first pages of either sort; an album whose songs all fall outside them is
+ * Played songs read to rank albums by play: enough for the home page and the
+ * first pages of either sort. An album whose songs all fall outside them is
  * left off the end.
  */
 const PLAYED_SONGS_READ = 2000;
@@ -411,11 +406,10 @@ const PLAYED_PAGE = 1000;
  * Album ids in order of the latest play of any of their songs, or of the plays
  * of all their songs added up, most first.
  *
- * Jellyfin keeps plays on songs only. Playing an album's songs leaves the
- * album's own play count and date unset: on a server with 529 songs played,
- * 0 of 1924 albums had either. Sorted by `DatePlayed` or `PlayCount`, every
- * album tied and the list came back in name order, the same every time. So the
- * order is worked out here from the songs.
+ * Jellyfin keeps plays on songs only: on a server with 529 songs played, 0 of
+ * 1924 albums had a play count or date. Sorted by `DatePlayed` or `PlayCount`
+ * every album tied and the list came back in name order, so the order is
+ * worked out here from the songs.
  */
 async function playedAlbumIds(cred: StoredCredential, sort: PlayedSort): Promise<string[]> {
 	const body = await call<ItemsResponse>(cred, '/Items', {
@@ -446,8 +440,7 @@ async function playedAlbumIds(cred: StoredCredential, sort: PlayedSort): Promise
 
 /**
  * Reads an `AuthenticationResult` into what gets stored. `AuthenticateByName`
- * and `AuthenticateWithQuickConnect` both return this shape, so the two routes
- * end at the same credential.
+ * and `AuthenticateWithQuickConnect` both return this shape.
  */
 async function loginResult(
 	response: Response,
@@ -461,8 +454,7 @@ async function loginResult(
 	if (!payload?.AccessToken || !payload.User?.Id) {
 		throw new UpstreamError('Jellyfin did not return an access token', 502, 'protocol');
 	}
-	// The account row is keyed on this name, so an empty one is refused rather
-	// than stored.
+	// The account row is keyed on this name, so an empty one is refused.
 	const username = payload.User.Name || fallbackUsername;
 	if (!username) {
 		throw new UpstreamError('Jellyfin did not name the signed-in user', 502, 'protocol');
@@ -481,9 +473,9 @@ async function loginResult(
 }
 
 /**
- * How long a Quick Connect availability answer is reused. The sign-in page asks
- * on every render, and anybody can load it without signing in, so asking the
- * music server each time would let a visitor drive requests at it by reloading.
+ * How long a Quick Connect availability answer is reused. The sign-in page
+ * asks on every render and needs no sign-in, so asking the music server each
+ * time would let a visitor drive requests at it by reloading.
  */
 const QUICK_CONNECT_CACHE_MS = 60_000;
 const QUICK_CONNECT_PROBE_MS = 3_000;
@@ -493,17 +485,16 @@ let quickConnectProbe: Promise<boolean> | null = null;
 async function probeQuickConnect(): Promise<boolean> {
 	let enabled = false;
 	try {
-		// The sign-in page waits on this answer. The shared upstream timeout is
-		// 20 seconds by default, which is how long the page would take to render
-		// with the music server down.
+		// The sign-in page waits on this answer, and the shared upstream timeout
+		// is 20 seconds by default.
 		const response = await upstreamFetch(upstreamUrl(base(), '/QuickConnect/Enabled'), {
 			headers: { accept: 'application/json' },
 			signal: AbortSignal.timeout(QUICK_CONNECT_PROBE_MS)
 		});
 		enabled = response.ok && (await readJson(response).catch(() => false)) === true;
 	} catch {
-		// An unreachable server offers nothing. The failure is cached with the
-		// rest so that a server that is down is not asked again on every render.
+		// An unreachable server offers nothing. The failure is cached too, so a
+		// server that is down is not asked on every render.
 	}
 	quickConnectCache = { enabled, at: Date.now() };
 	return enabled;
@@ -514,15 +505,14 @@ async function probeQuickConnect(): Promise<boolean> {
  *
  * The anonymous calls carry the same `MediaBrowser` header as a password
  * sign-in, without a token. Jellyfin records the device named in it when the
- * request is initiated and issues the eventual token to that device, so the
- * caller passes one device id through every step.
+ * request starts and issues the token to that device, so one device id goes
+ * through every step.
  */
 const quickConnect: QuickConnect = {
 	async enabled() {
 		const cached = quickConnectCache;
 		if (cached && Date.now() - cached.at < QUICK_CONNECT_CACHE_MS) return cached.enabled;
-		// Renders that arrive while a probe is out wait for it rather than each
-		// sending their own.
+		// Renders that arrive while a probe is out wait for it.
 		quickConnectProbe ??= probeQuickConnect().finally(() => {
 			quickConnectProbe = null;
 		});
@@ -534,8 +524,8 @@ const quickConnect: QuickConnect = {
 			method: 'POST',
 			headers: { authorization: authHeader(deviceId), accept: 'application/json' }
 		});
-		// 401 is Jellyfin saying Quick Connect is off. The cached answer is dropped
-		// so the sign-in page stops offering it on the next render.
+		// 401 is Jellyfin saying Quick Connect is off. The cached answer is
+		// dropped, so the next render stops offering it.
 		if (response.status === 401) {
 			quickConnectCache = null;
 			throw new UpstreamError('Quick Connect is turned off on this server', 401, 'unavailable');
@@ -556,8 +546,8 @@ const quickConnect: QuickConnect = {
 		const response = await upstreamFetch(upstreamUrl(base(), '/QuickConnect/Connect', { secret }), {
 			headers: { authorization: authHeader(deviceId), accept: 'application/json' }
 		});
-		// 404 is an unknown secret, which is what an expired one becomes. 401 is
-		// Quick Connect having been turned off since the request started.
+		// 404 is an unknown secret, which an expired one becomes. 401 is Quick
+		// Connect turned off since the request started.
 		if (response.status === 404 || response.status === 401) return 'expired';
 		if (!response.ok) throw new UpstreamError(`Jellyfin returned HTTP ${response.status}`, 502);
 
@@ -578,8 +568,8 @@ const quickConnect: QuickConnect = {
 			},
 			body: JSON.stringify({ Secret: secret })
 		});
-		// Jellyfin refuses a secret that is unknown, expired or not yet approved
-		// with a 4xx. None of those is a wrong password, so none of them is `auth`.
+		// Jellyfin refuses an unknown, expired or unapproved secret with a 4xx.
+		// None of those is a wrong password, so none is `auth`.
 		if (response.status >= 400 && response.status < 500) {
 			throw new UpstreamError('The Quick Connect request is no longer valid', 400, 'protocol');
 		}
@@ -711,9 +701,9 @@ export const jellyfinBackend: MediaBackend = {
 	},
 
 	async getInstantMix(cred, kind, id, limit) {
-		// One endpoint for any item: a song, an album or an artist. Whether a
-		// song's mix begins with the song is not documented, so it is put first
-		// here either way, as on Subsonic.
+		// One endpoint for a song, an album or an artist. Whether a song's mix
+		// begins with the song is not documented, so it is put first here, as on
+		// Subsonic.
 		const { userId } = creds(cred);
 		const [mix, seed] = await Promise.all([
 			call<ItemsResponse>(cred, `/Items/${seg(id)}/InstantMix`, {
@@ -750,24 +740,21 @@ export const jellyfinBackend: MediaBackend = {
 	},
 
 	/**
-	 * Every album artist, from two `/Items` queries rather than from
+	 * Every album artist, from two `/Items` queries instead of
 	 * `/Artists/AlbumArtists`.
 	 *
-	 * Measured on Jellyfin 12.1.0 with 5000 album artists, each warmed and run
-	 * five times: `/Artists/AlbumArtists` took 9.8 to 11.2s per request whatever
-	 * `Limit` was, 100 or 500 or 2000 or none, and whichever parameters were
-	 * dropped, so paging it would pay that once per page. `/Items` answered
+	 * On Jellyfin 12.1.0 with 5000 album artists, each warmed and run five
+	 * times, `/Artists/AlbumArtists` took 9.8 to 11.2s per request whatever
+	 * `Limit` was, so paging it would pay that per page. `/Items` answered
 	 * every `MusicArtist` in 0.28s and every `MusicAlbum` in 0.30 to 0.33s.
 	 *
-	 * The artist query alone also returns artists that only appear on tracks
-	 * (a guest on one song, each name on a compilation), which the album-artist
-	 * endpoint leaves out: 23 extra in the measurement above. They are removed
-	 * by keeping only the artists some album names as an album artist, and the
-	 * same pass counts each one's albums, which Jellyfin does not report on an
-	 * artist.
+	 * The artist query also returns artists that only appear on tracks (23 in
+	 * that measurement). They are removed by keeping the artists some album
+	 * names as an album artist, and the same pass counts each one's albums,
+	 * which Jellyfin does not report on an artist.
 	 *
-	 * This replaced a single request with `Limit: 2000`, which left every album
-	 * artist after the 2000th by sort name off the artists page.
+	 * A single request with `Limit: 2000` left every album artist after the
+	 * 2000th by sort name off the artists page.
 	 */
 	async getArtists(cred) {
 		const { userId } = creds(cred);
@@ -890,21 +877,18 @@ export const jellyfinBackend: MediaBackend = {
 	},
 
 	async getSimilarAlbums(cred, albumId, artistId, limit): Promise<Album[]> {
-		// Jellyfin computes this from its own metadata (genres, tags, people), so
-		// unlike the Subsonic path it needs no external service.
+		// Jellyfin computes this from its own metadata (genres, tags, people) and
+		// needs no external service.
 		const { userId } = creds(cred);
 		const body = await call<ItemsResponse>(cred, `/Albums/${seg(albumId)}/Similar`, {
 			userId,
 			Fields: ITEM_FIELDS,
-			// The endpoint takes this, and the album page shows the artist's own
-			// catalogue in a section above the shelf.
+			// The album page shows the artist's own catalogue above the shelf.
 			excludeArtistIds: artistId ?? undefined,
 			limit
 		});
-		// The seed album comes back in its own similar list, and the exclusion
-		// above is checked again here rather than trusted: it is a query
-		// parameter, and a server that ignores it would put the artist's records
-		// on the page twice.
+		// The seed album comes back in its own similar list. The exclusion above
+		// is a query parameter a server may ignore, so it is checked again here.
 		return (body.Items ?? [])
 			.filter((item) => item.Id !== albumId)
 			.map(toAlbum)
@@ -923,7 +907,7 @@ export const jellyfinBackend: MediaBackend = {
 			return { id: null, name: 'Folders', parents: [], folders: libraries.map(toFolderRef), songs: [] };
 		}
 
-		// Read first and alone, as `itemOf` does: `ParentId` with an id Jellyfin
+		// Read first and alone, as in `itemOf`: `ParentId` with an id Jellyfin
 		// cannot resolve leaves the listing unfiltered.
 		const folder = await call<JellyfinItem>(cred, `/Items/${seg(id)}`, { userId });
 		if (folder.IsFolder !== true) throw new UpstreamError('Not found', 404, 'not_found');
@@ -968,8 +952,8 @@ export const jellyfinBackend: MediaBackend = {
 	async getSongs(cred, ids) {
 		if (ids.length === 0) return [];
 		const { userId } = creds(cred);
-		// `Limit` bounds what Jellyfin reads when it drops ids it cannot parse, which
-		// leaves the list unfiltered; only tracks are songs.
+		// `Limit` bounds what Jellyfin reads when it drops ids it cannot parse,
+		// which leaves the list unfiltered. Only tracks are songs.
 		const body = await call<ItemsResponse>(cred, '/Items', {
 			userId,
 			Ids: ids.join(','),
@@ -999,12 +983,11 @@ export const jellyfinBackend: MediaBackend = {
 	/**
 	 * Every favourite, of each kind.
 	 *
-	 * This was limited to 200 of each, which left the rest off the favourites
-	 * page and out of "play favourites". Measured on Jellyfin 12.1.0: 2500
-	 * favourite songs took 2.2s and 5.5MB uncapped, 1.5s without
-	 * `MediaSources`, which the track list's quality badge reads. The result is
-	 * held for 30 seconds per account (`listings.ts`), and the home page
-	 * streams its eight rather than waiting for them.
+	 * A limit of 200 of each left the rest off the favourites page and out of
+	 * "play favourites". On Jellyfin 12.1.0, 2500 favourite songs took 2.2s and
+	 * 5.5MB uncapped, 1.5s without `MediaSources`, which the track list's
+	 * quality badge reads. The result is held for 30 seconds per account
+	 * (`listings.ts`), and the home page streams its eight.
 	 */
 	async getStarred(cred): Promise<SearchResults> {
 		const { userId } = creds(cred);
@@ -1065,8 +1048,8 @@ export const jellyfinBackend: MediaBackend = {
 	},
 
 	async getLyrics(cred, song): Promise<Lyrics | null> {
-		// Jellyfin returns ticks, the same 100-nanosecond unit it uses everywhere
-		// else, and omits Start entirely for unsynced lyrics.
+		// Jellyfin returns ticks (100 nanoseconds) and omits Start for unsynced
+		// lyrics.
 		const body = await call<{
 			Lyrics?: { Start?: number; Text?: string }[];
 			Metadata?: { Artist?: string; Title?: string };
@@ -1117,7 +1100,7 @@ export const jellyfinBackend: MediaBackend = {
 	},
 
 	async movePlaylistEntry(cred, id, { from, to, songId, count }) {
-		// Jellyfin moves an entry in place, by its per-entry id, which exists only
+		// Jellyfin moves an entry in place by its per-entry id, which exists only
 		// on the listing. Read again, and refused if the playlist is not what the
 		// page showed, as on Subsonic.
 		const { userId } = creds(cred);
@@ -1134,9 +1117,8 @@ export const jellyfinBackend: MediaBackend = {
 		if (indices.length === 0) return;
 		const { userId } = creds(cred);
 
-		// Jellyfin removes by an opaque per-entry id rather than by position, and
-		// that id only exists on the playlist listing — so the caller's indices are
-		// resolved against a fresh read of the playlist.
+		// Jellyfin removes by a per-entry id that exists only on the playlist
+		// listing, so the caller's indices are resolved against a fresh read.
 		const items = await call<ItemsResponse>(cred, `/Playlists/${seg(id)}/Items`, {
 			userId
 		});
@@ -1161,11 +1143,10 @@ export const jellyfinBackend: MediaBackend = {
 	async deletePlaylist(cred, id) {
 		/*
 		 * Jellyfin has no playlist-scoped delete: `DELETE /Items/{id}` removes
-		 * whatever that id is. Handed an album or a track id by a caller — and the
-		 * id comes straight off the wire — it would delete that from the library,
-		 * files included, for every user of the server, from a button labelled
-		 * "delete playlist". Subsonic's `deletePlaylist.view` cannot do this, so
-		 * the check belongs here rather than in the route.
+		 * whatever the id is. Given an album or a track id, which comes off the
+		 * wire, it would delete that from the library, files included, for every
+		 * user of the server. Subsonic's `deletePlaylist.view` cannot do this, so
+		 * the check is here and not in the route.
 		 */
 		const item = await call<JellyfinItem>(cred, `/Items/${seg(id)}`, {
 			userId: creds(cred).userId
@@ -1221,16 +1202,14 @@ export const jellyfinBackend: MediaBackend = {
 	},
 
 	async openStream(cred, songId, req: StreamRequest, transcode): Promise<UpstreamResponse> {
-		// `static=true` is Jellyfin's "give me the file on disk" switch: no
-		// remuxing, no transcoding, no sample-rate conversion.
+		// `static=true` asks Jellyfin for the file on disk: no remuxing,
+		// transcoding or sample-rate conversion.
 		//
-		// Transcoding goes through `/universal` rather than through `stream` with
-		// `static=false`. That endpoint is the one built to be handed a codec and
-		// a ceiling and to work out the rest, and it is what Jellyfin's own
-		// clients use; `stream` expects a profile negotiated through PlaybackInfo
-		// first. The container is named as well as the codec: asked for a codec
-		// alone, Jellyfin picks a container for it, and the pairing it picks is
-		// not always one a browser will play.
+		// Transcoding goes through `/universal`, which takes a codec and a
+		// ceiling and is what Jellyfin's own clients use. `stream` with
+		// `static=false` expects a profile negotiated through PlaybackInfo first.
+		// The container is named with the codec: left to Jellyfin, the pairing it
+		// picks is not always one a browser plays.
 		const { userId, deviceId } = creds(cred);
 		const url = transcode
 			? upstreamUrl(base(), `/Audio/${seg(songId)}/universal`, {
