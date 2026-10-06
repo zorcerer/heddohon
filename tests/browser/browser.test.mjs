@@ -3667,6 +3667,58 @@ describe('on a phone', () => {
 		assert.deepEqual(problems, []);
 	});
 
+	/*
+	 * A back on a phone usually follows a swipe that has already shown the
+	 * move. It held the page being left for 172ms under the veil and animated
+	 * the one returned to until 663ms (a Pixel 7's viewport, 2026-10-06).
+	 */
+	test('back puts the page in at once, where it was left, without the veil or the rise', async () => {
+		const { page, problems } = await phonePage('/artists');
+		try {
+			await page.evaluate(() => scrollTo(0, 900));
+			await page.waitForTimeout(300);
+			// A forward navigation keeps the veil.
+			await page.evaluate(() => {
+				window.__veiled = 0;
+				const watch = () => {
+					if (document.querySelector('.page-veil')) window.__veiled += 1;
+					requestAnimationFrame(watch);
+				};
+				requestAnimationFrame(watch);
+			});
+			const link = page.locator('main a[href^="/artists/"]').nth(12);
+			const href = await link.getAttribute('href');
+			await tap(page, link);
+			await page.waitForURL((url) => url.pathname === href);
+			// Past the veil (gone by 663ms) and the 900ms the rise is held for.
+			await page.waitForTimeout(1200);
+			assert.ok((await page.evaluate(() => window.__veiled)) > 0, 'the page opened without the veil');
+
+			await page.evaluate(() => {
+				const seen = (window.__back = { veil: 0, rising: 0, transitions: 0, frames: 0 });
+				const until = performance.now() + 1200;
+				const watch = () => {
+					seen.frames += 1;
+					if (document.querySelector('.page-veil')) seen.veil += 1;
+					if (document.querySelector('main.content.rising')) seen.rising += 1;
+					if (document.getAnimations().some((a) => (a.effect?.pseudoElement ?? '').startsWith('::view-transition'))) seen.transitions += 1;
+					if (performance.now() < until) requestAnimationFrame(watch);
+				};
+				requestAnimationFrame(watch);
+			});
+			await page.goBack();
+			await page.waitForURL(/\/artists$/);
+			await page.waitForTimeout(1300);
+			const seen = await page.evaluate(() => window.__back);
+			assert.ok(seen.frames > 10, 'the page was not watched');
+			assert.deepEqual({ veil: seen.veil, rising: seen.rising, transitions: seen.transitions }, { veil: 0, rising: 0, transitions: 0 });
+			assert.equal(await page.evaluate(() => scrollY), 900, 'back did not return to where the list was left');
+		} finally {
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+
 	describe('with a track playing', () => {
 		before(() => {
 			subsonic.state.audio = { type: 'audio/wav', body: silentWav(60) };
@@ -3862,6 +3914,59 @@ describe('on a phone', () => {
 				await page.waitForURL(/\/artists\/ar15$/);
 				await page.waitForTimeout(600);
 				assert.equal(await sheetOpen(page), false, 'the sheet is still over the page it opened');
+			} finally {
+				await page.close();
+			}
+			assert.deepEqual(problems, []);
+		});
+
+		/*
+		 * A back with the sheet open went back a page under it, which nobody
+		 * could see, and the sheet closed over another page than it had opened
+		 * on. The open sheet is an entry in the history now.
+		 */
+		test('back with the sheet open closes the sheet and stays on the page', async () => {
+			const { page, problems } = await phonePage('/');
+			try {
+				await playAlbum(page, 17);
+				await page.goto(app.url + '/albums', { waitUntil: 'networkidle' });
+				await tap(page, page.getByRole('navigation', { name: 'Primary' }).getByRole('link', { name: 'Favourites' }));
+				await page.waitForURL(/\/favourites$/);
+				await page.waitForSelector('#dock-open');
+				await tap(page, page.locator('#dock-open'));
+				await page.waitForFunction(() => document.querySelector('.app').classList.contains('player-open'));
+				await page.waitForTimeout(600);
+
+				await page.goBack();
+				await page.waitForFunction(() => !document.querySelector('.app').classList.contains('player-open'), null, { timeout: 5000 });
+				assert.equal(new URL(page.url()).pathname, '/favourites', 'back left the page under the sheet');
+
+				// Closed from the sheet itself, the entry goes with it: the next back
+				// is the page before.
+				await page.waitForTimeout(600);
+				await tap(page, page.locator('#dock-open'));
+				await page.waitForFunction(() => document.querySelector('.app').classList.contains('player-open'));
+				await page.waitForTimeout(600);
+				await tap(page, page.locator('#player-hide'));
+				await page.waitForFunction(() => !document.querySelector('.app').classList.contains('player-open'));
+				await page.waitForTimeout(600);
+				assert.equal(new URL(page.url()).pathname, '/favourites');
+				await page.goBack();
+				await page.waitForURL(/\/albums$/);
+				assert.equal(await sheetOpen(page), false);
+
+				// A link followed from the sheet takes the sheet's place in the
+				// history: back returns to the page the sheet was over.
+				await tap(page, page.locator('#dock-open'));
+				await page.waitForFunction(() => document.querySelector('.app').classList.contains('player-open'));
+				await page.waitForTimeout(600);
+				await tap(page, page.locator('aside.panel .artist a'));
+				await page.waitForURL(/\/artists\/ar17$/);
+				await page.waitForTimeout(600);
+				await page.goBack();
+				await page.waitForURL(/\/albums$/);
+				await page.waitForTimeout(600);
+				assert.equal(await sheetOpen(page), false, 'back from a page opened in the sheet brought the sheet up');
 			} finally {
 				await page.close();
 			}
@@ -4218,6 +4323,105 @@ describe('restoring the queue', () => {
 				headers: { origin: app.url }
 			});
 			await page.close();
+		}
+	});
+
+	/*
+	 * A hidden or closed page wrote its queue whether or not it had changed
+	 * it. A browser left open with a queue from days before wrote it over the
+	 * one another browser had played since, and the account reopened on the
+	 * old track. Brought back to the front, it also kept showing the old one.
+	 */
+	test('a browser left idle does not write its queue over one played since, and takes the newer one when returned to', async () => {
+		const other = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+		const signIn = await other.request.post(`${app.url}/login`, {
+			form: { username: 'testuser', password: 'testpass', backend: 'subsonic', next: '/' },
+			headers: { origin: app.url, accept: 'text/html' },
+			maxRedirects: 0
+		});
+		assert.equal(signIn.status(), 303);
+		await context.request.put(`${app.url}/api/play-state`, {
+			data: { songIds: ['s30a', 's30b'], index: 0, position: 0, repeat: 'off', shuffle: false },
+			headers: { origin: app.url }
+		});
+		const title = (page) => page.evaluate(() => document.querySelector('aside.panel h2.title')?.textContent);
+		const saved = async () => (await (await context.request.get(`${app.url}/api/play-state`)).json()).songIds;
+		const show = (page, hidden) =>
+			page.evaluate((hidden) => {
+				Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden });
+				document.dispatchEvent(new Event('visibilitychange'));
+			}, hidden);
+
+		const playing = (page) =>
+			page.waitForFunction(() => [...document.querySelectorAll('audio')].some((a) => !a.paused && a.currentTime > 0.2), null, {
+				timeout: 10_000
+			});
+		const pause = async (page) => {
+			await page.locator('aside.panel').getByRole('button', { name: 'Pause', exact: true }).click();
+			await page.locator('aside.panel').getByRole('button', { name: 'Play', exact: true }).waitFor();
+			// Past the 1.2s the save waits for.
+			await page.waitForTimeout(1800);
+		};
+		subsonic.state.audio = { type: 'audio/wav', body: silentWav(60) };
+
+		const idle = await other.newPage();
+		const active = await context.newPage();
+		try {
+			// The idle browser plays the old queue and pauses, so its element holds
+			// the old track.
+			await idle.goto(app.url + '/', { waitUntil: 'load' });
+			await idle.waitForFunction(() => document.querySelector('aside.panel h2.title')?.textContent === 'Song 30a');
+			await idle.locator('aside.panel button.play').click();
+			await playing(idle);
+			await pause(idle);
+			await show(idle, true);
+
+			await active.goto(app.url + '/albums/al31', { waitUntil: 'load' });
+			await active.waitForFunction(() => document.querySelector('aside.panel h2.title')?.textContent === 'Song 30a');
+			await active.getByRole('button', { name: 'Play Song 31a', exact: true }).click();
+			await active.waitForFunction(() => document.querySelector('aside.panel h2.title')?.textContent === 'Song 31a');
+			await playing(active);
+			await pause(active);
+			assert.deepEqual(await saved(), ['s31a', 's31b']);
+
+			// Returned to: the newer queue, and play starts its track.
+			await show(idle, false);
+			await idle.waitForFunction(() => document.querySelector('aside.panel h2.title')?.textContent === 'Song 31a', null, {
+				timeout: 5000
+			});
+			await show(idle, true);
+			await idle.evaluate(() => window.dispatchEvent(new Event('pagehide')));
+			await idle.waitForTimeout(800);
+			assert.deepEqual(await saved(), ['s31a', 's31b'], 'the idle browser wrote its queue over the newer one');
+			await show(idle, false);
+			await idle.locator('aside.panel button.play').click();
+			await playing(idle);
+			assert.equal(await title(idle), 'Song 31a');
+			assert.deepEqual(
+				await idle.evaluate(() => [...document.querySelectorAll('audio')].filter((a) => !a.paused).map((a) => new URL(a.src).pathname)),
+				['/api/stream/s31a'],
+				'play started another track than the one shown'
+			);
+
+			// A browser that is playing keeps its queue when returned to.
+			await active.getByRole('button', { name: 'Play Song 31b', exact: true }).click();
+			await active.waitForFunction(() => document.querySelector('aside.panel h2.title')?.textContent === 'Song 31b');
+			await playing(active);
+			await pause(active);
+			assert.deepEqual(await saved(), ['s31a', 's31b']);
+			await show(idle, true);
+			await show(idle, false);
+			await idle.waitForTimeout(1500);
+			assert.equal(await title(idle), 'Song 31a', 'a playing browser took the saved queue');
+		} finally {
+			subsonic.state.audio = null;
+			await idle.close();
+			await active.close();
+			await other.close();
+			await context.request.put(`${app.url}/api/play-state`, {
+				data: { songIds: [], index: 0, position: 0, repeat: 'off', shuffle: false },
+				headers: { origin: app.url }
+			});
 		}
 	});
 });

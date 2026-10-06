@@ -1122,7 +1122,9 @@
 					<span class="label">
 						ListenBrainz
 						<span class="hint hh-muted">
-							{user
+							{user && data.integrations.viaMusicServer
+								? `Scrobbling to ${user} from this server. ${data.serverLabel} links ListenBrainz itself, under Scrobbling: unlink it here to link it there.`
+								: user
 								? `Scrobbling to ${user}, and showing what is playing now.`
 								: 'Paste the user token from your own ListenBrainz settings page. This server sends what you play here.'}
 						</span>

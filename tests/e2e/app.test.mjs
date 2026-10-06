@@ -589,6 +589,36 @@ describe('held album details and suggestions', () => {
 			subsonic.state.similarAlbums = 0;
 		}
 	});
+
+	/*
+	 * Navidrome with no similar artist in the library answers
+	 * `getSimilarSongs2` with the artist's own tracks, which the shelf leaves
+	 * out, and the album page had no shelf.
+	 */
+	test('a "You might like" shelf the similar tracks leave short is filled from the album\'s years or genre', async () => {
+		subsonic.state.similarAlbums = 2;
+		subsonic.state.alikeAlbums = 12;
+		try {
+			await asFreshAccount('eighth', async (client) => {
+				const { html } = await client.page('/albums/al4');
+				// The two similar ones first, then six from the same years: eight in all.
+				for (const name of ['Album 5', 'Album 6', 'Album 20', 'Album 25']) assert.match(html, new RegExp(`${name}\\b`), explain(`${name} is not on the shelf`));
+				assert.doesNotMatch(html, /Album 26\b/, 'the shelf holds more than eight');
+				assert.equal(subsonic.calls.get('getRandomSongs'), 1);
+				assert.deepEqual(subsonic.state.alikeAsked, { genre: null, fromYear: '2002', toYear: '2006' });
+			});
+			// With none similar at all, and the album's own artist among the answers.
+			subsonic.state.similarAlbums = 0;
+			await asFreshAccount('ninth', async (client) => {
+				const { html } = await client.page('/albums/al21');
+				assert.match(html, /Album 20\b/, explain('the shelf is missing'));
+				assert.match(html, /Album 22\b/);
+			});
+		} finally {
+			subsonic.state.similarAlbums = 0;
+			subsonic.state.alikeAlbums = 0;
+		}
+	});
 });
 
 describe('appears on', () => {
@@ -1854,6 +1884,111 @@ describe('playing things', () => {
 			} finally {
 				subsonic.state.estimateOff = false;
 			}
+		});
+	});
+
+	/*
+	 * ffmpeg gives each Ogg stream it writes a random serial number, in every
+	 * page under a checksum. Two reads of one Opus transcode from Jellyfin
+	 * differed in those bytes alone, and a browser sent the rest of a track
+	 * from a second read ended the track at that byte.
+	 */
+	describe('an Ogg transcode', () => {
+		/** Ogg's checksum, a bit at a time: polynomial 0x04c11db7, initial value 0. */
+		const crc = (bytes) => {
+			let r = 0;
+			for (const byte of bytes) {
+				r ^= byte << 24;
+				for (let bit = 0; bit < 8; bit++) r = r & 0x80000000 ? (r << 1) ^ 0x04c11db7 : r << 1;
+			}
+			return r >>> 0;
+		};
+		/** One page as ffmpeg writes it: the stream's serial, and a checksum over the page. */
+		const page = (serial, sequence, packet) => {
+			const segments = [];
+			for (let left = packet.length; left >= 0; left -= 255) segments.push(Math.min(left, 255));
+			const header = Buffer.alloc(27 + segments.length);
+			header.write('OggS', 0, 'latin1');
+			header[5] = sequence === 0 ? 2 : 0;
+			header.writeBigUInt64LE(BigInt(sequence * 960), 6);
+			header.writeUInt32LE(serial, 14);
+			header.writeUInt32LE(sequence, 18);
+			header[26] = segments.length;
+			Buffer.from(segments).copy(header, 27);
+			const whole = Buffer.concat([header, packet]);
+			whole.writeUInt32LE(crc(whole), 22);
+			return whole;
+		};
+		const packets = [Buffer.alloc(19, 1), Buffer.alloc(600, 2), Buffer.alloc(255, 3), Buffer.alloc(4000, 4)];
+		const stream = (serial) => Buffer.concat(packets.map((packet, i) => page(serial, i, packet)));
+		const pagesOf = (bytes) => {
+			const pages = [];
+			for (let at = 0; at < bytes.length; ) {
+				const segments = bytes[at + 26];
+				let length = 27 + segments;
+				for (let i = 0; i < segments; i++) length += bytes[at + 27 + i];
+				pages.push(bytes.subarray(at, at + length));
+				at += length;
+			}
+			return pages;
+		};
+
+		before(async () => {
+			await user.json('/api/settings', 'PATCH', { transcode: true, transcodeCodec: 'opus', transcodeBitrateKbps: 128 });
+			subsonic.state.ignoreRange = true;
+		});
+
+		after(async () => {
+			subsonic.state.ignoreRange = false;
+			subsonic.state.audio = null;
+			await user.json('/api/settings', 'PATCH', { transcode: false, transcodeCodec: 'mp3', transcodeBitrateKbps: 192 });
+		});
+
+		test('is the same bytes from every read, whatever serial the music server gave it', async () => {
+			let serial = 0x1000;
+			const sent = [];
+			subsonic.state.audio = {
+				type: 'audio/ogg',
+				body: () => {
+					sent.push(stream((serial += 0x01010101)));
+					return sent.at(-1);
+				}
+			};
+			const first = Buffer.from(await (await user.request('/api/stream/s12a?mode=opus-128')).arrayBuffer());
+			// Another bitrate is another copy here, so another read of the music server.
+			await user.json('/api/settings', 'PATCH', { transcodeBitrateKbps: 96 });
+			const second = Buffer.from(await (await user.request('/api/stream/s12a?mode=opus-96')).arrayBuffer());
+			assert.equal(sent.length, 2, 'the second request was not a second read');
+			assert.notDeepEqual(sent[0], sent[1]);
+			assert.deepEqual(second, first, 'two reads of one transcode came out different');
+
+			// Still the music server's stream: every packet as sent, one serial
+			// throughout, and each page's checksum holding.
+			const pages = pagesOf(first);
+			assert.equal(pages.length, packets.length);
+			pages.forEach((bytes, i) => {
+				const original = pagesOf(sent[0])[i];
+				assert.deepEqual(bytes.subarray(26), original.subarray(26), `page ${i} lost its packet`);
+				assert.deepEqual(bytes.subarray(0, 14), original.subarray(0, 14));
+				assert.equal(bytes.readUInt32LE(14), pages[0].readUInt32LE(14), 'the pages do not share a serial');
+				const zeroed = Buffer.from(bytes);
+				zeroed.writeUInt32LE(0, 22);
+				assert.equal(bytes.readUInt32LE(22), crc(zeroed), `page ${i} has a checksum that does not hold`);
+			});
+
+			// A range of it, once whole, is cut from the same bytes.
+			const range = await user.request('/api/stream/s12a?mode=opus-96', { headers: { range: 'bytes=700-' } });
+			assert.equal(range.status, 206);
+			assert.deepEqual(Buffer.from(await range.arrayBuffer()), first.subarray(700));
+		});
+
+		test('that is not Ogg after all is passed on as it came', async () => {
+			const body = Buffer.concat([page(7, 0, Buffer.alloc(40, 9)), Buffer.from('not a page at all, and then some more bytes')]);
+			subsonic.state.audio = { type: 'audio/ogg', body };
+			const response = await user.request('/api/stream/s13a?mode=opus-96');
+			const got = Buffer.from(await response.arrayBuffer());
+			assert.equal(got.length, body.length);
+			assert.deepEqual(got.subarray(body.length - 43), body.subarray(body.length - 43));
 		});
 	});
 
@@ -3433,20 +3568,26 @@ describe('plays sent to a Discord channel and to ListenBrainz', () => {
 		assert.equal(outside.calls.get(`GET ${OUTSIDE.webhook}`), 0);
 		const unknown = await action(client, 'linkIntegration', { kind: 'discord', value: address.replace(/w{68}$/, 'x'.repeat(68)) });
 		assert.deepEqual(unknown, { status: 400, error: 'Discord has no webhook at that address.' });
-		// An account on Navidrome links a token of its own here too, unless
-		// Navidrome already scrobbles for it: both would send each play twice.
+		// ListenBrainz is one setting for an account. Where Navidrome links it
+		// itself, under Scrobbling, this server's own is not shown and not taken:
+		// the page had two token fields for it.
 		const viaNavidrome = subsonic.state.navidrome.linked;
-		viaNavidrome.listenbrainz = true;
+		const second = await action(client, 'linkIntegration', { kind: 'listenbrainz', value: OUTSIDE.listenBrainzToken });
+		assert.equal(second.status, 409);
+		assert.match(second.error, /under Scrobbling/);
+		assert.doesNotMatch(await section(client), /ListenBrainz/, 'a second ListenBrainz setting is on the page');
+		// A Navidrome with ListenBrainz turned off leaves it to this server.
+		subsonic.state.navidrome.enabled.listenbrainz = false;
 		try {
-			const twice = await action(client, 'linkIntegration', { kind: 'listenbrainz', value: OUTSIDE.listenBrainzToken });
-			assert.equal(twice.status, 409);
-			assert.match(twice.error, /sent twice/);
+			assert.match(await section(client), /ListenBrainz user token/);
+			assert.equal((await action(client, 'linkIntegration', { kind: 'listenbrainz', value: OUTSIDE.listenBrainzToken })).status, 200);
+			assert.match(await section(client), /Scrobbling to listener, and showing/);
 		} finally {
-			viaNavidrome.listenbrainz = false;
+			subsonic.state.navidrome.enabled.listenbrainz = true;
 		}
-		assert.equal((await action(client, 'linkIntegration', { kind: 'listenbrainz', value: OUTSIDE.listenBrainzToken })).status, 200);
-		assert.match(await section(client), /Scrobbling to listener/);
-		// And the other way round: Navidrome is not given a token while this server holds one.
+		// Linked here from before: the row stays, to unlink it, and Navidrome is
+		// not given a token while this server holds one.
+		assert.match(await section(client), /Scrobbling to listener from this server\..*unlink it here to link it there/s);
 		const other = await client.request('/settings?/linkListenBrainz', {
 			method: 'POST',
 			headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json', 'x-sveltekit-action': 'true' },
@@ -3613,13 +3754,14 @@ describe('plays sent to a Discord channel and to ListenBrainz', () => {
 				});
 
 			// Linked, linked again over the first, and refused: each answer is kept.
+			// On a Navidrome with ListenBrainz turned off, where this server's own is offered.
+			subsonic.state.navidrome.enabled.listenbrainz = false;
 			for (let n = 0; n < 2; n++) {
 				await ask('linking ListenBrainz', form('linkIntegration', { kind: 'listenbrainz', value: OUTSIDE.listenBrainzToken }));
 				await ask('linking Discord', form('linkIntegration', { kind: 'discord', value: `https://discord.com${OUTSIDE.webhook}` }));
 			}
-			subsonic.state.navidrome.linked.listenbrainz = true;
+			subsonic.state.navidrome.enabled.listenbrainz = true;
 			await ask('linking ListenBrainz twice over', form('linkIntegration', { kind: 'listenbrainz', value: OUTSIDE.listenBrainzToken }));
-			subsonic.state.navidrome.linked.listenbrainz = false;
 
 			await ask('a start', client.json('/api/playback', 'POST', { songId: 's3a', event: 'start', position: 0 }));
 			await ask('a play', play(client, 's3a'));
@@ -3653,7 +3795,7 @@ describe('plays sent to a Discord channel and to ListenBrainz', () => {
 			await ask('unlinking', form('unlinkIntegration', { kind: 'listenbrainz' }));
 			await form('unlinkIntegration', { kind: 'discord' });
 		} finally {
-			subsonic.state.navidrome.linked.listenbrainz = false;
+			subsonic.state.navidrome.enabled.listenbrainz = true;
 			subsonic.state.username = 'testuser';
 			subsonic.state.password = 'testpass';
 		}

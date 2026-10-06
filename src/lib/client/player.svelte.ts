@@ -165,6 +165,25 @@ class Player {
 	 * and back within one fade: a flash on the rail and the player.
 	 */
 	engaged = $state(false);
+
+	/**
+	 * Whether a newer saved queue may replace the one held here: nothing plays
+	 * or loads, and nothing waits to be written. The layout asks when the page
+	 * comes back to the front.
+	 */
+	get idle(): boolean {
+		return !this.engaged && !this.playing && !this.loading && !this.#unsaved && !this.casting;
+	}
+
+	/** Whether a change made here has yet to reach the server. */
+	get #unsaved(): boolean {
+		return this.#changes !== this.#written;
+	}
+
+	/** When the saved state this browser holds was written, on the server's clock. */
+	get savedAt(): number {
+		return this.#savedAt;
+	}
 	currentTime = $state(0);
 	duration = $state(0);
 	buffered = $state(0);
@@ -219,6 +238,20 @@ class Player {
 	#scrobbled = false;
 	#startReported = false;
 	#persistTimer: ReturnType<typeof setTimeout> | null = null;
+	/**
+	 * The changes this browser has made to the queue or the position, counted,
+	 * how many of them the server has taken, and when the saved state held here
+	 * was written (the server's clock).
+	 *
+	 * The writes made on the way out (a hidden tab, a closed one) went out
+	 * whether or not anything had changed here. A browser that had sat idle
+	 * with a queue from days before wrote it over the one another browser had
+	 * played since, and the account reopened on the old track. Counted, so a
+	 * write that fails leaves its change to the next one.
+	 */
+	#changes = 0;
+	#written = 0;
+	#savedAt = 0;
 	#progressTimer: ReturnType<typeof setInterval> | null = null;
 	#positionTimer: ReturnType<typeof setInterval> | null = null;
 	#detachers: Array<() => void> = [];
@@ -527,7 +560,7 @@ class Player {
 		this.#abandonCrossfade();
 		// Written, not just cleared: clearing the debounce timer dropped whatever
 		// the last change had scheduled.
-		if (this.queue.length > 0) this.#writePlayState(true);
+		this.#flushPlayState();
 	}
 
 	// ── Queue control ──────────────────────────────────────────────────────
@@ -712,8 +745,12 @@ class Player {
 				this.playing = false;
 				return;
 			}
-			// A pause pressed while the play was starting, not a failure.
-			if (err instanceof DOMException && err.name === 'AbortError' && !this.engaged) return;
+			// A pause pressed while the play was starting, or another track loaded
+			// into the element (a skip pressed twice within a second), not a
+			// failure. Chromium's message for the second, "The play() request was
+			// interrupted by a new load request", was shown as the player's error.
+			// The load that interrupted it has a play() of its own.
+			if (err instanceof DOMException && err.name === 'AbortError') return;
 			this.error = err instanceof Error ? err.message : 'Playback failed';
 			this.playing = false;
 		}
@@ -845,8 +882,30 @@ class Player {
 		// Nothing the element can seek to, or not that far: see `#seekOnceWhole`.
 		// A second past the end is left to the element, which stops at its end.
 		// `duration` here can be the music server's figure, a little over.
+		//
+		// Chromium reports a stream without ranges seekable to its end and takes
+		// the seek by waiting for every byte before it: 25.2s for a seek to 3:51
+		// with the stream arriving at 32KB/s, the sound stopped meanwhile. Such a
+		// stream has no length, so its duration is Infinity. A seek well past what
+		// has arrived goes the same way as one the element refuses: 1.5 to 2.3s
+		// for MP3 at 48KB/s, 4 to 16s for Opus at 32KB/s, which Chromium finds
+		// its place in over several ranges. Within 10 seconds of what has
+		// arrived, the wait is the shorter of the two.
+		//
+		// Not for AAC. It is sent as ADTS, which has no index, and Chromium reads
+		// one from its start whatever range it could ask for: asked for again,
+		// the track had to arrive a second time (a seek to 1:28 at 32KB/s had not
+		// landed after 26s). Not for a track being opened at a position either,
+		// still at its top: it would be heard from there while the server was
+		// asked.
 		const ranges = element.seekable;
-		if (element.readyState > 0 && (ranges.length === 0 || target > ranges.end(ranges.length - 1) + 1)) {
+		const arrived = element.buffered.length > 0 ? element.buffered.end(element.buffered.length - 1) : 0;
+		const unranged =
+			element.duration === Infinity &&
+			element.currentTime > 1 &&
+			target > arrived + 10 &&
+			this.settings?.transcodeCodec !== 'aac';
+		if (element.readyState > 0 && (ranges.length === 0 || target > ranges.end(ranges.length - 1) + 1 || unranged)) {
 			void this.#seekOnceWhole(element, target);
 			return;
 		}
@@ -1237,8 +1296,11 @@ class Player {
 	 * the position taken up through `#pendingSeek`, as a resume is. Asked for
 	 * sooner, it would come as another stream without ranges, from the start.
 	 * Until then the track plays on, and after 30 looks a second apart the seek
-	 * is dropped: a transcode too large for the server to hold never has
-	 * ranges.
+	 * is left to the element: a transcode too large for the server to hold
+	 * never has ranges.
+	 *
+	 * A seek past what has arrived of such a stream comes here in every
+	 * browser; see `seek`.
 	 */
 	async #seekOnceWhole(element: HTMLAudioElement, target: number) {
 		const song = this.current;
@@ -1247,7 +1309,11 @@ class Player {
 		const wanted = () => serial === this.#wholeSerial && this.#primary === element && this.current === song;
 		this.loading = true;
 		for (let attempt = 0; attempt < SEEK_HOLD_ATTEMPTS; attempt++) {
-			const whole = await fetch(this.#srcOf(song), { method: 'HEAD' }).then(
+			// Past the browser's cache. Chromium makes a request wait for another
+			// that is still writing the same address into its cache, up to 20
+			// seconds, and the element's own stream is one: the first answer here
+			// came 20.2s after the press.
+			const whole = await fetch(this.#srcOf(song), { method: 'HEAD', cache: 'no-store' }).then(
 				(response) => response.ok && response.headers.get('accept-ranges') === 'bytes',
 				() => false
 			);
@@ -1263,6 +1329,12 @@ class Player {
 			if (!wanted()) return;
 		}
 		this.loading = false;
+		// Never whole: left to the element, which in Chromium waits for the bytes.
+		try {
+			element.currentTime = target;
+		} catch {
+			// Nothing loaded to seek in.
+		}
 	}
 
 	/**
@@ -1609,9 +1681,7 @@ class Player {
 		 * event. A second write costs one request, and the endpoint replaces the
 		 * row.
 		 */
-		const flush = () => {
-			if (this.queue.length > 0) this.#writePlayState(true);
-		};
+		const flush = () => this.#flushPlayState();
 		const onVisibility = () => {
 			if (document.hidden) flush();
 			else resume();
@@ -1665,8 +1735,17 @@ class Player {
 	/** Debounced, for a burst of queue edits or a scrub. */
 	#persist() {
 		if (!browser) return;
+		this.#changes += 1;
 		if (this.#persistTimer) clearTimeout(this.#persistTimer);
 		this.#persistTimer = setTimeout(() => this.#writePlayState(), 1200);
+	}
+
+	/**
+	 * The write made on the way out: what this browser changed, or the position
+	 * of a track it is playing. See `#unsaved`.
+	 */
+	#flushPlayState() {
+		if (this.queue.length > 0 && (this.#unsaved || this.playing)) this.#writePlayState(true);
 	}
 
 	/**
@@ -1680,6 +1759,7 @@ class Player {
 		// A station is not a track the music server can return by id, so a queue
 		// holding one is not saved, and the queue saved before it stays.
 		if (this.queue.some((song) => song.live)) return;
+		const upTo = this.#changes;
 		// While a restore holds only the current track, a write carries the queue
 		// it stands for. Written as it stood, a play pressed before the rest
 		// arrived saved a one-track queue over the saved one.
@@ -1703,7 +1783,14 @@ class Player {
 			// ids up to 255 characters. Over the limit the request is sent
 			// without keepalive, which the unload may cut short.
 			keepalive: keepalive && body.length <= KEEPALIVE_LIMIT
-		}).catch(() => undefined);
+		})
+			.then(async (response) => {
+				if (!response.ok) return;
+				this.#written = Math.max(this.#written, upTo);
+				const at = Number((await response.json()).updatedAt);
+				if (Number.isFinite(at)) this.#savedAt = Math.max(this.#savedAt, at);
+			})
+			.catch(() => undefined);
 	}
 
 	/**
@@ -1711,11 +1798,18 @@ class Player {
 	 * header, so the browser's cache keys on it: the original file, already
 	 * held, would otherwise answer the first request after transcoding was
 	 * switched on.
+	 *
+	 * Opus carries a mark for the form its bytes take (`server/ogg.ts`). A
+	 * browser keeps a stream for an hour, in part where the track was left
+	 * early, and asks for the rest by range: the part of an Opus transcode
+	 * kept from before its serials were fixed is not continued by one sent
+	 * since. Change the mark with any change to the bytes sent for a codec.
 	 */
 	get deliveryMode(): string {
 		const settings = this.settings;
 		if (!settings?.transcode) return 'raw';
-		return `${settings.transcodeCodec}-${settings.transcodeBitrateKbps}`;
+		const mode = `${settings.transcodeCodec}-${settings.transcodeBitrateKbps}`;
+		return settings.transcodeCodec === 'opus' ? `${mode}-s1` : mode;
 	}
 
 	/**
@@ -1808,7 +1902,7 @@ class Player {
 	 */
 	async restore(
 		songs: Song[],
-		state: { index: number; position: number; repeat: RepeatMode; shuffle: boolean; orderIds?: string[] },
+		state: { index: number; position: number; repeat: RepeatMode; shuffle: boolean; orderIds?: string[]; updatedAt?: number },
 		partial?: { ids: string[]; index: number }
 	) {
 		if (songs.length === 0) return;
@@ -1821,6 +1915,13 @@ class Player {
 		this.duration = this.current?.duration ?? 0;
 		this.currentTime = state.position;
 		this.#pendingSeek = state.position;
+		if (state.updatedAt !== undefined) {
+			this.#savedAt = state.updatedAt;
+			this.#written = this.#changes;
+		} else {
+			// A queue handed over by another browser has no saved copy yet.
+			this.#changes += 1;
+		}
 		// No src is assigned: browsers block autoplay, and the file is not
 		// fetched until the first play() asks for it.
 	}

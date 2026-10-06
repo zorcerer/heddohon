@@ -186,13 +186,15 @@ export interface MediaBackend {
 	 *
 	 * Subsonic has no album similarity: `getSimilarSongs2` takes an artist id
 	 * and returns tracks, which are grouped into albums. Passing `artistId`
-	 * saves the adapter a lookup.
+	 * saves the adapter a lookup. `like` is the album's genre and year, from
+	 * which Subsonic fills a shelf the similar tracks leave short.
 	 */
 	getSimilarAlbums(
 		cred: StoredCredential,
 		albumId: string,
 		artistId: string | null,
-		limit: number
+		limit: number,
+		like?: { genre: string | null; year: number | null }
 	): Promise<Album[]>;
 
 	/**

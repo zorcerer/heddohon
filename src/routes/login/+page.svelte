@@ -251,12 +251,6 @@
 			<h1 class="wordmark">{data.appName}</h1>
 		</div>
 		<p class="lede">Your music server, in a room lit by whatever is playing.</p>
-		<!-- The session ceiling is stated on the settings page, where it is
-		     acted on. -->
-		<p class="assurance">
-			<span class="hh-eyebrow">Credentials</span>
-			<span class="hh-muted">Passed straight to the music server. This browser stores none of it.</span>
-		</p>
 	</aside>
 
 	<div class="panel hh-glass hh-float">
@@ -567,16 +561,6 @@
 		color: var(--text-muted);
 	}
 
-	.assurance {
-		margin: var(--space-2) 0 0;
-		max-width: 22rem;
-		display: grid;
-		gap: var(--space-1);
-		font-size: 0.8125rem;
-		padding-left: var(--space-4);
-		border-left: 1px solid var(--border-hairline);
-	}
-
 	/* The radius, the edge and the lift all come from `.hh-float`. */
 	.panel {
 		grid-area: panel;
@@ -836,8 +820,7 @@
 
 	/*
 	 * One column below the width where two 23rem tracks and the gap fit. The
-	 * crest and the name stay above the panel, and the assurance with them: it
-	 * is what the reader accepts before typing a password.
+	 * crest and the name stay above the panel.
 	 */
 	@media (max-width: 56rem) {
 		.stage {
@@ -861,10 +844,6 @@
 
 		.lede {
 			display: none;
-		}
-
-		.assurance {
-			margin-top: 0;
 		}
 
 		/* One column puts the panel in the middle, so the crest goes with it. It

@@ -272,13 +272,15 @@ const EMPTY_PLAY_STATE: PersistedPlayState = {
 const MAX_QUEUE = 1000;
 
 export async function getPlayState(accountId: string): Promise<PersistedPlayState> {
-	const row = await (await store()).get<{ data: string }>(
-		'SELECT data FROM play_state WHERE account_id = ?',
+	const row = await (await store()).get<{ data: string; updated_at: number | string }>(
+		'SELECT data, updated_at FROM play_state WHERE account_id = ?',
 		accountId
 	);
 	if (!row) return { ...EMPTY_PLAY_STATE };
 	try {
-		return sanitizePlayState(JSON.parse(row.data));
+		// When it was written, not when it was read: a browser compares it with
+		// the state it holds, to tell whether another browser has played since.
+		return { ...sanitizePlayState(JSON.parse(row.data)), updatedAt: Number(row.updated_at) };
 	} catch {
 		return { ...EMPTY_PLAY_STATE };
 	}
@@ -311,7 +313,7 @@ export async function savePlayState(accountId: string, patch: unknown): Promise<
 		 ON CONFLICT(account_id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at`,
 		accountId,
 		JSON.stringify(state),
-		now()
+		state.updatedAt
 	);
 	return state;
 }

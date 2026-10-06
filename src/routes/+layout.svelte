@@ -1,7 +1,7 @@
 <script lang="ts">
 	import '$lib/styles/app.css';
 	import { untrack } from 'svelte';
-	import { afterNavigate, beforeNavigate, onNavigate, preloadCode } from '$app/navigation';
+	import { afterNavigate, beforeNavigate, onNavigate, preloadCode, pushState } from '$app/navigation';
 	import { navigating, page, updated } from '$app/state';
 	import { player } from '$lib/client/player.svelte';
 	import { audioOutputs } from '$lib/client/output.svelte';
@@ -263,27 +263,40 @@
 	 * is put in only if the player still holds what it held at the start.
 	 * Otherwise a track played before the lookup answered was replaced by the
 	 * saved queue.
+	 *
+	 * `newer` is for a page brought back to the front. The saved queue is put
+	 * in only if another browser wrote it after the one held here, and only
+	 * while nothing plays here. A phone left open for days showed the track it
+	 * had held, while the account had played others since.
 	 */
-	async function restoreQueue() {
+	let restoring = false;
+	async function restoreQueue(newer = false) {
+		if (restoring) return;
+		restoring = true;
 		try {
 			// Untracked: this runs inside the effect that attaches the player, and a
 			// read here would make every queue change re-run it.
 			const untouched = untrack(() => player.queue);
-			const replaced = () => player.queue !== untouched;
+			const replaced = () => player.queue !== untouched || (newer && !player.idle);
 			const response = await fetch('/api/play-state', { headers: { accept: 'application/json' } });
 			if (!response.ok) return;
 			const state = await response.json();
+			if (newer && !(state.updatedAt > player.savedAt)) return;
 			if (!Array.isArray(state.songIds) || state.songIds.length === 0) return;
 			const ids: string[] = state.songIds;
 			const savedIndex = Math.min(Math.max(0, state.index ?? 0), ids.length - 1);
 			const settings = {
 				repeat: state.repeat ?? 'off',
 				shuffle: state.shuffle ?? false,
-				orderIds: Array.isArray(state.orderIds) ? (state.orderIds as string[]) : undefined
+				orderIds: Array.isArray(state.orderIds) ? (state.orderIds as string[]) : undefined,
+				updatedAt: Number(state.updatedAt) || 0
 			};
 
 			const [current] = await lookUp([ids[savedIndex]]);
 			if (replaced()) return;
+			// The track held here is still loaded in its element, and a press on
+			// play would start it under the new queue's name.
+			if (newer) player.stop();
 			if (current && ids.length > 1) {
 				await player.restore(
 					[current],
@@ -306,8 +319,29 @@
 			await player.restore(songs, { index: savedIndex, position: 0, ...settings });
 		} catch {
 			// A missing queue is not worth an error message.
+		} finally {
+			restoring = false;
 		}
 	}
+
+	/*
+	 * A page brought back to the front (a tab returned to, an installed app
+	 * reopened without a reload) asks for the saved queue again; see `newer`
+	 * above. `pageshow` is for a page the browser kept whole and put back.
+	 */
+	$effect(() => {
+		if (!signedIn) return;
+		const returned = (event: Event) => {
+			if (event.type === 'pageshow' && !(event as PageTransitionEvent).persisted) return;
+			if (!document.hidden && player.idle) void restoreQueue(true);
+		};
+		document.addEventListener('visibilitychange', returned);
+		window.addEventListener('pageshow', returned);
+		return () => {
+			document.removeEventListener('visibilitychange', returned);
+			window.removeEventListener('pageshow', returned);
+		};
+	});
 
 	async function lookUp(ids: string[]): Promise<Song[]> {
 		const response = await fetch('/api/songs', {
@@ -336,6 +370,22 @@
 		// Tokens are handed out in render order, so a reset here gives the same
 		// page the same numbers, and a back navigation finds the card it left.
 		resetSleeveTokens();
+
+		// Back or forward on a phone, or after the system's own animation (a swipe
+		// from the edge in Safari, a two-finger swipe on a trackpad): the page is
+		// put in at once. Measured on a Pixel 7's viewport on 2026-10-06, a back
+		// held the page being left for 172ms under the veil and animated until
+		// 663ms, after a gesture that had already shown the move.
+		if (navigation.type === 'popstate' && (player.sheetLayout || navigation.event.hasUAVisualTransition)) {
+			sleeveTransition.end();
+			sleeveTransition.forget();
+			// A page opened under a second ago is still rising, and the one
+			// returned to would come in item by item under the same class.
+			clearTimeout(risingTimer);
+			rising = false;
+			veil = 'off';
+			return;
+		}
 
 		// Going back re-arms the names from the outbound trip, so the album hero
 		// morphs into the card that opened it.
@@ -558,8 +608,50 @@
 	});
 
 	afterNavigate(({ type }) => {
-		if (type === 'enter' || !player.sheetLayout || !player.panelOpen) return;
+		// Back to an entry the sheet was open over leaves it to the effect below.
+		if (type === 'enter' || !player.sheetLayout || !player.panelOpen || page.state.sheet) return;
 		player.togglePanel();
+	});
+
+	/*
+	 * On a phone the open sheet is an entry in the history, so the system's
+	 * back (a swipe from the edge, the back button) closes the sheet and leaves
+	 * the page under it where it was. Without one, a back with the sheet open
+	 * went back a page nobody could see, and the sheet closed over a different
+	 * page than it had opened on.
+	 *
+	 * Opening adds the entry (`pushState`, which loads nothing). Closing from
+	 * the sheet itself (its chevron, a pull down) steps back off it. `leaving`
+	 * is set for that step: a sheet opened again before the step lands gets a
+	 * new entry and stays open. A link followed from inside the sheet replaces
+	 * the entry (`data-sveltekit-replacestate` on the wrapper), so a back from
+	 * the page it opened returns to the page under the sheet, with the sheet
+	 * down.
+	 */
+	let leaving = false;
+	$effect(() => {
+		const open = player.panelOpen;
+		const phone = player.sheetLayout && player.viewportKnown;
+		untrack(() => {
+			if (!phone || !signedIn) return;
+			if (open && !page.state.sheet && !leaving) pushState('', { ...page.state, sheet: true });
+			else if (!open && page.state.sheet && !leaving) {
+				leaving = true;
+				history.back();
+			}
+		});
+	});
+	$effect(() => {
+		const marked = page.state.sheet === true;
+		untrack(() => {
+			if (!player.sheetLayout || !player.viewportKnown) return;
+			if (leaving && !marked) {
+				leaving = false;
+				if (player.panelOpen) pushState('', { ...page.state, sheet: true });
+				return;
+			}
+			if (marked !== player.panelOpen) player.togglePanel();
+		});
 	});
 
 	export const snapshot: Snapshot<number> = {
@@ -655,6 +747,7 @@
 		-->
 		<div
 			class="player"
+			data-sveltekit-replacestate={page.state.sheet ? '' : undefined}
 			class:dragging={sheetDrag.offset !== null}
 			class:morphing={sheetMorph.phase === 'morphing'}
 			class:parking={sheetMorph.phase === 'parking'}

@@ -11,7 +11,8 @@ import { error, type RequestEvent } from '@sveltejs/kit';
 import { backendFor, UpstreamError } from './backends';
 import { destroyAllSessions } from './auth';
 import { relayHeaders } from './backends/http';
-import type { UpstreamResponse } from './backends/types';
+import type { TranscodeRequest, UpstreamResponse } from './backends/types';
+import { stableOgg } from './ogg';
 import { bytesOf, settled, transcodeFor, type Transcode } from './transcodes';
 
 export type MediaKind = 'stream' | 'cover';
@@ -67,8 +68,12 @@ export async function proxyMedia(
 	event: RequestEvent,
 	kind: MediaKind,
 	open: (backend: ReturnType<typeof backendFor>) => Promise<UpstreamResponse>,
-	/** `estimatedLength`: the upstream's `Content-Length` is a guess (a transcode). */
-	options: { estimatedLength?: boolean } = {}
+	/**
+	 * `transcode`: the body is a conversion. Its `Content-Length` is a guess,
+	 * and an Ogg one is given fixed serials (`ogg.ts`), as the copy held in
+	 * `transcodes.ts` is, so a range answered from either continues the other.
+	 */
+	options: { transcode?: boolean } = {}
 ): Promise<Response> {
 	const session = event.locals.session;
 	if (!session) error(401, 'Not signed in');
@@ -117,7 +122,7 @@ async function relay(
 	 * should not be handed.
 	 */
 	strict = false,
-	options: { estimatedLength?: boolean } = {}
+	options: { transcode?: boolean } = {}
 ): Promise<Response> {
 	let upstream: UpstreamResponse;
 	try {
@@ -150,6 +155,11 @@ async function relay(
 		await rejected();
 	}
 	const safeType = allowed ? essence : 'application/octet-stream';
+	// Whole bodies only: a 206 starts mid-page. The stream route asks for an
+	// Opus transcode without a range for that reason.
+	if (options.transcode && safeType === 'audio/ogg' && upstream.status === 200 && upstream.body) {
+		upstream = { ...upstream, body: upstream.body.pipeThrough(stableOgg()) };
+	}
 
 	const headers = relayHeaders(upstream.headers, {
 		'cache-control': CACHE_CONTROL[kind],
@@ -167,7 +177,7 @@ async function relay(
 
 	const range = parseRange(event.request.headers.get('range'));
 	if (upstream.status === 200 && range) {
-		return rangeIgnored(event, upstream, headers, range, options.estimatedLength === true);
+		return rangeIgnored(event, upstream, headers, range, options.transcode === true);
 	}
 
 	// Seeking needs range support: stated when the upstream answered a range
@@ -285,6 +295,16 @@ export function streamRequestFrom(event: RequestEvent) {
 }
 
 /**
+ * The request sent upstream for a transcode relayed as it comes. Opus is asked
+ * for whole, whatever range the browser wants: its pages are rewritten as they
+ * pass (`ogg.ts`), from the first one, and `rangeIgnored` cuts the range out
+ * of the answer.
+ */
+export function relayRequestFor<T extends { range: string | null }>(req: T, transcode: TranscodeRequest | null): T {
+	return transcode?.codec === 'opus' ? { ...req, range: null } : req;
+}
+
+/**
  * A transcode, answered from one whole read of it held in `transcodes.ts`, so
  * a range gets exactly those bytes and a dropped stream resumes where it
  * stopped.
@@ -323,7 +343,7 @@ export async function proxyTranscode(
 				await upstream.body?.cancel().catch(() => undefined);
 				error(502, 'The music server did not send audio');
 			}
-			return { body: upstream.body, type: essence };
+			return { body: essence === 'audio/ogg' ? upstream.body.pipeThrough(stableOgg()) : upstream.body, type: essence };
 		});
 	} catch (err) {
 		if (err instanceof UpstreamError) {

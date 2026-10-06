@@ -63,7 +63,8 @@ export const load: PageServerLoad = async ({ locals }) => {
 
 	// Independent reads, started together. Awaited in turn, the page waited for
 	// the sum of a directory scan, two upstream calls and two database reads.
-	const [coverCache, coverFillKeeper, isAdmin, settings, sessions, shares, history, linked] = await Promise.all([
+	const offered = offeredIntegrations();
+	const [coverCache, coverFillKeeper, isAdmin, settings, sessions, shares, history, linked, upstream] = await Promise.all([
 		cacheStats(),
 		filledBy(session.account.backend),
 		/*
@@ -79,8 +80,19 @@ export const load: PageServerLoad = async ({ locals }) => {
 		listSessions(session),
 		describeShares(session),
 		recentPlays(session.account.id, 0, 0),
-		linkedIntegrations(session.account.id)
+		linkedIntegrations(session.account.id),
+		// Waited for only where it decides what the page offers, below.
+		offered.listenbrainz && scrobblers ? scrobblerLinks : null
 	]);
+
+	/*
+	 * ListenBrainz is one setting for an account. Where the music server links
+	 * it itself (Navidrome, under Scrobbling) this server's own is not offered:
+	 * the page showed two token fields for one service, and both linked would
+	 * send each play twice. An account that linked it here before keeps the
+	 * row, to unlink it.
+	 */
+	const viaMusicServer = upstream?.listenbrainz.available === true;
 
 	return {
 		coverCache,
@@ -99,7 +111,11 @@ export const load: PageServerLoad = async ({ locals }) => {
 		scrobblerLinks,
 		// Which of a Discord channel and ListenBrainz this account is offered, and
 		// the name of what it has linked. Never the webhook or the token.
-		integrations: { offered: offeredIntegrations(), linked },
+		integrations: {
+			offered: { ...offered, listenbrainz: offered.listenbrainz && (!viaMusicServer || linked.listenbrainz !== null) },
+			linked,
+			viaMusicServer
+		},
 		historyCount: history.total
 	};
 };
@@ -275,15 +291,14 @@ export const actions: Actions = {
 		if ((kind !== 'discord' && kind !== 'listenbrainz') || value.length === 0 || value.length > 300) {
 			return fail(400, { integrationError: 'That cannot be linked.' });
 		}
-		// Navidrome scrobbles to ListenBrainz itself where the account linked it
-		// there. With both, each play would arrive twice.
+		// Where Navidrome links ListenBrainz itself, that is the one place for
+		// it; see `load`.
 		const scrobblers = backendFor(session.account.backend).scrobblers;
 		if (kind === 'listenbrainz' && scrobblers) {
 			const upstream = await scrobblers.status(session.credential).catch(() => null);
-			if (upstream?.listenbrainz.available && upstream.listenbrainz.linked) {
+			if (upstream?.listenbrainz.available) {
 				return fail(409, {
-					integrationError:
-						'ListenBrainz is already linked under Scrobbling, where the music server sends each play. Unlink it there first: with both, each play would be sent twice.'
+					integrationError: 'ListenBrainz is linked under Scrobbling on this server, where the music server sends each play.'
 				});
 			}
 		}

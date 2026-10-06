@@ -2,7 +2,7 @@ import { error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { sessionByHandle, tiedToSession } from '$lib/server/auth';
 import { readCastToken } from '$lib/server/cast';
-import { proxyMedia, proxyTranscode, streamRequestFrom } from '$lib/server/proxy';
+import { proxyMedia, proxyTranscode, relayRequestFor, streamRequestFrom } from '$lib/server/proxy';
 import { getSettings } from '$lib/server/settings';
 import type { TranscodeRequest } from '$lib/server/backends/types';
 
@@ -27,9 +27,10 @@ const handler: RequestHandler = async (event) => {
 		: null;
 
 	const req = streamRequestFrom(event);
+	const asked = relayRequestFor(req, transcode);
 	const relayed = () =>
-		proxyMedia(event, 'stream', (backend) => backend.openStream(session.credential, grant.songId, req, transcode), {
-			estimatedLength: transcode !== null
+		proxyMedia(event, 'stream', (backend) => backend.openStream(session.credential, grant.songId, asked, transcode), {
+			transcode: transcode !== null
 		});
 	const response = !transcode
 		? await relayed()
