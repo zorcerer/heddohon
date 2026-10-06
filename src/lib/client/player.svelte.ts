@@ -886,13 +886,25 @@ class Player {
 		// Chromium reports a stream without ranges seekable to its end and takes
 		// the seek by waiting for every byte before it: 25.2s for a seek to 3:51
 		// with the stream arriving at 32KB/s, the sound stopped meanwhile. Such a
-		// stream has no length, so its duration is Infinity. A seek past what has
-		// arrived goes the same way as one the element refuses. Not for a track
-		// being opened at a position, still at its top: it would be heard from
-		// there while the server was asked.
+		// stream has no length, so its duration is Infinity. A seek well past what
+		// has arrived goes the same way as one the element refuses: 1.5 to 2.3s
+		// for MP3 at 48KB/s, 4 to 16s for Opus at 32KB/s, which Chromium finds
+		// its place in over several ranges. Within 10 seconds of what has
+		// arrived, the wait is the shorter of the two.
+		//
+		// Not for AAC. It is sent as ADTS, which has no index, and Chromium reads
+		// one from its start whatever range it could ask for: asked for again,
+		// the track had to arrive a second time (a seek to 1:28 at 32KB/s had not
+		// landed after 26s). Not for a track being opened at a position either,
+		// still at its top: it would be heard from there while the server was
+		// asked.
 		const ranges = element.seekable;
 		const arrived = element.buffered.length > 0 ? element.buffered.end(element.buffered.length - 1) : 0;
-		const unranged = element.duration === Infinity && element.currentTime > 1 && target > arrived + 1;
+		const unranged =
+			element.duration === Infinity &&
+			element.currentTime > 1 &&
+			target > arrived + 10 &&
+			this.settings?.transcodeCodec !== 'aac';
 		if (element.readyState > 0 && (ranges.length === 0 || target > ranges.end(ranges.length - 1) + 1 || unranged)) {
 			void this.#seekOnceWhole(element, target);
 			return;
@@ -1297,7 +1309,11 @@ class Player {
 		const wanted = () => serial === this.#wholeSerial && this.#primary === element && this.current === song;
 		this.loading = true;
 		for (let attempt = 0; attempt < SEEK_HOLD_ATTEMPTS; attempt++) {
-			const whole = await fetch(this.#srcOf(song), { method: 'HEAD' }).then(
+			// Past the browser's cache. Chromium makes a request wait for another
+			// that is still writing the same address into its cache, up to 20
+			// seconds, and the element's own stream is one: the first answer here
+			// came 20.2s after the press.
+			const whole = await fetch(this.#srcOf(song), { method: 'HEAD', cache: 'no-store' }).then(
 				(response) => response.ok && response.headers.get('accept-ranges') === 'bytes',
 				() => false
 			);
