@@ -3690,7 +3690,8 @@ describe('on a phone', () => {
 			const href = await link.getAttribute('href');
 			await tap(page, link);
 			await page.waitForURL((url) => url.pathname === href);
-			await page.waitForTimeout(600);
+			// Past the veil (gone by 663ms) and the 900ms the rise is held for.
+			await page.waitForTimeout(1200);
 			assert.ok((await page.evaluate(() => window.__veiled)) > 0, 'the page opened without the veil');
 
 			await page.evaluate(() => {
