@@ -514,7 +514,10 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 				return res.end(state.coverPadding ? Buffer.concat([cover, Buffer.alloc(state.coverPadding)]) : cover);
 			}
 			case 'stream': {
-				const body = state.audio?.body ?? Buffer.alloc(1000, 7);
+				// A function is called for each request: a body that differs from one
+				// read to the next.
+				const audio = state.audio?.body;
+				const body = typeof audio === 'function' ? audio() : (audio ?? Buffer.alloc(1000, 7));
 				const range = /^bytes=(\d+)-(\d*)$/.exec(req.headers.range ?? '');
 				res.setHeader('content-type', state.audio?.type ?? 'audio/flac');
 				if (state.ignoreRange) {

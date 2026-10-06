@@ -1857,6 +1857,111 @@ describe('playing things', () => {
 		});
 	});
 
+	/*
+	 * ffmpeg gives each Ogg stream it writes a random serial number, in every
+	 * page under a checksum. Two reads of one Opus transcode from Jellyfin
+	 * differed in those bytes alone, and a browser sent the rest of a track
+	 * from a second read ended the track at that byte.
+	 */
+	describe('an Ogg transcode', () => {
+		/** Ogg's checksum, a bit at a time: polynomial 0x04c11db7, initial value 0. */
+		const crc = (bytes) => {
+			let r = 0;
+			for (const byte of bytes) {
+				r ^= byte << 24;
+				for (let bit = 0; bit < 8; bit++) r = r & 0x80000000 ? (r << 1) ^ 0x04c11db7 : r << 1;
+			}
+			return r >>> 0;
+		};
+		/** One page as ffmpeg writes it: the stream's serial, and a checksum over the page. */
+		const page = (serial, sequence, packet) => {
+			const segments = [];
+			for (let left = packet.length; left >= 0; left -= 255) segments.push(Math.min(left, 255));
+			const header = Buffer.alloc(27 + segments.length);
+			header.write('OggS', 0, 'latin1');
+			header[5] = sequence === 0 ? 2 : 0;
+			header.writeBigUInt64LE(BigInt(sequence * 960), 6);
+			header.writeUInt32LE(serial, 14);
+			header.writeUInt32LE(sequence, 18);
+			header[26] = segments.length;
+			Buffer.from(segments).copy(header, 27);
+			const whole = Buffer.concat([header, packet]);
+			whole.writeUInt32LE(crc(whole), 22);
+			return whole;
+		};
+		const packets = [Buffer.alloc(19, 1), Buffer.alloc(600, 2), Buffer.alloc(255, 3), Buffer.alloc(4000, 4)];
+		const stream = (serial) => Buffer.concat(packets.map((packet, i) => page(serial, i, packet)));
+		const pagesOf = (bytes) => {
+			const pages = [];
+			for (let at = 0; at < bytes.length; ) {
+				const segments = bytes[at + 26];
+				let length = 27 + segments;
+				for (let i = 0; i < segments; i++) length += bytes[at + 27 + i];
+				pages.push(bytes.subarray(at, at + length));
+				at += length;
+			}
+			return pages;
+		};
+
+		before(async () => {
+			await user.json('/api/settings', 'PATCH', { transcode: true, transcodeCodec: 'opus', transcodeBitrateKbps: 128 });
+			subsonic.state.ignoreRange = true;
+		});
+
+		after(async () => {
+			subsonic.state.ignoreRange = false;
+			subsonic.state.audio = null;
+			await user.json('/api/settings', 'PATCH', { transcode: false, transcodeCodec: 'mp3', transcodeBitrateKbps: 192 });
+		});
+
+		test('is the same bytes from every read, whatever serial the music server gave it', async () => {
+			let serial = 0x1000;
+			const sent = [];
+			subsonic.state.audio = {
+				type: 'audio/ogg',
+				body: () => {
+					sent.push(stream((serial += 0x01010101)));
+					return sent.at(-1);
+				}
+			};
+			const first = Buffer.from(await (await user.request('/api/stream/s12a?mode=opus-128')).arrayBuffer());
+			// Another bitrate is another copy here, so another read of the music server.
+			await user.json('/api/settings', 'PATCH', { transcodeBitrateKbps: 96 });
+			const second = Buffer.from(await (await user.request('/api/stream/s12a?mode=opus-96')).arrayBuffer());
+			assert.equal(sent.length, 2, 'the second request was not a second read');
+			assert.notDeepEqual(sent[0], sent[1]);
+			assert.deepEqual(second, first, 'two reads of one transcode came out different');
+
+			// Still the music server's stream: every packet as sent, one serial
+			// throughout, and each page's checksum holding.
+			const pages = pagesOf(first);
+			assert.equal(pages.length, packets.length);
+			pages.forEach((bytes, i) => {
+				const original = pagesOf(sent[0])[i];
+				assert.deepEqual(bytes.subarray(26), original.subarray(26), `page ${i} lost its packet`);
+				assert.deepEqual(bytes.subarray(0, 14), original.subarray(0, 14));
+				assert.equal(bytes.readUInt32LE(14), pages[0].readUInt32LE(14), 'the pages do not share a serial');
+				const zeroed = Buffer.from(bytes);
+				zeroed.writeUInt32LE(0, 22);
+				assert.equal(bytes.readUInt32LE(22), crc(zeroed), `page ${i} has a checksum that does not hold`);
+			});
+
+			// A range of it, once whole, is cut from the same bytes.
+			const range = await user.request('/api/stream/s12a?mode=opus-96', { headers: { range: 'bytes=700-' } });
+			assert.equal(range.status, 206);
+			assert.deepEqual(Buffer.from(await range.arrayBuffer()), first.subarray(700));
+		});
+
+		test('that is not Ogg after all is passed on as it came', async () => {
+			const body = Buffer.concat([page(7, 0, Buffer.alloc(40, 9)), Buffer.from('not a page at all, and then some more bytes')]);
+			subsonic.state.audio = { type: 'audio/ogg', body };
+			const response = await user.request('/api/stream/s13a?mode=opus-96');
+			const got = Buffer.from(await response.arrayBuffer());
+			assert.equal(got.length, body.length);
+			assert.deepEqual(got.subarray(body.length - 43), body.subarray(body.length - 43));
+		});
+	});
+
 	/* A music server that ignores `Range` for an original file gets the same honesty. */
 	describe('a file the music server will not range', () => {
 		const body = Buffer.from(Array.from({ length: 1000 }, (_, i) => (i * 7) % 253));

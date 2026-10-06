@@ -1,6 +1,6 @@
 import type { RequestHandler } from './$types';
 import { tiedToSession } from '$lib/server/auth';
-import { proxyMedia, proxyTranscode, streamRequestFrom } from '$lib/server/proxy';
+import { proxyMedia, proxyTranscode, relayRequestFor, streamRequestFrom } from '$lib/server/proxy';
 import type { TranscodeRequest } from '$lib/server/backends/types';
 
 /**
@@ -21,14 +21,15 @@ const respond = async (event: Parameters<RequestHandler>[0]): Promise<Response> 
 			: null;
 
 	const req = streamRequestFrom(event);
+	const asked = relayRequestFor(req, transcode);
 	const relayed = () =>
 		// A transcode's length is Navidrome's estimate until it has finished once;
 		// see `rangeIgnored` in proxy.ts.
 		proxyMedia(
 			event,
 			'stream',
-			(backend) => backend.openStream(session.credential, event.params.id, req, transcode),
-			{ estimatedLength: transcode !== null }
+			(backend) => backend.openStream(session.credential, event.params.id, asked, transcode),
+			{ transcode: transcode !== null }
 		);
 	if (!transcode) return relayed();
 
