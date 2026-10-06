@@ -712,8 +712,12 @@ class Player {
 				this.playing = false;
 				return;
 			}
-			// A pause pressed while the play was starting, not a failure.
-			if (err instanceof DOMException && err.name === 'AbortError' && !this.engaged) return;
+			// A pause pressed while the play was starting, or another track loaded
+			// into the element (a skip pressed twice within a second), not a
+			// failure. Chromium's message for the second, "The play() request was
+			// interrupted by a new load request", was shown as the player's error.
+			// The load that interrupted it has a play() of its own.
+			if (err instanceof DOMException && err.name === 'AbortError') return;
 			this.error = err instanceof Error ? err.message : 'Playback failed';
 			this.playing = false;
 		}
