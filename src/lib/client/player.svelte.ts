@@ -1763,11 +1763,18 @@ class Player {
 	 * header, so the browser's cache keys on it: the original file, already
 	 * held, would otherwise answer the first request after transcoding was
 	 * switched on.
+	 *
+	 * Opus carries a mark for the form its bytes take (`server/ogg.ts`). A
+	 * browser keeps a stream for an hour, in part where the track was left
+	 * early, and asks for the rest by range: the part of an Opus transcode
+	 * kept from before its serials were fixed is not continued by one sent
+	 * since. Change the mark with any change to the bytes sent for a codec.
 	 */
 	get deliveryMode(): string {
 		const settings = this.settings;
 		if (!settings?.transcode) return 'raw';
-		return `${settings.transcodeCodec}-${settings.transcodeBitrateKbps}`;
+		const mode = `${settings.transcodeCodec}-${settings.transcodeBitrateKbps}`;
+		return settings.transcodeCodec === 'opus' ? `${mode}-s1` : mode;
 	}
 
 	/**
