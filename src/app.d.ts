@@ -11,6 +11,10 @@ declare global {
 			session: AuthenticatedSession | null;
 			settings: UserSettings | null;
 		}
+		interface PageState {
+			/** The player sheet is open over this entry, on a phone; see the root layout. */
+			sheet?: boolean;
+		}
 		interface PageData {
 			account?: Account | null;
 			settings?: UserSettings;

@@ -3667,6 +3667,57 @@ describe('on a phone', () => {
 		assert.deepEqual(problems, []);
 	});
 
+	/*
+	 * A back on a phone usually follows a swipe that has already shown the
+	 * move. It held the page being left for 172ms under the veil and animated
+	 * the one returned to until 663ms (a Pixel 7's viewport, 2026-10-06).
+	 */
+	test('back puts the page in at once, where it was left, without the veil or the rise', async () => {
+		const { page, problems } = await phonePage('/artists');
+		try {
+			await page.evaluate(() => scrollTo(0, 900));
+			await page.waitForTimeout(300);
+			// A forward navigation keeps the veil.
+			await page.evaluate(() => {
+				window.__veiled = 0;
+				const watch = () => {
+					if (document.querySelector('.page-veil')) window.__veiled += 1;
+					requestAnimationFrame(watch);
+				};
+				requestAnimationFrame(watch);
+			});
+			const link = page.locator('main a[href^="/artists/"]').nth(12);
+			const href = await link.getAttribute('href');
+			await tap(page, link);
+			await page.waitForURL((url) => url.pathname === href);
+			await page.waitForTimeout(600);
+			assert.ok((await page.evaluate(() => window.__veiled)) > 0, 'the page opened without the veil');
+
+			await page.evaluate(() => {
+				const seen = (window.__back = { veil: 0, rising: 0, transitions: 0, frames: 0 });
+				const until = performance.now() + 1200;
+				const watch = () => {
+					seen.frames += 1;
+					if (document.querySelector('.page-veil')) seen.veil += 1;
+					if (document.querySelector('main.content.rising')) seen.rising += 1;
+					if (document.getAnimations().some((a) => (a.effect?.pseudoElement ?? '').startsWith('::view-transition'))) seen.transitions += 1;
+					if (performance.now() < until) requestAnimationFrame(watch);
+				};
+				requestAnimationFrame(watch);
+			});
+			await page.goBack();
+			await page.waitForURL(/\/artists$/);
+			await page.waitForTimeout(1300);
+			const seen = await page.evaluate(() => window.__back);
+			assert.ok(seen.frames > 10, 'the page was not watched');
+			assert.deepEqual({ veil: seen.veil, rising: seen.rising, transitions: seen.transitions }, { veil: 0, rising: 0, transitions: 0 });
+			assert.equal(await page.evaluate(() => scrollY), 900, 'back did not return to where the list was left');
+		} finally {
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+
 	describe('with a track playing', () => {
 		before(() => {
 			subsonic.state.audio = { type: 'audio/wav', body: silentWav(60) };
@@ -3862,6 +3913,59 @@ describe('on a phone', () => {
 				await page.waitForURL(/\/artists\/ar15$/);
 				await page.waitForTimeout(600);
 				assert.equal(await sheetOpen(page), false, 'the sheet is still over the page it opened');
+			} finally {
+				await page.close();
+			}
+			assert.deepEqual(problems, []);
+		});
+
+		/*
+		 * A back with the sheet open went back a page under it, which nobody
+		 * could see, and the sheet closed over another page than it had opened
+		 * on. The open sheet is an entry in the history now.
+		 */
+		test('back with the sheet open closes the sheet and stays on the page', async () => {
+			const { page, problems } = await phonePage('/');
+			try {
+				await playAlbum(page, 17);
+				await page.goto(app.url + '/albums', { waitUntil: 'networkidle' });
+				await tap(page, page.getByRole('navigation', { name: 'Primary' }).getByRole('link', { name: 'Favourites' }));
+				await page.waitForURL(/\/favourites$/);
+				await page.waitForSelector('#dock-open');
+				await tap(page, page.locator('#dock-open'));
+				await page.waitForFunction(() => document.querySelector('.app').classList.contains('player-open'));
+				await page.waitForTimeout(600);
+
+				await page.goBack();
+				await page.waitForFunction(() => !document.querySelector('.app').classList.contains('player-open'), null, { timeout: 5000 });
+				assert.equal(new URL(page.url()).pathname, '/favourites', 'back left the page under the sheet');
+
+				// Closed from the sheet itself, the entry goes with it: the next back
+				// is the page before.
+				await page.waitForTimeout(600);
+				await tap(page, page.locator('#dock-open'));
+				await page.waitForFunction(() => document.querySelector('.app').classList.contains('player-open'));
+				await page.waitForTimeout(600);
+				await tap(page, page.locator('#player-hide'));
+				await page.waitForFunction(() => !document.querySelector('.app').classList.contains('player-open'));
+				await page.waitForTimeout(600);
+				assert.equal(new URL(page.url()).pathname, '/favourites');
+				await page.goBack();
+				await page.waitForURL(/\/albums$/);
+				assert.equal(await sheetOpen(page), false);
+
+				// A link followed from the sheet takes the sheet's place in the
+				// history: back returns to the page the sheet was over.
+				await tap(page, page.locator('#dock-open'));
+				await page.waitForFunction(() => document.querySelector('.app').classList.contains('player-open'));
+				await page.waitForTimeout(600);
+				await tap(page, page.locator('aside.panel .artist a'));
+				await page.waitForURL(/\/artists\/ar17$/);
+				await page.waitForTimeout(600);
+				await page.goBack();
+				await page.waitForURL(/\/albums$/);
+				await page.waitForTimeout(600);
+				assert.equal(await sheetOpen(page), false, 'back from a page opened in the sheet brought the sheet up');
 			} finally {
 				await page.close();
 			}
