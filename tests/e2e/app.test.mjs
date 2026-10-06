@@ -3538,20 +3538,26 @@ describe('plays sent to a Discord channel and to ListenBrainz', () => {
 		assert.equal(outside.calls.get(`GET ${OUTSIDE.webhook}`), 0);
 		const unknown = await action(client, 'linkIntegration', { kind: 'discord', value: address.replace(/w{68}$/, 'x'.repeat(68)) });
 		assert.deepEqual(unknown, { status: 400, error: 'Discord has no webhook at that address.' });
-		// An account on Navidrome links a token of its own here too, unless
-		// Navidrome already scrobbles for it: both would send each play twice.
+		// ListenBrainz is one setting for an account. Where Navidrome links it
+		// itself, under Scrobbling, this server's own is not shown and not taken:
+		// the page had two token fields for it.
 		const viaNavidrome = subsonic.state.navidrome.linked;
-		viaNavidrome.listenbrainz = true;
+		const second = await action(client, 'linkIntegration', { kind: 'listenbrainz', value: OUTSIDE.listenBrainzToken });
+		assert.equal(second.status, 409);
+		assert.match(second.error, /under Scrobbling/);
+		assert.doesNotMatch(await section(client), /ListenBrainz/, 'a second ListenBrainz setting is on the page');
+		// A Navidrome with ListenBrainz turned off leaves it to this server.
+		subsonic.state.navidrome.enabled.listenbrainz = false;
 		try {
-			const twice = await action(client, 'linkIntegration', { kind: 'listenbrainz', value: OUTSIDE.listenBrainzToken });
-			assert.equal(twice.status, 409);
-			assert.match(twice.error, /sent twice/);
+			assert.match(await section(client), /ListenBrainz user token/);
+			assert.equal((await action(client, 'linkIntegration', { kind: 'listenbrainz', value: OUTSIDE.listenBrainzToken })).status, 200);
+			assert.match(await section(client), /Scrobbling to listener, and showing/);
 		} finally {
-			viaNavidrome.listenbrainz = false;
+			subsonic.state.navidrome.enabled.listenbrainz = true;
 		}
-		assert.equal((await action(client, 'linkIntegration', { kind: 'listenbrainz', value: OUTSIDE.listenBrainzToken })).status, 200);
-		assert.match(await section(client), /Scrobbling to listener/);
-		// And the other way round: Navidrome is not given a token while this server holds one.
+		// Linked here from before: the row stays, to unlink it, and Navidrome is
+		// not given a token while this server holds one.
+		assert.match(await section(client), /Scrobbling to listener from this server\..*unlink it here to link it there/s);
 		const other = await client.request('/settings?/linkListenBrainz', {
 			method: 'POST',
 			headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json', 'x-sveltekit-action': 'true' },
@@ -3718,13 +3724,14 @@ describe('plays sent to a Discord channel and to ListenBrainz', () => {
 				});
 
 			// Linked, linked again over the first, and refused: each answer is kept.
+			// On a Navidrome with ListenBrainz turned off, where this server's own is offered.
+			subsonic.state.navidrome.enabled.listenbrainz = false;
 			for (let n = 0; n < 2; n++) {
 				await ask('linking ListenBrainz', form('linkIntegration', { kind: 'listenbrainz', value: OUTSIDE.listenBrainzToken }));
 				await ask('linking Discord', form('linkIntegration', { kind: 'discord', value: `https://discord.com${OUTSIDE.webhook}` }));
 			}
-			subsonic.state.navidrome.linked.listenbrainz = true;
+			subsonic.state.navidrome.enabled.listenbrainz = true;
 			await ask('linking ListenBrainz twice over', form('linkIntegration', { kind: 'listenbrainz', value: OUTSIDE.listenBrainzToken }));
-			subsonic.state.navidrome.linked.listenbrainz = false;
 
 			await ask('a start', client.json('/api/playback', 'POST', { songId: 's3a', event: 'start', position: 0 }));
 			await ask('a play', play(client, 's3a'));
@@ -3758,7 +3765,7 @@ describe('plays sent to a Discord channel and to ListenBrainz', () => {
 			await ask('unlinking', form('unlinkIntegration', { kind: 'listenbrainz' }));
 			await form('unlinkIntegration', { kind: 'discord' });
 		} finally {
-			subsonic.state.navidrome.linked.listenbrainz = false;
+			subsonic.state.navidrome.enabled.listenbrainz = true;
 			subsonic.state.username = 'testuser';
 			subsonic.state.password = 'testpass';
 		}
