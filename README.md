@@ -23,17 +23,19 @@ The website, with screenshots and the install steps, is
 
 ## Features
 
-- **Original files**, up to FLAC 24/192, with the decoded format shown in the player. Optional transcoding to MP3, Opus or AAC, switched from the quality badge. Casts to a Chromecast from Chrome on Android and to AirPlay from Safari.
-- **Coloured by the artwork:** the interface takes its accent from the playing cover, in two themes, Liquid (dark glass) and Paper (parchment and ink).
-- **Library:** albums, artists (their releases listed as albums, EPs, singles, live records and compilations, with the albums of others they appear on), genres, playlists, favourites and the folders on disk, with synced lyrics and recommendations from your music server. Playlists reorder by dragging or with the arrow keys. Songs and albums take a rating of one to five stars on Navidrome.
-- **Instant mix** from a track, an album or an artist: up to 100 similar tracks from your music server, with AudioMuse-AI's sonic similarity where it is installed.
-- **Internet radio** from the stations Navidrome lists, played through your server, from a stream address or an .m3u or .pls playlist.
-- **Links to songs, albums and playlists** anyone can play without an account, for 1, 7 or 30 days. Or listen together: a live link that plays what you play, as you play it, with reactions.
-- **On a phone,** the navigation and the player share one panel at the foot of the screen, and the full player pulls down to close. A living-room screen shows what plays full screen, with the synced lyrics, for a TV across the room.
-- **Follows you around:** the queue and settings sync across devices, and it installs as an app on phones and desktops. One browser can pause, skip or seek another signed in to the same account, and move the queue between them. Settings lists each browser signed in to your account and signs out any of them. There is also a desktop app for Linux (an AppImage) and for Windows (an installer and a portable .exe, unsigned) on each release, which opens your server in a window of its own, and for Android an experimental APK that does the same through the phone's browser.
-- **Crossfade and an equaliser,** both off until switched on. The crossfade gives two tracks that follow each other on an album the tight handoff instead. The 10-band equaliser is kept per browser, for the headphones or speakers it plays through, and takes a headphone correction from an AutoEq ParametricEQ.txt, or from a search of the AutoEq database where the server allows it.
-- **Scrobbling** to Last.fm and ListenBrainz through Navidrome, ReplayGain volume normalisation, and a sleep timer. Recently played lists every track played, kept for good unless you choose 90 days or a year, can start from the last play of each track as Jellyfin or Navidrome kept it, and Your listening sums it up: top artists, albums and tracks, hours, the time of day and the longest run of days, kept on your own server. From the same history, the home page shows the albums played on this date in earlier years, and the ones played often and not in the last six months.
-- **SQLite or PostgreSQL**, with a one-time import from SQLite.
+- **Original files** up to FLAC 24/192, with optional transcoding to MP3, Opus or AAC.
+- **Coloured by the artwork**, in two themes: Liquid and Paper.
+- **Library:** albums, artists, genres, playlists, favourites and folders, with synced lyrics and recommendations.
+- **Instant mix** from a track, an album or an artist.
+- **Internet radio** from the stations Navidrome lists.
+- **Shared links** to songs, albums and playlists that play without an account, and listening together live.
+- **A phone layout**, an installable app, and desktop apps for Linux and Windows. The Android APK is experimental.
+- **Synced across devices:** the queue and settings follow the account, and one browser can control another.
+- **Crossfade, a 10-band equaliser** with AutoEq headphone corrections, ReplayGain and a sleep timer.
+- **Scrobbling** to Last.fm and ListenBrainz.
+- **Listening history and statistics**, kept on your own server.
+- **Casting** to Chromecast and AirPlay, and a full-screen view for a TV.
+- **SQLite or PostgreSQL.**
 
 <table>
   <tr>
