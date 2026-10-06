@@ -589,6 +589,36 @@ describe('held album details and suggestions', () => {
 			subsonic.state.similarAlbums = 0;
 		}
 	});
+
+	/*
+	 * Navidrome with no similar artist in the library answers
+	 * `getSimilarSongs2` with the artist's own tracks, which the shelf leaves
+	 * out, and the album page had no shelf.
+	 */
+	test('a "You might like" shelf the similar tracks leave short is filled from the album\'s years or genre', async () => {
+		subsonic.state.similarAlbums = 2;
+		subsonic.state.alikeAlbums = 12;
+		try {
+			await asFreshAccount('eighth', async (client) => {
+				const { html } = await client.page('/albums/al4');
+				// The two similar ones first, then six from the same years: eight in all.
+				for (const name of ['Album 5', 'Album 6', 'Album 20', 'Album 25']) assert.match(html, new RegExp(`${name}\\b`), explain(`${name} is not on the shelf`));
+				assert.doesNotMatch(html, /Album 26\b/, 'the shelf holds more than eight');
+				assert.equal(subsonic.calls.get('getRandomSongs'), 1);
+				assert.deepEqual(subsonic.state.alikeAsked, { genre: null, fromYear: '2002', toYear: '2006' });
+			});
+			// With none similar at all, and the album's own artist among the answers.
+			subsonic.state.similarAlbums = 0;
+			await asFreshAccount('ninth', async (client) => {
+				const { html } = await client.page('/albums/al21');
+				assert.match(html, /Album 20\b/, explain('the shelf is missing'));
+				assert.match(html, /Album 22\b/);
+			});
+		} finally {
+			subsonic.state.similarAlbums = 0;
+			subsonic.state.alikeAlbums = 0;
+		}
+	});
 });
 
 describe('appears on', () => {

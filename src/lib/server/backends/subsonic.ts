@@ -649,23 +649,60 @@ export const subsonicBackend: MediaBackend = {
 			.slice(0, limit);
 	},
 
-	async getSimilarAlbums(cred, albumId, artistId, limit): Promise<Album[]> {
+	async getSimilarAlbums(cred, albumId, artistId, limit, like): Promise<Album[]> {
 		// The nearest Subsonic has to album similarity: tracks by artists the
 		// server considers similar, grouped into their albums. `getSimilarSongs2`
 		// takes an artist id only, so an album without one has nothing to ask.
-		if (!artistId) return [];
-
+		//
 		// Several tracks from one album count once on the shelf, so eight times
 		// the shelf size is asked for, capped at 100. The endpoint's default is
 		// 50.
-		const body = await call<{ similarSongs2?: { song?: unknown } }>(cred, 'getSimilarSongs2.view', {
-			id: artistId,
-			count: Math.min(100, limit * 8)
-		});
-		return albumsFromSongs(
-			asArray(body.similarSongs2?.song as Record<string, any>[]),
-			{ excludeAlbumId: albumId, seedArtistId: artistId, limit }
+		const count = Math.min(100, limit * 8);
+		const found = artistId
+			? albumsFromSongs(
+					asArray(
+						(await call<{ similarSongs2?: { song?: unknown } }>(cred, 'getSimilarSongs2.view', { id: artistId, count }))
+							.similarSongs2?.song as Record<string, any>[]
+					),
+					{ excludeAlbumId: albumId, seedArtistId: artistId, limit }
+				)
+			: [];
+		if (found.length >= limit || !like) return found;
+
+		/*
+		 * The rest of the shelf, from the album's own genre: random tracks under
+		 * it, grouped into albums as above. An album without a genre is given the
+		 * years around its own.
+		 *
+		 * Navidrome 0.64.2 with no similar artist in the library answers
+		 * `getSimilarSongs2` with the artist's own tracks (64 of 64 on
+		 * 2026-10-06), which are all dropped, so the album page had no shelf at
+		 * all where Jellyfin, which works from genres, had one.
+		 */
+		const within: Record<string, string | number> | null = like.genre
+			? { genre: like.genre }
+			: like.year !== null
+				? { fromYear: like.year - 2, toYear: like.year + 2 }
+				: null;
+		if (!within) return found;
+		const body = await call<{ randomSongs?: { song?: unknown } }>(cred, 'getRandomSongs.view', { size: count, ...within }).catch(
+			(err) => {
+				// What was found stands, unless the credential has stopped working.
+				if (err instanceof UpstreamError && err.kind === 'auth') throw err;
+				return null;
+			}
 		);
+		const held = new Set(found.map((album) => album.id));
+		const more = albumsFromSongs(asArray(body?.randomSongs?.song as Record<string, any>[]), {
+			excludeAlbumId: albumId,
+			seedArtistId: artistId,
+			limit: limit * 2
+		});
+		for (const album of more) {
+			if (found.length >= limit) break;
+			if (!held.has(album.id)) found.push(album);
+		}
+		return found;
 	},
 
 	async getFolder(cred, id): Promise<Folder> {

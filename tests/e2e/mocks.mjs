@@ -171,6 +171,14 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 		 * server without an agent does.
 		 */
 		similarAlbums: 0,
+		/**
+		 * Albums `getRandomSongs` answers with when asked within a genre or a
+		 * span of years, one song from each, from album 20 on. Zero answers with
+		 * none.
+		 */
+		alikeAlbums: 0,
+		/** What that request asked for: its genre, or its years. */
+		alikeAsked: null,
 		/** The songs in playlist `pl1`, in order; `createPlaylist` with its id replaces them. */
 		playlistEntries: ['s1a', 's2a'],
 		/** The last Subsonic call, and whether it came as a form POST. */
@@ -500,6 +508,11 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 				return send(ok({}));
 			}
 			case 'getRandomSongs':
+				if (p.has('genre') || p.has('fromYear')) {
+					state.alikeAsked = { genre: p.get('genre'), fromYear: p.get('fromYear'), toYear: p.get('toYear') };
+					const songs = Array.from({ length: state.alikeAlbums }, (_, k) => song((20 + k) % artistCount, 'a'));
+					return send(ok({ randomSongs: songs.length > 0 ? { song: songs } : {} }));
+				}
 				return send(ok({ randomSongs: { song: [song(1, 'a'), song(2, 'a')] } }));
 			case 'getUser':
 				return send(ok({ user: { username: state.username, adminRole: state.admin } }));
