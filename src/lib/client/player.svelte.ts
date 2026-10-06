@@ -165,6 +165,25 @@ class Player {
 	 * and back within one fade: a flash on the rail and the player.
 	 */
 	engaged = $state(false);
+
+	/**
+	 * Whether a newer saved queue may replace the one held here: nothing plays
+	 * or loads, and nothing waits to be written. The layout asks when the page
+	 * comes back to the front.
+	 */
+	get idle(): boolean {
+		return !this.engaged && !this.playing && !this.loading && !this.#unsaved && !this.casting;
+	}
+
+	/** Whether a change made here has yet to reach the server. */
+	get #unsaved(): boolean {
+		return this.#changes !== this.#written;
+	}
+
+	/** When the saved state this browser holds was written, on the server's clock. */
+	get savedAt(): number {
+		return this.#savedAt;
+	}
 	currentTime = $state(0);
 	duration = $state(0);
 	buffered = $state(0);
@@ -219,6 +238,20 @@ class Player {
 	#scrobbled = false;
 	#startReported = false;
 	#persistTimer: ReturnType<typeof setTimeout> | null = null;
+	/**
+	 * The changes this browser has made to the queue or the position, counted,
+	 * how many of them the server has taken, and when the saved state held here
+	 * was written (the server's clock).
+	 *
+	 * The writes made on the way out (a hidden tab, a closed one) went out
+	 * whether or not anything had changed here. A browser that had sat idle
+	 * with a queue from days before wrote it over the one another browser had
+	 * played since, and the account reopened on the old track. Counted, so a
+	 * write that fails leaves its change to the next one.
+	 */
+	#changes = 0;
+	#written = 0;
+	#savedAt = 0;
 	#progressTimer: ReturnType<typeof setInterval> | null = null;
 	#positionTimer: ReturnType<typeof setInterval> | null = null;
 	#detachers: Array<() => void> = [];
@@ -527,7 +560,7 @@ class Player {
 		this.#abandonCrossfade();
 		// Written, not just cleared: clearing the debounce timer dropped whatever
 		// the last change had scheduled.
-		if (this.queue.length > 0) this.#writePlayState(true);
+		this.#flushPlayState();
 	}
 
 	// ── Queue control ──────────────────────────────────────────────────────
@@ -1613,9 +1646,7 @@ class Player {
 		 * event. A second write costs one request, and the endpoint replaces the
 		 * row.
 		 */
-		const flush = () => {
-			if (this.queue.length > 0) this.#writePlayState(true);
-		};
+		const flush = () => this.#flushPlayState();
 		const onVisibility = () => {
 			if (document.hidden) flush();
 			else resume();
@@ -1669,8 +1700,17 @@ class Player {
 	/** Debounced, for a burst of queue edits or a scrub. */
 	#persist() {
 		if (!browser) return;
+		this.#changes += 1;
 		if (this.#persistTimer) clearTimeout(this.#persistTimer);
 		this.#persistTimer = setTimeout(() => this.#writePlayState(), 1200);
+	}
+
+	/**
+	 * The write made on the way out: what this browser changed, or the position
+	 * of a track it is playing. See `#unsaved`.
+	 */
+	#flushPlayState() {
+		if (this.queue.length > 0 && (this.#unsaved || this.playing)) this.#writePlayState(true);
 	}
 
 	/**
@@ -1684,6 +1724,7 @@ class Player {
 		// A station is not a track the music server can return by id, so a queue
 		// holding one is not saved, and the queue saved before it stays.
 		if (this.queue.some((song) => song.live)) return;
+		const upTo = this.#changes;
 		// While a restore holds only the current track, a write carries the queue
 		// it stands for. Written as it stood, a play pressed before the rest
 		// arrived saved a one-track queue over the saved one.
@@ -1707,7 +1748,14 @@ class Player {
 			// ids up to 255 characters. Over the limit the request is sent
 			// without keepalive, which the unload may cut short.
 			keepalive: keepalive && body.length <= KEEPALIVE_LIMIT
-		}).catch(() => undefined);
+		})
+			.then(async (response) => {
+				if (!response.ok) return;
+				this.#written = Math.max(this.#written, upTo);
+				const at = Number((await response.json()).updatedAt);
+				if (Number.isFinite(at)) this.#savedAt = Math.max(this.#savedAt, at);
+			})
+			.catch(() => undefined);
 	}
 
 	/**
@@ -1812,7 +1860,7 @@ class Player {
 	 */
 	async restore(
 		songs: Song[],
-		state: { index: number; position: number; repeat: RepeatMode; shuffle: boolean; orderIds?: string[] },
+		state: { index: number; position: number; repeat: RepeatMode; shuffle: boolean; orderIds?: string[]; updatedAt?: number },
 		partial?: { ids: string[]; index: number }
 	) {
 		if (songs.length === 0) return;
@@ -1825,6 +1873,13 @@ class Player {
 		this.duration = this.current?.duration ?? 0;
 		this.currentTime = state.position;
 		this.#pendingSeek = state.position;
+		if (state.updatedAt !== undefined) {
+			this.#savedAt = state.updatedAt;
+			this.#written = this.#changes;
+		} else {
+			// A queue handed over by another browser has no saved copy yet.
+			this.#changes += 1;
+		}
 		// No src is assigned: browsers block autoplay, and the file is not
 		// fetched until the first play() asks for it.
 	}

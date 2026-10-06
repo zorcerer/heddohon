@@ -4220,6 +4220,105 @@ describe('restoring the queue', () => {
 			await page.close();
 		}
 	});
+
+	/*
+	 * A hidden or closed page wrote its queue whether or not it had changed
+	 * it. A browser left open with a queue from days before wrote it over the
+	 * one another browser had played since, and the account reopened on the
+	 * old track. Brought back to the front, it also kept showing the old one.
+	 */
+	test('a browser left idle does not write its queue over one played since, and takes the newer one when returned to', async () => {
+		const other = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+		const signIn = await other.request.post(`${app.url}/login`, {
+			form: { username: 'testuser', password: 'testpass', backend: 'subsonic', next: '/' },
+			headers: { origin: app.url, accept: 'text/html' },
+			maxRedirects: 0
+		});
+		assert.equal(signIn.status(), 303);
+		await context.request.put(`${app.url}/api/play-state`, {
+			data: { songIds: ['s30a', 's30b'], index: 0, position: 0, repeat: 'off', shuffle: false },
+			headers: { origin: app.url }
+		});
+		const title = (page) => page.evaluate(() => document.querySelector('aside.panel h2.title')?.textContent);
+		const saved = async () => (await (await context.request.get(`${app.url}/api/play-state`)).json()).songIds;
+		const show = (page, hidden) =>
+			page.evaluate((hidden) => {
+				Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden });
+				document.dispatchEvent(new Event('visibilitychange'));
+			}, hidden);
+
+		const playing = (page) =>
+			page.waitForFunction(() => [...document.querySelectorAll('audio')].some((a) => !a.paused && a.currentTime > 0.2), null, {
+				timeout: 10_000
+			});
+		const pause = async (page) => {
+			await page.locator('aside.panel').getByRole('button', { name: 'Pause', exact: true }).click();
+			await page.locator('aside.panel').getByRole('button', { name: 'Play', exact: true }).waitFor();
+			// Past the 1.2s the save waits for.
+			await page.waitForTimeout(1800);
+		};
+		subsonic.state.audio = { type: 'audio/wav', body: silentWav(60) };
+
+		const idle = await other.newPage();
+		const active = await context.newPage();
+		try {
+			// The idle browser plays the old queue and pauses, so its element holds
+			// the old track.
+			await idle.goto(app.url + '/', { waitUntil: 'load' });
+			await idle.waitForFunction(() => document.querySelector('aside.panel h2.title')?.textContent === 'Song 30a');
+			await idle.locator('aside.panel button.play').click();
+			await playing(idle);
+			await pause(idle);
+			await show(idle, true);
+
+			await active.goto(app.url + '/albums/al31', { waitUntil: 'load' });
+			await active.waitForFunction(() => document.querySelector('aside.panel h2.title')?.textContent === 'Song 30a');
+			await active.getByRole('button', { name: 'Play Song 31a', exact: true }).click();
+			await active.waitForFunction(() => document.querySelector('aside.panel h2.title')?.textContent === 'Song 31a');
+			await playing(active);
+			await pause(active);
+			assert.deepEqual(await saved(), ['s31a', 's31b']);
+
+			// Returned to: the newer queue, and play starts its track.
+			await show(idle, false);
+			await idle.waitForFunction(() => document.querySelector('aside.panel h2.title')?.textContent === 'Song 31a', null, {
+				timeout: 5000
+			});
+			await show(idle, true);
+			await idle.evaluate(() => window.dispatchEvent(new Event('pagehide')));
+			await idle.waitForTimeout(800);
+			assert.deepEqual(await saved(), ['s31a', 's31b'], 'the idle browser wrote its queue over the newer one');
+			await show(idle, false);
+			await idle.locator('aside.panel button.play').click();
+			await playing(idle);
+			assert.equal(await title(idle), 'Song 31a');
+			assert.deepEqual(
+				await idle.evaluate(() => [...document.querySelectorAll('audio')].filter((a) => !a.paused).map((a) => new URL(a.src).pathname)),
+				['/api/stream/s31a'],
+				'play started another track than the one shown'
+			);
+
+			// A browser that is playing keeps its queue when returned to.
+			await active.getByRole('button', { name: 'Play Song 31b', exact: true }).click();
+			await active.waitForFunction(() => document.querySelector('aside.panel h2.title')?.textContent === 'Song 31b');
+			await playing(active);
+			await pause(active);
+			assert.deepEqual(await saved(), ['s31a', 's31b']);
+			await show(idle, true);
+			await show(idle, false);
+			await idle.waitForTimeout(1500);
+			assert.equal(await title(idle), 'Song 31a', 'a playing browser took the saved queue');
+		} finally {
+			subsonic.state.audio = null;
+			await idle.close();
+			await active.close();
+			await other.close();
+			await context.request.put(`${app.url}/api/play-state`, {
+				data: { songIds: [], index: 0, position: 0, repeat: 'off', shuffle: false },
+				headers: { origin: app.url }
+			});
+		}
+	});
 });
 
 describe('the offline page', () => {
