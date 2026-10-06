@@ -198,6 +198,42 @@ function silentWav(seconds) {
 	return wav;
 }
 
+describe('the length on the seek bar', () => {
+	/*
+	 * Firefox gives an MP3 transcode still arriving as a stream the length of
+	 * what has arrived, 1.4s for a track of 4:36, and AAC without an index a
+	 * guess 17 percent over. The bar took the element's figure, so a press on
+	 * it went to the start of the track or off its end.
+	 */
+	test('is the file\'s own for the original, and the library\'s for a transcode the element measures otherwise', async () => {
+		// Six seconds of audio for a song the library lists at 180.
+		subsonic.state.audio = { type: 'audio/wav', body: silentWav(6) };
+		const { page, problems } = await watchedPage();
+		const length = async () => {
+			await page.getByRole('button', { name: 'Play Song 1a', exact: true }).click();
+			await page.waitForFunction(() => [...document.querySelectorAll('audio')].some((a) => !a.paused && a.currentTime > 0));
+			return Number(await page.locator('aside.panel [role=slider][aria-label="Seek within track"]').getAttribute('aria-valuemax'));
+		};
+		try {
+			await page.goto(app.url + '/albums/al1', { waitUntil: 'networkidle' });
+			assert.equal(await length(), 6, 'the original file\'s own length is not on the bar');
+
+			await context.request.patch(`${app.url}/api/settings`, { data: { transcode: true }, headers: { origin: app.url } });
+			await page.goto(app.url + '/albums/al1', { waitUntil: 'networkidle' });
+			assert.equal(await length(), 180, 'the bar spans what the element made of the transcode');
+		} finally {
+			subsonic.state.audio = null;
+			await context.request.patch(`${app.url}/api/settings`, { data: { transcode: false }, headers: { origin: app.url } });
+			await context.request.put(`${app.url}/api/play-state`, {
+				data: { songIds: [], index: 0, position: 0, repeat: 'off', shuffle: false },
+				headers: { origin: app.url }
+			});
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+});
+
 describe('the sleep timer', () => {
 	test('fades out over the last seconds, then pauses and puts the level back', async () => {
 		subsonic.state.audio = { type: 'audio/wav', body: silentWav(120) };

@@ -1407,6 +1407,32 @@ class Player {
 		this.#secondary.load();
 	}
 
+	/**
+	 * The track's length: the element's, which is exact for a file with an
+	 * index, where the music server's is a hint in whole seconds.
+	 *
+	 * A transcode is the exception when the two are far apart (3 seconds, or 2
+	 * percent). It is as long as the file it was made from, and the element has
+	 * to estimate it. In Firefox, 2026-10-06:
+	 *
+	 *  - An MP3 still arriving as a stream had the length of what had arrived:
+	 *    1.4s for a track of 4:36. The seek bar then spanned 1.4 seconds, and a
+	 *    press anywhere on it went to the start of the track.
+	 *  - AAC from Navidrome, which is ADTS without an index, was given 4:28
+	 *    for a track of 3:48, and a press late on the bar ran off its end into
+	 *    the next track.
+	 *
+	 * The crossfade, the preload and the scrobble are timed from the same
+	 * figure.
+	 */
+	#adoptDuration(element: HTMLAudioElement) {
+		const own = element.duration;
+		if (!Number.isFinite(own) || own <= 0) return;
+		const listed = this.current?.duration ?? 0;
+		const apart = Math.abs(own - listed) > Math.max(3, listed * 0.02);
+		this.duration = this.settings?.transcode && listed > 0 && apart ? listed : own;
+	}
+
 	#bind(element: HTMLAudioElement) {
 		for (const off of this.#detachers) off();
 		this.#detachers = [];
@@ -1420,10 +1446,7 @@ class Player {
 		};
 
 		on('loadedmetadata', () => {
-			// The element's duration is authoritative. The server's is a hint.
-			if (Number.isFinite(element.duration) && element.duration > 0) {
-				this.duration = element.duration;
-			}
+			this.#adoptDuration(element);
 			this.loading = false;
 			// A restored queue resumes where it left off, and the seek waits for the
 			// element to know the file's length.
@@ -1434,6 +1457,8 @@ class Player {
 				if (this.engaged && element.paused) void element.play().catch(() => undefined);
 			}
 		});
+
+		on('durationchange', () => this.#adoptDuration(element));
 
 		on('timeupdate', () => {
 			if (this.#ducks > 0) return;
