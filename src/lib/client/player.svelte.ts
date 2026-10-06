@@ -882,8 +882,18 @@ class Player {
 		// Nothing the element can seek to, or not that far: see `#seekOnceWhole`.
 		// A second past the end is left to the element, which stops at its end.
 		// `duration` here can be the music server's figure, a little over.
+		//
+		// Chromium reports a stream without ranges seekable to its end and takes
+		// the seek by waiting for every byte before it: 25.2s for a seek to 3:51
+		// with the stream arriving at 32KB/s, the sound stopped meanwhile. Such a
+		// stream has no length, so its duration is Infinity. A seek past what has
+		// arrived goes the same way as one the element refuses. Not for a track
+		// being opened at a position, still at its top: it would be heard from
+		// there while the server was asked.
 		const ranges = element.seekable;
-		if (element.readyState > 0 && (ranges.length === 0 || target > ranges.end(ranges.length - 1) + 1)) {
+		const arrived = element.buffered.length > 0 ? element.buffered.end(element.buffered.length - 1) : 0;
+		const unranged = element.duration === Infinity && element.currentTime > 1 && target > arrived + 1;
+		if (element.readyState > 0 && (ranges.length === 0 || target > ranges.end(ranges.length - 1) + 1 || unranged)) {
 			void this.#seekOnceWhole(element, target);
 			return;
 		}
@@ -1274,8 +1284,11 @@ class Player {
 	 * the position taken up through `#pendingSeek`, as a resume is. Asked for
 	 * sooner, it would come as another stream without ranges, from the start.
 	 * Until then the track plays on, and after 30 looks a second apart the seek
-	 * is dropped: a transcode too large for the server to hold never has
-	 * ranges.
+	 * is left to the element: a transcode too large for the server to hold
+	 * never has ranges.
+	 *
+	 * A seek past what has arrived of such a stream comes here in every
+	 * browser; see `seek`.
 	 */
 	async #seekOnceWhole(element: HTMLAudioElement, target: number) {
 		const song = this.current;
@@ -1300,6 +1313,12 @@ class Player {
 			if (!wanted()) return;
 		}
 		this.loading = false;
+		// Never whole: left to the element, which in Chromium waits for the bytes.
+		try {
+			element.currentTime = target;
+		} catch {
+			// Nothing loaded to seek in.
+		}
 	}
 
 	/**
