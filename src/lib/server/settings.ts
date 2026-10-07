@@ -49,6 +49,11 @@ export interface UserSettings {
 	/** Days the listening history is kept, or 0 for as long as the account exists. See `history.ts`. */
 	historyDays: 0 | 90 | 365;
 	/**
+	 * Whether plays the Navidrome plugin reports from other apps go into the
+	 * history; see `plugin.ts`. Read only where the plugin is configured.
+	 */
+	historyOtherApps: boolean;
+	/**
 	 * The aurora behind the glass. Moving, it changes three times a second and
 	 * every glass surface above redraws its blur. Off, it is not in the page.
 	 * See `.aurora` in app.css.
@@ -104,6 +109,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
 	normalizeVolume: false,
 	reportPlayback: true,
 	historyDays: 0,
+	historyOtherApps: true,
 	aurora: 'moving',
 	showQualityBadge: true,
 	gridSize: 'comfortable',
@@ -166,6 +172,7 @@ function sanitizeSettings(input: unknown, base: UserSettings = DEFAULT_SETTINGS)
 		reportPlayback: flag('reportPlayback'),
 		historyDays:
 			raw.historyDays === 0 || raw.historyDays === 90 || raw.historyDays === 365 ? raw.historyDays : base.historyDays,
+		historyOtherApps: flag('historyOtherApps'),
 		showQualityBadge: flag('showQualityBadge'),
 		gridSize: pick('gridSize', ['compact', 'comfortable', 'roomy'] as const, base.gridSize),
 		// Allowlisted like the theme: interpolated into the served HTML.

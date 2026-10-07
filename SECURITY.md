@@ -46,6 +46,10 @@ AutoEq](#headphone-corrections-from-autoeq), [Plays sent to Discord and
 ListenBrainz](#plays-sent-to-discord-and-listenbrainz) and [Internet
 radio](#internet-radio).
 
+One thing besides a browser sends Heddohon requests, and only where the
+operator sets a token for it: the Heddohon plugin running inside Navidrome. See
+[Plays from the Navidrome plugin](#plays-from-the-navidrome-plugin).
+
 ## PostgreSQL
 
 With `HEDDOHON_DATABASE_URL` set, the database is on a PostgreSQL server
@@ -278,12 +282,76 @@ later, the first to sign the link token it sends through last.fm.
   checked against its source on 2026-09-25. A change there shows as the section
   not appearing (`scrobbler-failed` in the log), not as an error elsewhere.
 
+## Plays from the Navidrome plugin
+
+Navidrome tells a scrobbler plugin of every play of a user, whichever app made
+it, and keeps a scrobble history that only a plugin can read. The Heddohon
+plugin (`plugin/navidrome`, installed in Navidrome as `heddohon.ndp`) posts
+each play to `POST /api/plugin/navidrome`, and Heddohon notes it in that
+account's listening history. An account can also import its whole scrobble
+history from Settings. It is off unless `HEDDOHON_NAVIDROME_PLUGIN_TOKEN` is
+set: without it the route answers 404.
+
+A plugin cannot be reached from outside Navidrome, so every exchange is a
+request from Navidrome to Heddohon. Heddohon makes no request to the plugin.
+
+- **The route is outside the session gate and takes the token in its place**,
+  as `Authorization: Bearer`. The token is the operator's, at least 32
+  characters, and may not be the value of `HEDDOHON_SECRET`. It is compared as
+  two HMAC digests in constant time, and a request without it is answered 401
+  before its body is read. A session cookie does not open the route.
+- **The origin check applies to it** as to every write. The plugin sends
+  `Origin` with the address it is configured with, so the check has no
+  exception for this path. A browser cannot set that header, and the route
+  reads no cookie.
+- **What the token allows: adding plays to a history.** A play names a user, a
+  song id and a time. It is noted for the account that user name signs in to,
+  and only when that account's stored credential still signs in to Navidrome
+  and can read the song. The row holds the song as Navidrome describes it to
+  that account, so the request supplies no text that is stored or shown. A
+  time more than 5 minutes ahead of the server's clock is refused; a time in
+  the past is taken, since Navidrome sends a play again after an outage with
+  its original time.
+- **What it does not allow.** Nothing is read through the route: every answer
+  is the list of user names with an import open, which is empty unless an
+  account has just asked for one. It changes no setting, session or
+  credential, and reaches no account on Jellyfin.
+- **A stored credential is opened without a request of its account**, for the
+  one song lookup a play needs, as a shared link opens its owner's. A
+  credential Navidrome rejects drops the play and does not end the account's
+  sessions from here; the account's next request does that.
+- **A page of scrobble history is taken only for an import that is open**,
+  which only the account itself opens, from Settings, in a request with its
+  session. The songs are read then, under that session's credential, and a
+  scrobble of a song not among them is skipped. A page for any other user is
+  ignored. An import with no page for 2 minutes is closed.
+- **An account can turn it off** under Settings, Listening history ("Plays from
+  other apps"). Its own plays are noted as before.
+- **Bounds:** 100 plays a message, 2000 scrobbles a page, the 512 KB body cap,
+  ids under 256 characters, 4 imports open at once.
+- **The plugin** asks Navidrome for four permissions: HTTP to any host
+  (Heddohon is usually on a private address, which Navidrome otherwise refuses
+  a plugin), the users assigned to it, their scrobble history, and a schedule
+  for its poll every 15 seconds. It contacts only the address in its settings,
+  does not follow redirects, so the token goes nowhere else, and sends a user
+  name, a song id and a time per play. Navidrome's administrator chooses which
+  users it covers.
+- **The token is stored by Navidrome**, in the plugin's settings, where
+  Navidrome's administrators can read it. Where Navidrome reaches Heddohon over
+  plain http, the token crosses that network in the clear: give the plugin an
+  `https://` address unless both are on one host or one private network.
+- **Kept in this process's memory:** when the plugin was last heard from, and
+  the imports that are open. With several processes behind a load balancer an
+  import completes only when the plugin's requests reach the process that
+  opened it.
+
 ## Credentials at rest
 
 - Upstream credentials are sealed with **AES-256-GCM** before they reach the database.
 - Keys are derived with **scrypt** (N = 2¹⁵, r = 8, p = 1) from `HEDDOHON_SECRET`.
   Separate keys cover encryption, session digests, share-link digests,
-  known-device cookies, Last.fm link state and cast addresses.
+  known-device cookies, Last.fm link state, cast addresses and the comparison
+  of the Navidrome plugin's token.
 - Each seal uses a fresh 12-byte random IV. The tag is verified on open, and a
   blob with a wrong version, part count, IV length or tag length is rejected.
 - Changing `HEDDOHON_SECRET` makes every stored credential unreadable and signs
@@ -701,7 +769,8 @@ call in Heddohon is JSON. An explicit origin check covers them:
   `/api/` was bypassable, because SvelteKit routes on the decoded path:
   `PATCH /%61pi/settings` reached `/api/settings` without matching the prefix.
 - **A missing `Origin` is refused.** Browsers always send it on non-GET/HEAD
-  requests. Scripted calls need `-H "origin: <your site>"`.
+  requests. Scripted calls need `-H "origin: <your site>"`. The Navidrome
+  plugin sends it too; its route is checked like the rest.
 
 `SameSite=Lax` is a second layer underneath.
 
@@ -905,6 +974,9 @@ Covers are cached under `$HEDDOHON_DATA_DIR/covers` (see
 | ListenBrainz token | 1 to 128 of `A-Z a-z 0-9 -` (ListenBrainz issues 36) |
 | Discord webhook address | 300 characters; `https://`, `discord.com` or `discordapp.com` (or their `ptb` and `canary` hosts), an id of 15 to 22 digits and a token of 40 to 100 of `A-Z a-z 0-9 _ -` |
 | Last.fm callback `uid` / `token` / `state` | 2048 / 256 / 64 characters |
+| Navidrome plugin token | at least 32 characters, and not `HEDDOHON_SECRET` |
+| Navidrome plugin message | 100 plays, or a page of 2000 scrobbles; a user name and a song id of 1 to 255 characters; a time in whole seconds, at most 5 minutes ahead |
+| Scrobble history imports open at once | 4; closed after 2 minutes without a page |
 | Upstream timeout | 20 s to headers, and 20 s more for a JSON body (`HEDDOHON_UPSTREAM_TIMEOUT_MS`) |
 | Upstream JSON answer | 64 MB, refused while it arrives |
 
@@ -1085,6 +1157,14 @@ session token and any `u`, `t`, `s` or `p` query parameter.
   that shows a Heddohon server without an address bar, which is what the
   released app does; they could not show another site as this one, since the
   file vouches only for the origin that serves it.
+- **Whoever holds the Navidrome plugin's token can add plays to a history.**
+  Any account on Navidrome whose stored credential still works, any song that
+  account can read, at any time in the past, 100 a request, with one lookup on
+  the music server for each. Navidrome stores the token where its
+  administrators can read it. The plays are counted in that account's
+  statistics and shown to nobody else. See [Plays from the Navidrome
+  plugin](#plays-from-the-navidrome-plugin). The variable unset, the route
+  does not exist.
 - **Concurrent streams per account are uncapped.** Cap them at the proxy for wide exposure.
 - **Authentication is as strong as the upstream account.** There is no second
   factor or sign-in notification. Settings lists the account's sessions and
@@ -1114,6 +1194,10 @@ session token and any `u`, `t`, `s` or `p` query parameter.
    a floating tag.
 8. **Publish the port on loopback behind a proxy** (`127.0.0.1:3000:3000`).
    Docker's port rules pass host firewalls such as ufw.
+9. **For the Navidrome plugin, a token of its own**: `openssl rand -hex 32`,
+   in `HEDDOHON_NAVIDROME_PLUGIN_TOKEN` and in the plugin's settings, and an
+   `https://` address for the plugin where Navidrome is on another network.
+   Leave the variable unset where the plugin is not installed.
 
 ## Audit history
 

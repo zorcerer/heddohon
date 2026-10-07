@@ -995,7 +995,10 @@ export const subsonicBackend: MediaBackend = {
 		if (report.event === 'stop' && !report.completed) return;
 		await call(cred, 'scrobble.view', {
 			id: report.songId,
-			submission: report.event === 'stop' ? 'true' : 'false'
+			submission: report.event === 'stop' ? 'true' : 'false',
+			// Milliseconds, as the API takes them. Without it the server dates the
+			// play as the request arrives.
+			time: report.event === 'stop' ? report.at : undefined
 		});
 	},
 

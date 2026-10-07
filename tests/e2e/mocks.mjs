@@ -122,6 +122,8 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 		 * reports in OpenSubsonic's `played`, as Navidrome does.
 		 */
 		played: new Map(),
+		/** What `scrobble` was called with, in order: `{ id, submission, time }`, each as sent or null. */
+		scrobbles: [],
 		/** Song and album ids that answer `getSong` or `getAlbum` with error 70, as a deleted one does. */
 		missing: new Set(),
 		/** Milliseconds to hold an endpoint's answer, by method name. */
@@ -413,6 +415,9 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 				const songs = Array.from({ length: state.albumSongs }, (_, k) => song(i, String.fromCharCode(97 + k)));
 				return send(ok({ album: { ...album(i, id), song: songs } }));
 			}
+			case 'scrobble':
+				state.scrobbles.push({ id: p.get('id'), submission: p.get('submission'), time: p.get('time') });
+				return send(ok({}));
 			case 'getSong': {
 				const id = p.get('id') ?? '';
 				const i = index(id);

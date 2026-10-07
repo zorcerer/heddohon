@@ -23,7 +23,7 @@ const ROUTES = resolve(import.meta.dirname, '../../src/routes');
  * lists them. Written out here, so making a route public takes a change to
  * this file as well.
  */
-const PUBLIC = ['/login', '/healthz', '/share', '/cast', '/together', '/manifest.webmanifest', '/.well-known/assetlinks.json'];
+const PUBLIC = ['/login', '/healthz', '/share', '/cast', '/together', '/manifest.webmanifest', '/.well-known/assetlinks.json', '/api/plugin/navidrome'];
 const isPublic = (path) => PUBLIC.some((route) => path === route || path.startsWith(`${route}/`));
 
 /** Public documents that say nothing of any account: the same answer for every visitor. */
@@ -142,6 +142,21 @@ describe('every route', () => {
 			assert.equal(response.status, open.has(route.path) ? 200 : 404, label);
 			assert.equal(response.headers.get('set-cookie'), null, label);
 			if (route.path === '/share/x') assert.ok(!text.includes('/share/x/stream'), 'a link that does not exist offers audio');
+		}
+	});
+
+	test('under /api without the session gate is the Navidrome plugin\'s alone, and is not there without its token', async () => {
+		const writes = ALL.filter((route) => isPublic(route.path) && route.path.startsWith('/api/'));
+		assert.deepEqual(writes, [{ path: '/api/plugin/navidrome', method: 'POST' }]);
+		// This app has no HEDDOHON_NAVIDROME_PLUGIN_TOKEN: with or without a
+		// session, and whatever is sent as a token, the route is not found.
+		for (const client of [new Client(app.url), user]) {
+			const { response, text } = await ask(client, writes[0], {
+				headers: { 'content-type': 'application/json', authorization: 'Bearer anything' },
+				body: JSON.stringify({ v: 1, type: 'poll' })
+			});
+			assert.equal(response.status, 404);
+			assert.deepEqual(JSON.parse(text), { error: 'not_found' });
 		}
 	});
 

@@ -1,0 +1,93 @@
+# The Heddohon plugin for Navidrome in `plugin/navidrome`: a WebAssembly module
+# and its manifest, zipped as `heddohon.ndp`, which Navidrome loads from its
+# plugins folder.
+#
+# On a pull request that touches it, the package is built and kept as an
+# artifact of the run. Called from `release.yml` with a version, it builds the
+# package with that version in its manifest and attaches it to the release.
+# The compiler is the `tinygo/tinygo` image, pinned in `build.sh`.
+name: plugin
+
+on:
+  pull_request:
+    paths:
+      - 'plugin/**'
+      - '.github/workflows/plugin.yml'
+  workflow_call:
+    inputs:
+      version:
+        description: The version the manifest carries, without the v.
+        required: true
+        type: string
+      upload:
+        description: Attach the package to the GitHub release of that version.
+        required: false
+        type: boolean
+        default: false
+  # By hand, for a release whose package did not get attached: builds it again
+  # from the branch the run is started on and attaches it.
+  workflow_dispatch:
+    inputs:
+      version:
+        description: The version of an existing release, without the v.
+        required: true
+        type: string
+      upload:
+        description: Attach the package to the GitHub release of that version.
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: plugin-${{ github.event.pull_request.number || github.ref }}-${{ inputs.version || 'pr' }}
+  cancel-in-progress: true
+
+jobs:
+  plugin:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      # Unset on a pull request, where `build.sh` names the build after package.json.
+      VERSION: ${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Build heddohon.ndp
+        run: plugin/navidrome/build.sh
+
+      # The package is the two files Navidrome reads, and the manifest is JSON
+      # with the permissions the documentation lists.
+      - name: Check the package
+        run: |
+          unzip -l plugin/navidrome/heddohon.ndp
+          test "$(unzip -Z1 plugin/navidrome/heddohon.ndp | sort | tr '\n' ' ')" = "manifest.json plugin.wasm "
+          unzip -p plugin/navidrome/heddohon.ndp manifest.json | jq -e '.permissions | keys == ["http", "scheduler", "scrobbleRetriever", "users"]'
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: heddohon-ndp
+          path: plugin/navidrome/heddohon.ndp
+          if-no-files-found: error
+
+  attach:
+    if: inputs.upload
+    needs: plugin
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ inputs.version }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: heddohon-ndp
+
+      - name: Attach to the release
+        run: gh release upload "v$VERSION" heddohon.ndp --repo "$GITHUB_REPOSITORY" --clobber

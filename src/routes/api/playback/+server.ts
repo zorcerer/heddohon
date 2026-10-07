@@ -37,6 +37,8 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 		: 0;
 
 	const settings = await getSettings(session.account.id);
+	// One time for the play here and for its scrobble; see `at` in `PlaybackReport`.
+	const at = Date.now();
 
 	// A play past the scrobble threshold goes into the account's history
 	// (`history.ts`) whether or not it is reported upstream, with the track as
@@ -49,7 +51,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 			.getSongs(session.credential, [songId])
 			.then((songs) => songs[0] ?? null)
 			.catch(() => null);
-		await recordPlay(session.account.id, songId, { song, keepDays: settings.historyDays }).catch((err) =>
+		await recordPlay(session.account.id, songId, { at, song, keepDays: settings.historyDays }).catch((err) =>
 			log.warn('history-write-failed', { detail: reason(err) })
 		);
 		// To a Discord channel and ListenBrainz, where the account linked them,
@@ -80,7 +82,8 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 			songId: body.songId,
 			event,
 			position,
-			completed: body.completed === true
+			completed: body.completed === true,
+			at
 		});
 		return json({ reported: true });
 	} catch (err) {

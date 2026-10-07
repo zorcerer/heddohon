@@ -106,6 +106,16 @@
 			body: JSON.stringify({ historyDays: days })
 		}).catch(() => undefined);
 	}
+	/** Whether plays the Navidrome plugin reports from other apps are noted, saved as it is changed. */
+	let historyOtherApps = $state(untrack(() => data.settings.historyOtherApps));
+	async function keepOtherApps(on: boolean) {
+		historyOtherApps = on;
+		await fetch('/api/settings', {
+			method: 'PATCH',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ historyOtherApps: on })
+		}).catch(() => undefined);
+	}
 	/** The session lifetime in days where it is a whole number of them, and in hours otherwise. */
 	const sessionLifetime = $derived(
 		data.sessionMaxHours % 24 === 0
@@ -1558,6 +1568,26 @@
 			</select>
 		</label>
 
+		{#if data.plugin}
+			<label class="row switch">
+				<span class="label">
+					Plays from other apps
+					<span class="hint hh-muted">
+						{data.serverLabel || 'Navidrome'} tells this server of each track you finish in another app, and it
+						is noted here with the rest.
+						{#if !data.plugin.heard}
+							Its Heddohon plugin has not been heard from in the last minute.
+						{/if}
+					</span>
+				</span>
+				<input
+					type="checkbox"
+					checked={historyOtherApps}
+					onchange={(event) => void keepOtherApps(event.currentTarget.checked)}
+				/>
+			</label>
+		{/if}
+
 		<div class="history-links">
 			<a class="hh-button" href="/history">
 				<Icon name="history" size={16} />
@@ -1567,12 +1597,20 @@
 		</div>
 
 		<h3 class="subhead">Import from {data.serverLabel || 'the music server'}</h3>
-		<p class="hh-muted note">
-			{data.account.backend === 'jellyfin' ? 'Jellyfin' : 'Navidrome'} keeps the date each track was last
-			played, and a count of plays without their dates. The import adds one play per track played, at that
-			date, so the listening from before Heddohon shows in the history and the stats. Plays already here are
-			skipped, and importing again adds only tracks played elsewhere since.
-		</p>
+		{#if data.plugin?.heard}
+			<p class="hh-muted note">
+				Navidrome keeps every play in its scrobble history, and its Heddohon plugin sends it here. The import
+				adds each play the history lacks, at its date, so the listening from before Heddohon and in other apps
+				shows in the history and the stats. It starts within 15 seconds, and plays already here are skipped.
+			</p>
+		{:else}
+			<p class="hh-muted note">
+				{data.account.backend === 'jellyfin' ? 'Jellyfin' : 'Navidrome'} keeps the date each track was last
+				played, and a count of plays without their dates. The import adds one play per track played, at that
+				date, so the listening from before Heddohon shows in the history and the stats. Plays already here are
+				skipped, and importing again adds only tracks played elsewhere since.
+			</p>
+		{/if}
 		<form
 			method="POST"
 			action="?/importHistory"
@@ -1590,7 +1628,17 @@
 				{importingHistory ? 'Importing…' : 'Import play history'}
 			</button>
 		</form>
-		{#if form && 'historyImported' in form && form.historyImported}
+		{#if form && 'historyImportPending' in form && form.historyImportPending}
+			<p class="hh-muted note-inline" role="status">
+				The import is still arriving from Navidrome. Its plays show in Recently played as they come in.
+			</p>
+		{:else if form && 'historyImportFull' in form && form.historyImportFull}
+			<p class="hh-muted note-inline" role="status">
+				{form.historyImported.imported === 0
+					? `Nothing new to import. Navidrome keeps ${form.historyImported.found.toLocaleString()} play${form.historyImported.found === 1 ? '' : 's'}, each already in the history${historyDays === 0 ? '' : ', older than it keeps'} or of a track no longer in the library.`
+					: `Imported ${form.historyImported.imported.toLocaleString()} of the ${form.historyImported.found.toLocaleString()} play${form.historyImported.found === 1 ? '' : 's'} Navidrome keeps.`}
+			</p>
+		{:else if form && 'historyImported' in form && form.historyImported}
 			<p class="hh-muted note-inline" role="status">
 				{form.historyImported.imported === 0
 					? `Nothing new to import. ${form.historyImported.found.toLocaleString()} played track${form.historyImported.found === 1 ? ' was' : 's were'} already in the history${historyDays === 0 ? '' : ' or older than it keeps'}.`
