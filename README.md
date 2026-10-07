@@ -48,7 +48,7 @@ The website, with screenshots and the install steps, is
     <td align="center">More from the artist</td>
   </tr>
   <tr>
-    <td colspan="2"><img src="docs/assets/listening.jpg" alt="Your listening over the last 30 days: 568 plays, 34 hours, a chart of plays by the hour of the day and one by the day of the week, and the top artists and albums"></td>
+    <td colspan="2"><img src="docs/assets/listening.jpg" alt="Your listening over the last 30 days: 581 plays, 36 hours, a chart of plays by the hour of the day and one by the day of the week, and the top artists and albums"></td>
   </tr>
   <tr>
     <td colspan="2" align="center">Your listening: the history summed up, by 30 days, 90 days, the year or everything kept</td>
