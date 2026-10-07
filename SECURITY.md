@@ -327,15 +327,35 @@ request from Navidrome to Heddohon. Heddohon makes no request to the plugin.
   ignored. An import with no page for 2 minutes is closed.
 - **An account can turn it off** under Settings, Listening history ("Plays from
   other apps"). Its own plays are noted as before.
+- **What an app is playing now is held in memory, for the account's own
+  browsers.** Navidrome reports each client's track, whether it plays or is
+  paused, and where it is in it, and the plugin passes that on with the
+  client's name. Under the Devices button the account sees its other apps and
+  can play an app's track here from that point ("Continue here"). It is taken
+  under the same rule as a play: the account's stored credential has to sign
+  in and read the song, and the track shown is the one Navidrome describes.
+  The app's name is the one text taken from the request. It is cleaned as a
+  display name is, cut to 32 characters, and sent to that account's browsers
+  alone, which show it as text. Navidrome's id for the client is not sent:
+  the browsers are given a digest of it. An entry ends when Navidrome reports
+  the app stopped or its session expired, 20 seconds past the end of the
+  track where neither arrives, and after 30 minutes paused. Nothing of it is
+  written to disk, and no command is sent to an app: Navidrome has no way to
+  send one. Other accounts see none of it unless the account turned on
+  "Include what I play in other apps"; see [Listening now](#listening-now).
+  Heddohon's own plays come back from Navidrome the same way and are left
+  out by its client name.
 - **Bounds:** 100 plays a message, 2000 scrobbles a page, the 512 KB body cap,
-  ids under 256 characters, 4 imports open at once.
+  ids under 256 characters, 4 imports open at once, 8 apps held for an
+  account, a position of at most a day.
 - **The plugin** asks Navidrome for four permissions: HTTP to any host
   (Heddohon is usually on a private address, which Navidrome otherwise refuses
   a plugin), the users assigned to it, their scrobble history, and a schedule
   for its poll every 15 seconds. It contacts only the address in its settings,
   does not follow redirects, so the token goes nowhere else, and sends a user
-  name, a song id and a time per play. Navidrome's administrator chooses which
-  users it covers.
+  name, a song id and a time per play, and for what a client is playing now
+  the user name, the song id, the state, the position and the client's id
+  and name. Navidrome's administrator chooses which users it covers.
 - **The token is stored by Navidrome**, in the plugin's settings, where
   Navidrome's administrators can read it. Where Navidrome reaches Heddohon over
   plain http, the token crosses that network in the clear: give the plugin an
@@ -724,6 +744,19 @@ popup or under Settings, Account. What it is limited to:
   the account is on. A pause, a closed browser, signing out and turning the
   switch off each take the account out of the list at once. Nothing of it is
   written to disk: the list is in the process's memory.
+- **What it plays in other apps is shown only where it turns that on too.**
+  With the Navidrome plugin installed, Navidrome reports what every app
+  signed in as the account is playing (see [Plays from the Navidrome
+  plugin](#plays-from-the-navidrome-plugin)). An account that is shown is
+  shown with what it plays in Heddohon and nothing else, until it also turns
+  on "Include what I play in other apps" under Settings, Account, which is off
+  for every account until then. With it on, the account is in the list while
+  an app plays, with no browser of its own open here, under the same fields
+  as above: the track is looked up under the account's own credential, and
+  the app's name is not shown to others. Turning either switch off takes it
+  out at once. Most apps tell Navidrome that a track started and nothing
+  after it, so such a track is shown until it would have ended, through a
+  pause or a stop.
 - **The account's id is not sent.** Other accounts know a profile by a handle,
   12 random bytes made with the profile row.
 - **Library permissions still decide what a viewer can open.** A title and an
@@ -977,6 +1010,8 @@ Covers are cached under `$HEDDOHON_DATA_DIR/covers` (see
 | Navidrome plugin token | at least 32 characters, and not `HEDDOHON_SECRET` |
 | Navidrome plugin message | 100 plays, or a page of 2000 scrobbles; a user name and a song id of 1 to 255 characters; a time in whole seconds, at most 5 minutes ahead |
 | Scrobble history imports open at once | 4; closed after 2 minutes without a page |
+| Navidrome plugin playback report | one of five states; a position from 0 to 86400 s; a player id of 1 to 255 characters; a player name cut to 300 characters, then cleaned and cut to 32 |
+| Other apps held for an account | 8, the one longest unheard dropped; 500 looked-up tracks held for 10 minutes |
 | Upstream timeout | 20 s to headers, and 20 s more for a JSON body (`HEDDOHON_UPSTREAM_TIMEOUT_MS`) |
 | Upstream JSON answer | 64 MB, refused while it arrives |
 
@@ -1160,7 +1195,10 @@ session token and any `u`, `t`, `s` or `p` query parameter.
 - **Whoever holds the Navidrome plugin's token can add plays to a history.**
   Any account on Navidrome whose stored credential still works, any song that
   account can read, at any time in the past, 100 a request, with one lookup on
-  the music server for each. Navidrome stores the token where its
+  the music server for each. The same holder can say an account's app is
+  playing a song that account can read, which that account's browsers show
+  and, where it turned on "Include what I play in other apps", the other
+  accounts' too. Navidrome stores the token where its
   administrators can read it. The plays are counted in that account's
   statistics and shown to nobody else. See [Plays from the Navidrome
   plugin](#plays-from-the-navidrome-plugin). The variable unset, the route

@@ -8,7 +8,7 @@
  * reported when the track, the play state or the volume changes, and every 5
  * seconds while it plays, so a controlling browser shows a moving position.
  */
-import type { RemoteCommand, RemotePeer, RemoteState } from '$lib/server/remote';
+import type { RemoteApp, RemoteCommand, RemotePeer, RemoteState } from '$lib/server/remote';
 import type { ListenersEvent } from '$lib/server/listening';
 import type { Song } from '$lib/types';
 import { listeners } from './listeners.svelte';
@@ -24,6 +24,11 @@ class Remote {
 	self = $state<string | null>(null);
 	/** The account's other browsers with the player open, the most recent first. */
 	peers = $state<RemotePeer[]>([]);
+	/**
+	 * The account's other apps that are playing or paused, as the Navidrome
+	 * plugin reports them, the most recently heard first. Empty without it.
+	 */
+	apps = $state<RemoteApp[]>([]);
 	/** Whether the devices dialog is open. */
 	open = $state(false);
 	/** Set when a command could not be delivered; shown in the dialog. */
@@ -54,9 +59,14 @@ class Remote {
 			this.report();
 		});
 		source.addEventListener('peers', (event) => {
-			const { now, peers } = JSON.parse((event as MessageEvent).data) as { now: number; peers: RemotePeer[] };
+			const { now, peers, apps } = JSON.parse((event as MessageEvent).data) as {
+				now: number;
+				peers: RemotePeer[];
+				apps?: RemoteApp[];
+			};
 			this.#skew = Date.now() - now;
 			this.peers = peers.filter((peer) => peer.id !== this.self).sort((a, b) => b.since - a.since);
+			this.apps = apps ?? [];
 		});
 		// What the other accounts are playing; see `listeners.svelte.ts`.
 		source.addEventListener('listeners', (event) => {
@@ -70,6 +80,7 @@ class Remote {
 		source.addEventListener('error', () => {
 			this.self = null;
 			this.peers = [];
+			this.apps = [];
 			listeners.clear();
 		});
 		this.#progress = setInterval(() => {
@@ -86,6 +97,7 @@ class Remote {
 		this.#pending = null;
 		this.self = null;
 		this.peers = [];
+		this.apps = [];
 		this.open = false;
 		listeners.clear();
 		// Signed out: the next account in this tab has a profile of its own.
@@ -159,6 +171,23 @@ class Remote {
 	/** Asks another browser for its queue and position, which then play here. */
 	async playHere(from: string): Promise<void> {
 		if (this.self) await this.send(from, { type: 'handoff', to: this.self });
+	}
+
+	/**
+	 * Plays here the track another app is on, from where that app has got to,
+	 * in place of the queue. The app is not told: Navidrome has no way to pause
+	 * a client, so it goes on playing until it is stopped by hand.
+	 */
+	async pickUp(app: RemoteApp): Promise<void> {
+		this.error = null;
+		await this.#apply({
+			type: 'transfer',
+			ids: [app.state.songId],
+			index: 0,
+			position: this.positionOf(app.state, Date.now()),
+			playing: true
+		});
+		if (player.current?.id !== app.state.songId) this.error = `“${app.state.title}” could not be opened here.`;
 	}
 
 	#transfer(): RemoteCommand | null {

@@ -6,12 +6,15 @@ import { log } from '$lib/server/log';
 import {
 	MAX_HISTORY_PAGE,
 	MAX_PLAYS,
+	PLAYBACK_STATES,
 	pluginAuthorized,
 	playTime,
 	takeHistory,
+	takePlayback,
 	takePlays,
 	wanted,
-	type PluginPlay
+	type PluginPlay,
+	type PluginPlayback
 } from '$lib/server/plugin';
 
 /** The version of the messages the plugin sends; `protocol` in `plugin/navidrome/main.go`. */
@@ -32,6 +35,8 @@ const isId = (value: unknown): value is string => typeof value === 'string' && v
  *   `plays`    `plays: [{ username, songId, at }]`, as they happen
  *   `poll`     nothing more
  *   `history`  `username`, `plays: [{ songId, at }]`, `more`, `failed`
+ *   `playback` `username`, `songId`, `state`, `positionMs`, `player`, `playerName`:
+ *              what an app is playing now, as Navidrome reports it
  * with `at` in Unix seconds. Every answer is `{ wanted: [{ username, from }] }`.
  */
 export const POST: RequestHandler = async ({ request }) => {
@@ -79,6 +84,33 @@ export const POST: RequestHandler = async ({ request }) => {
 			plays.push({ songId: raw.songId, at });
 		}
 		await takeHistory({ username: body.username, plays, more: body.more === true, failed });
+	} else if (body.type === 'playback') {
+		const state = PLAYBACK_STATES.find((known) => known === body.state);
+		const position = body.positionMs ?? 0;
+		const name = body.playerName ?? null;
+		if (
+			!isId(body.username) ||
+			!isId(body.songId) ||
+			!isId(body.player) ||
+			!state ||
+			typeof position !== 'number' ||
+			!Number.isFinite(position) ||
+			position < 0 ||
+			(name !== null && typeof name !== 'string')
+		) {
+			return refuse(400, 'invalid_message');
+		}
+		const report: PluginPlayback = {
+			username: body.username,
+			songId: body.songId,
+			state,
+			// A day at most, as a browser's own report is held to.
+			position: Math.min(position / 1000, 86_400),
+			player: body.player,
+			// Cut before it is cleaned: `cleanName` keeps 32 characters of it.
+			playerName: name === null ? null : name.slice(0, 300)
+		};
+		await takePlayback(report);
 	} else if (body.type !== 'poll') {
 		return refuse(400, 'invalid_message');
 	}

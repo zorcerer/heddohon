@@ -14,6 +14,11 @@
  *
  * The one thing that crosses accounts is in `listening.ts`: what an account
  * that chose to be shown is playing, sent down every stream.
+ *
+ * Beside the browsers are the account's other apps, where the Navidrome
+ * plugin reports what they play (`plugin.ts`): Symfonium on a phone, say. An
+ * app is shown to the account's own browsers, which can pick its track up. It
+ * takes no command: Navidrome has no way to send one to a client.
  */
 import { randomUUID } from 'node:crypto';
 
@@ -45,6 +50,21 @@ export interface RemotePeer {
 	state: RemoteState | null;
 }
 
+/** Another app playing as the account, as the account's browsers are sent it. */
+export interface RemoteApp {
+	/** Made here from Navidrome's id for the player, which is not sent. */
+	id: string;
+	/** The client's name as it gives it to Navidrome ("Symfonium"), cleaned, or null. */
+	name: string | null;
+	state: RemoteState;
+	/**
+	 * Whether the app says where it is in the track. Most only say that a
+	 * track started, and `position` is then where it would be had it played
+	 * without a pause since.
+	 */
+	exact: boolean;
+}
+
 export type RemoteCommand =
 	| { type: 'toggle' | 'play' | 'pause' | 'next' | 'previous' }
 	| { type: 'seek'; position: number }
@@ -69,6 +89,27 @@ const MAX_PEERS_PER_ACCOUNT = 20;
 
 const accounts = new Map<string, Map<string, Peer>>();
 
+interface App extends RemoteApp {
+	/** Whether the account lets the other accounts see what its apps play; see `listening.ts`. */
+	shared: boolean;
+	/** Ends the entry when no report says the app stopped. */
+	expiry: ReturnType<typeof setTimeout>;
+}
+
+/** Apps held for one account, the one longest unheard dropped first. A listener has a phone, a desktop client and a speaker. */
+const MAX_APPS_PER_ACCOUNT = 8;
+/**
+ * How long past the end of its track a playing app is held. Navidrome reports
+ * a session expired 5 seconds past the end; this is for a report that never
+ * comes, with the plugin stopped or this server restarted in between.
+ */
+const APP_GRACE_MS = 20_000;
+/** How long a paused app is held, which is how long Navidrome holds one. */
+const APP_PAUSED_MS = 30 * 60_000;
+
+/** By account, then by Navidrome's id for the player. Held whether or not a browser of the account is connected. */
+const apps = new Map<string, Map<string, App>>();
+
 /**
  * Told the account whenever what its browsers play may have changed: a report,
  * or a stream closing. `listening.ts` sets it, to keep what an account shows
@@ -89,10 +130,87 @@ function announce(accountId: string): void {
 	const peers = accounts.get(accountId);
 	if (!peers) return;
 	const list = [...peers.values()].map(view);
+	const others = appsOf(accountId);
 	// The server's clock goes with the list, so a browser can work out how far a
 	// playing peer has got since its report, whatever its own clock says.
 	const now = Date.now();
-	for (const peer of peers.values()) peer.send('peers', { now, peers: list });
+	for (const peer of peers.values()) peer.send('peers', { now, peers: list, apps: others });
+}
+
+/** The account's other apps, the most recently heard first. */
+function appsOf(accountId: string): RemoteApp[] {
+	return [...(apps.get(accountId)?.values() ?? [])]
+		.sort((a, b) => b.state.at - a.state.at)
+		.map(({ id, name, state, exact }) => ({ id, name, state, exact }));
+}
+
+function dropApp(accountId: string, player: string): boolean {
+	const held = apps.get(accountId);
+	const app = held?.get(player);
+	if (!held || !app) return false;
+	clearTimeout(app.expiry);
+	held.delete(player);
+	if (held.size === 0) apps.delete(accountId);
+	return true;
+}
+
+/**
+ * Records what another app of the account plays, as the Navidrome plugin
+ * reports it, or with null that it stopped. `player` is Navidrome's id for
+ * the client, and `shared` whether the account lets other accounts see it.
+ * The account's browsers are told, and `listening.ts` through the watcher.
+ */
+export function reportApp(
+	accountId: string,
+	player: string,
+	app: { id: string; name: string | null; state: Omit<RemoteState, 'at'>; exact: boolean; shared: boolean } | null
+): void {
+	const before = apps.get(accountId)?.get(player);
+	if (!app) {
+		if (!dropApp(accountId, player)) return;
+	} else {
+		if (before) clearTimeout(before.expiry);
+		let held = apps.get(accountId);
+		if (!held) apps.set(accountId, (held = new Map()));
+		if (!before && held.size >= MAX_APPS_PER_ACCOUNT) {
+			dropApp(accountId, [...held].reduce((a, b) => (a[1].state.at <= b[1].state.at ? a : b))[0]);
+		}
+		const state = { ...app.state, at: Date.now() };
+		// A track of no known length is held as a paused app is.
+		const left =
+			app.state.playing && state.duration > 0
+				? Math.max(0, state.duration - state.position) * 1000 + APP_GRACE_MS
+				: APP_PAUSED_MS;
+		const expiry = setTimeout(() => reportApp(accountId, player, null), left);
+		// Not a reason to keep the process from exiting.
+		expiry.unref();
+		// Once an app has said where it is, it is taken to go on saying it.
+		held.set(player, { id: app.id, name: app.name, state, exact: app.exact || before?.exact === true, shared: app.shared, expiry });
+	}
+	announce(accountId);
+	watcher?.(accountId);
+}
+
+/** Whether the account has an app held. */
+export function hasApps(accountId: string): boolean {
+	return apps.has(accountId);
+}
+
+/** Sets whether what the account's apps play may be shown to other accounts, on the ones held now. */
+export function shareApps(accountId: string, shared: boolean): void {
+	const held = apps.get(accountId);
+	if (!held) return;
+	for (const app of held.values()) app.shared = shared;
+	watcher?.(accountId);
+}
+
+/** What each app of the account that is playing, and may be shown to others, was last reported at. */
+export function playingInApps(accountId: string): { peer: string; state: RemoteState }[] {
+	const playing: { peer: string; state: RemoteState }[] = [];
+	for (const app of apps.get(accountId)?.values() ?? []) {
+		if (app.shared && app.state.playing) playing.push({ peer: `app:${app.id}`, state: app.state });
+	}
+	return playing;
 }
 
 /** Adds a browser whose stream has just opened. Null when the account holds as many as it may. */

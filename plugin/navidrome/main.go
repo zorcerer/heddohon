@@ -2,8 +2,10 @@
 //
 // Navidrome calls a scrobbler plugin for every play of a user assigned to it,
 // whichever client made the play. This one posts each play to Heddohon, which
-// keeps the listening history. Every 15 seconds it also asks Heddohon whether
-// an account has asked for its scrobble history, and sends it when one has.
+// keeps the listening history, and what each client is playing now, which
+// Heddohon shows the user's own browsers. Every 15 seconds it also asks
+// Heddohon whether an account has asked for its scrobble history, and sends
+// it when one has.
 //
 // A plugin cannot be called from outside Navidrome, so every exchange starts
 // here. Navidrome makes a new instance for each call and nothing is kept
@@ -59,6 +61,14 @@ type message struct {
 	Plays    []play `json:"plays,omitempty"`
 	More     bool   `json:"more,omitempty"`
 	Failed   bool   `json:"failed,omitempty"`
+	// For "playback", with the user name: the track a client is on, what it is
+	// doing with it (starting, playing, paused, stopped or expired), and the
+	// client, by Navidrome's id for it and the name it gives.
+	SongID     string `json:"songId,omitempty"`
+	State      string `json:"state,omitempty"`
+	PositionMs int64  `json:"positionMs,omitempty"`
+	Player     string `json:"player,omitempty"`
+	PlayerName string `json:"playerName,omitempty"`
 }
 
 // An account whose history Heddohon is waiting for, from this timestamp on.
@@ -173,10 +183,36 @@ func (*heddohon) IsAuthorized(scrobbler.IsAuthorizedRequest) (bool, error) {
 	return ok, nil
 }
 
-// Not sent: Heddohon takes only finished plays from here.
+// The name Heddohon gives Navidrome as a client. Its browsers tell it what
+// they play themselves, so its own reports are not sent back to it.
+const ownClient = "heddohon"
+
+// Not sent: Navidrome reports the same event through PlaybackReport, with
+// the client it came from.
 func (*heddohon) NowPlaying(scrobbler.NowPlayingRequest) error { return nil }
 
-func (*heddohon) PlaybackReport(scrobbler.PlaybackReportRequest) error { return nil }
+// What a client is playing now. Navidrome sends it for every client, as a
+// track starts and whenever the client says where it is, and does not send it
+// again when it fails, so a Heddohon that is down misses it and nothing is
+// returned for Navidrome to log.
+func (*heddohon) PlaybackReport(request scrobbler.PlaybackReportRequest) error {
+	cfg, ok := configured()
+	if !ok || strings.EqualFold(request.PlayerName, ownClient) || request.PlayerId == "" {
+		return nil
+	}
+	if _, err := send(cfg, message{
+		Type:       "playback",
+		Username:   request.Username,
+		SongID:     request.Track.ID,
+		State:      request.State,
+		PositionMs: request.PositionMs,
+		Player:     request.PlayerId,
+		PlayerName: request.PlayerName,
+	}); err != nil {
+		pdk.Log(pdk.LogDebug, "heddohon: playback not sent: "+err.Error())
+	}
+	return nil
+}
 
 func (*heddohon) Scrobble(request scrobbler.ScrobbleRequest) error {
 	cfg, ok := configured()

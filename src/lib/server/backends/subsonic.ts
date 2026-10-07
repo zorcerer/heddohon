@@ -46,7 +46,8 @@ import type {
 } from '$lib/types';
 
 const API_VERSION = '1.16.1';
-const CLIENT_NAME = 'heddohon';
+/** The `c` parameter: what the music server knows this client as. `plugin.ts` knows its own plays by it. */
+export const CLIENT_NAME = 'heddohon';
 
 interface SubsonicEnvelope<T = Record<string, unknown>> {
 	'subsonic-response': T & {

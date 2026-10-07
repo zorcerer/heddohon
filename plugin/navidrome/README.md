@@ -9,6 +9,15 @@ played it, and the plugin tells Heddohon. With it:
 - **"Import play history" brings in every play.** Navidrome keeps a scrobble
   history that only a plugin can read. Without the plugin the import has one
   play per track, at the date it was last played.
+- **The Devices button lists your other apps**, each with the track it is on,
+  and "Continue here" plays that track in Heddohon from where the app has got
+  to. An app that reports its position, which few do so far, is picked up at
+  the second. For the rest the time is where the track would be had it played
+  without a pause, and the dialog says so. The app goes on playing: Navidrome
+  cannot pause a client.
+- **Listening now can include what you play in other apps**, for an account
+  that turns on "Include what I play in other apps" under Settings, Account.
+  Off until it does.
 
 It needs Navidrome 0.64 or later and a Heddohon that has
 `HEDDOHON_NAVIDROME_PLUGIN_TOKEN` set.
@@ -71,6 +80,10 @@ Only to the address in its settings, and it does not follow a redirect from
 there:
 
 - for each play Navidrome reports: the user name, the track's id and the time;
+- for what a client is playing now, as a track starts and whenever the client
+  says where it is: the user name, the track's id, whether it plays or is
+  paused, the position, and the client's id and name. Heddohon's own reports
+  are not sent back to it;
 - every 15 seconds, a request with nothing in it, which Heddohon answers with
   the user names whose scrobble history it is waiting for;
 - for such a user, that history: the track id and the time of each scrobble,
