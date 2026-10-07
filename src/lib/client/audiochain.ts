@@ -2,28 +2,28 @@
  * The optional Web Audio path: the equaliser, ReplayGain that can raise a
  * track, and a crossfade whose ramps run on the audio thread.
  *
- * Off unless it is switched on in this browser (`processing.svelte.ts`).
- * While off, nothing here is created and the two audio elements play straight
- * to the output, as `player.svelte.ts` describes.
+ * Off unless switched on in this browser (`processing.svelte.ts`). While off,
+ * nothing here is created and the two audio elements play straight to the
+ * output, as `player.svelte.ts` describes.
  *
  *   element A ─ side gain ─┐
  *                          ├─ preamp ─ correction ─ 10 peaking bands ─ level ─ duck ─ output
  *   element B ─ side gain ─┘
  *
- * The side gains carry each track's ReplayGain and the crossfade; the level
- * carries the volume, mute and the sleep timer's fade; the duck goes to
+ * The side gains carry each track's ReplayGain and the crossfade. The level
+ * carries the volume, mute and the sleep timer's fade. The duck goes to
  * silence and back around a pause, a skip and a seek. The correction is the
- * headphone's own filters (`$lib/autoeq`), none unless one is chosen. While
- * one is, the bands are held flat (`processing.svelte.ts`).
+ * headphone's own filters (`$lib/autoeq`), and while one is chosen the bands
+ * are held flat (`processing.svelte.ts`).
  *
  * Measured in Chromium, Firefox and WebKit on 29 September 2026 (issue #32):
  *
  *  - An element joins a graph once. A second `createMediaElementSource` on it
- *    throws in Chromium and WebKit, in a new context as well, so switching this
+ *    throws in Chromium and WebKit, in a new context too, so switching this
  *    off takes effect at the next page load and a context is never reopened.
  *  - The context opens at its default rate, the output device's. The browser
- *    converts a playing element to that rate on its way out in any case; a
- *    context opened at the track's rate would be converted again.
+ *    converts a playing element to that rate anyway, and a context opened at
+ *    the track's rate would be converted again.
  *  - Ten bands, a preamp and two gains cost 0.29% to 0.44% of real time for
  *    stereo at 48 kHz.
  *  - `AudioContext.setSinkId` exists in Chromium only. Firefox sends the graph
@@ -39,8 +39,8 @@ const EQ_Q = 1.41;
 export const EQ_RANGE_DB = 12;
 /**
  * How long a change of level takes to settle, as the time constant of
- * `setTargetAtTime`. A level written in one step clicks; 15ms is below what
- * is heard as a fade.
+ * `setTargetAtTime`. A level written in one step clicks, and 15ms is below
+ * what is heard as a fade.
  */
 const LEVEL_SMOOTHING_S = 0.015;
 /** How long the context runs on after a pause before it lets the device go. */
@@ -111,9 +111,9 @@ export class AudioChain {
 	/**
 	 * Puts a headphone correction ahead of the bands, or takes it out for null:
 	 * one biquad per filter, and its preamp added to the graph's. AutoEq works
-	 * the preamp out so that the filters cannot take a full-scale track past
-	 * full scale. A shelf has the slope `BiquadFilterNode` gives every shelf,
-	 * which is the Q of 0.71 AutoEq writes; its `Q` is not read.
+	 * the preamp out so the filters cannot take a full-scale track past full
+	 * scale. A shelf's `Q` is not read: `BiquadFilterNode` gives every shelf the
+	 * slope of the 0.71 AutoEq writes.
 	 */
 	setCorrection(correction: Correction | null) {
 		this.#preamp.disconnect();
@@ -148,8 +148,8 @@ export class AudioChain {
 
 	/**
 	 * Takes the output to silence over `seconds`, or at once for 0. An element
-	 * paused, moved or given another source mid-cycle cuts the waveform where it
-	 * stands, which is heard as a click; at silence there is nothing to cut.
+	 * paused, moved or given another source mid-cycle cuts the waveform, which
+	 * is heard as a click.
 	 */
 	duck(seconds: number) {
 		this.#rampDuck(0, seconds);
@@ -193,8 +193,8 @@ export class AudioChain {
 	/**
 	 * Ramps `outgoing` from `from` to silence and `incoming` from silence to
 	 * `to` over `seconds`, on the equal-power pair `cos` and `sin` the element
-	 * path uses. Scheduled on the audio thread, so a timer throttled in a
-	 * background tab does not step it.
+	 * path uses. Scheduled on the audio thread, so background-tab timer
+	 * throttling does not affect it.
 	 */
 	crossfade(outgoing: HTMLMediaElement, incoming: HTMLMediaElement, from: number, to: number, seconds: number) {
 		const down = this.#sides.get(outgoing)?.gain;
@@ -226,8 +226,8 @@ export class AudioChain {
 
 	/**
 	 * Sends the graph to the output `deviceId`, or to the system default for
-	 * `''`. `setSinkId` on a routed element moves nothing, since its sound no
-	 * longer leaves through the element.
+	 * `''`. `setSinkId` on a routed element moves nothing: its sound no longer
+	 * leaves through the element.
 	 */
 	async setOutput(deviceId: string): Promise<void> {
 		if (typeof this.context.setSinkId === 'function') {

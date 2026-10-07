@@ -15,10 +15,9 @@
 	const MONTH_MS = 30.44 * 24 * 60 * 60 * 1000;
 
 	/*
-	 * A span rather than a date. The server renders the page and the browser
-	 * takes it over, and a date written in the locale and time zone of each
-	 * would differ between the two; a count of months differs only if the
-	 * render and the takeover fall either side of a month's end.
+	 * A span, not a date. A date written in the server's locale and time zone
+	 * and again in the browser's would differ between render and hydration. A
+	 * count of months differs only across a month's end.
 	 */
 	function since(at: number): string {
 		const months = Math.round((Date.now() - at) / MONTH_MS);
@@ -57,10 +56,10 @@
 	}
 
 	/*
-	 * Faded: most of the colour gone and a little warmth in its place. It is a
-	 * filter on the cover, which holds no glass, and it comes back on the
-	 * colour curve as the sleeve lifts. A card on its way to the album page
-	 * drops it at once, so the sleeve the next page receives is in colour.
+	 * Faded: most of the colour gone and a little warmth in its place. A filter
+	 * on the cover, which holds no glass, and it comes back on the colour curve
+	 * as the sleeve lifts. A card on its way to the album page drops it at
+	 * once, so the next page receives the sleeve in colour.
 	 */
 	.stacks :global(.card .cover) {
 		filter: grayscale(0.85) sepia(0.2) contrast(0.92);

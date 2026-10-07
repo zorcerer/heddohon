@@ -1,19 +1,17 @@
 /**
  * Only allow paths on this origin, so `?next=` cannot become an open redirect.
  *
- * Testing `startsWith('/')` and `!startsWith('//')` is not enough. The URL
- * parser folds a backslash into a path separator for special schemes and strips
- * tab, CR and LF before parsing, so `/\evil.example` and `/<TAB>/evil.example`
- * both pass those two tests and both resolve to `evil.example`. Parsing against
- * a throwaway origin and keeping the result only if it stayed there is the check
- * that cannot be spelled around, since it asks the same parser the browser will.
+ * `startsWith('/')` and `!startsWith('//')` are not enough. The URL parser
+ * folds a backslash into a path separator and strips tab, CR and LF, so
+ * `/\evil.example` and `/<TAB>/evil.example` pass both and resolve to
+ * `evil.example`. The value is parsed against a throwaway origin and kept only
+ * if it stayed there, which asks the parser the browser will use.
  *
- * The origin check alone is not enough either. The parser removes dot-segments
- * after the origin is settled, so `/.//evil.example`, `/..//evil.example` and
- * `/%2e//evil.example` all stay on the throwaway origin with a pathname of
- * `//evil.example`. Sent back as a Location, that is protocol-relative and
- * leaves the site. A pathname that starts with two slashes is refused for that
- * reason.
+ * The parser also removes dot-segments after the origin is settled, so
+ * `/.//evil.example`, `/..//evil.example` and `/%2e//evil.example` stay on the
+ * throwaway origin with a pathname of `//evil.example`, which as a Location is
+ * protocol-relative and leaves the site. A pathname that starts with two
+ * slashes is refused.
  */
 const NEXT_BASE = 'http://heddohon.invalid';
 

@@ -2,11 +2,10 @@
  * Making and withdrawing shared links (to a song, an album or a playlist),
  * and the state behind the share dialog.
  *
- * The dialog is mounted once in the root layout, like the playlist picker, and
- * opened from wherever a song, an album or a playlist is on screen.
+ * The dialog is mounted once in the root layout, like the playlist picker.
  *
  * A link is shown once. The server keeps only a digest of its token, so the
- * link held here is the only copy there is, and closing the dialog drops it.
+ * link held here is the only copy, and closing the dialog drops it.
  */
 import type { Song } from '$lib/types';
 
@@ -16,10 +15,10 @@ export const SHARE_LIFETIMES = [
 	{ days: 30, label: '30 days' }
 ] as const;
 
-export type ShareDays = (typeof SHARE_LIFETIMES)[number]['days'];
+type ShareDays = (typeof SHARE_LIFETIMES)[number]['days'];
 
 /** What the dialog is making a link to. */
-export interface ShareSubject {
+interface ShareSubject {
 	kind: 'song' | 'album' | 'playlist';
 	id: string;
 	title: string;
@@ -28,7 +27,7 @@ export interface ShareSubject {
 	coverArt: string | null;
 }
 
-export interface MadeLink {
+interface MadeLink {
 	url: string;
 	expiresAt: number;
 }
@@ -50,9 +49,8 @@ class ShareComposer {
 
 	/**
 	 * Whether the dialog is showing. The song and the link are kept until the
-	 * closing fade has finished, so the dialog does not empty itself, or flip
-	 * back to the lifetime choice, on its way out. The link is still dropped:
-	 * 200ms later, rather than on the same frame.
+	 * closing fade has finished (200ms), so the dialog does not empty itself or
+	 * flip back to the lifetime choice on its way out.
 	 */
 	visible = $state(false);
 	#clearTimer: ReturnType<typeof setTimeout> | undefined;
@@ -85,6 +83,18 @@ class ShareComposer {
 		}, 200);
 	}
 
+	/**
+	 * Hands the link to the device's own share sheet, where it has one. A sheet
+	 * closed without a choice rejects, which is not an error.
+	 */
+	async share() {
+		if (!this.link || !this.subject) return;
+		const { title, subtitle } = this.subject;
+		await navigator
+			.share({ title: subtitle ? `${title} · ${subtitle}` : title, url: this.link.url })
+			.catch(() => undefined);
+	}
+
 	async create() {
 		if (!this.subject || this.busy) return;
 		const subject = this.subject;
@@ -100,8 +110,8 @@ class ShareComposer {
 			const body = (await response.json()) as { path: string; expiresAt: number };
 			// Closed, or pointed at something else, while the request was out.
 			if (!this.visible || this.subject !== subject) return;
-			// The origin this page was loaded from, which is the one the reader can
-			// reach. The server's own idea of it can differ behind a proxy.
+			// The origin this page was loaded from is the one the reader can reach.
+			// The server's own idea of it can differ behind a proxy.
 			this.link = { url: new URL(body.path, location.origin).href, expiresAt: body.expiresAt };
 			await this.copy();
 		} catch (err) {
@@ -114,9 +124,9 @@ class ShareComposer {
 	/**
 	 * Puts the link on the clipboard.
 	 *
-	 * The asynchronous clipboard exists only in a secure context, so a plain-http
-	 * deployment reached by address has none. The link is in a selectable field
-	 * either way, and a failed copy says so rather than claiming it worked.
+	 * The asynchronous clipboard exists only in a secure context, so a
+	 * plain-http deployment reached by address has none. The link is in a
+	 * selectable field either way, and a failed copy says so.
 	 */
 	async copy(): Promise<boolean> {
 		if (!this.link) return false;

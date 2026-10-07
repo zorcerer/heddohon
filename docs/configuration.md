@@ -25,6 +25,12 @@ still lands on it. Each one opens that section in the wiki.
 
 ## [Cover cache](https://github.com/zorcerer/heddohon/wiki/Configuration#cover-cache)
 
+## [Discord and ListenBrainz](https://github.com/zorcerer/heddohon/wiki/Configuration#discord-and-listenbrainz)
+
+### [A Discord channel](https://github.com/zorcerer/heddohon/wiki/Configuration#a-discord-channel)
+
+### [ListenBrainz](https://github.com/zorcerer/heddohon/wiki/Configuration#listenbrainz)
+
 ## [Logging](https://github.com/zorcerer/heddohon/wiki/Configuration#logging)
 
 ### [Working out why something is slow](https://github.com/zorcerer/heddohon/wiki/Configuration#working-out-why-something-is-slow)

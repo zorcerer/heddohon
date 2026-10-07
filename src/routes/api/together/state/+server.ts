@@ -13,8 +13,8 @@ const id = (value: unknown): string | null => (typeof value === 'string' && valu
 
 /**
  * What the host is playing, for its listeners. The track id is what their
- * audio route will serve, so it names a track the host's own account plays;
- * the rest is shown to them as it is sent, and bounded.
+ * audio route serves, so it names a track the host's own account plays. The
+ * rest is bounded and shown to them as sent.
  */
 export const POST: RequestHandler = async ({ locals, request }) => {
 	const session = locals.session;

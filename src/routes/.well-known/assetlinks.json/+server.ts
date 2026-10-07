@@ -7,17 +7,15 @@ const PACKAGE = 'app.heddohon.android';
 /**
  * Digital Asset Links: this server vouching for the Android app.
  *
- * The app opens the server as a Trusted Web Activity, in the phone's own
- * browser. The browser hides its address bar only when the site it shows
- * names the app: its package, and the SHA-256 of the certificate it is signed
- * with. Every Heddohon is a different site, so each has to say it, and it is
- * said here so that nobody running one has to.
+ * The app opens the server as a Trusted Web Activity, in the phone's browser,
+ * which hides its address bar only when the site names the app: its package
+ * and the SHA-256 of its signing certificate. Every Heddohon is a different
+ * site, so each says it here.
  *
- * What it grants is that: this origin, shown by that app, without an address
- * bar. The app holds no session and reads nothing the browser does not show.
- * It names the key the released app is signed with (`ANDROID_RELEASE_KEY` in
- * `config.ts`) and any others in `HEDDOHON_ANDROID_FINGERPRINTS`, for an app
- * someone built and signed themselves.
+ * It grants this origin, shown by that app, without an address bar. The app
+ * holds no session and reads nothing the browser does not show. It names the
+ * released app's key (`ANDROID_RELEASE_KEY` in `config.ts`) and any in
+ * `HEDDOHON_ANDROID_FINGERPRINTS`, for an app someone built and signed.
  *
  * Public, like the manifest: the browser fetches it without cookies.
  */

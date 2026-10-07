@@ -2,7 +2,7 @@ import { error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { sessionByHandle, tiedToSession } from '$lib/server/auth';
 import { readCastToken } from '$lib/server/cast';
-import { proxyMedia, proxyTranscode, streamRequestFrom } from '$lib/server/proxy';
+import { proxyMedia, proxyTranscode, relayRequestFor, streamRequestFrom } from '$lib/server/proxy';
 import { getSettings } from '$lib/server/settings';
 import type { TranscodeRequest } from '$lib/server/backends/types';
 
@@ -27,20 +27,21 @@ const handler: RequestHandler = async (event) => {
 		: null;
 
 	const req = streamRequestFrom(event);
+	const asked = relayRequestFor(req, transcode);
 	const relayed = () =>
-		proxyMedia(event, 'stream', (backend) => backend.openStream(session.credential, grant.songId, req, transcode), {
-			estimatedLength: transcode !== null
+		proxyMedia(event, 'stream', (backend) => backend.openStream(session.credential, grant.songId, asked, transcode), {
+			transcode: transcode !== null
 		});
 	const response = !transcode
 		? await relayed()
 		: await proxyTranscode(
 				event,
 				[session.account.id, grant.songId, transcode.codec, transcode.bitrateKbps].join('\u0000'),
-				(backend) => backend.openStream(session.credential, grant.songId, { method: 'GET' }, transcode),
+				(backend) => backend.openStream(session.credential, grant.songId, { method: 'GET', whole: true }, transcode),
 				relayed
 			);
-	// A receiver has no reason to keep a copy, and one kept would outlive the
-	// session that the address belongs to.
+	// A copy kept by the receiver would outlive the session the address
+	// belongs to.
 	response.headers.set('cache-control', 'private, no-store');
 	return tiedToSession(session, event.request.signal, response);
 };

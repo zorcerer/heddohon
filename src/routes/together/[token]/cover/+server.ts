@@ -7,7 +7,7 @@ import { partyFor, togetherEnabled } from '$lib/server/together';
 
 /** The cover of the track the party is on; `?song=` as for the stream. */
 const handler: RequestHandler = async (event) => {
-	const party = togetherEnabled() ? partyFor(event.params.token) : null;
+	const party = togetherEnabled() ? partyFor(event.params.token, event.locals.session) : null;
 	const songId = event.url.searchParams.get('song');
 	const coverId = party?.state?.coverArt;
 	if (!party?.state || !coverId || songId !== party.state.songId) error(404, 'Not found');

@@ -1,19 +1,14 @@
 /**
  * The playback engine.
  *
- * Design notes that matter for high-resolution audio:
- *
- *  - Playback runs through a plain HTMLAudioElement, never through a Web Audio
- *    graph. An AudioContext resamples everything to its own sample rate, which
- *    would silently convert a 24/192 master down to whatever the context was
- *    opened at. Handing the raw stream to the media element instead lets the
- *    browser pass it to the platform mixer at its native rate.
- *  - Nothing is transcoded anywhere in the chain: the server proxies the
- *    original file bytes, and the element decodes them.
- *  - Two elements alternate so the next track can be buffered while the current
- *    one is still playing, which is what makes the handoff gapless-ish. See the
- *    honest caveat in the README: HTMLAudioElement cannot do sample-accurate
- *    gapless, so this is a tight handoff, not true gapless decoding.
+ *  - Playback runs through a plain HTMLAudioElement, not a Web Audio graph. An
+ *    AudioContext resamples everything to its own rate, which would convert a
+ *    24/192 master to whatever the context was opened at. The element passes
+ *    the stream to the platform mixer at its native rate.
+ *  - Nothing is transcoded by default: the server proxies the original bytes.
+ *  - Two elements alternate, so the next track is buffered while the current
+ *    one plays. HTMLAudioElement cannot do sample-accurate gapless, so this is
+ *    a tight handoff (see the README).
  *  - The exception is audio processing, off unless a browser switches it on
  *    (`processing.svelte.ts`): the equaliser routes both elements through a
  *    graph at the output device's rate (`audiochain.ts`).
@@ -27,51 +22,41 @@ import { AudioChain } from './audiochain';
 import { coverUrl, streamUrl } from './format';
 import { radioStreamUrl } from './radio';
 
-export type RepeatMode = 'off' | 'all' | 'one';
+type RepeatMode = 'off' | 'all' | 'one';
 
 /**
- * A single silent sample. Played and immediately paused on the first real user
- * gesture so the second audio element carries its own activation — Safari and
- * Firefox grant autoplay per element, not per document, and the element that
- * takes over at a track boundary has otherwise never been touched by the user.
+ * A single silent sample, played and paused on the first user gesture so the
+ * second audio element has its own activation: Safari and Firefox grant
+ * autoplay per element, not per document.
  *
- * A file rather than a `data:` URL. It was one until the Content-Security-
- * Policy arrived, whose `media-src 'self'` refuses `data:`: the sample never
- * loaded, the second element was never unlocked, and a phone could stop at the
- * first track boundary it reached in the background.
+ * A file, not a `data:` URL. The Content-Security-Policy's `media-src 'self'`
+ * refuses `data:`, so the sample never loaded, the second element stayed
+ * locked, and a phone could stop at the first track boundary in the
+ * background.
  */
 const SILENCE = '/silence.wav';
-/** A play counts as a scrobble past this fraction, matching Subsonic convention. */
+/** A play counts as a scrobble past this fraction, as in Subsonic clients. */
 const SCROBBLE_FRACTION = 0.5;
 const SCROBBLE_MIN_SECONDS = 30;
 /**
- * How many times a dropped stream is picked back up before the listener is told
- * about it, and how long to wait between tries.
+ * How many times a dropped stream is picked back up before the listener is
+ * told, and the wait between tries.
  *
- * A stream can stop arriving for reasons that have nothing to do with the file:
- * a reverse proxy with a read timeout, an intermediary that caps how long one
- * response may take, a connection pool briefly emptied by a page full of cover
- * art, a phone changing network. The file is still there and the listener is
- * still listening, so the right response is to ask for the rest of it from
- * where we were — not to stop the music and put up a message.
+ * A stream can stop arriving while the file is fine: a reverse proxy's read
+ * timeout, a cap on how long one response may take, a connection pool emptied
+ * by a page of covers, a phone changing network. The rest is asked for from
+ * the position reached.
  */
 const RECOVERY_ATTEMPTS = 4;
 const RECOVERY_BACKOFF_MS = 600;
-/** How often, and how many times, a resume asks again for a position it cannot seek to yet. */
+/** How often, and how many times, a seek asks whether the server has the transcode whole yet. */
 const SEEK_HOLD_MS = 1000;
 const SEEK_HOLD_ATTEMPTS = 30;
 
-/** Whether `time` is inside a range the element can seek to. */
-function seekableTo(element: HTMLMediaElement, time: number): boolean {
-	for (let i = 0; i < element.seekable.length; i++) {
-		if (element.seekable.start(i) <= time && time <= element.seekable.end(i)) return true;
-	}
-	return false;
-}
 /**
- * Largest body sent with `keepalive`, in bytes. Half the 64KB the browser
- * allows across every in-flight keepalive request, so a play-state write and a
- * playback report leaving together both fit.
+ * Largest body sent with `keepalive`, in bytes: half the 64KB the browser
+ * allows across all in-flight keepalive requests, so a play-state write and a
+ * playback report fit together.
  */
 const KEEPALIVE_LIMIT = 32_000;
 
@@ -85,17 +70,16 @@ type AirPlayElement = HTMLMediaElement & {
 };
 /**
  * The sleep timer's lengths in minutes, and how long the level takes to come
- * down before it pauses. The fade is stepped from `timeupdate`, which Chromium
- * fires about four times a second, so 12 seconds is about 48 steps.
+ * down before the pause. The fade is stepped from `timeupdate`, about four
+ * times a second in Chromium, so 12 seconds is about 48 steps.
  */
 export const SLEEP_MINUTES = [15, 30, 45, 60, 90] as const;
 const SLEEP_FADE_SECONDS = 12;
 
 /**
  * How long the output takes to reach silence before a pause, a skip or a seek
- * through the graph, and to come back after. Pausing or moving an element
- * cuts its waveform mid-cycle, which is heard as a click; 150ms is short
- * enough to read as the press and long enough to be a fade.
+ * through the graph, and to come back. Pausing or moving an element cuts its
+ * waveform mid-cycle, which is heard as a click.
  */
 const DUCK_MS = 150;
 
@@ -103,14 +87,14 @@ const DUCK_MS = 150;
  * A sleep timer: pause at a time on the clock, or when the current track ends.
  * Transient, like `queueOpen`: a reload drops it.
  */
-export type SleepTimer = { kind: 'at'; at: number; minutes: number } | { kind: 'track' };
+type SleepTimer = { kind: 'at'; at: number; minutes: number } | { kind: 'track' };
 
 /**
  * Whether `next` comes straight after `current` on the same album: the next
  * track on the same disc, or the first track of the next disc. A file without
  * a disc number is on disc 1.
  */
-export function followsOnAlbum(current: Song, next: Song): boolean {
+function followsOnAlbum(current: Song, next: Song): boolean {
 	if (!current.albumId || current.albumId !== next.albumId || current.track === null || next.track === null) return false;
 	const disc = current.disc ?? 1;
 	const nextDisc = next.disc ?? 1;
@@ -130,10 +114,9 @@ function shuffled<T>(items: T[]): T[] {
 /**
  * `queue` put back in `order`, the ids it had before it was shuffled, with
  * `current` where it lands. Matched by id one for one, so a track queued twice
- * comes back twice. An entry removed since is left out. Entries added since
- * ("Play next", "Add to queue") go straight after the current track, in the
- * order they were in, since they were queued to come up; where the current
- * track is itself one of them, the added entries lead the queue.
+ * comes back twice. An entry removed since is left out. Entries added since go
+ * straight after the current track, in their order. Where the current track is
+ * itself one of them, the added entries lead the queue.
  */
 function unshuffled<T extends { id: string }>(queue: T[], order: string[], current: T | undefined): T[] {
 	const waiting = new Map<string, T[]>();
@@ -164,8 +147,8 @@ interface PersistPayload {
 	orderIds?: string[];
 }
 
-export class Player {
-	/** The queue in play order. Shuffling rewrites this, so it is always literal. */
+class Player {
+	/** The queue in play order. Shuffling rewrites it. */
 	queue = $state<Song[]>([]);
 	index = $state(0);
 	playing = $state(false);
@@ -177,12 +160,30 @@ export class Player {
 	 * play() is retried while it holds.
 	 *
 	 * Unlike `playing`, it holds across a track change. The outgoing element
-	 * fires `pause` about 17ms before the incoming one fires `play` (measured in
-	 * Chromium), and anything that followed `playing` saw playback stop and
-	 * start again. The room's colour did: it went to the open page's cover and
-	 * back within one fade, which showed as a flash on the rail and the player.
+	 * fires `pause` about 17ms before the incoming one fires `play` (Chromium),
+	 * and the room's colour, following `playing`, went to the open page's cover
+	 * and back within one fade: a flash on the rail and the player.
 	 */
 	engaged = $state(false);
+
+	/**
+	 * Whether a newer saved queue may replace the one held here: nothing plays
+	 * or loads, and nothing waits to be written. The layout asks when the page
+	 * comes back to the front.
+	 */
+	get idle(): boolean {
+		return !this.engaged && !this.playing && !this.loading && !this.#unsaved && !this.casting;
+	}
+
+	/** Whether a change made here has yet to reach the server. */
+	get #unsaved(): boolean {
+		return this.#changes !== this.#written;
+	}
+
+	/** When the saved state this browser holds was written, on the server's clock. */
+	get savedAt(): number {
+		return this.#savedAt;
+	}
 	currentTime = $state(0);
 	duration = $state(0);
 	buffered = $state(0);
@@ -193,33 +194,24 @@ export class Player {
 	error = $state<string | null>(null);
 	queueOpen = $state(false);
 	/**
-	 * Whether the player panel is showing. Open by default: it replaced a bottom
-	 * bar that was always on screen, so a player you have to go and find would
-	 * be a step backwards. Deliberately not a stored setting — it is transient
-	 * layout state, the same as `queueOpen`, and the stored settings are the
-	 * ones that describe how the library behaves.
+	 * Whether the player panel is showing. Transient layout state, like
+	 * `queueOpen`, and not a stored setting.
 	 */
 	panelOpen = $state(true);
 	/**
-	 * Whether the client has told us how wide the screen is.
+	 * Whether the client has reported how wide the screen is.
 	 *
-	 * The default above is right for a screen with room for a column and wrong
-	 * for one where the panel is a sheet over the page: there, open-by-default
-	 * would cover the library on arrival. But it cannot simply default to closed
-	 * either, because the server renders this markup before anything knows the
-	 * viewport, and a panel that appears at hydration would reflow the whole
-	 * grid on every page load.
-	 *
-	 * So the server renders the column, and the narrow-screen layout keeps the
-	 * sheet hidden until this flips — which happens in `attach()`, before the
-	 * first client render, so a phone never paints a sheet it was not asked for.
+	 * Open by default suits a screen with room for a column. Where the panel is
+	 * a sheet over the page it would cover the library on arrival, and closed
+	 * by default would reflow the grid at hydration. So the server renders the
+	 * column, and the narrow layout keeps the sheet hidden until this flips in
+	 * `attach()`, before the first client render.
 	 */
 	viewportKnown = $state(false);
 	/**
 	 * Whether the panel is a sheet over the page (a phone, or a window under
-	 * 60rem) rather than a column beside it. False until `attach()` has read
-	 * the width, the same as `viewportKnown`. The phone dock and the sheet's
-	 * drag read it; CSS decides everything that can be decided without it.
+	 * 60rem). False until `attach()` has read the width. The phone dock and the
+	 * sheet's drag read it. CSS decides the rest.
 	 */
 	sheetLayout = $state(false);
 	sleep = $state<SleepTimer | null>(null);
@@ -227,7 +219,7 @@ export class Player {
 	 * Which way the queue last moved: 1 forward (next, the end of a track, a
 	 * new queue), -1 back (previous). The now-playing text slides in from that
 	 * side. The index alone cannot tell a step back from the last track to the
-	 * first from a wrap forward past the end.
+	 * first from a wrap forward.
 	 */
 	direction = $state<1 | -1>(1);
 
@@ -246,6 +238,20 @@ export class Player {
 	#scrobbled = false;
 	#startReported = false;
 	#persistTimer: ReturnType<typeof setTimeout> | null = null;
+	/**
+	 * The changes this browser has made to the queue or the position, counted,
+	 * how many of them the server has taken, and when the saved state held here
+	 * was written (the server's clock).
+	 *
+	 * The writes made on the way out (a hidden tab, a closed one) went out
+	 * whether or not anything had changed here. A browser that had sat idle
+	 * with a queue from days before wrote it over the one another browser had
+	 * played since, and the account reopened on the old track. Counted, so a
+	 * write that fails leaves its change to the next one.
+	 */
+	#changes = 0;
+	#written = 0;
+	#savedAt = 0;
 	#progressTimer: ReturnType<typeof setInterval> | null = null;
 	#positionTimer: ReturnType<typeof setInterval> | null = null;
 	#detachers: Array<() => void> = [];
@@ -257,25 +263,15 @@ export class Player {
 	#pendingSeek: number | null = null;
 	/**
 	 * A restored queue that holds only its current track while the rest is
-	 * looked up: the queue it was restored as, and the saved ids and index it
-	 * stands in for. Cleared by `completeRestore`, or by anything that replaces
-	 * the queue.
+	 * looked up: the queue as restored, and the saved ids and index it stands
+	 * for. Cleared by `completeRestore`, or by anything that replaces the queue.
 	 */
 	#partial: { queue: Song[]; ids: string[]; index: number } | null = null;
 	/**
-	 * While shuffle is on, the ids in the order the queue had before it was
-	 * shuffled, so turning shuffle off can put it back (`unshuffled`). Saved with
-	 * the queue, so it survives a reload.
+	 * While shuffle is on, the ids in their order before the shuffle, for
+	 * turning it off (`unshuffled`). Saved with the queue.
 	 */
 	#unshuffledIds: string[] | null = null;
-	/**
-	 * Set while a resume waits for the position to become seekable; see
-	 * `#holdForSeek`. The retries on `canplay` and on the tab coming back leave
-	 * the element alone while it is set, or they would play it from the start.
-	 */
-	#holding = false;
-	#seekHolds = 0;
-	#holdTimer: ReturnType<typeof setTimeout> | null = null;
 	/** Consecutive attempts to pick the current track back up after a drop. */
 	#recoveries = 0;
 	#recoveryTimer: ReturnType<typeof setTimeout> | null = null;
@@ -285,16 +281,18 @@ export class Player {
 	#fadeSeconds = 0;
 	/**
 	 * The graph both elements play through while audio processing is on, and
-	 * whether a crossfade is scheduled on it. Its ramps run on the audio
-	 * thread, so there is no timer to hold while one runs.
+	 * whether a crossfade is scheduled on it. Its ramps run on the audio thread,
+	 * without a timer.
 	 */
 	#chain: AudioChain | null = null;
 	#chainFading = false;
-	/** Fades to silence in flight; see `#duck`. The output comes back when the last one is lifted. */
+	/** Fades to silence in flight; see `#duck`. The output comes back when the last is lifted. */
 	#ducks = 0;
 	/** The latest press that changes the track, and the latest seek, while each waits for its fade. */
 	#changeSerial = 0;
 	#seekSerial = 0;
+	/** The latest seek waiting for the server to have a transcode whole; see `#seekOnceWhole`. */
+	#wholeSerial = 0;
 	/** Whether this page plays through the graph. */
 	processing = $state(false);
 	/** The output last chosen, for a graph opened after the choice. */
@@ -304,28 +302,33 @@ export class Player {
 	 * Whether this browser applies a `volume` set from script.
 	 *
 	 * iOS does not: the level belongs to the hardware buttons, a write is
-	 * ignored and a read gives 1, as Apple's Safari audio guide documents. A
-	 * crossfade there started the incoming track at full level, up to 12s
-	 * before the outgoing one ended, which is heard as the end of a song being
-	 * skipped. Read from a spare element so the playing ones are not touched.
+	 * ignored and a read gives 1 (Apple's Safari audio guide). A crossfade
+	 * there started the incoming track at full level up to 12s before the
+	 * outgoing one ended. Read from a spare element, so the playing ones are
+	 * not touched.
 	 */
 	rampsVolume = $state(true);
 
 	/**
 	 * Whether the system offers a speaker or a TV to play on: a Chromecast
-	 * through Chrome's Remote Playback API (Chrome on Android), or AirPlay
-	 * through Safari. The cast button shows only while this holds.
+	 * through the Remote Playback API (Chrome on Android), or AirPlay through
+	 * Safari. The cast button shows only while this holds.
 	 */
 	castAvailable = $state(false);
-	/** Whether the audio is playing on one of those rather than here. */
+	/** Whether the audio is playing on one of those. */
 	casting = $state(false);
 	/**
 	 * Cast addresses by track id while casting (`server/cast.ts`), and when
 	 * they were issued. The receiver fetches the stream itself, without this
-	 * browser's cookie, so each track goes to it as a signed address.
+	 * browser's cookie.
 	 */
 	#castUrls: Map<string, string> | null = null;
 	#castUrlsAt = 0;
+
+	/** The track after this one, wrapping to the first under repeat-all. */
+	get #following(): Song | null {
+		return this.upNext ?? (this.repeat === 'all' ? this.queue[0] : null);
+	}
 
 	/** Called once from the root layout after the audio elements are mounted. */
 	attach(primary: HTMLAudioElement, secondary: HTMLAudioElement, settings: UserSettings) {
@@ -347,13 +350,13 @@ export class Player {
 	// ── Casting ────────────────────────────────────────────────────────────
 
 	/**
-	 * Opens the system's picker for a speaker or a TV. Called from the press:
-	 * both pickers need it.
+	 * Opens the system's picker for a speaker or a TV. Called from the press,
+	 * which both pickers need.
 	 *
 	 * Chrome sends the receiver the element's address when a device is picked,
 	 * so the track is moved to its cast address first. Safari opens its picker
-	 * only inside the press itself, so there the address changes after a
-	 * speaker is chosen, when the element reports a wireless target.
+	 * only inside the press, so there the address changes once the element
+	 * reports a wireless target.
 	 */
 	async cast(): Promise<void> {
 		const element = this.#primary;
@@ -368,8 +371,8 @@ export class Player {
 		try {
 			await element.remote.prompt();
 		} catch {
-			// Closed without a choice, or refused: the rest of the queue goes
-			// back to this browser's own addresses.
+			// Closed without a choice, or refused: the queue goes back to this
+			// browser's own addresses.
 			if (element.remote.state === 'disconnected') this.#endCast();
 		}
 	}
@@ -404,8 +407,8 @@ export class Player {
 			});
 		}
 
-		// Whether there is anything to pick. Chrome on the desktop has the API
-		// and refuses to watch, which leaves the button hidden.
+		// Whether there is anything to pick. Chrome on the desktop has the API and
+		// refuses to watch, which leaves the button hidden.
 		const remote = elements[0]?.remote;
 		if (!remote) return;
 		let watch: number | null = null;
@@ -419,11 +422,10 @@ export class Player {
 	}
 
 	/**
-	 * Moves playback to cast addresses: the current track re-opened from its
-	 * own where it had got to, and nothing buffered ahead. While casting, one
-	 * element plays every track, since the receiver follows the element it was
-	 * picked from; the preloaded handoff and the crossfade, which alternate
-	 * two, are left out.
+	 * Moves playback to cast addresses: the current track re-opened where it had
+	 * got to, and nothing buffered ahead. The receiver follows the element it
+	 * was picked from, so one element plays every track while casting, without
+	 * the preloaded handoff or the crossfade.
 	 */
 	async #beginCast(): Promise<boolean> {
 		if (this.#castUrls) return true;
@@ -469,17 +471,42 @@ export class Player {
 		return true;
 	}
 
-	/** Where the element fetches a track from: its cast address while casting. */
-	#srcOf(song: Song): string {
+	/**
+	 * Where the element fetches a track from: its cast address while casting.
+	 *
+	 * `whole` is for a track opened at a position (a restored queue, a dropped
+	 * stream, transcoding switched on mid-track). Until the server has read a
+	 * transcode whole (`transcodes.ts`) it arrives as a stream without ranges,
+	 * where a position cannot be taken up. On 2026-10-04 against Navidrome
+	 * 0.64.2, resuming at 1:00 in such a stream: Chromium waited for the bytes
+	 * and played from 1:00. Firefox gave an MP3 the duration of what had arrived
+	 * (1.5s) and played from 0:00. WebKit reported Opus and AAC seekable to
+	 * Infinity, took the seek and played from 0:00.
+	 *
+	 * So the address says the track is wanted whole, and the server answers
+	 * once its read is done, in ranges (`proxyTranscode`). The mark applies to a
+	 * transcode only: the music server answers the original file in ranges
+	 * from the first request.
+	 */
+	#srcOf(song: Song, whole = false): string {
 		if (song.live) return radioStreamUrl(song.id);
-		return this.#castUrls?.get(song.id) ?? streamUrl(song.id, this.deliveryMode);
+		const src = this.#castUrls?.get(song.id) ?? streamUrl(song.id, this.deliveryMode);
+		if (!whole || !this.settings?.transcode) return src;
+		return `${src}${src.includes('?') ? '&' : '?'}whole=1`;
+	}
+
+	/** Asks for `song` again in `element`, to be taken up at `position` once it has loaded. */
+	#openAt(element: HTMLAudioElement, song: Song, position: number) {
+		this.#pendingSeek = position;
+		element.src = this.#srcOf(song, position > 1);
+		element.load();
 	}
 
 	/**
 	 * Sends both elements to the audio output `deviceId`, or to the system's
-	 * default for `''`. Both, since they swap roles at every track change and
-	 * the one pre-buffering now is the one playing next. Rejects where the
-	 * browser refuses the device; `client/output.svelte.ts` handles that.
+	 * default for `''`. Both, since they swap roles at every track change.
+	 * Rejects where the browser refuses the device; `client/output.svelte.ts`
+	 * handles that.
 	 */
 	async setOutput(deviceId: string): Promise<void> {
 		if (this.#chain) await this.#chain.setOutput(deviceId);
@@ -493,8 +520,8 @@ export class Player {
 	/**
 	 * Routes both elements through the graph (`audiochain.ts`), with the
 	 * equaliser at `gains`. Once per page: an element cannot leave a graph, so
-	 * turning processing off applies at the next load. A browser that refuses
-	 * a context leaves playback as it was.
+	 * turning processing off applies at the next load. A browser that refuses a
+	 * context leaves playback as it was.
 	 */
 	enableProcessing(gains: readonly number[]) {
 		if (!browser || !this.#primary || !this.#secondary) return;
@@ -529,12 +556,11 @@ export class Player {
 		this.#lifecycleOff = [];
 		if (this.#progressTimer) clearInterval(this.#progressTimer);
 		if (this.#positionTimer) clearInterval(this.#positionTimer);
-		this.#cancelHold();
 		this.#cancelRecovery();
 		this.#abandonCrossfade();
-		// Clearing the debounce timer on its own threw away whatever the last
-		// change had scheduled. Write it instead.
-		if (this.queue.length > 0) this.#writePlayState(true);
+		// Written, not just cleared: clearing the debounce timer dropped whatever
+		// the last change had scheduled.
+		this.#flushPlayState();
 	}
 
 	// ── Queue control ──────────────────────────────────────────────────────
@@ -554,9 +580,8 @@ export class Player {
 
 	/**
 	 * Shuffle describes the queue, so a new queue sets it: on for a shuffled
-	 * one, off for one in its own order. Only `playShuffled` used to touch it,
-	 * and after one shuffled play the button stayed lit, and was saved lit, over
-	 * every album played in order from then on.
+	 * one, off for one in its own order. When only `playShuffled` set it, the
+	 * button stayed lit, and saved, over every album played in order afterwards.
 	 */
 	async #start(songs: Song[], startAt: number, shuffle: boolean) {
 		if (songs.length === 0) return;
@@ -570,22 +595,6 @@ export class Player {
 		this.#persist();
 	}
 
-	/** Queues songs directly after the current track. */
-	playNext(songs: Song[]) {
-		if (songs.length === 0) return;
-		if (this.queue.length === 0) {
-			void this.playNow(songs);
-			return;
-		}
-		this.queue = [
-			...this.queue.slice(0, this.index + 1),
-			...songs,
-			...this.queue.slice(this.index + 1)
-		];
-		this.#invalidatePreload();
-		this.#persist();
-	}
-
 	addToQueue(songs: Song[]) {
 		if (songs.length === 0) return;
 		if (this.queue.length === 0) {
@@ -593,6 +602,27 @@ export class Player {
 			return;
 		}
 		this.queue = [...this.queue, ...songs];
+		this.#persist();
+	}
+
+	/**
+	 * Queues a track a listen-together member added: after the current track
+	 * and the additions already waiting behind it, so additions play in the
+	 * order made, ahead of what the host had queued. Playback is left as it is.
+	 * With nothing queued the track waits for a press on play: an addition does
+	 * not start sound in the host's browser.
+	 */
+	queueAddition(song: Song) {
+		if (this.queue.length === 0) {
+			this.queue = [song];
+			this.index = 0;
+			this.#persist();
+			return;
+		}
+		let at = this.index + 1;
+		while (this.queue[at]?.addedBy) at += 1;
+		this.queue = [...this.queue.slice(0, at), song, ...this.queue.slice(at)];
+		if (at === this.index + 1) this.#invalidatePreload();
 		this.#persist();
 	}
 
@@ -615,11 +645,9 @@ export class Player {
 	}
 
 	/**
-	 * Moves one entry to another position. The playing track keeps playing
-	 * wherever it ends up, and `index` follows it.
-	 *
-	 * The buffered next track is only dropped when the move changed which track
-	 * is next; reordering further down the queue keeps it.
+	 * Moves one entry to another position. The playing track keeps playing, and
+	 * `index` follows it. The buffered next track is dropped only when the move
+	 * changed which track is next.
 	 */
 	move(from: number, to: number) {
 		const length = this.queue.length;
@@ -670,11 +698,10 @@ export class Player {
 	 * Pauses what is meant to be playing, and plays otherwise.
 	 *
 	 * Decided by `engaged`, the listener's intent, while the track plays or is
-	 * still loading. It was decided by `playing`, which follows the element
-	 * and lags a press: a pause pressed just after a skip, with the next track
-	 * still loading, left `playing` true for up to a second, so the play
-	 * pressed next paused again and nothing played. A play that was refused
-	 * (engaged, neither playing nor loading) is tried again.
+	 * loading. `playing` follows the element and lags a press: a pause pressed
+	 * just after a skip left it true for up to a second, so the next play
+	 * paused again. A play that was refused (engaged, neither playing nor
+	 * loading) is tried again.
 	 */
 	async toggle() {
 		if (!this.#primary || !this.current) return;
@@ -685,9 +712,8 @@ export class Player {
 	async play() {
 		if (!this.#primary || !this.current) return;
 
-		// Runs before the first await, so it is still inside the click that got us
-		// here — which is the only moment the browser will grant the second
-		// element an activation.
+		// Before the first await, so still inside the click, the only moment the
+		// browser grants the second element an activation.
 		this.#primeSecondary();
 		this.#chain?.resume();
 		this.engaged = true;
@@ -701,8 +727,8 @@ export class Player {
 			await this.#loadCurrent(true, true);
 			return;
 		}
-		// A track picked up mid-way starts mid-cycle too, so through the graph it
-		// comes up from silence. A track starting from its top does not need to.
+		// A track picked up mid-way starts mid-cycle, so through the graph it comes
+		// up from silence. A track starting from its top does not need to.
 		const element = this.#primary;
 		const rising = this.#chain !== null && this.#ducks === 0 && element.paused && element.currentTime > 0;
 		if (rising) this.#chain?.duck(0);
@@ -713,30 +739,30 @@ export class Player {
 		} catch (err) {
 			// Back at once: a later retry (`canplay`, `visibilitychange`) does not pass here.
 			if (rising && this.#ducks === 0) this.#chain?.unduck(0);
-			// A tab that is not on screen can have play() refused even mid-queue.
-			// Rather than stopping there until the user comes back and presses
-			// play, remember the intent — `visibilitychange` and `canplay` both
-			// retry it.
+			// A tab that is not on screen can have play() refused mid-queue. The
+			// intent is kept, and `visibilitychange` and `canplay` retry it.
 			if (typeof document !== 'undefined' && document.hidden) {
 				this.playing = false;
 				return;
 			}
-			// A pause pressed while the play was starting. That is the listener
-			// changing their mind, not a failure to report.
-			if (err instanceof DOMException && err.name === 'AbortError' && !this.engaged) return;
+			// A pause pressed while the play was starting, or another track loaded
+			// into the element (a skip pressed twice within a second), not a
+			// failure. Chromium's message for the second, "The play() request was
+			// interrupted by a new load request", was shown as the player's error.
+			// The load that interrupted it has a play() of its own.
+			if (err instanceof DOMException && err.name === 'AbortError') return;
 			this.error = err instanceof Error ? err.message : 'Playback failed';
 			this.playing = false;
 		}
 	}
 
 	/**
-	 * Unlocks the second audio element with a single silent sample.
+	 * Unlocks the second audio element with a silent sample.
 	 *
-	 * Chromium grants autoplay per document, so it never needed this. Safari and
-	 * Firefox grant it per element, and the element that takes over at a track
-	 * boundary has never been touched by the user — so the first automatic
-	 * advance would be refused, which is what "the next song does not start until
-	 * I focus the tab" looks like from the outside.
+	 * Chromium grants autoplay per document. Safari and Firefox grant it per
+	 * element, and the one that takes over at a track boundary was never
+	 * touched by the user, so the first automatic advance was refused until the
+	 * tab was focused.
 	 */
 	#primeSecondary() {
 		const element = this.#secondary;
@@ -781,7 +807,6 @@ export class Player {
 
 	stop() {
 		this.engaged = false;
-		this.#cancelHold();
 		this.#abandonCrossfade();
 		if (this.#primary) {
 			this.#primary.pause();
@@ -796,7 +821,7 @@ export class Player {
 	async next(userInitiated = true) {
 		if (this.queue.length === 0) return;
 		this.direction = 1;
-		// A skip discards the overlap; the end of a track consummates it.
+		// A skip drops the overlap. The end of a track completes it.
 		if (userInitiated) this.#abandonCrossfade();
 
 		if (!userInitiated && this.repeat === 'one') {
@@ -810,7 +835,7 @@ export class Player {
 			if (this.repeat === 'all') {
 				this.index = 0;
 			} else if (!userInitiated) {
-				// Natural end of the queue: stop rather than wrap.
+				// The natural end of the queue stops and does not wrap.
 				this.engaged = false;
 				this.playing = false;
 				this.#persist();
@@ -831,8 +856,7 @@ export class Player {
 		if (this.queue.length === 0) return;
 		this.direction = -1;
 		this.#abandonCrossfade();
-		// Standard transport behaviour: restart the track unless we are near the
-		// very beginning, in which case step back.
+		// Restarts the track, or steps back when within its first 3 seconds.
 		if (this.currentTime > 3) {
 			this.seek(0);
 			return;
@@ -855,22 +879,53 @@ export class Player {
 		this.#abandonCrossfade();
 		const target = Math.min(Math.max(0, seconds), this.duration || seconds);
 		const element = this.#primary;
+		// Nothing the element can seek to, or not that far: see `#seekOnceWhole`.
+		// A second past the end is left to the element, which stops at its end.
+		// `duration` here can be the music server's figure, a little over.
+		//
+		// Chromium reports a stream without ranges seekable to its end and takes
+		// the seek by waiting for every byte before it: 25.2s for a seek to 3:51
+		// with the stream arriving at 32KB/s, the sound stopped meanwhile. Such a
+		// stream has no length, so its duration is Infinity. A seek well past what
+		// has arrived goes the same way as one the element refuses: 1.5 to 2.3s
+		// for MP3 at 48KB/s, 4 to 16s for Opus at 32KB/s, which Chromium finds
+		// its place in over several ranges. Within 10 seconds of what has
+		// arrived, the wait is the shorter of the two.
+		//
+		// Not for AAC. It is sent as ADTS, which has no index, and Chromium reads
+		// one from its start whatever range it could ask for: asked for again,
+		// the track had to arrive a second time (a seek to 1:28 at 32KB/s had not
+		// landed after 26s). Not for a track being opened at a position either,
+		// still at its top: it would be heard from there while the server was
+		// asked.
+		const ranges = element.seekable;
+		const arrived = element.buffered.length > 0 ? element.buffered.end(element.buffered.length - 1) : 0;
+		const unranged =
+			element.duration === Infinity &&
+			element.currentTime > 1 &&
+			target > arrived + 10 &&
+			this.settings?.transcodeCodec !== 'aac';
+		if (element.readyState > 0 && (ranges.length === 0 || target > ranges.end(ranges.length - 1) + 1 || unranged)) {
+			void this.#seekOnceWhole(element, target);
+			return;
+		}
+		++this.#wholeSerial;
 		const move = () => {
 			try {
 				element.currentTime = target;
 				this.currentTime = target;
 				this.#persist();
 			} catch {
-				// Seeking before metadata is ready throws; ignore and let the user retry.
+				// Seeking before metadata is ready throws. The listener can retry.
 			}
 		};
 		if (!this.#fades()) {
 			move();
 			return;
 		}
-		// The bar goes to the target at once; the element follows once the output
-		// is silent. Of several seeks inside one fade, a drag along the bar, only
-		// the last moves it.
+		// The bar goes to the target at once, and the element follows once the
+		// output is silent. Of several seeks inside one fade (a drag along the
+		// bar) only the last moves it.
 		const serial = ++this.#seekSerial;
 		this.currentTime = target;
 		void this.#duck().then(() => {
@@ -886,7 +941,7 @@ export class Player {
 	/**
 	 * Whether a pause, a skip or a seek fades the output first: only through
 	 * the graph, and only while it is producing sound. Without the graph the
-	 * element is paused or moved at once, as before.
+	 * element is paused or moved at once.
 	 */
 	#fades(): boolean {
 		const element = this.#primary;
@@ -896,8 +951,8 @@ export class Player {
 	/**
 	 * Takes the output to silence over `DUCK_MS` and resolves once it is there.
 	 * Each call is matched by one `#lift`. While any is in flight `timeupdate`
-	 * and `ended` are not acted on: the queue may already have moved on from
-	 * the track the element is still playing out.
+	 * and `ended` are not acted on: the queue may have moved on from the track
+	 * the element is still playing out.
 	 */
 	#duck(): Promise<void> {
 		this.#ducks++;
@@ -908,7 +963,7 @@ export class Player {
 	/**
 	 * Ends one fade. When it was the last in flight the output comes back: at
 	 * once if `now` or if nothing is playing, and over `DUCK_MS` under a track
-	 * that carries on from where it was.
+	 * that carries on.
 	 */
 	#lift(now = false) {
 		this.#ducks = Math.max(0, this.#ducks - 1);
@@ -918,10 +973,10 @@ export class Player {
 	}
 
 	/**
-	 * Loads the current track after a press that changed it, fading out what
-	 * is playing first where `#fades`. Of several presses inside one fade only
-	 * the last loads. A pause pressed inside the fade is kept: the track loads
-	 * and does not start.
+	 * Loads the current track after a press that changed it, fading out what is
+	 * playing first where `#fades`. Of several presses inside one fade only the
+	 * last loads. A pause pressed inside the fade is kept: the track loads and
+	 * does not start.
 	 */
 	async #changeTrack() {
 		if (!this.#fades()) {
@@ -929,8 +984,8 @@ export class Player {
 			return;
 		}
 		const serial = ++this.#changeSerial;
-		// A skip is a decision to keep listening, as it is without the fade,
-		// including one pressed while a pause was still fading out.
+		// A skip is a decision to keep listening, including one pressed while a
+		// pause was still fading out.
 		this.engaged = true;
 		await this.#duck();
 		if (serial !== this.#changeSerial) {
@@ -941,10 +996,6 @@ export class Player {
 		// The new track starts from its top, at full level.
 		this.#lift(true);
 		await loading;
-	}
-
-	seekByFraction(fraction: number) {
-		if (this.duration > 0) this.seek(fraction * this.duration);
 	}
 
 	setVolume(value: number) {
@@ -965,21 +1016,20 @@ export class Player {
 	}
 
 	/**
-	 * Shuffling rewrites the queue, so what the queue panel shows is always what
-	 * will actually play next. The order it had is kept beside it, and turning
-	 * shuffle off puts the queue back in that order around the playing track,
-	 * with edits made in the meantime kept (`unshuffled`). It used to leave the
-	 * queue shuffled, which read as the button doing nothing.
+	 * Shuffling rewrites the queue, so the queue panel shows what will play
+	 * next. The order it had is kept, and turning shuffle off puts the queue
+	 * back in that order around the playing track, with edits made since kept
+	 * (`unshuffled`).
 	 */
 	toggleShuffle() {
 		this.shuffle = !this.shuffle;
 		if (this.shuffle) {
-			// A queue still being restored holds only its current track; the saved
+			// A queue still being restored holds only its current track. The saved
 			// ids are its real order.
 			this.#unshuffledIds = this.#partial ? [...this.#partial.ids] : this.queue.map((song) => song.id);
 			if (this.queue.length > 1) {
-				// The track that is playing stays put; everything else is reordered
-				// around it, so turning shuffle on never interrupts the audio.
+				// The playing track stays put and the rest is reordered around it, so
+				// turning shuffle on does not interrupt the audio.
 				const current = this.queue[this.index];
 				const rest = shuffled(this.queue.filter((_, i) => i !== this.index));
 				this.queue = [current, ...rest];
@@ -990,8 +1040,8 @@ export class Player {
 			const partial = this.#partial;
 			if (partial) {
 				// Reordered in the saved ids, which `completeRestore` fills in. The
-				// queue itself is left as it is: it is the one track, and replacing
-				// the array would make `completeRestore` think the queue was changed.
+				// queue array is left as it is: replacing it would make
+				// `completeRestore` think the queue was changed.
 				const entries = partial.ids.map((id) => ({ id }));
 				const reordered = unshuffled(entries, order, entries[partial.index]);
 				this.#partial = { ...partial, ids: reordered.map((entry) => entry.id), index: reordered.indexOf(entries[partial.index]) };
@@ -1009,8 +1059,7 @@ export class Player {
 
 	toggleQueuePanel() {
 		this.queueOpen = !this.queueOpen;
-		// The queue shows inside the panel now, so asking for it has to open the
-		// thing it lives in — otherwise the toggle silently does nothing.
+		// The queue shows inside the panel, so asking for it opens the panel.
 		if (this.queueOpen) this.panelOpen = true;
 	}
 
@@ -1019,9 +1068,9 @@ export class Player {
 	}
 
 	/**
-	 * Sets the sleep timer: a number of minutes from now, `'track'` for the end
-	 * of the current track, or `null` to cancel it. Cancelling during the fade
-	 * puts the level back at once.
+	 * Sets the sleep timer: minutes from now, `'track'` for the end of the
+	 * current track, or `null` to cancel. Cancelling during the fade puts the
+	 * level back at once.
 	 */
 	setSleep(choice: number | 'track' | null) {
 		if (choice === null) this.sleep = null;
@@ -1031,11 +1080,10 @@ export class Player {
 	}
 
 	/**
-	 * Where the panel is a sheet over the page rather than a column beside it,
-	 * it starts closed — arriving at your library with the player covering it is
-	 * not a player, it is a door. The breakpoint is the one the layout uses to
-	 * switch between the two, and it is watched rather than read once so that
-	 * rotating a tablet does not leave the sheet stuck open over the content.
+	 * Where the panel is a sheet over the page it starts closed, so it does not
+	 * cover the library on arrival. The breakpoint is the layout's, and it is
+	 * watched, so rotating a tablet does not leave the sheet open over the
+	 * content.
 	 */
 	#adoptViewport() {
 		const sheet = window.matchMedia('(max-width: 60rem)');
@@ -1046,10 +1094,9 @@ export class Player {
 		};
 		apply();
 		sheet.addEventListener('change', apply);
-		// `#lifecycleOff`, not `#detachers`: the latter is emptied every time
-		// `#bind` moves to the other audio element, so after the first gapless
-		// track change this listener was gone and rotating a tablet no longer
-		// switched the panel between a column and a sheet.
+		// `#lifecycleOff`, not `#detachers`, which is emptied each time `#bind`
+		// moves to the other audio element: after the first track change this
+		// listener was gone.
 		this.#lifecycleOff.push(() => sheet.removeEventListener('change', apply));
 	}
 
@@ -1058,49 +1105,46 @@ export class Player {
 	/**
 	 * Loads the current track.
 	 *
-	 * `resume` is for the one caller that means it: a queue restored from the
-	 * server has a position recorded with it, and the first `play()` is what
-	 * finally loads the file. Every other caller is a track the listener just
-	 * chose, and those start at the beginning. Without the distinction the
-	 * restored position survived into the next explicit load, so pressing Play
-	 * on an album after a reload started its first track wherever the previous
-	 * session had stopped. Harmless while the stored position was a second or
-	 * two stale; now that it tracks playback, it would be minutes.
+	 * `resume` is for a queue restored from the server, which carries a
+	 * position, and whose file the first `play()` loads. Every other caller is
+	 * a track the listener just chose, which starts at the beginning. Without
+	 * the distinction the restored position survived into the next load, and
+	 * Play on an album after a reload started its first track where the
+	 * previous session had stopped.
 	 */
 	async #loadCurrent(autoplay: boolean, resume = false) {
 		const song = this.current;
 		if (!song || !this.#primary) return;
 
 		if (!resume) this.#pendingSeek = null;
-		this.#cancelHold();
 
-		// The ramp addresses `#primary` and `#secondary` by reference, and the
-		// swap below exchanges them. A timer that outlived that swap would go on
-		// ramping the two elements in the wrong direction.
+		// The ramp addresses `#primary` and `#secondary` by reference, and the swap
+		// below exchanges them. A timer that outlived the swap would ramp both the
+		// wrong way.
 		this.#endCrossfade();
 
 		this.#cancelRecovery();
 		this.#recoveries = 0;
 		this.#scrobbled = false;
 		this.#startReported = false;
-		this.currentTime = 0;
+		// A position waiting to be taken up stays on the bar while the track
+		// loads, and is where a stream that drops in that time is picked up.
+		this.currentTime = this.#pendingSeek ?? 0;
 		this.duration = song.duration || 0;
 		this.error = null;
 
-		// If the next track was already buffered into the secondary element, swap
-		// the elements instead of re-fetching. This is what makes the transition
-		// tight rather than a fresh network round trip mid-song.
+		// A next track already buffered in the secondary element is swapped in,
+		// without a network round trip.
 		if (this.#preloadedFor === song.id && this.#secondary?.src) {
 			this.#swapElements();
 		} else {
 			this.loading = true;
-			// A track that has come into the queue since casting began needs an
-			// address of its own first.
+			// A track queued since casting began needs its own address first.
 			if (this.#castUrls && !song.live && !this.#castUrls.has(song.id)) {
 				await this.#ensureCastUrls();
 				if (this.current !== song || !this.#primary) return;
 			}
-			this.#primary.src = this.#srcOf(song);
+			this.#primary.src = this.#srcOf(song, (this.#pendingSeek ?? 0) > 1);
 			this.#primary.load();
 		}
 
@@ -1127,22 +1171,20 @@ export class Player {
 	 * Overlaps the outgoing and incoming tracks on an equal-power ramp.
 	 *
 	 * The two gains are `cos` and `sin` of the same quarter turn, so their
-	 * squares sum to one throughout. A linear pair would sum to one in
-	 * *amplitude* instead, which dips about 3 dB in the middle and is heard as a
-	 * hole rather than a join.
+	 * squares sum to one. A linear pair sums to one in amplitude, which dips
+	 * about 3 dB in the middle.
 	 *
-	 * The ramp runs on an interval rather than `requestAnimationFrame`: rAF is
-	 * throttled to a stop in a background tab, which is precisely where an
-	 * unattended queue does its crossfading.
+	 * The ramp runs on an interval: `requestAnimationFrame` stops in a
+	 * background tab, where an unattended queue does its crossfading.
 	 */
 	#maybeCrossfade() {
 		if (this.#fadeTimer !== null || this.#chainFading || this.current?.live) return;
 		const settings = this.settings;
 		if (!settings || settings.transition !== 'crossfade') return;
 		if (this.#castUrls) return;
-		// Without a ramp this would be two tracks at full level. The `ended`
-		// handler makes the tight handoff instead, from the buffered element.
-		// The graph's gains are applied where `volume` is not, as on iOS.
+		// Without a ramp this would be two tracks at full level, so the `ended`
+		// handler makes the tight handoff from the buffered element. The graph's
+		// gains are applied where `volume` is not, as on iOS.
 		if (!this.rampsVolume && !this.#chain) return;
 		// Repeating one track would have to fade an element into itself.
 		if (this.repeat === 'one') return;
@@ -1153,30 +1195,29 @@ export class Player {
 		const incoming = this.#secondary;
 		if (!outgoing || !incoming || !this.playing) return;
 
-		const next = this.upNext ?? (this.repeat === 'all' ? this.queue[0] : null);
+		const next = this.#following;
 		if (!next || this.#preloadedFor !== next.id) return;
 		// Two tracks written to run into each other (a live album, a mix) get the
 		// tight handoff, unless the account asks for a fade there too.
 		if (!settings.crossfadeWithinAlbum && this.current && followsOnAlbum(this.current, next)) return;
-		// Not buffered far enough to start without a stall; the `ended` handler
-		// will make an ordinary cut instead.
+		// Not buffered far enough to start without a stall. The `ended` handler
+		// makes an ordinary cut.
 		if (incoming.readyState < HTMLMediaElement.HAVE_FUTURE_DATA) return;
 
 		const remaining = this.duration - this.currentTime;
 		const seconds = Math.min(settings.crossfadeSeconds, Math.max(1, this.duration / 2));
 		if (!Number.isFinite(remaining) || remaining > seconds || remaining <= 0) return;
 
-		// `timeupdate` is coarse, so the window is usually entered a little late.
-		// Ramping over what is actually left, rather than over the configured
-		// length, keeps the end of the ramp on the end of the track.
+		// `timeupdate` is coarse, so the window is usually entered late. Ramping
+		// over what is left keeps the end of the ramp on the end of the track.
 		this.#fadeSeconds = remaining;
 		this.#fadeStartedAt = Date.now();
 		incoming.currentTime = 0;
 
 		const chain = this.#chain;
 		if (chain) {
-			// The whole ramp at once, on the audio thread. The elements stay at
-			// full `volume`; the level is the graph's.
+			// The whole ramp at once, on the audio thread. The elements stay at full
+			// `volume`, and the level is the graph's.
 			this.#chainFading = true;
 			chain.holdSide(incoming, 0);
 			chain.crossfade(outgoing, incoming, this.#gainFor(this.current), this.#gainFor(this.#preloadedSong()), remaining);
@@ -1198,25 +1239,21 @@ export class Player {
 		const level = (this.muted ? 0 : this.volume) * this.#sleepGain();
 		const t = Math.min(1, (Date.now() - this.#fadeStartedAt) / (this.#fadeSeconds * 1000));
 		// Each side ramps to its own corrected level, so the join does not jump
-		// when the two tracks were mastered at different loudness.
+		// between two tracks mastered at different loudness.
 		outgoing.volume = level * this.#gainFor(this.current) * Math.cos((t * Math.PI) / 2);
 		incoming.volume = level * this.#gainFor(this.#preloadedSong()) * Math.sin((t * Math.PI) / 2);
 
-		// The ramp only moves the two gains. Advancing the queue stays the job of
-		// the outgoing element's `ended` event — which fires at the end of the
-		// ramp by construction, since the fade is started with `remaining`
-		// seconds left and runs for exactly that long. Letting the ramp advance
-		// as well raced that event, and skipped a track whenever it won.
+		// The ramp only moves the two gains. The outgoing element's `ended` event
+		// advances the queue: it fires at the end of the ramp, which runs for the
+		// `remaining` seconds it started with. A ramp that advanced too raced that
+		// event and skipped a track when it won.
 		if (t >= 1) this.#clearFadeTimer();
 	}
 
 	/**
-	 * Stops the ramp and leaves both elements exactly as they are.
-	 *
-	 * This is the consummated ending: the outgoing track has run out, the
-	 * incoming one is already playing at full level, and the element swap is
-	 * about to make it the primary. Rewinding anything here would restart the
-	 * track the listener is already hearing.
+	 * Stops the ramp and leaves both elements as they are: the outgoing track
+	 * has run out, the incoming one is playing at full level, and the swap is
+	 * about to make it the primary.
 	 */
 	#endCrossfade() {
 		this.#clearFadeTimer();
@@ -1224,10 +1261,9 @@ export class Player {
 	}
 
 	/**
-	 * Abandons an overlap the listener interrupted — a pause, a skip, a seek, a
-	 * change to the queue. The buffered track has to go back to its start,
-	 * because whatever happens next expects to play it from the top rather than
-	 * from wherever the ramp had reached.
+	 * Abandons an overlap the listener interrupted (a pause, a skip, a seek, a
+	 * change to the queue). The buffered track goes back to its start, where
+	 * whatever follows expects it.
 	 */
 	#abandonCrossfade() {
 		if (this.#fadeTimer === null && !this.#chainFading) return;
@@ -1240,63 +1276,73 @@ export class Player {
 			try {
 				incoming.currentTime = 0;
 			} catch {
-				// Seeking an element whose src was just dropped throws; harmless.
+				// Seeking an element whose src was just dropped throws.
 			}
 		}
 		this.#applyVolume();
 	}
 
 	/**
-	 * Waits, silent, for a position the element cannot seek to yet, and asks
-	 * for the track again.
+	 * A seek the element cannot make, in a transcode that began to arrive
+	 * before the server had read it whole.
 	 *
-	 * A transcode is read whole on the server before it can be answered in
-	 * ranges (`transcodes.ts`), which takes seconds; until then it arrives as a
-	 * stream without ranges, and a seek into it lands nowhere. Resuming a track
-	 * at a position (after a dropped stream, a restored queue, or transcoding
-	 * switched on mid-track) then played it from the start: heard as the song
-	 * starting over, most often with the tab in the background, where a stream
-	 * is most often dropped. So the element is paused and asked again every
-	 * second, up to 30 times (a 10-minute AAC transcode was read whole in 17s),
-	 * with a query the server ignores so that the browser does not answer from
-	 * its own copy. After that it plays from the start, as it did.
+	 * Such a stream has no ranges (`transcodes.ts`). Chromium seeks in one by
+	 * waiting for the bytes. Firefox reports nothing seekable for as long as
+	 * the element holds it: in Playwright's Firefox against a read of 6
+	 * seconds, presses at 0:01 and at 0:12 both left the track where it was.
+	 *
+	 * The server answers a new request in ranges once its read is whole, which
+	 * a HEAD shows with `Accept-Ranges`. Then the track is asked for again and
+	 * the position taken up through `#pendingSeek`, as a resume is. Asked for
+	 * sooner, it would come as another stream without ranges, from the start.
+	 * Until then the track plays on, and after 30 looks a second apart the seek
+	 * is left to the element: a transcode too large for the server to hold
+	 * never has ranges.
+	 *
+	 * A seek past what has arrived of such a stream comes here in every
+	 * browser; see `seek`.
 	 */
-	#cancelHold() {
-		if (this.#holdTimer !== null) clearTimeout(this.#holdTimer);
-		this.#holdTimer = null;
-		this.#holding = false;
-		this.#seekHolds = 0;
-	}
-
-	#holdForSeek(element: HTMLAudioElement) {
+	async #seekOnceWhole(element: HTMLAudioElement, target: number) {
 		const song = this.current;
 		if (!song) return;
-		this.#holding = true;
+		const serial = ++this.#wholeSerial;
+		const wanted = () => serial === this.#wholeSerial && this.#primary === element && this.current === song;
 		this.loading = true;
-		element.pause();
-		if (this.#holdTimer !== null) clearTimeout(this.#holdTimer);
-		this.#holdTimer = setTimeout(() => {
-			this.#holdTimer = null;
-			if (this.#primary !== element || this.current !== song || this.#pendingSeek === null || !this.engaged) {
-				this.#holding = false;
+		for (let attempt = 0; attempt < SEEK_HOLD_ATTEMPTS; attempt++) {
+			// Past the browser's cache. Chromium makes a request wait for another
+			// that is still writing the same address into its cache, up to 20
+			// seconds, and the element's own stream is one: the first answer here
+			// came 20.2s after the press.
+			const whole = await fetch(this.#srcOf(song), { method: 'HEAD', cache: 'no-store' }).then(
+				(response) => response.ok && response.headers.get('accept-ranges') === 'bytes',
+				() => false
+			);
+			if (!wanted()) return;
+			if (whole) {
+				this.#abandonCrossfade();
+				this.currentTime = target;
+				this.#openAt(element, song, target);
+				if (this.engaged) void element.play().catch(() => undefined);
 				return;
 			}
-			this.#seekHolds += 1;
-			const src = this.#srcOf(song);
-			element.src = `${src}${src.includes('?') ? '&' : '?'}attempt=${this.#seekHolds}`;
-			element.load();
-		}, SEEK_HOLD_MS);
+			await new Promise((done) => setTimeout(done, SEEK_HOLD_MS));
+			if (!wanted()) return;
+		}
+		this.loading = false;
+		// Never whole: left to the element, which in Chromium waits for the bytes.
+		try {
+			element.currentTime = target;
+		} catch {
+			// Nothing loaded to seek in.
+		}
 	}
 
 	/**
 	 * Asks for the rest of the current track from where it stopped arriving.
 	 *
-	 * `playing` is deliberately left alone. This is a gap in the audio, not a
-	 * stop: flipping the transport to a play button would tell the listener the
-	 * opposite of what is happening, and `loading` already puts a spinner on the
-	 * button. The position is carried across by the same `#pendingSeek` the
-	 * server-restored queue uses, because the seek cannot happen until the
-	 * reloaded element knows how long the file is.
+	 * `playing` is left alone: this is a gap, not a stop, and `loading` puts a
+	 * spinner on the button. The position is carried by `#pendingSeek`, since
+	 * the seek waits for the reloaded element to know the file's length.
 	 */
 	#recoverStream() {
 		const element = this.#primary;
@@ -1307,15 +1353,12 @@ export class Player {
 		this.#recoveries += 1;
 		this.loading = true;
 		this.#cancelRecovery();
-		// Backing off matters: a proxy that just cut one response will cut the
-		// next one too if we ask again immediately.
+		// A proxy that just cut one response cuts the next too if asked at once.
 		this.#recoveryTimer = setTimeout(() => {
 			this.#recoveryTimer = null;
-			// The listener pressed pause while we were waiting. Their call wins.
+			// A pause pressed during the wait wins.
 			if (!this.engaged || this.#primary !== element) return;
-			this.#pendingSeek = position;
-			element.src = this.#srcOf(song);
-			element.load();
+			this.#openAt(element, song, position);
 			void element.play().catch(() => undefined);
 		}, RECOVERY_BACKOFF_MS * this.#recoveries);
 	}
@@ -1331,21 +1374,18 @@ export class Player {
 	}
 
 	/**
-	 * Starts the server reading the next track's transcode as this one
-	 * starts, with a HEAD request that downloads nothing.
+	 * Starts the server reading the next track's transcode as this one starts,
+	 * with a HEAD request that downloads nothing.
 	 *
 	 * The server answers a transcode in ranges only once it has read it whole
-	 * (`transcodes.ts`), and until then as a stream without ranges, which a
-	 * browser cannot seek into or pick back up at a position. The next track is
-	 * preloaded 20 seconds before its turn; started here, its read is whole by
-	 * then (2.7 to 17 seconds measured), so the element that plays it has ranges
-	 * from the first byte and a stream that drops can be resumed. Original
-	 * files are answered in ranges by the music server itself and need none of
-	 * this.
+	 * (`transcodes.ts`). The next track is preloaded 20 seconds before its
+	 * turn, and a read started here is whole by then (2.7 to 17 seconds
+	 * measured), so the element that plays it has ranges from the first byte
+	 * and a dropped stream can resume. Original files need none of this.
 	 */
 	#warmNext() {
 		if (!browser || !this.settings?.transcode) return;
-		const next = this.upNext ?? (this.repeat === 'all' ? this.queue[0] : null);
+		const next = this.#following;
 		if (!next || next.id === this.current?.id || next.live) return;
 		void fetch(streamUrl(next.id, this.deliveryMode), { method: 'HEAD' }).catch(() => undefined);
 	}
@@ -1355,16 +1395,42 @@ export class Player {
 		if (!this.settings?.preloadNext || this.settings.transition === 'off') return;
 		// Casting follows one element; see `#beginCast`.
 		if (this.#castUrls) return;
-		const next = this.upNext ?? (this.repeat === 'all' ? this.queue[0] : null);
+		const next = this.#following;
 		if (!next || !this.#secondary || next.live || this.current?.live) return;
 		if (this.#preloadedFor === next.id) return;
-		// Only worth doing once we are actually close to the end.
+		// Only within 20 seconds of the end.
 		if (this.duration > 0 && this.duration - this.currentTime > 20) return;
 
 		this.#preloadedFor = next.id;
 		this.#secondary.src = streamUrl(next.id, this.deliveryMode);
 		this.#secondary.preload = 'auto';
 		this.#secondary.load();
+	}
+
+	/**
+	 * The track's length: the element's, which is exact for a file with an
+	 * index, where the music server's is a hint in whole seconds.
+	 *
+	 * A transcode is the exception when the two are far apart (3 seconds, or 2
+	 * percent). It is as long as the file it was made from, and the element has
+	 * to estimate it. In Firefox, 2026-10-06:
+	 *
+	 *  - An MP3 still arriving as a stream had the length of what had arrived:
+	 *    1.4s for a track of 4:36. The seek bar then spanned 1.4 seconds, and a
+	 *    press anywhere on it went to the start of the track.
+	 *  - AAC from Navidrome, which is ADTS without an index, was given 4:28
+	 *    for a track of 3:48, and a press late on the bar ran off its end into
+	 *    the next track.
+	 *
+	 * The crossfade, the preload and the scrobble are timed from the same
+	 * figure.
+	 */
+	#adoptDuration(element: HTMLAudioElement) {
+		const own = element.duration;
+		if (!Number.isFinite(own) || own <= 0) return;
+		const listed = this.current?.duration ?? 0;
+		const apart = Math.abs(own - listed) > Math.max(3, listed * 0.02);
+		this.duration = this.settings?.transcode && listed > 0 && apart ? listed : own;
 	}
 
 	#bind(element: HTMLAudioElement) {
@@ -1380,30 +1446,25 @@ export class Player {
 		};
 
 		on('loadedmetadata', () => {
-			// The element's own duration is authoritative; the server's is a hint.
-			if (Number.isFinite(element.duration) && element.duration > 0) {
-				this.duration = element.duration;
-			}
+			this.#adoptDuration(element);
 			this.loading = false;
-			// A queue restored from the server resumes where it left off, but the
-			// seek can only happen once the element knows how long the file is.
+			// A restored queue resumes where it left off, and the seek waits for the
+			// element to know the file's length.
 			if (this.#pendingSeek !== null) {
 				const target = this.#pendingSeek;
-				const wanted = target > 1 && target < this.duration - 1;
-				if (wanted && !seekableTo(element, target) && this.#seekHolds < SEEK_HOLD_ATTEMPTS) {
-					this.#holdForSeek(element);
-					return;
-				}
 				this.#pendingSeek = null;
-				this.#seekHolds = 0;
-				this.#holding = false;
-				if (wanted) this.seek(target);
+				if (target > 1 && target < this.duration - 1) this.seek(target);
 				if (this.engaged && element.paused) void element.play().catch(() => undefined);
 			}
 		});
 
+		on('durationchange', () => this.#adoptDuration(element));
+
 		on('timeupdate', () => {
 			if (this.#ducks > 0) return;
+			// A position waiting to be taken up is what the bar shows. The element
+			// reports 0 until it has loaded.
+			if (this.#pendingSeek !== null) return;
 			this.currentTime = element.currentTime;
 			this.#maybeSleep();
 			this.#maybeScrobble();
@@ -1436,16 +1497,15 @@ export class Player {
 
 		on('playing', () => {
 			this.loading = false;
-			// Sound is coming out, so whatever went wrong is behind us and the next
-			// drop gets a full set of attempts of its own.
+			// Sound is coming out, so the next drop gets a full set of attempts.
 			this.#recoveries = 0;
 			this.error = null;
 		});
 
 		on('canplay', () => {
-			// The track is ready but we are not playing and the user never asked us
-			// to stop: an earlier play() was refused, so try again now.
-			if (this.engaged && element.paused && !this.#holding) void element.play().catch(() => undefined);
+			// Ready, not playing and not paused by the listener: an earlier play()
+			// was refused, so it is tried again.
+			if (this.engaged && element.paused) void element.play().catch(() => undefined);
 		});
 
 		on('ended', () => {
@@ -1457,9 +1517,8 @@ export class Player {
 
 		on('error', () => {
 			const code = element.error?.code;
-			// A codec this browser cannot handle, or bytes it cannot decode, will
-			// not start working because we asked again. Everything else is worth
-			// another try: the usual cause is the transport, not the file.
+			// A codec this browser cannot handle, or bytes it cannot decode, does not
+			// improve on a retry. Anything else is usually the transport.
 			const fatal =
 				code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED || code === MediaError.MEDIA_ERR_DECODE;
 
@@ -1478,11 +1537,11 @@ export class Player {
 
 
 	#applyVolume() {
-		// Untracked. This reads the queue and the settings, and it is called
-		// from inside effects (`attach`, the layout's settings effect). Tracked,
-		// those reads made the effect that attaches the player depend on them,
-		// so the settings arriving with every navigation re-ran it, and its
-		// teardown detached the player: every page change stopped the music.
+		// Untracked. This reads the queue and the settings and is called from
+		// inside effects (`attach`, the layout's settings effect). Tracked, those
+		// reads made the effect that attaches the player depend on them: settings
+		// arriving with every navigation re-ran it, its teardown detached the
+		// player, and every page change stopped the music.
 		untrack(() => {
 			const value = (this.muted ? 0 : this.volume) * this.#sleepGain();
 			const chain = this.#chain;
@@ -1512,17 +1571,16 @@ export class Player {
 	/**
 	 * The volume correction for one song, from its ReplayGain data.
 	 *
-	 * Applied through each element's `volume`, which is a multiplier from 0 to 1,
-	 * so a correction can lower a track and cannot raise one. Most commercial
-	 * releases carry a negative track gain (about -6 to -10 dB against the
-	 * 89 dB reference), so in practice loud records come down to meet quiet
-	 * ones. With audio processing on, the correction is a gain in the graph
-	 * instead (`audiochain.ts`), and a quiet track is raised as far as its peak
-	 * allows. A track without a peak value is not raised.
+	 * Applied through each element's `volume`, a multiplier from 0 to 1, so it
+	 * can lower a track and cannot raise one. Most commercial releases carry a
+	 * negative track gain (about -6 to -10 dB against the 89 dB reference), so
+	 * loud records come down to meet quiet ones. With audio processing on, the
+	 * correction is a gain in the graph (`audiochain.ts`), and a quiet track is
+	 * raised as far as its peak allows. A track without a peak is not raised.
 	 *
 	 * Track gain is used, with album gain as the fallback. The peak caps the
-	 * factor so a correction cannot push the loudest sample past full scale. A
-	 * file without data plays unchanged.
+	 * factor, so the loudest sample stays within full scale. A file without
+	 * data plays unchanged.
 	 */
 	#gainFor(song: Song | null): number {
 		if (!this.settings?.normalizeVolume || !song?.replayGain) return 1;
@@ -1540,8 +1598,7 @@ export class Player {
 
 	/**
 	 * The level multiplier for the sleep timer's fade: 1 until the last
-	 * `SLEEP_FADE_SECONDS`, then down to 0 on the same quarter-cosine the
-	 * crossfade uses.
+	 * `SLEEP_FADE_SECONDS`, then down to 0 on the crossfade's quarter-cosine.
 	 */
 	#sleepGain(): number {
 		const sleep = this.sleep;
@@ -1555,10 +1612,9 @@ export class Player {
 	/**
 	 * Steps the fade and pauses when the time is up.
 	 *
-	 * Driven by `timeupdate` rather than a timer of its own: a timer in a
-	 * background tab can be throttled, and `timeupdate` keeps firing for as long
-	 * as there is sound to fade. A timer that runs out while paused does nothing
-	 * until playback resumes, and `play()` clears it then.
+	 * Driven by `timeupdate`: a timer in a background tab can be throttled,
+	 * and `timeupdate` fires for as long as there is sound to fade. A timer
+	 * that runs out while paused does nothing until `play()` clears it.
 	 */
 	#maybeSleep() {
 		const sleep = this.sleep;
@@ -1572,8 +1628,8 @@ export class Player {
 	}
 
 	/**
-	 * Stops at the end of a track, with the next one loaded and not playing, so
-	 * pressing play carries on from where the queue had reached.
+	 * Stops at the end of a track with the next one loaded and not playing, so
+	 * pressing play carries on from there.
 	 */
 	async #sleepAtTrackEnd() {
 		this.sleep = null;
@@ -1609,8 +1665,8 @@ export class Player {
 
 	#maybeScrobble() {
 		if (this.#scrobbled || !this.current || this.duration <= 0) return;
-		// Half the track, capped at four minutes, and never before 30 seconds —
-		// the same rule Subsonic clients and Last.fm have used for years.
+		// Half the track, capped at four minutes, and never before 30 seconds: the
+		// rule Subsonic clients and Last.fm use.
 		const threshold = Math.max(
 			Math.min(SCROBBLE_MIN_SECONDS, this.duration),
 			Math.min(this.duration * SCROBBLE_FRACTION, 4 * 60)
@@ -1627,32 +1683,30 @@ export class Player {
 
 	/**
 	 * Brings playback back if the browser refused to start a track while the tab
-	 * was in the background. Without this the queue silently stalls until the
-	 * user returns and presses play again.
+	 * was in the background. Without it the queue stalls until the listener
+	 * returns and presses play.
 	 */
 	#watchVisibility() {
 		if (!browser) return;
 		const resume = () => {
 			if (!this.engaged || document.hidden) return;
 			const element = this.#primary;
-			if (element && element.src && element.paused && !this.#holding) {
+			if (element && element.src && element.paused) {
 				void element.play().catch(() => undefined);
 			}
 		};
 
 		/*
-		 * Save the position on the way out, so a reload or a tab the system
-		 * takes away resumes where the listener was rather than at the last
+		 * Saves the position on the way out, so a reload or a tab the system
+		 * takes away resumes where the listener was and not at the last
 		 * ten-second tick.
 		 *
-		 * Both events are needed. `pagehide` covers a reload and a real
-		 * navigation away; hiding covers iOS, where Safari can freeze or discard
-		 * a backgrounded tab without firing anything else first. Writing twice
-		 * costs one request and the endpoint replaces the row either way.
+		 * `pagehide` covers a reload and a navigation away. Hiding covers iOS,
+		 * where Safari can freeze or discard a backgrounded tab without another
+		 * event. A second write costs one request, and the endpoint replaces the
+		 * row.
 		 */
-		const flush = () => {
-			if (this.queue.length > 0) this.#writePlayState(true);
-		};
+		const flush = () => this.#flushPlayState();
 		const onVisibility = () => {
 			if (document.hidden) flush();
 			else resume();
@@ -1672,21 +1726,17 @@ export class Player {
 		}, 20_000);
 
 		/*
-		 * The stored position has to keep up with playback, not just with queue
+		 * The stored position has to keep up with playback, not only with queue
 		 * edits.
 		 *
-		 * Every other write happens because something changed: a track was
-		 * chosen, the queue was edited, playback was paused. Listening changes
-		 * nothing, so a track played straight through left the server holding
-		 * the position from just after it started. Measured before this: 34
-		 * seconds of uninterrupted playback and the stored position had not
-		 * moved off 67.2s, and the drift grows for as long as you listen. Any
-		 * full page load then resumed that far back, which is what "it reset to
-		 * the beginning" is.
+		 * Every other write follows a change (a track chosen, the queue edited,
+		 * a pause), and listening changes nothing: after 34 seconds of
+		 * uninterrupted playback the stored position was still 67.2s, and a full
+		 * page load resumed that far back.
 		 *
-		 * Ten seconds is the worst case lost to a crash or a killed tab. An
-		 * ordinary reload or a backgrounded tab loses nothing, because
-		 * `#watchVisibility` flushes on the way out.
+		 * Ten seconds is the most a crash or a killed tab loses. A reload or a
+		 * backgrounded tab loses nothing: `#watchVisibility` flushes on the way
+		 * out.
 		 */
 		this.#positionTimer = setInterval(() => {
 			if (this.playing && this.current) this.#writePlayState();
@@ -1696,7 +1746,7 @@ export class Player {
 	#report(event: 'start' | 'progress' | 'stop', position: number, completed = false) {
 		if (!browser || !this.current || this.settings?.reportPlayback === false || this.current.live) return;
 		const body = JSON.stringify({ songId: this.current.id, event, position, completed });
-		// `keepalive` so a report fired during unload still leaves the browser.
+		// `keepalive`, so a report fired during unload still leaves the browser.
 		void fetch('/api/playback', {
 			method: 'POST',
 			headers: { 'content-type': 'application/json' },
@@ -1707,30 +1757,37 @@ export class Player {
 
 	// ── Persistence ────────────────────────────────────────────────────────
 
-	/** Debounced so scrubbing does not hammer the server. */
-	/** Debounced, for a burst of queue edits. */
+	/** Debounced, for a burst of queue edits or a scrub. */
 	#persist() {
 		if (!browser) return;
+		this.#changes += 1;
 		if (this.#persistTimer) clearTimeout(this.#persistTimer);
 		this.#persistTimer = setTimeout(() => this.#writePlayState(), 1200);
 	}
 
 	/**
-	 * Writes the queue and the position immediately.
-	 *
-	 * `keepalive` is for the writes made on the way out, where the page is being
-	 * unloaded or frozen and an ordinary fetch would be cancelled with it.
+	 * The write made on the way out: what this browser changed, or the position
+	 * of a track it is playing. See `#unsaved`.
+	 */
+	#flushPlayState() {
+		if (this.queue.length > 0 && (this.#unsaved || this.playing)) this.#writePlayState(true);
+	}
+
+	/**
+	 * Writes the queue and the position now. `keepalive` is for the writes made
+	 * on the way out, where an ordinary fetch is cancelled with the page.
 	 */
 	#writePlayState(keepalive = false) {
 		if (!browser) return;
 		if (this.#persistTimer) clearTimeout(this.#persistTimer);
 		this.#persistTimer = null;
-		// A station is not a track the music server can give back by its id, so a
-		// queue holding one is not saved: the queue saved before it stays.
+		// A station is not a track the music server can return by id, so a queue
+		// holding one is not saved, and the queue saved before it stays.
 		if (this.queue.some((song) => song.live)) return;
+		const upTo = this.#changes;
 		// While a restore holds only the current track, a write carries the queue
-		// it stands in for. Written as it stands, a play pressed before the rest
-		// arrived saved a queue of one track over the saved one.
+		// it stands for. Written as it stood, a play pressed before the rest
+		// arrived saved a one-track queue over the saved one.
 		const partial = this.#partial && this.queue === this.#partial.queue ? this.#partial : null;
 		const payload: PersistPayload = {
 			songIds: partial ? partial.ids : this.queue.map((song) => song.id),
@@ -1745,37 +1802,49 @@ export class Player {
 			method: 'PUT',
 			headers: { 'content-type': 'application/json' },
 			body,
-			// Browsers cap the total of all in-flight keepalive bodies at 64KB
-			// and reject anything past it outright. A queue is capped at 1000
-			// ids, which is about 39KB of JSON at the length a Navidrome or
-			// Jellyfin id actually is, but the server accepts ids up to 255
-			// characters. Over the threshold, an ordinary request that the
-			// unload may cut short beats one the browser will not send at all.
+			// Browsers cap all in-flight keepalive bodies at 64KB and reject
+			// anything past it. A queue is capped at 1000 ids, about 39KB of JSON
+			// at the length of a Navidrome or Jellyfin id, but the server accepts
+			// ids up to 255 characters. Over the limit the request is sent
+			// without keepalive, which the unload may cut short.
 			keepalive: keepalive && body.length <= KEEPALIVE_LIMIT
-		}).catch(() => undefined);
+		})
+			.then(async (response) => {
+				if (!response.ok) return;
+				this.#written = Math.max(this.#written, upTo);
+				const at = Number((await response.json()).updatedAt);
+				if (Number.isFinite(at)) this.#savedAt = Math.max(this.#savedAt, at);
+			})
+			.catch(() => undefined);
 	}
 
 	/**
-	 * How audio is being asked for, as a string for the URL.
+	 * How audio is asked for, as a string for the URL. In the URL and not a
+	 * header, so the browser's cache keys on it: the original file, already
+	 * held, would otherwise answer the first request after transcoding was
+	 * switched on.
 	 *
-	 * Part of the URL rather than a header so the browser's own cache keys on
-	 * it: the original file, already fetched and held, would otherwise answer
-	 * the first request made after transcoding was switched on.
+	 * Opus carries a mark for the form its bytes take (`server/ogg.ts`). A
+	 * browser keeps a stream for an hour, in part where the track was left
+	 * early, and asks for the rest by range: the part of an Opus transcode
+	 * kept from before its serials were fixed is not continued by one sent
+	 * since. Change the mark with any change to the bytes sent for a codec.
 	 */
 	get deliveryMode(): string {
 		const settings = this.settings;
 		if (!settings?.transcode) return 'raw';
-		return `${settings.transcodeCodec}-${settings.transcodeBitrateKbps}`;
+		const mode = `${settings.transcodeCodec}-${settings.transcodeBitrateKbps}`;
+		return settings.transcodeCodec === 'opus' ? `${mode}-s1` : mode;
 	}
 
 	/**
 	 * Switches transcoding on or off without interrupting what is playing.
 	 *
-	 * The track is re-opened in the new mode at the position it had reached. A
-	 * transcode starts at the beginning of the file whatever the request asks
-	 * for on some servers, so the seek is re-applied once the new source is
-	 * ready rather than assumed; that is what `#pendingSeek` is for. Anything
-	 * already buffered ahead is in the old mode and is thrown away.
+	 * The track is re-opened in the new mode at the position it had reached. On
+	 * some servers a transcode starts at the beginning whatever the request
+	 * asks for, so the seek is re-applied through `#pendingSeek` once the new
+	 * source is ready. What was buffered ahead is in the old mode and is
+	 * dropped.
 	 */
 	async setTranscoding(on: boolean): Promise<void> {
 		const settings = this.settings;
@@ -1800,9 +1869,7 @@ export class Player {
 		const position = this.currentTime;
 		const wasPlaying = this.playing;
 		this.loading = true;
-		this.#pendingSeek = position;
-		element.src = this.#srcOf(song);
-		element.load();
+		this.#openAt(element, song, position);
 		if (wasPlaying) await element.play().catch(() => undefined);
 	}
 
@@ -1856,11 +1923,11 @@ export class Player {
 	 * Restores a queue persisted server-side. Does not autoplay.
 	 *
 	 * `partial` is given when `songs` is only the current track and the rest of
-	 * the saved queue is still being looked up; `completeRestore` puts it in.
+	 * the saved queue is still being looked up. `completeRestore` puts it in.
 	 */
 	async restore(
 		songs: Song[],
-		state: { index: number; position: number; repeat: RepeatMode; shuffle: boolean; orderIds?: string[] },
+		state: { index: number; position: number; repeat: RepeatMode; shuffle: boolean; orderIds?: string[]; updatedAt?: number },
 		partial?: { ids: string[]; index: number }
 	) {
 		if (songs.length === 0) return;
@@ -1873,9 +1940,15 @@ export class Player {
 		this.duration = this.current?.duration ?? 0;
 		this.currentTime = state.position;
 		this.#pendingSeek = state.position;
-		// Deliberately no src assignment: browsers block autoplay anyway, and
-		// loading a 100 MB FLAC nobody asked for is rude. The first play() call
-		// takes care of it.
+		if (state.updatedAt !== undefined) {
+			this.#savedAt = state.updatedAt;
+			this.#written = this.#changes;
+		} else {
+			// A queue handed over by another browser has no saved copy yet.
+			this.#changes += 1;
+		}
+		// No src is assigned: browsers block autoplay, and the file is not
+		// fetched until the first play() asks for it.
 	}
 
 	/**
@@ -1883,8 +1956,7 @@ export class Player {
 	 * there, without touching what is playing.
 	 *
 	 * The current track keeps its object, so nothing that follows it sees a
-	 * change of track. Nothing is done if the queue was replaced in the
-	 * meantime: the listener chose something else to play.
+	 * change of track. Nothing is done if the queue was replaced meanwhile.
 	 */
 	completeRestore(songs: Song[]) {
 		const partial = this.#partial;

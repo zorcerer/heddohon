@@ -7,13 +7,13 @@ import { partyFor, togetherEnabled } from '$lib/server/together';
 
 /**
  * The track the party is on, through the host's account, for a listener with
- * the link. `?song=` must name that track: it keeps each track's address
- * apart in the browser's cache, and a listener still asking for the last one
- * gets a 404 rather than the wrong audio. The file is sent as it is stored,
- * as a shared link's is, and the stream is cut when the host's session ends.
+ * the link. `?song=` must name that track: it keeps each track's address apart
+ * in the browser's cache, and a listener still asking for the last one gets a
+ * 404, not the wrong audio. The file is sent as stored, as a shared link's is,
+ * and the stream is cut when the host's session ends.
  */
 const handler: RequestHandler = async (event) => {
-	const party = togetherEnabled() ? partyFor(event.params.token) : null;
+	const party = togetherEnabled() ? partyFor(event.params.token, event.locals.session) : null;
 	const songId = event.url.searchParams.get('song');
 	if (!party?.state || !songId || songId !== party.state.songId) error(404, 'Not found');
 	const host = await sessionByHandle(party.accountId, party.session);

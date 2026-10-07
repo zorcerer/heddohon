@@ -36,11 +36,14 @@ a request to the music server. The one host you expose is Heddohon.
 Heddohon also contacts a PostgreSQL server when `HEDDOHON_DATABASE_URL` names
 one (see [PostgreSQL](#postgresql)). The other hosts it contacts are LRCLIB, only with
 `HEDDOHON_LYRICS_LRCLIB=true`, and the AutoEq results on GitHub, only with
-`HEDDOHON_AUTOEQ=true`; both are off by default. And the hosts of the internet
+`HEDDOHON_AUTOEQ=true`, Discord, only with `HEDDOHON_DISCORD=true`, and
+ListenBrainz, only with `HEDDOHON_LISTENBRAINZ=true`; all four are off by
+default. And the hosts of the internet
 radio stations the music server lists, when a listener plays one; that is on
 unless `HEDDOHON_RADIO=false`. See [Lyrics from
 LRCLIB](#lyrics-from-lrclib), [Headphone corrections from
-AutoEq](#headphone-corrections-from-autoeq) and [Internet
+AutoEq](#headphone-corrections-from-autoeq), [Plays sent to Discord and
+ListenBrainz](#plays-sent-to-discord-and-listenbrainz) and [Internet
 radio](#internet-radio).
 
 ## PostgreSQL
@@ -96,6 +99,64 @@ sent.
   so reopening lyrics does not ask again.
 - **Treated as text.** The lines are rendered escaped like every other string,
   and the view labels them "LRCLIB".
+
+## Plays sent to Discord and ListenBrainz
+
+With `HEDDOHON_DISCORD=true`, an account can paste a Discord webhook address
+in Settings, and each play that counts (past half the track, or four minutes)
+is posted to that channel. With `HEDDOHON_LISTENBRAINZ=true`, each account can
+paste a ListenBrainz user token of its own, and the server sends what is
+playing at the start of a track and a listen when the play counts. Navidrome
+can also scrobble to ListenBrainz itself: Settings refuses to link the one
+while the other is linked, since both would send each play twice. What each
+service learns is this server's address and the title, artist and album of the
+track, and Discord its cover. The account's user name is not sent: it is what the sign-in page
+accepts, and a channel can have many readers.
+
+- **The account chooses the channel, not the host.** A webhook address must
+  match Discord's own form. Only its id and token are kept, and the request
+  goes to `HEDDOHON_DISCORD_URL` with those two in the path, so nothing typed
+  into the form decides where the server connects.
+- **Checked before it is kept.** The webhook is read from Discord, and the
+  token is put to ListenBrainz's `validate-token`. One that is refused is not
+  stored.
+- **Sealed, and not sent back.** A webhook address posts to its channel and a
+  token writes to its profile, so both are sealed with AES-256-GCM under a key
+  of their own (`integration`). Settings shows the webhook's name or the
+  ListenBrainz user. Neither secret is in any page or log line: a test links
+  both with the log at `debug`, plays a track, and searches every answer the
+  server gave, its output, and every file in the data directory for them.
+- **Sent to one place.** A token goes in the `Authorization` header of a
+  request to `HEDDOHON_LISTENBRAINZ_URL` and nowhere else, with redirects
+  refused. That address is the operator's: an `http://` one sends tokens
+  unencrypted.
+- **Library text is shown as text.** Titles, artists and albums are written by
+  whoever can edit the library. Markdown in them is escaped, so a title cannot
+  become a link in the channel, and `allowed_mentions` is empty, so none of
+  them pings anyone.
+- **The cover is sent as a file.** A cover here is behind a session, so there
+  is no address to give Discord. The server reads it at 256px with the
+  account's own credential, from the cover cache where it is held, and attaches
+  it to the post. Only JPEG, PNG, WebP and GIF are attached, up to 1 MB, under
+  a file name this server sets. A cover of another type, SVG included, is left
+  out and the post goes without one. Discord keeps the image with the message,
+  where unlinking does not reach it.
+- **Under "Report playback".** With that setting off, nothing is sent.
+- **Dropped with the credential.** When another user signs in under the
+  account's name, or its password changes, what it had linked is removed, so
+  a name given to someone else does not send that person's plays to the
+  previous holder's channel or profile.
+- **Limited per account.** Posts for counted plays: a burst of 5, then one
+  every 20 seconds. "Playing now": 5, then one every 5 seconds. Attempts to
+  link that reach either service: 5, then one every 2 minutes. Every request
+  leaves from this server's address, and Discord refuses an address that sends
+  it 10,000 failed requests in 10 minutes, for every account behind it.
+- **A bare address in a tag is still an address.** Discord turns one into a
+  link wherever it appears in a message, and escaping does not prevent it.
+- **Bounded.** 5 seconds, 16 KB read of an answer, redirects refused. A
+  webhook Discord answers with 401 or 404, or a token ListenBrainz answers
+  with 401, is unlinked. Failures are logged as `integration-failed` and do
+  not hold up or fail the play.
 
 ## Headphone corrections from AutoEq
 
@@ -222,7 +283,7 @@ later, the first to sign the link token it sends through last.fm.
 - Upstream credentials are sealed with **AES-256-GCM** before they reach the database.
 - Keys are derived with **scrypt** (N = 2¹⁵, r = 8, p = 1) from `HEDDOHON_SECRET`.
   Separate keys cover encryption, session digests, share-link digests,
-  known-device cookies and pseudonyms.
+  known-device cookies, Last.fm link state and cast addresses.
 - Each seal uses a fresh 12-byte random IV. The tag is verified on open, and a
   blob with a wrong version, part count, IV length or tag length is rejected.
 - Changing `HEDDOHON_SECRET` makes every stored credential unreadable and signs
@@ -392,6 +453,18 @@ library's id listed every track in the library.
   sandbox CSP as other media, with `private, no-store` on audio and
   `private, max-age=300` on covers, so a withdrawn link stops working in the
   browser that played it. Shared covers bypass the cover cache.
+- **A pasted link is previewed by the app it is pasted into.** The page
+  carries Open Graph tags: the title, the artist and the address of the cover
+  under the link. A messaging service that draws a preview fetches the page
+  and the cover as any holder of the link can, and keeps its own copy of the
+  title and the image. Withdrawing the link does not reach that copy. The
+  audio is not part of a preview.
+- **Kept out of search indexes.** The page answers `noindex, nofollow`, as a
+  header and as a tag, to every reader but the fetchers that draw a preview,
+  known by the name they send (Discord, Slack, Telegram, WhatsApp, Facebook, X,
+  LinkedIn, Mastodon). Those keep no index, and Discord draws no preview of a
+  page that says `noindex`. `/robots.txt` allows `/share/` and nothing else,
+  so a search engine that finds a link can read the page and its `noindex`.
 - **Every stream request is checked three ways.** The token is resolved, and
   the track is looked up in the owner's song, album or playlist as the owner's
   credential returned it at most five minutes before, so a track the owner can
@@ -511,7 +584,113 @@ plays, as it plays, without an account. What it is limited to:
 - **The token is kept out of the log,** as share tokens are.
 
 What a listener learns is what plays and when: title, artist, album, cover
-and position, for as long as they hold the link.
+and position, for as long as they hold the link. They are also shown what is
+up next in the host's queue: the title and artist of the next 50 tracks, and
+for a track a member added, the member's name.
+
+### Members and the shared queue
+
+A listener signed in to this Heddohon on the host's music server can join as a
+member and add tracks to the host's queue. A visitor with no account, and an
+account on the other server of a deployment with two, listen as before and add
+nothing.
+
+- **Joining is a press, and it shows a name.** The page says "Join as
+  <name>" and that the name is shown. Until then the visitor's stream is a
+  listener's. `POST /together/<token>/join` needs the session, and names a
+  stream the same account opened: listener ids go to everyone with a
+  reaction, so a stream is not joined by its id alone. The name is the
+  account's user name on the music server. The host sees the members whose
+  page is open; everyone with the link sees the name on the tracks a member
+  added. Other accounts are given an id made for the party, never the
+  account's id.
+- **A track is looked up twice before it is accepted,** by the id the member
+  sends. With the member's credential first: a member adds what their own
+  account can read, so a track id cannot be used to ask what the host's
+  account holds. Then with the host's credential, since the audio for everyone
+  comes through the host's account: a track it cannot read answers "Not in
+  the host's library". The track is sent to the host's browser as the host's
+  account reads it. Only the host's browser is sent the track's id; listeners
+  are sent a title and an artist, and the audio route still answers only for
+  the track that is playing.
+- **The host's player holds the queue.** An addition goes into the host's
+  browser queue after the current track and earlier additions, and does not
+  start or stop playback. The host removes or moves any track there. What
+  listeners are shown is what the host's browser reports, with additions found
+  in it by track id.
+- **A member takes back only their own additions.**
+- **The host removes a member for the rest of the party.** Every stream the
+  account has open ends, its additions not yet in the host's queue are
+  dropped, and every `/together` route for that party refuses the account's
+  sessions, the audio and the cover included. The link itself still opens
+  without a session, as it does for anyone: removal ends what the account
+  could do as a member, and ending the party is what closes the link.
+- **Bounds:** one addition every 2 seconds per member, counted before the
+  lookups and whether or not the track is accepted, so a refused track costs
+  as much as an accepted one; 50 additions waiting per member; 500 per party.
+- **A member's session ending** leaves its stream a listener's, and adding
+  needs the session on every request.
+
+`GET /api/search?q=` answers a signed-in account with the songs its own
+library holds for a query, 24 at most. It is what a member's search box calls;
+the search page reads the same through its loader.
+
+## Listening now
+
+Accounts signed in to one Heddohon can see what each other is playing. An
+account is shown only after it turns "Show others what I play" on, in the
+popup or under Settings, Account. What it is limited to:
+
+- **It needs `HEDDOHON_LISTENERS` and `HEDDOHON_REMOTE_CONTROL` on.** With
+  either off, `/api/profile` and the routes under it answer 404, and nothing
+  is sent.
+- **Off for every account until the account turns it on.** An account that is
+  not shown still sees the accounts that are.
+- **Who sees it: every signed-in account on this Heddohon,** on either music
+  server of a deployment with two. It is sent down the event stream a signed-in
+  browser already holds open, so it needs a session and ends with it.
+- **What is shown,** while a track is playing and for no longer: the display
+  name, or the account's user name on the music server where none is set; the
+  picture; the track's title, artist, album and cover id; its length and
+  position; the track's and the album's ids; and which kind of music server
+  the account is on. A pause, a closed browser, signing out and turning the
+  switch off each take the account out of the list at once. Nothing of it is
+  written to disk: the list is in the process's memory.
+- **The account's id is not sent.** Other accounts know a profile by a handle,
+  12 random bytes made with the profile row.
+- **Library permissions still decide what a viewer can open.** A title and an
+  artist are shown to an account whose library does not hold the track. The
+  cover, the album page and "Play it here" are fetched with the viewer's own
+  credential, and the music server refuses what the viewer may not read.
+- **The display name is text.** At most 32 characters, with control characters
+  and the marks that set text direction removed, shown through Svelte's
+  escaping and never placed in HTML by the server. A name that is the user
+  name of another account on this Heddohon is refused when it is saved.
+- **The picture is a JPEG of at most 96 KB and 512 pixels a side.** The
+  browser sends one it has cut square and scaled to 256 pixels, drawn again
+  from the pixels, which leaves out the file's metadata. The server checks what
+  it is sent whoever made it: the bytes have to start a JPEG, and the size it
+  declares is read from its frame header, since a few kilobytes can declare
+  65535 pixels a side and every viewer's browser would decode them. Before
+  the frame header only tables, application data and comments are stepped
+  over; any other marker is refused, `FF 00` among them, which libjpeg drops
+  and this check would otherwise have skipped as a segment with a frame
+  hidden inside. It is kept
+  in the database and served to signed-in accounts from
+  `/api/profile/avatar/<handle>` as `image/jpeg`, with `nosniff` and
+  `Content-Security-Policy: default-src 'none'; sandbox`, as proxied media is.
+- **A changed password switches it off.** On Subsonic a user name given to
+  another person looks the same as a password change, so the switch goes off
+  with the sessions and whoever signs in next is shown only after turning it
+  on. The display name and the picture stay, as settings do. Where the music
+  server reports a different user under the name (Jellyfin), the profile is
+  removed.
+- **Bounds:** the list is sent to everyone at most once in 250 ms; 100
+  accounts in one list.
+
+Two display names can be the same, and a name is compared with user names only
+when it is saved: an account that signs in for the first time later can have
+the user name another account already goes by.
 
 ## Cross-origin writes
 
@@ -636,6 +815,29 @@ Covers are cached under `$HEDDOHON_DATA_DIR/covers` (see
 - **Any account can clear it.** Settings shows whether the account is an
   administrator and who a clear affects. The only cost of clearing is that covers
   are fetched upstream again.
+- **Only an administrator can fill it.** "Cache every cover" in Settings
+  (`POST /api/cover-fill`) reads every album, artist and playlist and has the
+  music server render each cover at up to four sizes. It is refused unless the
+  music server answers that the account is an administrator, asked on each
+  start; a server that does not answer is refused too. One fill runs at a time
+  per process, 4 covers at once, and it stops at `HEDDOHON_COVER_CACHE_MB`.
+  It runs after its request has been answered, so it holds the account's
+  decrypted credential in memory until it ends: the one place a credential
+  outlives its request. Stopping it, or `destroyAllSessions` for the account
+  (a rejected or changed credential), ends it. On Jellyfin it fills only the
+  administrator's own entries, since the key carries the viewer.
+- **Kept filled, the server starts a fill itself.** An administrator can switch
+  on "Keep it filled" (`PUT /api/cover-fill`, the same gate). The server then
+  starts a fill once a day and after a restart, with no request behind it, by
+  opening that account's stored credential, as a shared link reads through its
+  owner's. It goes on after the account signs out. Each start asks the music
+  server again whether the account is an administrator, and switches itself
+  off when the answer is no or the account is gone. One account per music
+  server holds it, recorded in the `meta` table by account id. It has no
+  expiry of its own. It is switched off when the account's stored credential
+  is replaced, by another user under the name or by a changed password, so
+  it never runs with the sign-in of someone who did not switch it on. The
+  account it runs as can switch it off without being an administrator.
 - **Cached bytes persist** until swept, cleared or the volume is deleted. Set
   `HEDDOHON_COVER_CACHE_MB=0` to disable it.
 
@@ -683,17 +885,25 @@ Covers are cached under `$HEDDOHON_DATA_DIR/covers` (see
 | Star rating | a whole number from 0 to 5 |
 | Remote control streams per account | 20 |
 | Remote command | one of nine types; a seek from 0 to 86400 s, a volume from 0 to 1, a queue of 1 to 1000 ids |
-| Remote state text (title, artist) | 300 characters, cut |
+| Remote state text (title, artist, album) | 300 characters, cut |
+| Display name | 32 characters, cut; control and direction characters removed |
+| Profile picture | a JPEG of at most 96 KB and 512 pixels a side |
+| Profile handle in a path | 24 hexadecimal characters |
+| "Listening now" list | 100 accounts; sent at most once in 250 ms |
 | Cast addresses per request | 1 to 1000 track ids |
 | Cast address lifetime | 6 hours, never past the session |
 | Listen-together session | 12 hours, never past the host's session; 50 listeners; 200 sessions a process |
 | Listen-together reaction | one of five emoji, one a second per listener |
+| Listen-together addition | a track id of 1 to 255 characters; one every 2 seconds per member; 50 waiting per member, 500 per party |
+| Listen-together queue report | 1000 tracks; titles and artists kept for the first 50, 300 characters each, cut |
+| `/api/search` query | 2 to 200 characters, cut; 24 songs |
 | Genre id in a path | 200 characters; on Jellyfin a GUID, since `GenreIds` takes a list |
 | Cover size | one of ten, 64 to 1536 |
 | "On this day" date and time zone | a real `YYYY-MM-DD` within a year of the server's; an offset of -720 to 840 minutes |
 | Transcode codec | `mp3`, `opus`, `aac` |
 | Transcode bitrate | 96, 128, 192, 256, 320 kbps |
 | ListenBrainz token | 1 to 128 of `A-Z a-z 0-9 -` (ListenBrainz issues 36) |
+| Discord webhook address | 300 characters; `https://`, `discord.com` or `discordapp.com` (or their `ptb` and `canary` hosts), an id of 15 to 22 digits and a token of 40 to 100 of `A-Z a-z 0-9 _ -` |
 | Last.fm callback `uid` / `token` / `state` | 2048 / 256 / 64 characters |
 | Upstream timeout | 20 s to headers, and 20 s more for a JSON body (`HEDDOHON_UPSTREAM_TIMEOUT_MS`) |
 | Upstream JSON answer | 64 MB, refused while it arrives |
@@ -840,6 +1050,11 @@ session token and any `u`, `t`, `s` or `p` query parameter.
   account and gets one song with the owner's library permissions. That is the
   purpose of a link; see [Shared links](#shared-links) for what it is limited to.
 - **Shared Subsonic cover cache** assumes one library per Navidrome server.
+  Where Navidrome limits libraries per user, a cover from a library an account
+  cannot see is served to it from the cache if it asks by the exact cover id,
+  since a hit is answered without asking Navidrome. A fill ("Cache every
+  cover") stores every cover its administrator sees; without one, only covers
+  somebody has opened are stored.
 - **Suggestion shelves are held for 30 days.** "You might like" on album and
   artist pages is kept per account for 30 days (an hour when empty), so an
   item in a library the account has since lost can stay on a shelf, as a name

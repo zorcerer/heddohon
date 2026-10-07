@@ -25,8 +25,8 @@
 	function sortHref(sort: AlbumSort): string {
 		const params = new URLSearchParams(pageState.url.searchParams);
 		params.set('sort', sort);
-		// A new ordering starts at the top; keeping the old page number would land
-		// the reader somewhere arbitrary in a different list.
+		// A new ordering starts at the top: the old page number is a place in a
+		// different list.
 		params.delete('page');
 		return `/albums?${params}`;
 	}

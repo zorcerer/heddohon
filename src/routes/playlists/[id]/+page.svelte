@@ -179,9 +179,9 @@
 			</p>
 
 			<!--
-			  Two groups, deliberately: playback on the left, everything that
-			  changes the playlist set apart and quieter on the right. Six buttons
-			  of equal weight in one row reads as a toolbar to wade through.
+			  Two groups: playback on the left, and what changes the playlist apart
+			  and quieter on the right. Six buttons of equal weight in one row read
+			  as a toolbar.
 			-->
 			<div class="actions">
 				<div class="group">
@@ -295,8 +295,8 @@
 	.hero {
 		display: grid;
 		grid-template-columns: minmax(0, 13rem) minmax(0, 1fr);
-		/* Same reasoning as the album hero: the gutter clears the record at its
-		   furthest, so the text is never underneath it. */
+		/* As on the album hero: the gutter clears the record at its furthest, so
+		   the text is never under it. */
 		gap: calc(var(--space-7) + var(--space-2));
 		/* Centred for the reason given on the album hero. */
 		align-items: center;
@@ -360,8 +360,8 @@
 		flex-wrap: wrap;
 	}
 
-	/* Pushed to the far edge on a wide hero so the two groups cannot be mistaken
-	   for one run of controls. */
+	/* Pushed to the far edge on a wide hero, so the two groups do not read as
+	   one run of controls. */
 	.group--edit {
 		margin-left: auto;
 	}

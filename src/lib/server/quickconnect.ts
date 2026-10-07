@@ -1,18 +1,16 @@
 /**
  * The pending half of a Quick Connect sign-in.
  *
- * Between starting a request and the user approving it, this server holds the
- * secret the music server issued. That secret completes the sign-in for whoever
- * presents it, so it never reaches the browser: the browser shows the code and
- * carries the secret only inside a cookie sealed with AES-256-GCM under a key
- * of its own purpose. Keeping it in a cookie rather than a table means nothing
- * is written to disk for a request that is never approved.
+ * Between starting a request and its approval this server holds the secret the
+ * music server issued, which completes the sign-in for whoever presents it.
+ * The browser shows the code and carries the secret only inside a cookie
+ * sealed with AES-256-GCM under its own key. A cookie, not a table, so nothing
+ * is written to disk for a request never approved.
  *
- * The cookie follows the session cookie's naming, `__Host-` wherever it is
- * `Secure`, for the same reason: a sibling origin could otherwise plant a
- * pending request of its own. The browser also sends back the code it is
- * showing, and a cookie whose code differs is refused, which covers the
- * deployments where the cookie cannot carry the prefix.
+ * The cookie is named as the session cookie is, `__Host-` wherever it is
+ * `Secure`, so a sibling origin cannot plant a pending request. The browser
+ * also sends back the code it shows, and a cookie with a different code is
+ * refused, which covers deployments where the prefix cannot be used.
  */
 import type { BackendKind } from '$lib/types';
 import { cookieSecure, type CookieContext } from './auth';
@@ -49,8 +47,8 @@ export function savePending(event: CookieContext, pending: PendingQuickConnect):
 }
 
 /**
- * The pending request for the code the browser is showing, or null when there
- * is none, it has expired, or it belongs to a different code.
+ * The pending request for the code the browser is showing. Null when there is
+ * none, it has expired, or it belongs to a different code.
  */
 export function readPending(event: CookieContext, code: string): PendingQuickConnect | null {
 	const blob = event.cookies.get(cookieName(event));
@@ -68,10 +66,9 @@ export function readPending(event: CookieContext, code: string): PendingQuickCon
 }
 
 /**
- * `secure` is passed explicitly. SvelteKit's default marks a deletion `Secure`
- * on every plain-http host except `localhost`, and a browser drops a `Secure`
- * cookie sent over plain http, so on a deployment with
- * HEDDOHON_COOKIE_SECURE=false the cookie outlived the sign-in it was for.
+ * `secure` is passed explicitly. SvelteKit marks a deletion `Secure` on every
+ * plain-http host except `localhost`, and a browser drops that, so with
+ * HEDDOHON_COOKIE_SECURE=false the cookie outlived its sign-in.
  */
 export function clearPending(event: CookieContext): void {
 	event.cookies.delete(COOKIE_HOST, { path: '/', secure: true });
@@ -79,11 +76,9 @@ export function clearPending(event: CookieContext): void {
 }
 
 /**
- * The least time between two upstream checks of one request.
- *
- * The browser polls every 3 seconds. Nothing stops a script replaying the
- * cookie faster, and every check is a request to the music server, so checks
- * that arrive sooner than this are answered `waiting` without asking it.
+ * The least time between two upstream checks of one request. The browser polls
+ * every 3 seconds, and a script can replay the cookie faster. A check that
+ * arrives sooner is answered `waiting` without asking the music server.
  */
 const MIN_CHECK_INTERVAL_MS = 2_000;
 const lastChecked = new Map<string, number>();
@@ -91,19 +86,18 @@ const lastChecked = new Map<string, number>();
 /**
  * Secrets that have completed a sign-in, or are completing one now.
  *
- * Jellyfin 10.10 mints the token when the user approves, and
- * `AuthenticateWithQuickConnect` returns that same token for every call with
- * the secret until 10 minutes after approval. The secret is not spent by use
- * upstream, so it is spent here: a copy of the sealed cookie replayed after
- * the sign-in, or a second poll racing the first, gets `expired` and not a
- * second session. Memory only, so a restart forgets it; the cookie's own
- * 10-minute limit still applies after one.
+ * Jellyfin 10.10 mints the token on approval, and
+ * `AuthenticateWithQuickConnect` returns it for every call with the secret
+ * until 10 minutes after. The secret is not spent upstream, so it is spent
+ * here: a replayed cookie, or a second poll racing the first, gets `expired`
+ * and not a second session. In memory, so a restart forgets it, and the
+ * cookie's own 10-minute limit still applies.
  */
 const claimed = new Map<string, number>();
 
 function sweep(map: Map<string, number>, timestamp: number): void {
-	// Only swept once there is something worth sweeping. Both maps grow at most
-	// one entry per start, and starts are rate limited.
+	// Swept only past 1000 entries. Both maps grow by at most one entry per
+	// start, and starts are rate limited.
 	if (map.size <= 1000) return;
 	for (const [key, at] of map) {
 		if (timestamp - at > QUICK_CONNECT_TTL_MS) map.delete(key);

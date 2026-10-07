@@ -2,26 +2,24 @@
  * Pulling the player sheet down to close it, on a phone.
  *
  * The drag starts inside `NowPlayingPanel` (its grab handle and its artwork)
- * and moves the wrapper the layout owns, `.player`, which is what the sheet's
- * open and close transitions are on. This is the state between the two: how
- * far the sheet is pulled, or null when it is not being pulled.
+ * and moves the wrapper the layout owns, `.player`, which the sheet's open and
+ * close transitions are on. This is the state between the two: how far the
+ * sheet is pulled, or null.
  *
- * The wrapper follows the finger with `translate`, the same property the
- * sheet slides on, and not a transform on the glass inside it: a transform is
- * not a backdrop root, so the panel keeps its blur while it is carried.
+ * The wrapper follows the finger with `translate`, the property the sheet
+ * slides on, and not a transform on the glass inside it: a transform is not a
+ * backdrop root, so the panel keeps its blur while carried.
  */
 import { player } from './player.svelte';
 
 /**
- * How far down, in px, a release closes the sheet. About a sixth of an
- * iPhone's 852pt screen: far enough that a scroll or a tap that wanders does
- * not close it, and short of the halfway a user has to go to see the page.
+ * How far down, in px, a release closes the sheet: about a sixth of an
+ * iPhone's 852pt screen, past where a wandering scroll or tap ends.
  */
 const CLOSE_DISTANCE = 140;
 /**
  * Or a flick: this speed in px per millisecond at release, downward, closes it
- * from any distance. 0.6 is 600pt a second, a deliberate throw rather than the
- * end of a slow drag.
+ * from any distance. 0.6 is 600pt a second.
  */
 const CLOSE_SPEED = 0.6;
 /** Movement before a press on the artwork counts as a drag rather than a tap. */
@@ -87,8 +85,7 @@ function move(event: PointerEvent) {
 function end(event: PointerEvent) {
 	if (!gesture || event.pointerId !== gesture.pointerId) return;
 	const { pulling, lastT } = gesture;
-	// A finger that stopped before it let go is not throwing the sheet, whatever
-	// its last movement was.
+	// A finger that stopped before it let go is not throwing the sheet.
 	const speed = event.timeStamp - lastT > 100 ? 0 : gesture.speed;
 	const offset = sheetDrag.offset ?? 0;
 	gesture = null;
@@ -115,9 +112,9 @@ function click(event: MouseEvent) {
 }
 
 /**
- * The handlers for an element the sheet can be pulled by. Spread onto it;
- * the click handler runs in the capture phase so a drag that ends on a link
- * does not follow it.
+ * The handlers for an element the sheet can be pulled by, spread onto it. The
+ * click handler runs in the capture phase, so a drag that ends on a link does
+ * not follow it.
  */
 export const pullHandlers = {
 	onpointerdown: begin,

@@ -20,8 +20,8 @@
 	function rate(event: MouseEvent, stars: number) {
 		event.stopPropagation();
 		event.preventDefault();
-		// Pressing the star that is already the rating takes the rating away,
-		// which is how Navidrome's own stars clear.
+		// Pressing the star that is the rating clears it, as Navidrome's own
+		// stars do.
 		void setRating(kind, id, stars === current ? 0 : stars, current);
 	}
 </script>

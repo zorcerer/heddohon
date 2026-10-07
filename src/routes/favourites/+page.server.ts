@@ -71,9 +71,8 @@ const ARTIST_ORDER: Partial<Record<FavouriteSort, Compare<Artist>>> = {
 
 /**
  * Where an item falls in the shuffle for `seed`: FNV-1a over the seed and the
- * id. The seed travels in the URL, so page two of a shuffle continues page
- * one's order rather than drawing a new one that repeats some items and skips
- * others. A star added or removed moves no other item.
+ * id. The seed travels in the URL, so page two continues page one's order. A
+ * star added or removed moves no other item.
  */
 function shufflePosition(seed: number, id: string): number {
 	let hash = 0x811c9dc5 ^ seed;
@@ -101,7 +100,7 @@ const newSeed = () => Math.floor(Math.random() * 0x100000000);
 /**
  * A sorted copy. The listing is shared by every request inside its 30 seconds
  * (`listings.ts`) and must not be sorted in place. Ties fall back to the name,
- * so two tracks with the same play count keep one order from load to load.
+ * so the order is the same from load to load.
  */
 function sorted<T extends { title: string } | { name: string }>(
 	items: readonly T[],
@@ -114,11 +113,11 @@ function sorted<T extends { title: string } | { name: string }>(
 }
 
 /*
- * Sorted copies, remembered against the listing they came from, so a page
- * turn inside the listing's 30 seconds does not sort it again. With 20,000
- * favourites a sort took 40 to 115ms of the event loop, every page turn.
- * Held weakly: a copy goes when its listing does. Eight orders per listing,
- * the most recent, since a shuffle's seed can take any value.
+ * Sorted copies, remembered against the listing they came from, so a page turn
+ * inside the listing's 30 seconds does not sort again: with 20,000 favourites
+ * a sort took 40 to 115ms of the event loop. Held weakly, so a copy goes with
+ * its listing. Eight orders per listing, the most recent, since a shuffle's
+ * seed can take any value.
  */
 const sortedCopies = new WeakMap<readonly unknown[], Map<string, unknown[]>>();
 
@@ -138,16 +137,15 @@ function sortedOnce<T extends { title: string } | { name: string }>(
 }
 
 export const load: PageServerLoad = async (event) => {
-	// Whole on both servers, and this page is loaded again on every tab switch
-	// and page turn. `/api/star` drops the entry, so a change made here shows at
+	// Whole on both servers, and this page loads again on every tab switch and
+	// page turn. `/api/star` drops the entry, so a change made here shows at
 	// once; see `listings.ts`.
 	const starred = await library(event, ({ backend, credential, accountId }) =>
 		remembered({ accountId, credential }, 'starred', () => backend.getStarred(credential))
 	);
 
 	const requested = event.url.searchParams.get('tab');
-	// Land on whichever tab actually has something in it, so an account with no
-	// favourite tracks but plenty of albums does not open on an empty list.
+	// Lands on a tab that has something in it.
 	const fallback: Tab =
 		starred.songs.length > 0
 			? 'songs'
@@ -156,9 +154,8 @@ export const load: PageServerLoad = async (event) => {
 				: 'artists';
 	const tab: Tab = TABS.includes(requested as Tab) ? (requested as Tab) : fallback;
 
-	// "Recently starred" needs a date for the star, which Subsonic reports and
-	// Jellyfin does not. Where none is known it is left off rather than offered
-	// as an order that changes nothing.
+	// "Recently starred" needs the date of the star, which Subsonic reports and
+	// Jellyfin does not. Without one the order is not offered.
 	const dated = starred[tab].some((item) => item.starredAt !== null);
 	const sorts = SORTS[tab].filter((sort) => sort !== 'recentlyStarred' || dated);
 	const requestedSort = event.url.searchParams.get('sort');
@@ -178,17 +175,15 @@ export const load: PageServerLoad = async (event) => {
 		sort,
 		sorts,
 		seed,
-		// What the "Random" chip links to: drawn here rather than in the page, so
-		// the server-rendered link and the hydrated one match, and pressing it
-		// again deals a new order.
+		// What the "Random" chip links to. Drawn here, so the server-rendered link
+		// and the hydrated one match, and pressing it again deals a new order.
 		reshuffleSeed: newSeed(),
 		counts: {
 			songs: starred.songs.length,
 			albums: starred.albums.length,
 			artists: starred.artists.length
 		},
-		// Only the visible tab is sorted, paginated and sent; the other two would
-		// be dead weight in the payload and in the DOM.
+		// Only the visible tab is sorted, paginated and sent.
 		songs: tab === 'songs' ? paginate(sortedOnce(starred.songs, `${sort}:${seed}`, songOrder), page) : null,
 		albums: tab === 'albums' ? paginate(sortedOnce(starred.albums, `${sort}:${seed}`, albumOrder), page) : null,
 		artists: tab === 'artists' ? paginate(sortedOnce(starred.artists, sort, ARTIST_ORDER[sort]), page) : null

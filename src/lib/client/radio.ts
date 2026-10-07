@@ -4,9 +4,9 @@
  * The player's queue is a list of songs, so a station stands in it as one:
  * `live`, with its name for a title and no length. The player reads `live`
  * wherever a station differs from a file: its stream comes from
- * `/api/radio/<id>/stream`, it cannot be sought, it is not buffered ahead or
- * crossfaded, nothing about it is reported to the music server, and it is
- * left out of the saved queue.
+ * `/api/radio/<id>/stream`, it cannot be sought, buffered ahead or crossfaded,
+ * nothing about it is reported to the music server, and it is left out of the
+ * saved queue.
  */
 import type { RadioStation, Song } from '$lib/types';
 

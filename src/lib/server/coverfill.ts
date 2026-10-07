@@ -1,0 +1,364 @@
+/**
+ * Filling the cover cache from the library, ahead of any browser asking.
+ *
+ * The cache otherwise fills one cover at a time as pages open. A fill reads
+ * the albums, artists and playlists and stores each cover at the sizes the
+ * pages draw.
+ *
+ * It is started by an account the music server lists as an administrator
+ * (`routes/api/cover-fill`) and runs on after that request is answered. This
+ * is the one place a decrypted credential is held past its request: in this
+ * module, for the length of the fill. `destroyAllSessions` ends the fill. One
+ * fill runs at a time, and its report is kept in memory until the next one or
+ * a restart.
+ *
+ * An administrator can also have it kept filled (`keepFilled`): the server
+ * then starts a fill once a day with that account's stored credential, as a
+ * shared link reads through its owner's.
+ */
+import { config } from './config';
+import { backendFor, UpstreamError, type MediaBackend, type StoredCredential } from './backends';
+import { mapLimited } from './backends/http';
+import { cacheStats, collectCover, coverScope, holdsCover, readCover, writeCover, type CoverScope } from './covercache';
+import { openJson } from './crypto';
+import { store } from './db';
+import { log, reason } from './log';
+import type { BackendKind } from '$lib/types';
+
+type Kind = 'album' | 'artist' | 'playlist';
+
+/**
+ * What is fetched, in this order. A fill stops at the disk budget, so the
+ * sizes drawn most often come first: 384 is a card in a grid, 96 a row in a
+ * list and the copy the room's colour is sampled from, 512 what the album
+ * page's 640 snaps to (`nearestCoverSize`), and 1024 that cover at twice the
+ * density.
+ *
+ * Track covers are left out and cached as they are played. Navidrome gives a
+ * track with embedded art its own cover id, so 100,000 tracks are 100,000 more
+ * covers, most of them copies of their albums'.
+ */
+const PASSES: { size: number; of: Kind[] }[] = [
+	{ size: 384, of: ['album', 'artist', 'playlist'] },
+	{ size: 96, of: ['album', 'artist', 'playlist'] },
+	{ size: 512, of: ['album'] },
+	{ size: 1024, of: ['album'] }
+];
+
+/**
+ * Covers asked of the music server at once: half of `UPSTREAM_FANOUT`, not
+ * measured against a real server. A fill of 5000 albums is 20,000 renders
+ * upstream while people are using the library.
+ */
+const FILL_FANOUT = 4;
+
+/** Albums read per call. Subsonic's `getAlbumList2` gives 500 at most. */
+const LIST_PAGE = 500;
+
+export interface FillStatus {
+	/**
+	 * `listing` while the library is read and `running` while covers are
+	 * fetched. `full` is a fill that stopped at the disk budget, `stopped` one
+	 * the account stopped, `failed` one the music server ended.
+	 */
+	state: 'idle' | 'listing' | 'running' | 'done' | 'full' | 'stopped' | 'failed';
+	/** Covers the library has, counting each size. Zero until it has been read. */
+	total: number;
+	/** How many of `total` are dealt with: stored, held already, or failed. */
+	done: number;
+	stored: number;
+	/** Not stored: the music server had no image for it, or the write failed. */
+	failed: number;
+}
+
+interface Job {
+	account: string;
+	status: FillStatus;
+	abort: AbortController;
+}
+
+const IDLE: FillStatus = { state: 'idle', total: 0, done: 0, stored: 0, failed: 0 };
+
+let job: Job | null = null;
+
+function running(status: FillStatus): boolean {
+	return status.state === 'listing' || status.state === 'running';
+}
+
+/**
+ * The fill this account started, as it stands. Idle for every other account:
+ * the counts are of the library as the account that started it sees it.
+ */
+export function fillStatus(account: string): FillStatus {
+	return job?.account === account ? { ...job.status } : { ...IDLE };
+}
+
+/**
+ * Starts a fill with the account's credential and returns at once. Null when
+ * another account's fill is running. The account's own is returned as it
+ * stands. The caller has checked that the account is an administrator.
+ */
+export function startFill(
+	account: { id: string; backend: BackendKind; remoteUserId: string | null },
+	credential: StoredCredential
+): FillStatus | null {
+	if (job && running(job.status)) return job.account === account.id ? { ...job.status } : null;
+	const started: Job = { account: account.id, status: { ...IDLE, state: 'listing' }, abort: new AbortController() };
+	job = started;
+	log.info('cover-fill-started', { account: account.id });
+	void run(started, backendFor(account.backend), credential, coverScope(account));
+	return { ...started.status };
+}
+
+/** Stops the account's fill, if it has one running. What is stored stays. */
+export function stopFill(account: string): void {
+	if (job?.account !== account || !running(job.status)) return;
+	job.abort.abort('stopped');
+}
+
+/**
+ * The account whose fill the server repeats daily, one per music server, in
+ * `meta` under this key and the backend. A second administrator's fill would
+ * store the same covers. On Jellyfin, where a cover is held per viewer, it is
+ * the last account to switch it on.
+ */
+const KEEPER = 'cover_fill_account';
+
+export async function filledBy(backend: BackendKind): Promise<string | null> {
+	const row = await (await store()).get<{ value: string }>('SELECT value FROM meta WHERE key = ?', `${KEEPER}:${backend}`);
+	return row?.value ?? null;
+}
+
+/** Has the account's fill repeated daily, or with null stops it being repeated. */
+export async function keepFilled(backend: BackendKind, account: string | null): Promise<void> {
+	const database = await store();
+	const key = `${KEEPER}:${backend}`;
+	if (account === null) await database.run('DELETE FROM meta WHERE key = ?', key);
+	else {
+		await database.run(
+			'INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value',
+			key,
+			account
+		);
+	}
+	log.info('cover-fill-kept', { backend, account: account ?? 'nobody' });
+}
+
+/**
+ * Stops the repeat when the account's credential is replaced: another person
+ * under the name, or a changed password (`storeAccount` in `auth.ts`).
+ *
+ * The switch is one person's agreement to their sign-in being used unattended.
+ * Left on, the daily fill ran with whatever credential the row held next,
+ * which on a reused name is another person's.
+ */
+export async function dropKeeper(backend: BackendKind, account: string): Promise<void> {
+	if ((await filledBy(backend)) === account) await keepFilled(backend, null);
+}
+
+const HOUR_MS = 60 * 60 * 1000;
+
+/** When each backend's daily fill last started, in this process. */
+const lastKept = new Map<BackendKind, number>();
+let keeping = false;
+
+/**
+ * Starts the daily fills: a look now and one every hour, each starting a fill
+ * for a backend whose last was 24 hours ago or more.
+ *
+ * Called on the first request (`announce` in `hooks.server.ts`), so a restart
+ * is followed by a fill. With everything held that costs the library reads and
+ * a lookup per cover. Hourly, so a music server that was down at start-up is
+ * asked again within the hour.
+ */
+export function keepCoversFilled(): void {
+	if (keeping) return;
+	keeping = true;
+	void fillKept();
+	setInterval(() => void fillKept(), HOUR_MS).unref();
+}
+
+async function fillKept(): Promise<void> {
+	let kinds: BackendKind[];
+	try {
+		const cfg = config();
+		if (cfg.coverCacheBytes === 0) return;
+		kinds = cfg.upstreams.map((upstream) => upstream.kind);
+	} catch {
+		// Misconfigured, which `hooks.server.ts` reports on every request.
+		return;
+	}
+	// Each backend on its own: a stored credential that did not open on one
+	// ended the look before the other's fill started.
+	for (const kind of kinds) {
+		try {
+			if (Date.now() - (lastKept.get(kind) ?? 0) < 24 * HOUR_MS) continue;
+			const account = await filledBy(kind);
+			if (!account) continue;
+			const row = await (await store()).get<{ remote_user_id: string | null; credential: string }>(
+				'SELECT remote_user_id, credential FROM accounts WHERE id = ? AND backend = ?',
+				account,
+				kind
+			);
+			if (!row) {
+				await keepFilled(kind, null);
+				continue;
+			}
+			// Throws after `HEDDOHON_SECRET` changes, until the account signs in again.
+			const credential = openJson<StoredCredential>(row.credential);
+			// Asked again each day. An account that is no longer an administrator
+			// has the repeat switched off. No answer (the music server is down, or
+			// the password changed) is left for the next look.
+			const admin = await backendFor(kind).isAdmin(credential);
+			if (admin === false) await keepFilled(kind, null);
+			if (admin !== true) continue;
+			if (startFill({ id: account, backend: kind, remoteUserId: row.remote_user_id }, credential)) {
+				lastKept.set(kind, Date.now());
+			}
+		} catch (err) {
+			log.warn('cover-fill-failed', { backend: kind, detail: reason(err) });
+		}
+	}
+}
+
+/** The cover ids of every album, artist and playlist the account can see. */
+async function libraryCovers(
+	backend: MediaBackend,
+	cred: StoredCredential,
+	signal: AbortSignal
+): Promise<Record<Kind, Set<string>>> {
+	const covers: Record<Kind, Set<string>> = { album: new Set(), artist: new Set(), playlist: new Set() };
+	const seen = new Set<string>();
+	for (let offset = 0; !signal.aborted; offset += LIST_PAGE) {
+		const page = await backend.getAlbums(cred, { sort: 'alphabetical', limit: LIST_PAGE, offset });
+		const before = seen.size;
+		for (const album of page) {
+			seen.add(album.id);
+			if (album.coverArt) covers.album.add(album.coverArt);
+		}
+		// A short page is the last one. A full page of albums already seen is a
+		// server that ignores the offset.
+		if (page.length < LIST_PAGE || seen.size === before) break;
+	}
+	if (signal.aborted) return covers;
+	for (const artist of await backend.getArtists(cred)) if (artist.coverArt) covers.artist.add(artist.coverArt);
+	for (const playlist of await backend.getPlaylists(cred)) if (playlist.coverArt) covers.playlist.add(playlist.coverArt);
+	return covers;
+}
+
+/**
+ * One cover from the music server, or null when it has none to store. A
+ * rejected credential is thrown and ends the fill.
+ */
+async function fetchCover(
+	backend: MediaBackend,
+	cred: StoredCredential,
+	id: string,
+	size: number,
+	signal: AbortSignal
+): Promise<{ type: string; body: Buffer } | null> {
+	// The upstream timeout runs to the headers. This one runs to the last byte,
+	// so a cover that stalls does not hold one of the four slots.
+	const timed = AbortSignal.any([signal, AbortSignal.timeout(config().upstreamTimeoutMs * 2)]);
+	try {
+		const response = await backend.openCover(cred, id, size, { signal: timed });
+		if (response.status !== 200 || !response.body) {
+			await response.body?.cancel().catch(() => undefined);
+			if (response.status === 401 || response.status === 403) {
+				throw new UpstreamError('The music server rejected the credential', response.status, 'auth');
+			}
+			return null;
+		}
+		const body = await collectCover(response.body);
+		return body ? { type: response.headers.get('content-type') ?? '', body } : null;
+	} catch (err) {
+		if (err instanceof UpstreamError && err.kind === 'auth') throw err;
+		return null;
+	}
+}
+
+/**
+ * A cover as bytes, for a caller that is not answering a browser: from the
+ * cache, or from the music server with the account's credential, stored on the
+ * way as a browser's request would store it. Null where there is none or the
+ * music server refused.
+ */
+export async function coverBytes(
+	account: { id: string; backend: BackendKind; remoteUserId: string | null },
+	credential: StoredCredential,
+	coverId: string,
+	size: number
+): Promise<{ type: string; body: Buffer } | null> {
+	const scope = coverScope(account);
+	const held = await readCover(scope, coverId, size);
+	if (held) return { type: held.contentType, body: held.body };
+	const fetched = await fetchCover(backendFor(account.backend), credential, coverId, size, AbortSignal.timeout(config().upstreamTimeoutMs)).catch(
+		() => null
+	);
+	if (fetched) void writeCover(scope, coverId, size, fetched.type, fetched.body);
+	return fetched;
+}
+
+async function run({ status, abort }: Job, backend: MediaBackend, cred: StoredCredential, scope: CoverScope) {
+	const signal = abort.signal;
+	const startedAt = Date.now();
+	try {
+		const covers = await libraryCovers(backend, cred, signal);
+		if (signal.aborted) return;
+		const wanted = PASSES.flatMap(({ size, of }) => of.flatMap((kind) => [...covers[kind]].map((id) => ({ id, size }))));
+
+		/*
+		 * Counted here, not left to the sweep. Past the budget the sweep deletes
+		 * the files used longest ago, which in a fill are the first it stored:
+		 * it would fetch the rest of the library while deleting the start.
+		 */
+		const { bytes, limitBytes } = await cacheStats();
+		let held = bytes ?? 0;
+		status.total = wanted.length;
+		status.state = 'running';
+
+		await mapLimited(
+			wanted,
+			async ({ id, size }) => {
+				if (!(await holdsCover(scope, id, size))) {
+					const cover = await fetchCover(backend, cred, id, size, signal);
+					if (signal.aborted) return;
+					const weight = cover?.body.byteLength ?? 0;
+					if (held + weight > limitBytes) {
+						abort.abort('full');
+						return;
+					}
+					// Before the write, so the three other slots count it too.
+					held += weight;
+					if (cover && (await writeCover(scope, id, size, cover.type, cover.body))) status.stored += 1;
+					else {
+						held -= weight;
+						status.failed += 1;
+					}
+				}
+				status.done += 1;
+			},
+			FILL_FANOUT,
+			signal
+		);
+	} catch (err) {
+		if (!signal.aborted) {
+			abort.abort('failed');
+			log.warn('cover-fill-failed', { detail: reason(err) });
+		}
+	} finally {
+		/*
+		 * Set once every slot has finished, not where the fill was told to end.
+		 * Set there, a slot still writing was left out of the count: a poll in
+		 * CI read a full fill with 24 covers stored and 25 on disk.
+		 */
+		status.state = signal.aborted ? (signal.reason as FillStatus['state']) : 'done';
+		log.info('cover-fill-finished', {
+			state: status.state,
+			covers: status.total,
+			stored: status.stored,
+			failed: status.failed,
+			ms: Date.now() - startedAt
+		});
+	}
+}

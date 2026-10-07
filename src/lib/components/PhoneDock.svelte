@@ -3,19 +3,14 @@
 	 * The navigation and the player on a phone: one floating slab at the foot
 	 * of the screen, with what is playing above four destinations.
 	 *
-	 * It replaces a bar of nine icons pinned across the top. That bar put
-	 * every destination at the far end of the screen from the thumb, and it
-	 * left nothing of the player on screen once the sheet was closed: pausing
-	 * meant finding the waveform among eight other glyphs and opening a sheet
-	 * over the page to press one button. Here play and pause, the next track
-	 * and the way into the sheet are always one tap away, where the thumb
-	 * already is.
+	 * It replaced a bar of nine icons across the top, far from the thumb, which
+	 * left nothing of the player on screen once the sheet was closed. Here play
+	 * and pause, the next track and the way into the sheet are one tap away.
 	 *
-	 * Four destinations rather than seven. Albums, artists, playlists and
-	 * genres are one tab, Library, which opens a page listing them; Settings is
+	 * Four destinations, not seven. Albums, artists, playlists and genres are
+	 * one tab, Library, which opens a page listing them, and Settings is
 	 * reached from there too. Four with their labels fit a 320px screen at 80px
-	 * each, and a row of seven unlabelled glyphs was the part of the old bar
-	 * that had to be learnt.
+	 * each.
 	 *
 	 * Wider than 60rem this is not shown, and the rail and the docked panel do
 	 * its job.
@@ -42,11 +37,9 @@
 		{ href: '/search', label: 'Search', icon: 'search' as const, pattern: /^\/search(\/|$)/ }
 	];
 
-	/*
-	 * The page being opened while it loads, then that page, as the rail does:
-	 * following the address alone, the tab waited for the next page's data
-	 * before it lit.
-	 */
+	// The page being opened while it loads, then that page, as the rail does.
+	// Following the address alone, the tab lit only once the next page's data
+	// had arrived.
 	const path = $derived(navigating.to?.url.pathname ?? page.url.pathname);
 	const activeIndex = $derived(TABS.findIndex((tab) => tab.pattern.test(path)));
 
@@ -54,15 +47,13 @@
 	const progress = $derived(player.duration > 0 ? Math.min(1, player.currentTime / player.duration) : 0);
 
 	/*
-	 * Folded while scrolling down the page, unfolded scrolling back up: the
-	 * tabs give their height back to the page when the reader is reading, and
-	 * return the moment they reach back for them, as Safari's own toolbar does
-	 * on the same scroll. Only with a track loaded, so there is always
-	 * something of the dock on screen, and never within the first screen of a
-	 * page or at its foot, where there is nothing to give the room to.
+	 * Folded while scrolling down the page, unfolded scrolling back up, as
+	 * Safari's own toolbar does. Only with a track loaded, so something of the
+	 * dock is always on screen, and never within the first screen of a page or
+	 * at its foot.
 	 *
-	 * 24px of travel either way before it changes, so the small back-and-forth
-	 * of a finger resting on the glass does not open and shut it.
+	 * 24px of travel either way before it changes, so a resting finger's small
+	 * movements do not open and shut it.
 	 */
 	let folded = $state(false);
 	$effect(() => {
@@ -99,9 +90,9 @@
 
 	/*
 	 * Swiping the track: sideways goes to the next or the previous one, the
-	 * title following the finger until it goes; upward opens the sheet. The
-	 * row takes every touch it gets (`touch-action: none`) since it is fixed
-	 * chrome, not something the page scrolls by.
+	 * title following the finger until it goes, and upward opens the sheet.
+	 * The row takes every touch (`touch-action: none`): it is fixed chrome,
+	 * which the page does not scroll by.
 	 */
 	const SWIPE = 56;
 	let swipe = $state<{ id: number; x: number; y: number; dx: number; axis: 'x' | 'y' | null } | null>(null);
@@ -148,10 +139,8 @@
 		event.stopPropagation();
 	}
 
-	/*
-	 * The title slides in from the side the track came from, as it does in
-	 * the sheet. Not on the first render.
-	 */
+	// The title slides in from the side the track came from, as in the sheet.
+	// Not on the first render.
 	let shownFor: string | null | undefined = undefined;
 	function arrive(key: string | null) {
 		return (node: HTMLElement) => {
@@ -171,10 +160,7 @@
 	}
 </script>
 
-<!--
-	`inert` while the sheet is up: it covers this, and the sheet's controls are
-	the ones that answer then.
--->
+<!-- `inert` while the sheet is up: the sheet covers this and its controls answer. -->
 <div
 	class="phone-dock hh-glass hh-glass--deep hh-tint-morph hh-float"
 	class:folded={folded && song}
@@ -271,10 +257,10 @@
 
 	@media (max-width: 60rem) {
 		/*
-		 * Fixed to the foot of the screen, clear of the home indicator by the
-		 * same gap every floating panel keeps. The page scrolls under it, and
-		 * the layout pads the foot of the page by `--dock-space` so the last
-		 * row can be scrolled clear of it.
+		 * Fixed to the foot of the screen, clear of the home indicator by the gap
+		 * every floating panel keeps. The page scrolls under it, and the layout
+		 * pads the foot of the page by `--dock-space` so the last row scrolls
+		 * clear.
 		 */
 		.phone-dock {
 			position: fixed;
@@ -287,23 +273,21 @@
 			flex-direction: column;
 			border-radius: var(--r-xl);
 			overflow: hidden;
-			/*
-			 * As dense as the sheet, and for the same reason: the page scrolls
-			 * under this, and at the docked panel's 66 percent a row of titles
-			 * read through the tab labels.
-			 */
+			/* As dense as the sheet: the page scrolls under this, and at the
+			   docked panel's 66 percent a row of titles read through the tab
+			   labels. */
 			--glass-base: 88%;
 			transition: visibility 0s linear 0s;
-			/* A phone's width at most, centred, on a tablet held upright: four
+			/* A phone's width at most, centred: on a tablet held upright, four
 			   tabs across 800px put Home and Search a hand apart. */
 			max-width: 34rem;
 			margin-inline: auto;
 		}
 
 		/*
-		 * Under the open sheet, which is 92 percent opaque: the tab labels
-		 * showed through its tool row. Hidden once the sheet has arrived, and
-		 * back the moment it starts to leave.
+		 * Under the open sheet, which is 92 percent opaque, the tab labels showed
+		 * through its tool row. Hidden once the sheet has arrived, and back when
+		 * it starts to leave.
 		 */
 		.phone-dock.covered {
 			visibility: hidden;
@@ -412,9 +396,9 @@
 		}
 
 		/*
-		 * How far into the track, as a line along the foot of the row. Scaled
-		 * rather than resized, so each tick is a composited change and not a
-		 * layout of the dock. It holds no glass of its own.
+		 * How far into the track, as a line along the foot of the row. Scaled,
+		 * not resized, so each tick is a composited change and not a layout of
+		 * the dock. It holds no glass.
 		 */
 		.progress {
 			position: absolute;
@@ -430,10 +414,8 @@
 
 		/* ── Destinations ────────────────────────────────────────────── */
 
-		/*
-		 * Folding is the row's height going to nothing, as the details fold in
-		 * the player does: a one-row grid whose track goes from 1fr to 0fr.
-		 */
+		/* Folding takes the row's height to nothing, as the details fold in the
+		   player does: a one-row grid whose track goes from 1fr to 0fr. */
 		.fold {
 			display: grid;
 			grid-template-rows: 1fr;
@@ -498,9 +480,9 @@
 
 		/*
 		 * A pill of the room's colour behind the active tab, which slides to the
-		 * next one on the spring rather than going out here and coming on there.
-		 * Four equal columns, so its place is the index and needs no measuring.
-		 * It holds no glass, so moving it leaves the dock's blur alone.
+		 * next one on the spring. Four equal columns, so its place is the index
+		 * and needs no measuring. It holds no glass, so moving it leaves the
+		 * dock's blur alone.
 		 */
 		.lens {
 			position: absolute;

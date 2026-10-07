@@ -4,16 +4,26 @@ import { config } from '$lib/server/config';
 import { destroyAllSessions, endSessions, listSessions } from '$lib/server/auth';
 import { getSettings, saveSettings } from '$lib/server/settings';
 import { cacheStats, clearCache } from '$lib/server/covercache';
+import { filledBy, fillStatus } from '$lib/server/coverfill';
+import {
+	linkDiscord,
+	linkedIntegrations,
+	linkListenBrainz,
+	offeredIntegrations,
+	unlinkIntegration,
+	type LinkFailure
+} from '$lib/server/integrations';
 import { backendFor, UpstreamError, type ScrobblerService } from '$lib/server/backends';
 import { linkStateDigest } from '$lib/server/crypto';
 import { log, reason } from '$lib/server/log';
 import { describeShares, revokeAllShares, revokeShare } from '$lib/server/shares';
 import { clearHistory, importPlays, recentPlays } from '$lib/server/history';
+import { getProfile } from '$lib/server/listening';
 
 /**
- * A ListenBrainz user token as ListenBrainz issues it: a UUID, 36 characters.
- * Allowed up to 128 of the same alphabet in case the format grows; it is
- * passed to the music server as a JSON string and nowhere else.
+ * A ListenBrainz user token as issued: a UUID, 36 characters. Up to 128 of the
+ * same alphabet are allowed in case the format grows. It is passed to the
+ * music server as a JSON string and nowhere else.
  */
 const LISTENBRAINZ_TOKEN = /^[A-Za-z0-9-]{1,128}$/;
 const SERVICES: ScrobblerService[] = ['lastfm', 'listenbrainz'];
@@ -39,10 +49,10 @@ export const load: PageServerLoad = async ({ locals }) => {
 	const cfg = config();
 
 	/*
-	 * Streamed rather than awaited: it is two calls to Navidrome's own API,
-	 * with a sign-in there first when no session token is held, and nothing
-	 * else on the page depends on it. Null where the server cannot link either
-	 * service, or the status could not be read.
+	 * Streamed: it is two calls to Navidrome's own API, with a sign-in there
+	 * first when no session token is held, and nothing else on the page depends
+	 * on it. Null where the server cannot link either service, or the status
+	 * could not be read.
 	 */
 	const scrobblers = backendFor(session.account.backend).scrobblers;
 	const scrobblerLinks = scrobblers
@@ -52,30 +62,46 @@ export const load: PageServerLoad = async ({ locals }) => {
 			})
 		: Promise.resolve(null);
 
-	// Independent reads, started together. They were awaited one after
-	// another, so the page waited for the sum of a directory scan, two upstream
-	// calls and two database reads rather than for the slowest of them.
-	const [coverCache, isAdmin, settings, sessions, shares, history] = await Promise.all([
+	// Independent reads, started together. Awaited in turn, the page waited for
+	// the sum of a directory scan, two upstream calls and two database reads.
+	const offered = offeredIntegrations();
+	const [coverCache, coverFillKeeper, isAdmin, settings, sessions, shares, history, linked, upstream, profile] = await Promise.all([
 		cacheStats(),
+		filledBy(session.account.backend),
 		/*
-		 * Read here rather than stored at sign-in: this is the only page that
-		 * shows it, it costs one upstream request where a login costs none, and
-		 * an account promoted on the music server this morning should not have to
-		 * sign in again for the page to say so. Null where the server does not
-		 * answer, which changes nothing about what the page allows.
+		 * Read here, not stored at sign-in: only this page shows it, and an
+		 * account promoted on the music server since does not have to sign in
+		 * again. Null where the server does not answer, which changes nothing
+		 * the page allows.
 		 */
 		backendFor(session.account.backend).isAdmin(session.credential),
-		// Read again rather than taken from `locals`: after the save action
-		// this load runs in the same request, and `locals` still holds the
-		// settings from before the save.
+		// Read again, not taken from `locals`: after the save action this load
+		// runs in the same request, and `locals` holds the settings from before.
 		getSettings(session.account.id),
 		listSessions(session),
 		describeShares(session),
-		recentPlays(session.account.id, 0, 0)
+		recentPlays(session.account.id, 0, 0),
+		linkedIntegrations(session.account.id),
+		// Waited for only where it decides what the page offers, below.
+		offered.listenbrainz && scrobblers ? scrobblerLinks : null,
+		// What the account shows the others here, where that is offered; see `listening.ts`.
+		cfg.listeners && cfg.remoteControl ? getProfile(session.account.id) : null
 	]);
+
+	/*
+	 * ListenBrainz is one setting for an account. Where the music server links
+	 * it itself (Navidrome, under Scrobbling) this server's own is not offered:
+	 * the page showed two token fields for one service, and both linked would
+	 * send each play twice. An account that linked it here before keeps the
+	 * row, to unlink it.
+	 */
+	const viaMusicServer = upstream?.listenbrainz.available === true;
 
 	return {
 		coverCache,
+		coverFill: fillStatus(session.account.id),
+		// Whether the fill is repeated daily, by this administrator or another.
+		coverFillDaily: coverFillKeeper !== null,
 		isAdmin,
 		settings,
 		account: session.account,
@@ -86,7 +112,16 @@ export const load: PageServerLoad = async ({ locals }) => {
 		sessions,
 		shares,
 		scrobblerLinks,
-		historyCount: history.total
+		// Which of a Discord channel and ListenBrainz this account is offered, and
+		// the name of what it has linked. Never the webhook or the token.
+		integrations: {
+			offered: { ...offered, listenbrainz: offered.listenbrainz && (!viaMusicServer || linked.listenbrainz !== null) },
+			linked,
+			viaMusicServer
+		},
+		historyCount: history.total,
+		// As the `listeners` event carries it, which replaces it once the stream is open.
+		profile: profile && { id: profile.handle, name: profile.name, shown: profile.shown, avatar: profile.avatarAt }
 	};
 };
 
@@ -120,15 +155,6 @@ export const actions: Actions = {
 		return { saved: true, settings };
 	},
 
-	/**
-	 * Empties the cover cache.
-	 *
-	 * Deliberately not per account: the cache holds the music server's artwork,
-	 * which is the same bytes for everyone signed in to it, and a per-account
-	 * copy of the same sleeve would be the thing this exists to avoid. Anyone
-	 * with an account can clear it, and the cost of that is that the next
-	 * request for each cover goes upstream again.
-	 */
 	/**
 	 * Signs out one of the account's other sessions, by the handle the list
 	 * shows. This browser signs out through `/logout`, which also clears its
@@ -176,8 +202,8 @@ export const actions: Actions = {
 	},
 
 	/**
-	 * Hands a ListenBrainz token to the music server. It is checked there
-	 * against ListenBrainz and stored there; Heddohon keeps nothing.
+	 * Hands a ListenBrainz token to the music server, which checks it against
+	 * ListenBrainz and stores it. Heddohon keeps nothing.
 	 */
 	linkListenBrainz: async ({ locals, request }) => {
 		const session = locals.session;
@@ -187,6 +213,13 @@ export const actions: Actions = {
 		const token = String((await request.formData()).get('token') ?? '').trim();
 		if (!LISTENBRAINZ_TOKEN.test(token)) {
 			return fail(400, { scrobblerError: 'That is not a ListenBrainz token. Copy it from your ListenBrainz settings.' });
+		}
+		// The other way round from `linkIntegration`: this server already sends them.
+		if ((await linkedIntegrations(session.account.id)).listenbrainz) {
+			return fail(409, {
+				scrobblerError:
+					'ListenBrainz is already linked under “Your plays, elsewhere”. Unlink it there first: with both, each play would be sent twice.'
+			});
 		}
 		try {
 			if (!(await scrobblers.linkListenBrainz(session.credential, token))) {
@@ -215,13 +248,13 @@ export const actions: Actions = {
 	},
 
 	/**
-	 * Returns the last.fm approval page to send the browser to. The page sends
+	 * Returns the last.fm approval page to send the browser to. That page sends
 	 * the browser back to `/settings/lastfm` with a token, which that route
 	 * hands to the music server.
 	 *
-	 * Returned for the page to navigate to rather than as a redirect. A 303
-	 * from a form post to another origin is refused by `form-action 'self'`,
-	 * and `goto` in the enhanced form refuses external URLs.
+	 * Returned for the page to navigate to, not as a redirect: a 303 from a
+	 * form post to another origin is refused by `form-action 'self'`, and
+	 * `goto` in the enhanced form refuses external URLs.
 	 *
 	 * `state` ties the return to this account: a callback that arrives with
 	 * another session, or with a link token this account was not given, is
@@ -249,6 +282,67 @@ export const actions: Actions = {
 		return { lastfmUrl: approval.toString() };
 	},
 
+	/**
+	 * Links a Discord channel (a webhook address) or ListenBrainz (a user
+	 * token) for the account's plays; see `integrations.ts`. The value is
+	 * checked with the service, sealed, and not sent back.
+	 */
+	linkIntegration: async ({ locals, request }) => {
+		const session = locals.session;
+		if (!session) return fail(401, { error: 'Not signed in' });
+		const form = await request.formData();
+		const kind = form.get('kind');
+		const value = String(form.get('value') ?? '').trim();
+		if ((kind !== 'discord' && kind !== 'listenbrainz') || value.length === 0 || value.length > 300) {
+			return fail(400, { integrationError: 'That cannot be linked.' });
+		}
+		// Where Navidrome links ListenBrainz itself, that is the one place for
+		// it; see `load`.
+		const scrobblers = backendFor(session.account.backend).scrobblers;
+		if (kind === 'listenbrainz' && scrobblers) {
+			const upstream = await scrobblers.status(session.credential).catch(() => null);
+			if (upstream?.listenbrainz.available) {
+				return fail(409, {
+					integrationError: 'ListenBrainz is linked under Scrobbling on this server, where the music server sends each play.'
+				});
+			}
+		}
+		const result =
+			kind === 'discord'
+				? await linkDiscord(session.account.id, value)
+				: await linkListenBrainz(session.account.id, value);
+		if (typeof result !== 'string') return { integrationLinked: kind };
+		const service = kind === 'discord' ? 'Discord' : 'ListenBrainz';
+		const messages: Record<LinkFailure, [number, string]> = {
+			off: [404, `${service} is not turned on for this server.`],
+			malformed: [
+				400,
+				kind === 'discord'
+					? 'That is not a Discord webhook address. Copy it from the channel under Integrations, Webhooks.'
+					: 'That is not a ListenBrainz token. Copy it from your ListenBrainz settings.'
+			],
+			refused: [400, kind === 'discord' ? 'Discord has no webhook at that address.' : 'ListenBrainz did not accept that token.'],
+			unreachable: [502, `${service} did not answer. Try again.`],
+			throttled: [429, 'That is several attempts in a row. Try again in a few minutes.']
+		};
+		const [status, integrationError] = messages[result];
+		return fail(status, { integrationError });
+	},
+
+	unlinkIntegration: async ({ locals, request }) => {
+		const session = locals.session;
+		if (!session) return fail(401, { error: 'Not signed in' });
+		const kind = (await request.formData()).get('kind');
+		if (kind !== 'discord' && kind !== 'listenbrainz') return fail(400, { integrationError: 'Unknown service.' });
+		await unlinkIntegration(session.account.id, kind);
+		return { integrationUnlinked: kind };
+	},
+
+	/**
+	 * Empties the cover cache. Not per account: the cache holds the music
+	 * server's artwork, the same bytes for everyone signed in to it. Any
+	 * account can clear it, and each cover is then fetched upstream once more.
+	 */
 	clearCovers: async ({ locals }) => {
 		if (!locals.session) return fail(401, { error: 'Not signed in' });
 		await clearCache();
@@ -263,8 +357,8 @@ export const actions: Actions = {
 
 	/**
 	 * Brings the music server's last play of each song into the history, once.
-	 * See `importPlays` for what is skipped. The read walks the whole library
-	 * on Navidrome, 500 songs a request.
+	 * See `importPlays` for what is skipped. On Navidrome the read walks the
+	 * whole library, 500 songs a request.
 	 */
 	importHistory: async ({ locals }) => {
 		const session = locals.session;

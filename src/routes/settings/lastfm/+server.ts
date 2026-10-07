@@ -2,23 +2,22 @@
  * Where last.fm sends the browser back after the user approves access.
  *
  * last.fm appends `token` to the callback URL the settings page gave it, which
- * already carried Navidrome's signed link token (`uid`) and Heddohon's `state`.
- * The token is handed to the music server's own callback, which exchanges it
- * for a Last.fm session and stores that against the user the link token names.
- * Navidrome's callback URL is on the music server, which the browser is not
- * meant to reach; this route is the part of it the browser can.
+ * already carried Navidrome's signed link token (`uid`) and Heddohon's
+ * `state`. The token is handed to the music server's own callback, which
+ * exchanges it for a Last.fm session stored against the user the link token
+ * names. That callback is on the music server, which the browser does not
+ * reach, so this route stands in for it.
  *
- * A GET that changes state upstream, as an OAuth callback has to be. It sits
+ * A GET that changes state upstream, as an OAuth callback has to be. It is
  * behind the session gate, and `state` must be the digest of this session's
- * account and the link token, so a link started by one account cannot be
- * completed by a link sent to another, and a link token lifted from
- * somewhere else is refused before anything reaches the music server. The
- * session cookie is `SameSite=Lax`, which a top-level navigation from last.fm
- * carries.
+ * account and the link token: a link started by one account cannot be
+ * completed by a link sent to another, and a link token taken from elsewhere
+ * is refused before anything reaches the music server. The session cookie is
+ * `SameSite=Lax`, which a top-level navigation from last.fm carries.
  *
- * `token` and `uid` are credentials for as long as they are valid (last.fm's
- * token is single-use, Navidrome's link token lasts 5 minutes), so the query
- * is kept out of the request log; see `redact` in `log.ts`.
+ * `token` and `uid` are credentials while valid (last.fm's token is
+ * single-use, Navidrome's link token lasts 5 minutes), so the query is kept
+ * out of the request log; see `redact` in `log.ts`.
  */
 import { error, redirect } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';

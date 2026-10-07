@@ -31,6 +31,7 @@ The website, with screenshots and the install steps, is
 - **Shared links** to songs, albums and playlists that play without an account, and listening together live.
 - **A phone layout**, an installable app, and desktop apps for Linux and Windows. The Android APK is experimental.
 - **Synced across devices:** the queue and settings follow the account, and one browser can control another.
+- **Listening now:** accounts that turn it on see what each other is playing, under a display name and a picture.
 - **Crossfade, a 10-band equaliser** with AutoEq headphone corrections, ReplayGain and a sleep timer.
 - **Scrobbling** to Last.fm and ListenBrainz.
 - **Listening history and statistics**, kept on your own server.
@@ -47,7 +48,7 @@ The website, with screenshots and the install steps, is
     <td align="center">More from the artist</td>
   </tr>
   <tr>
-    <td colspan="2"><img src="docs/assets/listening.jpg" alt="Your listening over the last 30 days: 568 plays, 34 hours, a chart of plays by the hour of the day and one by the day of the week, and the top artists and albums"></td>
+    <td colspan="2"><img src="docs/assets/listening.jpg" alt="Your listening over the last 30 days: 581 plays, 36 hours, a chart of plays by the hour of the day and one by the day of the week, and the top artists and albums"></td>
   </tr>
   <tr>
     <td colspan="2" align="center">Your listening: the history summed up, by 30 days, 90 days, the year or everything kept</td>
@@ -106,6 +107,12 @@ On Unraid, Heddohon is listed in Community Applications, from the template in
 branch, when it has changed and passed the test suites, ahead of the next
 release, for trying what is coming; it can break, and a database it has
 migrated may not open in the release before it.
+
+The Android app is an APK on each release. [Obtainium](https://obtainium.imranr.dev)
+installs it from there and updates it from each later release. On a phone with
+Obtainium installed, this adds Heddohon to it:
+
+<a href="https://apps.obtainium.imranr.dev/redirect?r=obtainium://add/https://github.com/zorcerer/heddohon"><img src="https://img.shields.io/badge/Add%20to-Obtainium-D2BCFD?style=for-the-badge&logo=obtainium&logoColor=white" alt="Add Heddohon to Obtainium"></a>
 
 ## Documentation
 

@@ -75,6 +75,13 @@ export interface Song {
 	 * Its id is `radio:` and the station's id; see `client/radio.ts`.
 	 */
 	live?: boolean;
+	/**
+	 * Set on a track a listen-together member added to the host's queue: the
+	 * addition's id, and the member's name for the queue to show. It is in the
+	 * host's browser only; the server says again which tracks are additions
+	 * after a reload (`client/together.svelte.ts`).
+	 */
+	addedBy?: { entry: string; name: string };
 }
 
 export interface Album {

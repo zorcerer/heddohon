@@ -7,7 +7,7 @@ const MAX_IDS = 1000;
 
 /**
  * Cast addresses for tracks of the queue, asked for when this browser starts
- * casting and again for tracks it reaches later. Signing needs no upstream
+ * casting and again for tracks it reaches later. Signing makes no upstream
  * call: an id the account cannot play gets an address that answers 404.
  */
 export const POST: RequestHandler = async ({ locals, request }) => {

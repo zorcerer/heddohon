@@ -1,26 +1,25 @@
 /**
  * Addresses a speaker or a TV can play a track from.
  *
- * A Chromecast or an AirPlay receiver fetches the stream itself, without this
- * browser's session cookie, so `/api/stream/<id>` answers it 401. A cast
- * address carries its authority in the path instead: `/cast/<token>`, where
- * the token names one track, the account and session that asked for it, and
- * when it stops working, signed with a key of its own (`castDigest`).
+ * A Chromecast or an AirPlay receiver fetches the stream itself, without the
+ * session cookie, so `/api/stream/<id>` answers it 401. A cast address carries
+ * its authority in the path: `/cast/<token>`, where the token names one track,
+ * the account and session that asked, and when it stops working, signed with
+ * its own key (`castDigest`).
  *
- * Nothing is stored. A token is checked on every request: the signature, the
- * expiry, and that the session it names is still live, so signing out,
- * being signed out from Settings and the session's own expiry end it. A stream
- * in progress is tied to the session as the browser's own are.
+ * Nothing is stored. Every request checks the signature, the expiry and that
+ * the session named is still live, so signing out, being signed out from
+ * Settings and the session's expiry end it. A stream in progress is tied to
+ * the session as the browser's own are.
  */
 import { castDigest, constantTimeEquals } from './crypto';
 import type { AuthenticatedSession } from './auth';
 
 /**
- * How long an address works. A queue cast at bedtime plays for hours; the
- * browser asks again for tracks it reaches after this. Never past the
- * session's own expiry.
+ * How long an address works, and never past the session's expiry. The browser
+ * asks again for tracks a long queue reaches after this.
  */
-export const CAST_TTL_MS = 6 * 60 * 60 * 1000;
+const CAST_TTL_MS = 6 * 60 * 60 * 1000;
 
 export interface CastGrant {
 	accountId: string;

@@ -1,10 +1,10 @@
 /**
  * Mock music servers for the end-to-end suite.
  *
- * Each one answers the endpoints the app calls with the shapes Navidrome and
- * Jellyfin return, over a library small enough to reason about in a test and
- * large enough to page. Both run in the test process, so a test reads the call
- * counts and changes the state directly rather than over HTTP.
+ * Each answers the endpoints the app calls with the shapes Navidrome and
+ * Jellyfin return, over a library small enough to reason about and large
+ * enough to page. Both run in the test process, so a test reads the call
+ * counts and changes the state directly.
  */
 import { createHash } from 'node:crypto';
 import http from 'node:http';
@@ -65,12 +65,6 @@ function solidPng([r, g, b]) {
 }
 
 /**
- * A Subsonic server with `artistCount` artists. Artist `ar{i}` has album
- * `al{i}`, which holds songs `s{i}a` and `s{i}b`; `ar0` has a second album,
- * `al0x`. Songs `s0a` and `s1a` start starred, a day apart; `starred` maps each
- * starred id to the time of its star.
- */
-/**
  * Enough genres for the genres page to set its six largest apart from the
  * A to Z (it does past eight). Jazz is left out: a test asks for it and
  * expects the page for a genre the server does not have.
@@ -92,11 +86,21 @@ const GENRES = [
 	['80s', 1, 11]
 ].map(([value, albumCount, songCount]) => ({ value, albumCount, songCount }));
 
+/**
+ * A Subsonic server with `artistCount` artists. Artist `ar{i}` has album
+ * `al{i}`, which holds songs `s{i}a` and `s{i}b`, and `ar0` has a second
+ * album, `al0x`. Songs `s0a` and `s1a` start starred, a day apart. `starred`
+ * maps each starred id to the time of its star.
+ */
 export async function startSubsonic({ artistCount = 250 } = {}) {
 	const calls = counter();
 	const state = {
 		username: 'testuser',
 		password: 'testpass',
+		/** More accounts on the same server, by name, each with its password. */
+		others: new Map([['seconduser', 'secondpass']]),
+		/** Song ids one account cannot read, by its name: `getSong` answers error 70, as for a library it has no access to. */
+		hidden: new Map(),
 		starred: new Map([
 			['s0a', '2026-01-01T00:00:00Z'],
 			['s1a', '2026-01-02T00:00:00Z']
@@ -104,9 +108,9 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 		/**
 		 * The libraries `getMusicFolders` lists. Each holds a folder per artist
 		 * (`d-ar{i}`) and one empty folder, `d-empty`, under a top folder
-		 * `d-lib`; an artist's folder holds its album's (`d-al{i}`), which
-		 * holds the album's two songs and a video. With two, the second holds
-		 * only `d-ar2`.
+		 * `d-lib`. An artist's folder holds its album's (`d-al{i}`), which holds
+		 * the album's two songs and a video. With two, the second holds only
+		 * `d-ar2`.
 		 */
 		musicFolders: [{ id: 1, name: 'Music' }],
 		/** Ratings by song or album id, 1 to 5, as `setRating` leaves them. */
@@ -130,13 +134,19 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 		 */
 		audio: null,
 		/**
-		 * Answer `stream` with a 200 from byte 0 whatever `Range` asks for, and
-		 * without `Accept-Ranges`, as Navidrome does while a transcode is still
-		 * running.
+		 * Answer `stream` with a 200 from byte 0 whatever `Range` asks, without
+		 * `Accept-Ranges`, as Navidrome does while a transcode is running.
 		 */
 		ignoreRange: false,
 		/** Milliseconds between the first and second half of a `stream` body, to keep a read in progress. */
 		streamSlowMs: 0,
+		/**
+		 * With `ignoreRange`: asked for an estimated length, declare 64 bytes
+		 * more than the body and close the connection after it, and asked
+		 * without one, send no length. Navidrome 0.64.2 does both on the first
+		 * request for a transcode.
+		 */
+		estimateOff: false,
 		/** OpenSubsonic `releaseTypes` by album id, such as `['EP']`. An album without an entry sends none. */
 		releaseTypes: new Map(),
 		/** Fields to put over an album's own, by id: `{ songCount, duration, isCompilation }`. */
@@ -145,6 +155,14 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 		radio: [],
 		/** Cover ids answered with a solid colour, as `[r, g, b]`, instead of the 1px PNG. */
 		coverColors: new Map(),
+		/** Titles to answer with in place of a song's own, by song id. */
+		songTitles: new Map(),
+		/** The content type to answer a cover with in place of `image/png`, by cover id. */
+		coverTypes: new Map(),
+		/** Bytes added after every cover, for a cover of a known weight. */
+		coverPadding: 0,
+		/** What `getUser` says of the account: `adminRole`. */
+		admin: true,
 		/** Songs on each album from `getAlbum`, up to 26: `s1a`, `s1b`, `s1c` and on. */
 		albumSongs: 2,
 		/**
@@ -153,6 +171,14 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 		 * server without an agent does.
 		 */
 		similarAlbums: 0,
+		/**
+		 * Albums `getRandomSongs` answers with when asked within a genre or a
+		 * span of years, one song from each, from album 20 on. Zero answers with
+		 * none.
+		 */
+		alikeAlbums: 0,
+		/** What that request asked for: its genre, or its years. */
+		alikeAsked: null,
 		/** The songs in playlist `pl1`, in order; `createPlaylist` with its id replaces them. */
 		playlistEntries: ['s1a', 's2a'],
 		/** The last Subsonic call, and whether it came as a form POST. */
@@ -171,9 +197,9 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 		mixSize: 0,
 		/**
 		 * Navidrome's own API (`/auth/login`, `/api/lastfm/link`,
-		 * `/api/listenbrainz/link`). Null makes this a Subsonic server that is not
-		 * Navidrome, which answers those paths with 404. Session tokens numbered
-		 * below `acceptFrom` are refused, as expired ones are.
+		 * `/api/listenbrainz/link`). Null makes this a Subsonic server that is
+		 * not Navidrome, which answers those paths with 404. Session tokens
+		 * numbered below `acceptFrom` are refused, as expired ones are.
 		 */
 		navidrome: {
 			enabled: { lastfm: true, listenbrainz: true },
@@ -188,7 +214,7 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 	const name = (i) => `Artist ${String(i).padStart(4, '0')}`;
 	const song = (i, side) => ({
 		id: `s${i}${side}`,
-		title: `Song ${i}${side}`,
+		title: state.songTitles.get(`s${i}${side}`) ?? `Song ${i}${side}`,
 		album: `Album ${i}`,
 		albumId: `al${i}`,
 		artist: name(i),
@@ -300,8 +326,9 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 			res.end(JSON.stringify(body));
 		};
 
-		const expected = createHash('md5').update(state.password + p.get('s')).digest('hex');
-		if (p.get('u') !== state.username || p.get('t') !== expected) return send(failed(40, 'Wrong username or password'));
+		const password = p.get('u') === state.username ? state.password : state.others.get(p.get('u'));
+		const expected = createHash('md5').update(password + p.get('s')).digest('hex');
+		if (password === undefined || p.get('t') !== expected) return send(failed(40, 'Wrong username or password'));
 
 		switch (method) {
 			case 'ping':
@@ -389,7 +416,7 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 			case 'getSong': {
 				const id = p.get('id') ?? '';
 				const i = index(id);
-				if (state.missing.has(id) || !(i >= 0 && i < artistCount)) return send(failed(70, 'Song not found'));
+				if (state.missing.has(id) || state.hidden.get(p.get('u'))?.has(id) || !(i >= 0 && i < artistCount)) return send(failed(70, 'Song not found'));
 				return send(ok({ song: song(i, id.endsWith('b') ? 'b' : 'a') }));
 			}
 			case 'getStarred2': {
@@ -481,23 +508,37 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 				return send(ok({}));
 			}
 			case 'getRandomSongs':
+				if (p.has('genre') || p.has('fromYear')) {
+					state.alikeAsked = { genre: p.get('genre'), fromYear: p.get('fromYear'), toYear: p.get('toYear') };
+					const songs = Array.from({ length: state.alikeAlbums }, (_, k) => song((20 + k) % artistCount, 'a'));
+					return send(ok({ randomSongs: songs.length > 0 ? { song: songs } : {} }));
+				}
 				return send(ok({ randomSongs: { song: [song(1, 'a'), song(2, 'a')] } }));
 			case 'getUser':
-				return send(ok({ user: { username: state.username, adminRole: true } }));
+				return send(ok({ user: { username: state.username, adminRole: state.admin } }));
 			case 'getCoverArt': {
 				const id = p.get('id');
 				if (id === 'html') {
 					res.setHeader('content-type', 'text/html');
 					return res.end('<script>parent.stolen = document.cookie</script>');
 				}
-				res.setHeader('content-type', 'image/png');
-				return res.end(state.coverColors.has(id) ? solidPng(state.coverColors.get(id)) : PNG);
+				res.setHeader('content-type', state.coverTypes.get(id) ?? 'image/png');
+				const cover = state.coverColors.has(id) ? solidPng(state.coverColors.get(id)) : PNG;
+				return res.end(state.coverPadding ? Buffer.concat([cover, Buffer.alloc(state.coverPadding)]) : cover);
 			}
 			case 'stream': {
-				const body = state.audio?.body ?? Buffer.alloc(1000, 7);
+				// A function is called for each request: a body that differs from one
+				// read to the next.
+				const audio = state.audio?.body;
+				const body = typeof audio === 'function' ? audio() : (audio ?? Buffer.alloc(1000, 7));
 				const range = /^bytes=(\d+)-(\d*)$/.exec(req.headers.range ?? '');
 				res.setHeader('content-type', state.audio?.type ?? 'audio/flac');
 				if (state.ignoreRange) {
+					if (state.estimateOff) {
+						if (p.get('estimateContentLength') !== 'true') return res.end(body);
+						res.setHeader('content-length', body.length + 64);
+						return res.write(body, () => res.socket?.destroy());
+					}
 					res.setHeader('content-length', body.length);
 					if (state.streamSlowMs > 0) {
 						const half = Math.floor(body.length / 2);
@@ -817,4 +858,69 @@ export async function startStationHost() {
 		}
 	});
 	return { ...server, calls, state };
+}
+
+/** The one webhook and the one user token the mock below knows. */
+export const OUTSIDE = {
+	webhook: '/api/webhooks/123456789012345678/' + 'w'.repeat(68),
+	listenBrainzToken: '0b6a6f3e-1111-4222-8333-444455556666'
+};
+
+/**
+ * Discord and ListenBrainz, as far as `integrations.ts` asks of them: a
+ * webhook that can be read and posted to, and a user token that can be checked
+ * and scrobbled with. `posts` holds what was posted, in order, as
+ * `{ to: 'discord' | 'listenbrainz', body }`, and for a Discord post sent as a
+ * form, the `files` that came with it as `{ filename, type, bytes }`.
+ */
+export async function startOutside() {
+	const calls = counter();
+	/** `webhookGone` answers the webhook with 404, as Discord does once it is deleted. */
+	const state = { webhookGone: false };
+	const posts = [];
+	const server = await listen((req, res) => {
+		const url = new URL(req.url, 'http://x');
+		const send = (body, status = 200) => {
+			res.statusCode = status;
+			res.setHeader('content-type', 'application/json');
+			res.end(JSON.stringify(body));
+		};
+		const chunks = [];
+		req.on('data', (chunk) => chunks.push(chunk));
+		req.on('end', () => {
+			calls.hit(`${req.method} ${url.pathname}`);
+			const whole = Buffer.concat(chunks);
+			let raw = whole.toString('utf8');
+			const files = [];
+			// A form: `payload_json` is the message, and every other part is a file.
+			const boundary = /^multipart\/form-data; boundary=(.+)$/.exec(req.headers['content-type'] ?? '')?.[1];
+			if (boundary) {
+				for (const part of whole.toString('latin1').split(`--${boundary}`).slice(1, -1)) {
+					const [head, ...rest] = part.split('\r\n\r\n');
+					const content = rest.join('\r\n\r\n').replace(/\r\n$/, '');
+					const filename = /filename="([^"]*)"/.exec(head)?.[1];
+					if (/name="payload_json"/.test(head)) raw = Buffer.from(content, 'latin1').toString('utf8');
+					else files.push({ filename, type: /content-type: (.+)/i.exec(head)?.[1]?.trim(), bytes: Buffer.from(content, 'latin1') });
+				}
+			}
+			const token = req.headers.authorization === `Token ${OUTSIDE.listenBrainzToken}`;
+			if (url.pathname.startsWith('/api/webhooks/')) {
+				if (url.pathname !== OUTSIDE.webhook || state.webhookGone) return send({ message: 'Unknown Webhook', code: 10015 }, 404);
+				if (req.method === 'GET') return send({ id: '123456789012345678', name: 'Now playing' });
+				posts.push({ to: 'discord', body: JSON.parse(raw), files });
+				res.statusCode = 204;
+				return res.end();
+			}
+			if (url.pathname === '/1/validate-token') {
+				return send(token ? { code: 200, message: 'Token valid.', valid: true, user_name: 'listener' } : { code: 200, message: 'Token invalid.', valid: false });
+			}
+			if (url.pathname === '/1/submit-listens' && req.method === 'POST') {
+				if (!token) return send({ code: 401, error: 'Invalid authorization token.' }, 401);
+				posts.push({ to: 'listenbrainz', body: JSON.parse(raw) });
+				return send({ status: 'ok' });
+			}
+			send({}, 404);
+		});
+	});
+	return { ...server, calls, state, posts };
 }

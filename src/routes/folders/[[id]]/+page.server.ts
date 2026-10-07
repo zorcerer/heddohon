@@ -18,10 +18,10 @@ export const load: PageServerLoad = async (event) => {
 
 	/*
 	 * Folders, then tracks, 100 to a page between them. A folder is read whole
-	 * from the music server, and the top of a library can hold every artist in
-	 * it, or a folder of unsorted files thousands of tracks. "Play" asks for
-	 * the folder's tracks through `/api/tracks`, so it plays them all whatever
-	 * page is showing.
+	 * from the music server, and the top of a library can hold every artist, or
+	 * a folder of unsorted files thousands of tracks. "Play" asks for the
+	 * folder's tracks through `/api/tracks`, so it plays them all whatever page
+	 * is showing.
 	 */
 	const entries: Entry[] = [
 		...folder.folders.map((ref) => ({ folder: ref })),

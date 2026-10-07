@@ -39,6 +39,10 @@ before(async () => {
 	// The install card sits over the foot of the content once something plays,
 	// in a browser that offers to install; its own tests turn it back on.
 	await context.request.patch(`${app.url}/api/settings`, { data: { installCardDismissed: true }, headers: { origin: app.url } });
+	// The aurora moves unless an account says otherwise, and headless Chromium
+	// blurs the glass over it in software: about a third of a core, under tests
+	// that time what the page does and read its colours. It has its own test.
+	await context.request.patch(`${app.url}/api/settings`, { data: { aurora: 'off' }, headers: { origin: app.url } });
 });
 
 after(async () => {
@@ -62,10 +66,9 @@ async function watchedPage() {
 describe('the policy', () => {
 	/*
 	 * A CSP violation is reported on the console and nowhere else: the page
-	 * renders, and the thing that was refused (a font subset inlined as a
-	 * `data:` URL, an inline `onerror`, a `data:` audio sample) quietly does not
-	 * work. Each of those shipped once. An empty console on every page is what
-	 * catches the next one.
+	 * renders, and what was refused (a font subset inlined as a `data:` URL, an
+	 * inline `onerror`, a `data:` audio sample) does not work. Each of those
+	 * shipped once. An empty console on every page catches the next one.
 	 */
 	test('no page logs an error', async () => {
 		const { page, problems } = await watchedPage();
@@ -116,9 +119,9 @@ describe('playing from a card', () => {
 				};
 			});
 
-		// Not hovered, for the same reason: hovering preloads the album page. The
-		// wait stays: the timings below are measured from a page that has settled,
-		// and on a CI runner a page just loaded let 60ms stretch past the 150ms.
+		// Not hovered, since hovering preloads the album page. The wait stays: the
+		// timings below are measured from a settled page, and on a CI runner a
+		// page just loaded let 60ms stretch past the 150ms.
 		await page.waitForTimeout(600);
 		subsonic.state.delays.set('getAlbum', 1500);
 		subsonic.calls.reset();
@@ -128,8 +131,8 @@ describe('playing from a card', () => {
 			await button.focus();
 			await page.keyboard.press('Enter');
 			await page.waitForTimeout(60);
-			// The button fades in on the press now (hover no longer shows it), so its
-			// own opacity is checked at the next step, once the fade is over.
+			// The button fades in on the press, so its own opacity is checked at the
+			// next step, once the fade is over.
 			const early = await state();
 			assert.deepEqual({ ...early, button: undefined }, { busy: 'true', spinner: '0', glyph: '1', button: undefined }, 'no spinner before 150ms');
 
@@ -157,9 +160,9 @@ describe('playing from a card', () => {
 		const card = page.locator('a.card:has(button.play)').first();
 		const button = card.locator('button.play');
 		await card.hover();
-		// Hovering preloads the album page. Clicking while that is still loading
-		// put the tracks request behind it, past 150ms on a CI runner once, and
-		// the spinner the test says never shows did.
+		// Hovering preloads the album page. A click while that was loading put the
+		// tracks request behind it, past 150ms on a CI runner once, and the spinner
+		// showed.
 		await page.waitForTimeout(600);
 		await button.focus();
 		await page.keyboard.press('Enter');
@@ -198,6 +201,42 @@ function silentWav(seconds) {
 	wav.writeUInt32LE(data, 40);
 	return wav;
 }
+
+describe('the length on the seek bar', () => {
+	/*
+	 * Firefox gives an MP3 transcode still arriving as a stream the length of
+	 * what has arrived, 1.4s for a track of 4:36, and AAC without an index a
+	 * guess 17 percent over. The bar took the element's figure, so a press on
+	 * it went to the start of the track or off its end.
+	 */
+	test('is the file\'s own for the original, and the library\'s for a transcode the element measures otherwise', async () => {
+		// Six seconds of audio for a song the library lists at 180.
+		subsonic.state.audio = { type: 'audio/wav', body: silentWav(6) };
+		const { page, problems } = await watchedPage();
+		const length = async () => {
+			await page.getByRole('button', { name: 'Play Song 1a', exact: true }).click();
+			await page.waitForFunction(() => [...document.querySelectorAll('audio')].some((a) => !a.paused && a.currentTime > 0));
+			return Number(await page.locator('aside.panel [role=slider][aria-label="Seek within track"]').getAttribute('aria-valuemax'));
+		};
+		try {
+			await page.goto(app.url + '/albums/al1', { waitUntil: 'networkidle' });
+			assert.equal(await length(), 6, 'the original file\'s own length is not on the bar');
+
+			await context.request.patch(`${app.url}/api/settings`, { data: { transcode: true }, headers: { origin: app.url } });
+			await page.goto(app.url + '/albums/al1', { waitUntil: 'networkidle' });
+			assert.equal(await length(), 180, 'the bar spans what the element made of the transcode');
+		} finally {
+			subsonic.state.audio = null;
+			await context.request.patch(`${app.url}/api/settings`, { data: { transcode: false }, headers: { origin: app.url } });
+			await context.request.put(`${app.url}/api/play-state`, {
+				data: { songIds: [], index: 0, position: 0, repeat: 'off', shuffle: false },
+				headers: { origin: app.url }
+			});
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+});
 
 describe('the sleep timer', () => {
 	test('fades out over the last seconds, then pauses and puts the level back', async () => {
@@ -279,8 +318,8 @@ describe('the sleep timer', () => {
 describe('crossfade where the volume cannot be set', () => {
 	/*
 	 * iOS ignores a `volume` written from script and reads back 1. A crossfade
-	 * there started the next track at full level while the current one still
-	 * had its last seconds to play. Here `volume` is made to behave that way.
+	 * there started the next track at full level over the current one's last
+	 * seconds. Here `volume` is made to behave that way.
 	 */
 	test('the next track starts when the current one ends, not over it', async () => {
 		subsonic.state.audio = { type: 'audio/wav', body: silentWav(6) };
@@ -384,8 +423,8 @@ describe('crossfade and the album', () => {
 
 	/*
 	 * With audio processing on, the ramps are gains in a Web Audio graph, which
-	 * iOS applies although it ignores `volume`. Here `volume` is made to behave
-	 * as it does on iOS, and the crossfade happens all the same.
+	 * iOS applies although it ignores `volume`. `volume` is made to behave as
+	 * on iOS, and the crossfade still happens.
 	 */
 	test('with audio processing on, a crossfade happens where `volume` is ignored', async () => {
 		try {
@@ -1189,11 +1228,11 @@ describe('the bars a phone paints around the page', () => {
 
 describe('the tint on the rail and the player', () => {
 	/*
-	 * Each surface cross-fades two washes. When the one on screen was hidden and
-	 * the other shown in the same frame, a GPU that drew the second a frame late
-	 * showed neither, which was reported as a dark flash on every colour change.
-	 * Headless Chromium draws in step, so the flash cannot be seen here; what
-	 * can be checked is that no layer jumps between frames.
+	 * Each surface cross-fades two washes. When the one on screen was hidden
+	 * and the other shown in the same frame, a GPU that drew the second a frame
+	 * late showed neither: a dark flash on every colour change. Headless
+	 * Chromium draws in step, so this checks that no layer jumps between
+	 * frames.
 	 */
 	test('a colour change fades both layers, without a jump', async () => {
 		subsonic.state.coverColors.set('al-21', [200, 40, 40]);
@@ -1208,9 +1247,9 @@ describe('the tint on the rail and the player', () => {
 				const rail = document.querySelector('nav.rail');
 				const frames = [];
 				window.__tintFrames = frames;
-				// The frame's own time, which is what the transition is sampled at.
-				// `performance.now()` in the callback runs late behind a busy frame,
-				// and a 0.60 step between two callbacks 30ms apart on that clock was
+				// The frame's own time, which the transition is sampled at.
+				// `performance.now()` in the callback runs late behind a busy frame:
+				// a 0.60 step between two callbacks 30ms apart on that clock was
 				// 450ms of transition on this one (CI run 36150657301).
 				const sample = (time) => {
 					frames.push([
@@ -1229,9 +1268,9 @@ describe('the tint on the rail and the player', () => {
 			await page.waitForFunction(() => window.__tintFrames.length >= 120, null, { timeout: 10_000 });
 			const frames = await page.evaluate(() => window.__tintFrames);
 
-			// Only between frames under 50ms apart, by frame time. A CI runner drops frames, and a
-			// 900ms fade covers 0.66 across one gap of a few hundred milliseconds
-			// (seen once). The reset this guards against moved 1.0 in a 16ms frame.
+			// Only between frames under 50ms apart, by frame time. A CI runner
+			// drops frames, and a 900ms fade covers 0.66 across one gap of a few
+			// hundred milliseconds (seen once). The reset moved 1.0 in a 16ms frame.
 			let jump = 0;
 			for (let i = 1; i < frames.length; i++) {
 				if (frames[i][2] - frames[i - 1][2] > 50) continue;
@@ -1257,9 +1296,9 @@ describe('the tint on the rail and the player', () => {
 
 describe('the tint under the player', () => {
 	/*
-	 * The two washes were positioned at `z-index: 0`, among the panel's
-	 * contents in document order, and the second one comes after all of them:
-	 * whenever it was the wash on screen, it lay over the cover.
+	 * The two washes were at `z-index: 0`, among the panel's contents in
+	 * document order, and the second comes after all of them: whenever it was
+	 * the wash on screen, it lay over the cover.
 	 */
 	test('neither wash is painted over the cover', async () => {
 		subsonic.state.audio = { type: 'audio/wav', body: silentWav(30) };
@@ -1378,9 +1417,9 @@ describe('the tint through changes that come close together', () => {
 		try {
 			// Albums no other test opens. A cover fetched before its colour was set
 			// is held in the server's cover cache and the browser's, as the 1px PNG.
-			// The queue is album 23's last track, then album 24; the page open at
-			// the change is album 25. The tracks are 8s long, so the change comes
-			// after the observer below is watching.
+			// The queue is album 23's last track, then album 24, and the page open
+			// at the change is album 25. The tracks are 8s long, so the change
+			// comes after the observer below is watching.
 			await page.goto(app.url + '/albums/al23', { waitUntil: 'networkidle' });
 			await page.getByRole('button', { name: 'Play Song 23b', exact: true }).click();
 			await page.waitForFunction(() =>
@@ -1457,7 +1496,7 @@ describe('resuming a transcode', () => {
 	/*
 	 * A transcode arrives as a stream without ranges until the server has read
 	 * it whole, and a seek into that lands nowhere: resuming at a position
-	 * played the song from the start. The player now waits for the position.
+	 * played the song from the start. The player waits for the position.
 	 */
 	test('a restored queue picks up at its saved position', async () => {
 		const origin = { origin: app.url, 'content-type': 'application/json' };
@@ -1471,10 +1510,10 @@ describe('resuming a transcode', () => {
 		try {
 			await page.goto(app.url + '/albums', { waitUntil: 'networkidle' });
 			await page.waitForFunction(() => document.querySelector('aside.panel h2.title')?.textContent === 'Song 5a');
-			// The position restored, before anything plays. A page closed by the test
-			// before this one saves its own queue on the way out, and a slow runner
-			// once delivered that after the state above was written; checked here,
-			// such a run fails as a restore rather than as a seek.
+			// The position restored, before anything plays. A page closed by the
+			// test before this one saves its queue on the way out, and a slow runner
+			// once delivered that after the state above was written. Checked here,
+			// such a run fails as a restore and not as a seek.
 			await page.waitForFunction(
 				() => document.querySelector('aside.panel .times .hh-numeric')?.textContent === '0:25',
 				null,
@@ -1492,6 +1531,156 @@ describe('resuming a transcode', () => {
 			assert.ok(at >= 24, `playback started at ${at.toFixed(1)}s instead of 25s`);
 		} finally {
 			subsonic.state.audio = null;
+			await context.request.patch(`${app.url}/api/settings`, { headers: origin, data: { transcode: false } });
+			await context.request.put(`${app.url}/api/play-state`, {
+				headers: origin,
+				data: { songIds: [], index: 0, position: 0, repeat: 'off', shuffle: false }
+			});
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+
+	/*
+	 * The server no longer holding the transcode (15 minutes after it was last
+	 * asked for) is the case that began as a stream. Chromium takes a position
+	 * up in one, and Firefox and WebKit played from the start. So the track is
+	 * asked for whole, and the element is never given the stream.
+	 */
+	test('a restored queue asks for the transcode whole, and waits at its saved position', async () => {
+		const origin = { origin: app.url, 'content-type': 'application/json' };
+		await context.request.patch(`${app.url}/api/settings`, { headers: origin, data: { transcode: true } });
+		subsonic.state.audio = { type: 'audio/wav', body: silentWav(60) };
+		subsonic.state.ignoreRange = true;
+		subsonic.state.streamSlowMs = 2000;
+		await context.request.put(`${app.url}/api/play-state`, {
+			headers: origin,
+			data: { songIds: ['s8a', 's8b'], index: 0, position: 25, repeat: 'off', shuffle: false }
+		});
+		const { page, problems } = await watchedPage();
+		try {
+			const streams = [];
+			page.on('response', (response) => {
+				const url = new URL(response.url());
+				if (response.request().method() !== 'GET' || url.pathname !== '/api/stream/s8a') return;
+				streams.push({ whole: url.searchParams.has('whole'), ranges: response.headers()['accept-ranges'] ?? null });
+			});
+			await page.goto(app.url + '/albums', { waitUntil: 'networkidle' });
+			const shown = () => page.locator('aside.panel .times .hh-numeric').first().textContent();
+			await page.waitForFunction(
+				() => document.querySelector('aside.panel .times .hh-numeric')?.textContent === '0:25',
+				null,
+				{ timeout: 5000 }
+			);
+			await page.locator('aside.panel button.play').click();
+			// The read is a second from done: nothing plays, and the bar has not gone to 0:00.
+			await page.waitForTimeout(1000);
+			assert.equal(await shown(), '0:25');
+			assert.equal(await page.evaluate(() => [...document.querySelectorAll('audio')].some((a) => a.currentTime > 0)), false);
+
+			await page.waitForFunction(
+				() => [...document.querySelectorAll('audio')].some((a) => !a.paused && a.currentTime > 0),
+				null,
+				{ timeout: 15_000 }
+			);
+			const at = await page.evaluate(() =>
+				Math.max(...[...document.querySelectorAll('audio')].filter((a) => !a.paused).map((a) => a.currentTime))
+			);
+			assert.ok(at >= 24, `playback started at ${at.toFixed(1)}s instead of 25s`);
+			assert.ok(streams.length > 0);
+			assert.deepEqual(streams.filter((s) => !s.whole || s.ranges !== 'bytes'), [], 'the element was given a stream without ranges');
+		} finally {
+			subsonic.state.audio = null;
+			subsonic.state.ignoreRange = false;
+			subsonic.state.streamSlowMs = 0;
+			await context.request.patch(`${app.url}/api/settings`, { headers: origin, data: { transcode: false } });
+			await context.request.put(`${app.url}/api/play-state`, {
+				headers: origin,
+				data: { songIds: [], index: 0, position: 0, repeat: 'off', shuffle: false }
+			});
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+
+	/*
+	 * Firefox reports nothing seekable in a stream without ranges for as long
+	 * as the element holds it, and ignores a position set on it. Chromium seeks
+	 * in one by waiting for the bytes, so this test gives its elements
+	 * Firefox's answers until the page has learnt from the server that the
+	 * transcode is whole.
+	 */
+	test('a seek in a transcode that began as a stream is made once the server has it whole', async () => {
+		const origin = { origin: app.url, 'content-type': 'application/json' };
+		await context.request.patch(`${app.url}/api/settings`, { headers: origin, data: { transcode: true } });
+		subsonic.state.audio = { type: 'audio/wav', body: silentWav(180) };
+		subsonic.state.ignoreRange = true;
+		// The server's read of the transcode takes this long, and the seek is made inside it.
+		subsonic.state.streamSlowMs = 3000;
+		const { page, problems } = await watchedPage();
+		try {
+			await page.addInitScript(() => {
+				let whole = false;
+				const seekable = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'seekable');
+				const time = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'currentTime');
+				const none = { length: 0, start: () => 0, end: () => 0 };
+				Object.defineProperty(HTMLMediaElement.prototype, 'seekable', {
+					get() {
+						return whole ? seekable.get.call(this) : none;
+					}
+				});
+				Object.defineProperty(HTMLMediaElement.prototype, 'currentTime', {
+					get() {
+						return time.get.call(this);
+					},
+					set(value) {
+						if (whole) time.set.call(this, value);
+					}
+				});
+				const fetched = window.fetch;
+				window.__heads = 0;
+				window.fetch = async (...args) => {
+					const response = await fetched(...args);
+					if (args[1]?.method === 'HEAD') {
+						window.__heads += 1;
+						if (response.headers.get('accept-ranges') === 'bytes') whole = true;
+					}
+					return response;
+				};
+			});
+			const streams = [];
+			page.on('request', (request) => {
+				if (request.method() === 'GET' && request.url().includes('/api/stream/')) streams.push(request.url());
+			});
+			await page.goto(app.url + '/albums/al6', { waitUntil: 'domcontentloaded' });
+			await page.getByRole('button', { name: 'Play', exact: true }).first().click();
+			const position = () =>
+				page.evaluate(() => Math.max(0, ...[...document.querySelectorAll('audio')].filter((a) => !a.paused).map((a) => a.currentTime)));
+			await page.waitForFunction(() => [...document.querySelectorAll('audio')].some((a) => !a.paused && a.currentTime > 0.3), null, { timeout: 15_000 });
+			const before = streams.length;
+
+			const bar = await page.locator('aside.panel [role=slider][aria-label="Seek within track"]').boundingBox();
+			await page.mouse.click(bar.x + bar.width * 0.6, bar.y + bar.height / 2);
+			// Not there yet, and the music has not stopped to wait for it.
+			await page.waitForTimeout(700);
+			const waiting = await position();
+			assert.ok(waiting > 0.5 && waiting < 30, `at ${waiting.toFixed(1)}s while the transcode is being read`);
+
+			// 60% of three minutes is 1:48.
+			await page.waitForFunction(
+				() => [...document.querySelectorAll('audio')].some((a) => !a.paused && a.currentTime >= 108),
+				null,
+				{ timeout: 15_000 }
+			);
+			const after = await position();
+			assert.ok(after < 125, `landed at ${after.toFixed(1)}s`);
+			assert.ok(streams.length > before, 'the track was not asked for again');
+			assert.ok((await page.evaluate(() => window.__heads)) >= 1);
+			assert.equal(await page.locator('aside.panel .times .hh-numeric').first().textContent(), `1:${String(Math.floor(after) - 60).padStart(2, '0')}`);
+		} finally {
+			subsonic.state.audio = null;
+			subsonic.state.ignoreRange = false;
+			subsonic.state.streamSlowMs = 0;
 			await context.request.patch(`${app.url}/api/settings`, { headers: origin, data: { transcode: false } });
 			await context.request.put(`${app.url}/api/play-state`, {
 				headers: origin,
@@ -1619,6 +1808,10 @@ describe('an album link', () => {
 		const { page, problems } = await watchedPage();
 		const visitor = await browser.newContext({ viewport: { width: 1280, height: 900 } });
 		try {
+			// The device's share sheet, standing in: it records what it was handed.
+			await page.addInitScript(() => {
+				navigator.share = async (data) => void (window.__shared = data);
+			});
 			await page.goto(app.url + '/albums/al10', { waitUntil: 'networkidle' });
 			await page.getByRole('button', { name: 'Share a link to this album' }).click();
 			await page.getByText('Share an album').waitFor();
@@ -1632,6 +1825,8 @@ describe('an album link', () => {
 			await page.getByRole('button', { name: 'Create link' }).click();
 			const url = await page.locator('dialog input.url').inputValue();
 			assert.match(url, /\/share\/[A-Za-z0-9_-]{43}$/);
+			await page.getByRole('button', { name: 'Share…' }).click();
+			assert.deepEqual(await page.evaluate(() => window.__shared), { title: 'Album 10 · Artist 0010', url });
 
 			const shared = await visitor.newPage();
 			await shared.goto(url, { waitUntil: 'networkidle' });
@@ -1825,13 +2020,13 @@ describe('a shared album\'s transport', () => {
 
 describe('playing across page changes', () => {
 	/*
-	 * Playback stopped on a page change, now and then, for three causes so far.
-	 * An effect in the layout that read what `player.attach` reads detached and
-	 * re-attached the player on navigation; every attach restores the queue
-	 * from `/api/play-state`, so a second request there is a re-attach. And
+	 * Playback stopped on a page change for three causes so far. An effect in
+	 * the layout that read what `player.attach` reads detached and re-attached
+	 * the player on navigation: every attach restores the queue from
+	 * `/api/play-state`, so a second request there is a re-attach. And
 	 * SvelteKit turns a page change into a full page load, which tears down the
 	 * audio, when the page's code is gone after an image update or its data
-	 * request fails; a second `load` event is a full page load.
+	 * request fails: a second `load` event is a full page load.
 	 */
 	async function playAndWatch(page) {
 		const restores = [];
@@ -2131,10 +2326,10 @@ describe('presses, cards and arriving at an album', () => {
 		try {
 			await page.goto(app.url + '/albums', { waitUntil: 'networkidle' });
 			const card = page.locator('a.card:has(button.play)').first();
-			// The glow's opacity on every frame from before the hover. It has to pass
-			// through values between 0 and 1: a `drop-shadow` transitioned from `none`
-			// drew nothing until it ended and then all of it. Sampled rather than read
-			// at a fixed time: a CI runner had not started the hover 100ms after it.
+			// The glow's opacity on every frame from before the hover. It has to
+			// pass through values between 0 and 1: a `drop-shadow` transitioned from
+			// `none` drew nothing until it ended and then all of it. Sampled, not
+			// read at a fixed time: a CI runner had not started the hover 100ms in.
 			await card.evaluate((el) => {
 				const glow = getComputedStyle(el.querySelector('.art'), '::before');
 				window.__glow = [];
@@ -2262,7 +2457,7 @@ describe('shelves', () => {
 });
 
 describe('the aurora', () => {
-	test('is off by default, and drifts or holds still from Settings', async () => {
+	test('drifts by default, and holds still or goes from Settings', async () => {
 		const origin = { origin: app.url, 'content-type': 'application/json' };
 		const { page, problems } = await watchedPage();
 		const state = () =>
@@ -2273,16 +2468,33 @@ describe('the aurora', () => {
 				return { shown: true, running: animation?.playState === 'running' };
 			});
 		try {
-			await page.goto(app.url + '/albums', { waitUntil: 'networkidle' });
-			assert.deepEqual(await state(), { shown: false, running: false });
+			// An account that has never chosen: a context of its own, signed in as one.
+			const fresh = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+			try {
+				const signIn = await fresh.request.post(`${app.url}/login`, {
+					form: { username: 'seconduser', password: 'secondpass', backend: 'subsonic', next: '/' },
+					headers: { origin: app.url, accept: 'text/html' },
+					maxRedirects: 0
+				});
+				assert.equal(signIn.status(), 303);
+				const first = await fresh.newPage();
+				await first.goto(app.url + '/albums', { waitUntil: 'networkidle' });
+				assert.equal(await first.locator('.aurora:not(.still)').count(), 1, 'an account that had not chosen has no moving aurora');
+			} finally {
+				await fresh.close();
+			}
 
 			await context.request.patch(`${app.url}/api/settings`, { headers: origin, data: { aurora: 'moving' } });
-			await page.reload({ waitUntil: 'networkidle' });
+			await page.goto(app.url + '/albums', { waitUntil: 'networkidle' });
 			assert.deepEqual(await state(), { shown: true, running: true });
 
 			await context.request.patch(`${app.url}/api/settings`, { headers: origin, data: { aurora: 'still' } });
 			await page.reload({ waitUntil: 'networkidle' });
 			assert.deepEqual(await state(), { shown: true, running: false });
+
+			await context.request.patch(`${app.url}/api/settings`, { headers: origin, data: { aurora: 'off' } });
+			await page.reload({ waitUntil: 'networkidle' });
+			assert.deepEqual(await state(), { shown: false, running: false });
 		} finally {
 			await context.request.patch(`${app.url}/api/settings`, { headers: origin, data: { aurora: 'off' } });
 			await page.close();
@@ -2293,9 +2505,9 @@ describe('the aurora', () => {
 
 describe('the heart in the player', () => {
 	/*
-	 * The player keeps one heart and hands it each new song. It kept the state
-	 * from the last press instead, so a song starred in the player showed as
-	 * starred on every song after it.
+	 * The player keeps one heart and hands it each new song. When it kept the
+	 * state from the last press, a song starred in the player showed as starred
+	 * on every song after it.
 	 */
 	test('follows the song on a skip, and agrees with the track row', async () => {
 		const { page, problems } = await watchedPage();
@@ -2350,15 +2562,18 @@ describe('playback on another browser', () => {
 		await remoteApp?.stop();
 	});
 
-	async function signedInPage() {
+	async function signedInPage(username = 'testuser', password = 'testpass') {
 		const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
 		browsers.push(context);
 		const signIn = await context.request.post(`${remoteApp.url}/login`, {
-			form: { username: 'testuser', password: 'testpass', backend: 'subsonic', next: '/' },
+			form: { username, password, backend: 'subsonic', next: '/' },
 			headers: { origin: remoteApp.url, accept: 'text/html' },
 			maxRedirects: 0
 		});
 		assert.equal(signIn.status(), 303);
+		// As for the first app's account: these tests run three pages at once and
+		// time what they do, one of them against a limit of 2 seconds.
+		await context.request.patch(`${remoteApp.url}/api/settings`, { data: { aurora: 'off' }, headers: { origin: remoteApp.url } });
 		const page = await context.newPage();
 		const problems = [];
 		page.on('console', (message) => message.type() === 'error' && problems.push(message.text()));
@@ -2423,6 +2638,98 @@ describe('playback on another browser', () => {
 			subsonic.state.audio = null;
 		}
 	});
+	/*
+	 * Two accounts on one music server. The second sets itself up under
+	 * Settings as a person would, picture included: the browser cuts and
+	 * re-encodes the image, which the page's policy has to allow.
+	 */
+	test('an account that chooses to be shown appears to another with its name, its picture and its track, which the other plays from the popup', async () => {
+		const { page: viewer, problems } = await signedInPage();
+		const { page: shown, problems: shownProblems } = await signedInPage('seconduser', 'secondpass');
+		const write = (method, path, data) =>
+			shown.context().request.fetch(remoteApp.url + path, { method, data, headers: { origin: remoteApp.url } });
+		subsonic.state.audio = { type: 'audio/wav', body: silentWav(60) };
+		try {
+			await viewer.goto(remoteApp.url + '/', { waitUntil: 'load' });
+			const pill = viewer.locator('button.heads');
+
+			await shown.goto(remoteApp.url + '/albums/al7', { waitUntil: 'load' });
+			await shown.getByRole('button', { name: 'Play Song 7b', exact: true }).click();
+			await titleIs(shown, 'Song 7b');
+			await shown.waitForFunction(() => [...document.querySelectorAll('audio')].some((a) => !a.paused), null, { timeout: 5000 });
+			// Playing, and not shown: nothing appears to the other account.
+			await viewer.waitForTimeout(600);
+			assert.equal(await pill.count(), 0, 'an account that had not chosen to be shown was shown');
+
+			// By the rail and the tab, so the track keeps playing across the page change.
+			await shown.locator('nav.rail a[href="/settings"]').click();
+			await shown.getByRole('link', { name: 'Account', exact: true }).click();
+			const section = shown.locator('section#listening');
+			await section.getByLabel('Display name').fill('Mira');
+			await section.getByRole('button', { name: 'Save' }).click();
+			// A 300x200 PNG, wider than tall, drawn in the page.
+			const png = await shown.evaluate(async () => {
+				const canvas = document.createElement('canvas');
+				canvas.width = 300;
+				canvas.height = 200;
+				const context = canvas.getContext('2d');
+				context.fillStyle = '#c0392b';
+				context.fillRect(0, 0, 300, 200);
+				const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+				return Array.from(new Uint8Array(await blob.arrayBuffer()));
+			});
+			await section.locator('input[type=file]').setInputFiles({ name: 'me.png', mimeType: 'image/png', buffer: Buffer.from(png) });
+			await section.locator('.avatar img').waitFor({ timeout: 5000 });
+			await section.getByRole('checkbox').check();
+			await section.getByText('You are shown as Mira.').waitFor({ timeout: 5000 });
+
+			await pill.waitFor({ timeout: 5000 });
+			assert.equal(await pill.getAttribute('aria-label'), 'Listening now: Mira');
+			// Over the content column: clear of the rail and of the player.
+			const box = async (locator) => locator.evaluate((node) => node.getBoundingClientRect().toJSON());
+			const [at, rail, panel] = [await box(pill), await box(viewer.locator('nav.rail')), await box(viewer.locator('.app > .player'))];
+			assert.ok(at.left >= rail.right && at.right <= panel.left, `the pill is at ${at.left} to ${at.right}, the rail ends at ${rail.right} and the player starts at ${panel.left}`);
+
+			await pill.click();
+			const dialog = viewer.locator('dialog.listening');
+			const row = dialog.locator('li.listener', { hasText: 'Mira' });
+			await row.getByText('Song 7b').waitFor({ timeout: 5000 });
+			// The picture arrived as the square the browser cut: 256 by 256.
+			await viewer.waitForFunction(() => document.querySelector('dialog.listening li.listener .avatar img')?.naturalWidth === 256, null, { timeout: 5000 });
+			assert.equal(await row.locator('.avatar img').evaluate((image) => image.naturalHeight), 256);
+			assert.equal(await row.locator('a.art').getAttribute('href'), '/albums/al7');
+			// The popup opens out of the pill: they share the corner.
+			const opened = await box(dialog);
+			assert.ok(Math.abs(opened.right - at.right) < 1 && Math.abs(opened.bottom - at.bottom) < 1, `the popup's corner is ${opened.right},${opened.bottom}, the pill's ${at.right},${at.bottom}`);
+
+			await row.getByRole('button', { name: 'Play it here' }).click();
+			await titleIs(viewer, 'Song 7b');
+			await viewer.waitForFunction(() => !document.querySelector('dialog.listening')?.open, null, { timeout: 5000 });
+
+			// On a phone the pill sits above the dock.
+			await viewer.setViewportSize({ width: 393, height: 641 });
+			await viewer.waitForFunction(
+				() => {
+					const pill = document.querySelector('button.heads')?.getBoundingClientRect();
+					const dock = document.querySelector('.phone-dock')?.getBoundingClientRect();
+					return pill && dock && dock.height > 0 && pill.bottom <= dock.top && pill.bottom > dock.top - 24;
+				},
+				null,
+				{ timeout: 5000 }
+			);
+			await viewer.setViewportSize({ width: 1440, height: 900 });
+
+			// Paused, the account is gone from the other's screen.
+			await shown.locator('aside.panel').getByRole('button', { name: 'Pause', exact: true }).click();
+			await pill.waitFor({ state: 'detached', timeout: 5000 });
+		} finally {
+			subsonic.state.audio = null;
+			await write('PATCH', '/api/profile', { shown: false, name: null });
+			await write('DELETE', '/api/profile/avatar');
+		}
+		assert.deepEqual([...problems, ...shownProblems], []);
+	});
+
 
 	test('a visitor with no account joins, follows a skip and a pause, and a reaction reaches the host', async () => {
 		const { page: hostPage, problems } = await signedInPage();
@@ -2477,14 +2784,131 @@ describe('playback on another browser', () => {
 		}
 		assert.deepEqual(problems, []);
 	});
+
+	/*
+	 * Two accounts on one music server. The mock's search for "Artist 0005"
+	 * finds Song 5a, Song 6b and Song 7a, and the host's account is made
+	 * unable to read the last.
+	 */
+	test("a member's tracks play after the current one in the order added, a visitor only watches, and the host removes a track and then the member", async () => {
+		const { page: hostPage, problems } = await signedInPage();
+		const { page: member, problems: memberProblems } = await signedInPage('seconduser', 'secondpass');
+		const visitorContext = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+		browsers.push(visitorContext);
+		const visitor = await visitorContext.newPage();
+		/** The host's queue from the playing track on, each row with who added it. */
+		const hostQueue = () =>
+			hostPage.evaluate(() => {
+				const rows = [...document.querySelectorAll('aside.panel .queue-list > li')];
+				return rows.slice(rows.findIndex((row) => row.querySelector('.row.current'))).map((row) => {
+					const by = /Added by (.+)$/.exec(row.querySelector('.row-sub')?.textContent.trim() ?? '');
+					return `${row.querySelector('.row-title')?.textContent.trim()}${by ? ` (${by[1]})` : ''}`;
+				});
+			});
+		/** What a party page shows as up next, each row with who added it and whether it can be taken back. */
+		const upNext = (page) =>
+			page.evaluate(() =>
+				[...document.querySelectorAll('ol.rows > li')].map((row) => {
+					const by = /Added by (.+)$/.exec(row.querySelector('.sub')?.textContent.trim() ?? '');
+					return `${row.querySelector('.title')?.textContent.trim()}${by ? ` (${by[1]})` : ''}${row.querySelector('button') ? ' [Remove]' : ''}`;
+				})
+			);
+		const settles = async (read, want, what) => {
+			const deadline = Date.now() + 5000;
+			let got;
+			do {
+				got = await read();
+				if (JSON.stringify(got) === JSON.stringify(want)) return;
+				await new Promise((done) => setTimeout(done, 100));
+			} while (Date.now() < deadline);
+			assert.deepEqual(got, want, what);
+		};
+		const add = (title) => member.getByRole('button', { name: `Add ${title} to the queue` }).click();
+		const told = (text) => member.locator('.next .note', { hasText: text }).waitFor({ timeout: 5000 });
+		/** Additions are held to one every 2 seconds per member. */
+		const gap = () => new Promise((done) => setTimeout(done, 2100));
+		subsonic.state.audio = { type: 'audio/wav', body: silentWav(60) };
+		subsonic.state.hidden.set('testuser', new Set(['s7a']));
+		try {
+			await hostPage.goto(remoteApp.url + '/albums/al17', { waitUntil: 'load' });
+			await hostPage.getByRole('button', { name: 'Play Song 17a', exact: true }).click();
+			await hostPage.waitForFunction(() => [...document.querySelectorAll('audio')].some((a) => !a.paused), null, { timeout: 5000 });
+			await hostPage.getByRole('button', { name: 'Share a link to this song' }).click();
+			await hostPage.getByRole('button', { name: 'Listen together' }).click();
+			const field = hostPage.getByRole('textbox', { name: 'Listen-together link' });
+			await field.waitFor({ timeout: 5000 });
+			const link = await field.inputValue();
+			await hostPage.locator('dialog.together').getByRole('button', { name: 'Close' }).click();
+			await hostPage.locator('aside.panel').getByRole('button', { name: 'Queue', exact: true }).click();
+			await settles(hostQueue, ['Song 17a', 'Song 17b'], "the host's queue before anyone joins");
+
+			// The visitor sees the queue, and has nothing to add with.
+			await visitor.goto(link, { waitUntil: 'load' });
+			await visitor.getByRole('button', { name: 'Join', exact: true }).click();
+			await settles(() => upNext(visitor), ['Song 17b'], 'what the visitor is shown as up next');
+
+			await member.goto(link, { waitUntil: 'load' });
+			assert.equal(await member.locator('form.search').count(), 0, 'the search is there before the member joined');
+			await member.getByRole('button', { name: 'Join as seconduser' }).click();
+			const search = member.getByRole('searchbox', { name: 'Search your library' });
+			await search.waitFor({ timeout: 5000 });
+			await hostPage.locator('aside.panel .live', { hasText: '2 listening' }).waitFor({ timeout: 5000 });
+
+			await search.fill('Artist 0005');
+			await search.press('Enter');
+			await member.getByRole('list', { name: 'Search results' }).getByRole('listitem').nth(2).waitFor({ timeout: 5000 });
+			await add('Song 5a');
+			await told('Song 5a was added.');
+			// Inside the 2 seconds.
+			await add('Song 6b');
+			await told('One track every 2 seconds.');
+			await gap();
+			await add('Song 7a');
+			await told("Not in the host's library");
+			await gap();
+			await add('Song 6b');
+			await told('Song 6b was added.');
+
+			// After the current track, in the order added, ahead of the host's own next track.
+			await settles(hostQueue, ['Song 17a', 'Song 5a (seconduser)', 'Song 6b (seconduser)', 'Song 17b'], "the host's queue after two additions");
+			await settles(() => upNext(member), ['Song 5a (you) [Remove]', 'Song 6b (you) [Remove]', 'Song 17b'], 'what the member is shown');
+			await settles(() => upNext(visitor), ['Song 5a (seconduser)', 'Song 6b (seconduser)', 'Song 17b'], 'what the visitor is shown');
+			assert.equal(await visitor.locator('form.search').count(), 0, 'a visitor has a search to add from');
+
+			await hostPage.locator('aside.panel button.step').nth(1).click();
+			await titleIs(hostPage, 'Song 5a');
+			await member.locator('h1', { hasText: 'Song 5a' }).waitFor({ timeout: 5000 });
+			await member.waitForFunction(() => /\?song=s5a$/.test(document.querySelector('audio.together-audio')?.getAttribute('src') ?? ''), null, { timeout: 5000 });
+			await settles(hostQueue, ['Song 5a (seconduser)', 'Song 6b (seconduser)', 'Song 17b'], "the host's queue after the skip");
+
+			// The host removes the member's track, and then the member.
+			await hostPage.getByRole('button', { name: 'Remove Song 6b from the queue' }).click();
+			await settles(() => upNext(member), ['Song 17b'], 'what the member is shown after the host removed their track');
+			await hostPage.locator('aside.panel .live').click();
+			await hostPage.getByRole('button', { name: 'Remove seconduser from listening together' }).click();
+			await member.locator('h1', { hasText: 'You were removed' }).waitFor({ timeout: 5000 });
+			await member.waitForFunction(() => document.querySelector('audio.together-audio')?.paused === true, null, { timeout: 5000 });
+			assert.equal(await member.locator('form.search').count(), 0);
+			assert.equal((await member.goto(link, { waitUntil: 'load' })).status(), 403, 'the removed member came back');
+			await hostPage.locator('dialog.together p.count', { hasText: '1 listening with you' }).waitFor({ timeout: 5000 });
+			assert.equal(await hostPage.locator('dialog.together .members li').count(), 0);
+			assert.equal(await visitor.locator('h1').textContent(), 'Song 5a', 'the visitor was taken out with the member');
+		} finally {
+			subsonic.state.audio = null;
+			subsonic.state.hidden.clear();
+		}
+		// The refusals above are the server's answers, which the browser logs.
+		const refused = /status of (403|404|429)/;
+		assert.deepEqual([...problems, ...memberProblems].filter((problem) => !refused.test(problem)), []);
+	});
 });
 
 describe('casting', () => {
 	/*
 	 * No receiver answers in a headless browser, so the Remote Playback API is
 	 * stood in for: a device is always available, a prompt connects, and
-	 * `__disconnect()` ends it. What is checked is Heddohon's side: the
-	 * addresses the element plays from, and the one element.
+	 * `__disconnect()` ends it. This checks Heddohon's side: the addresses the
+	 * element plays from, and the one element.
 	 */
 	async function castingContext() {
 		const casting = await browser.newContext({ viewport: { width: 1440, height: 900 } });
@@ -2753,9 +3177,9 @@ describe('star ratings', () => {
 
 describe('Jellyfin favourites changed elsewhere', () => {
 	/*
-	 * A heart pressed in a tab was shown as pressed until the tab was
-	 * reloaded, and a tab is kept open for days: taken off in Jellyfin's own
-	 * app, it stayed on here, which read as favourites not syncing.
+	 * A heart pressed in a tab was shown as pressed until the tab was reloaded,
+	 * and a tab is kept open for days: taken off in Jellyfin's own app, it
+	 * stayed on here.
 	 */
 	test('a page loaded after a press shows what Jellyfin has, and the player keeps the press', async () => {
 		const jf = await browser.newContext({ viewport: { width: 1440, height: 900 } });
@@ -2962,8 +3386,8 @@ describe('sliders and the playlist picker', () => {
 describe('the volume slider', () => {
 	/*
 	 * The seek bar draws in whole seconds to save repaints, and the volume
-	 * slider is the same component with values from 0 to 1. With the
-	 * one-second floor applied to it, every level below full drew as 0.
+	 * slider is the same component with values from 0 to 1. With the one-second
+	 * floor applied to it, every level below full drew as 0.
 	 */
 	test('draws the level the player is at', async () => {
 		const { page, problems } = await watchedPage();
@@ -3071,8 +3495,8 @@ describe('motion', () => {
 describe('moving between pages', () => {
 	/*
 	 * In Safari and Firefox the rail and the player went dark on every page
-	 * change while the veil faded behind them. The glass cannot be watched
-	 * from here, so what is checked is that the veil is never behind it.
+	 * change while the veil faded behind them. The glass cannot be watched from
+	 * here, so this checks that the veil is never behind it.
 	 */
 	test('the veil never goes behind the rail or the player', async () => {
 		const { page, problems } = await watchedPage();
@@ -3208,7 +3632,7 @@ describe('on a phone', () => {
 	 * document's own scroll, and fills the strip under the status bar and the
 	 * band behind the toolbar with the page's background colour. With the
 	 * content column scrolling inside a box one screen tall, an iPhone showed
-	 * the page ending at the top of the toolbar with a dark band below it.
+	 * the page ending at the top of the toolbar with a dark band below.
 	 */
 	let phone;
 
@@ -3238,15 +3662,15 @@ describe('on a phone', () => {
 	}
 
 	/*
-	 * A tap rather than `click()`. Playwright scrolls a target into view
-	 * before clicking it, and with the dock pinned that moved a scrolled page,
-	 * which a finger on the dock does not do.
+	 * A tap, not `click()`: Playwright scrolls a target into view before
+	 * clicking, and with the dock pinned that moved a scrolled page, which a
+	 * finger on the dock does not.
 	 *
 	 * Tapped once the target has held still for a frame. After a scroll the
 	 * dock folds its tabs and `#dock-open` slides 56px down over about 200ms
-	 * (measured at 393x641); measured at the start of that and tapped at the
-	 * end, the tap landed above the button and the sheet did not open, which
-	 * failed CI twice on 2026-09-28.
+	 * (at 393x641). Measured at the start of that and tapped at the end, the
+	 * tap landed above the button and the sheet did not open, which failed CI
+	 * twice on 2026-09-28.
 	 */
 	async function tap(page, locator) {
 		let box = await locator.boundingBox();
@@ -3262,7 +3686,7 @@ describe('on a phone', () => {
 
 	/*
 	 * A drag from the middle of `locator`, by the mouse. Playwright's
-	 * touchscreen only taps; the mouse sends the same pointer events a finger
+	 * touchscreen only taps, and the mouse sends the pointer events a finger
 	 * does, which is all the dock and the sheet listen to.
 	 *
 	 * One step a frame, 16ms apart, as a finger's events arrive. Sent as fast
@@ -3292,9 +3716,10 @@ describe('on a phone', () => {
 		// Under the sleeve, below the fold of a 641px screen: brought to the
 		// middle, clear of the dock, as a thumb would scroll it.
 		await row.evaluate((el) => el.scrollIntoView({ block: 'center', behavior: 'instant' }));
-		// The queue is saved 1.2 seconds after it changes. A test that loads another
-		// page straight after this one counts on the saved queue being this one: in
-		// CI the load has twice come first, and the dock came back empty.
+		// The queue is saved 1.2 seconds after it changes. A test that loads
+		// another page straight after this one counts on the saved queue being
+		// this one: in CI the load has twice come first, and the dock came back
+		// empty.
 		const saved = page.waitForResponse((response) => response.url().endsWith('/api/play-state') && response.request().method() === 'PUT');
 		await tap(page, row);
 		await page.waitForFunction(
@@ -3388,6 +3813,58 @@ describe('on a phone', () => {
 			for (const { veil, dock } of samples) {
 				assert.ok(!overlaps(veil, dock), `the veil ${JSON.stringify(veil)} is behind the dock ${JSON.stringify(dock)}`);
 			}
+		} finally {
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+
+	/*
+	 * A back on a phone usually follows a swipe that has already shown the
+	 * move. It held the page being left for 172ms under the veil and animated
+	 * the one returned to until 663ms (a Pixel 7's viewport, 2026-10-06).
+	 */
+	test('back puts the page in at once, where it was left, without the veil or the rise', async () => {
+		const { page, problems } = await phonePage('/artists');
+		try {
+			await page.evaluate(() => scrollTo(0, 900));
+			await page.waitForTimeout(300);
+			// A forward navigation keeps the veil.
+			await page.evaluate(() => {
+				window.__veiled = 0;
+				const watch = () => {
+					if (document.querySelector('.page-veil')) window.__veiled += 1;
+					requestAnimationFrame(watch);
+				};
+				requestAnimationFrame(watch);
+			});
+			const link = page.locator('main a[href^="/artists/"]').nth(12);
+			const href = await link.getAttribute('href');
+			await tap(page, link);
+			await page.waitForURL((url) => url.pathname === href);
+			// Past the veil (gone by 663ms) and the 900ms the rise is held for.
+			await page.waitForTimeout(1200);
+			assert.ok((await page.evaluate(() => window.__veiled)) > 0, 'the page opened without the veil');
+
+			await page.evaluate(() => {
+				const seen = (window.__back = { veil: 0, rising: 0, transitions: 0, frames: 0 });
+				const until = performance.now() + 1200;
+				const watch = () => {
+					seen.frames += 1;
+					if (document.querySelector('.page-veil')) seen.veil += 1;
+					if (document.querySelector('main.content.rising')) seen.rising += 1;
+					if (document.getAnimations().some((a) => (a.effect?.pseudoElement ?? '').startsWith('::view-transition'))) seen.transitions += 1;
+					if (performance.now() < until) requestAnimationFrame(watch);
+				};
+				requestAnimationFrame(watch);
+			});
+			await page.goBack();
+			await page.waitForURL(/\/artists$/);
+			await page.waitForTimeout(1300);
+			const seen = await page.evaluate(() => window.__back);
+			assert.ok(seen.frames > 10, 'the page was not watched');
+			assert.deepEqual({ veil: seen.veil, rising: seen.rising, transitions: seen.transitions }, { veil: 0, rising: 0, transitions: 0 });
+			assert.equal(await page.evaluate(() => scrollY), 900, 'back did not return to where the list was left');
 		} finally {
 			await page.close();
 		}
@@ -3595,6 +4072,59 @@ describe('on a phone', () => {
 			assert.deepEqual(problems, []);
 		});
 
+		/*
+		 * A back with the sheet open went back a page under it, which nobody
+		 * could see, and the sheet closed over another page than it had opened
+		 * on. The open sheet is an entry in the history now.
+		 */
+		test('back with the sheet open closes the sheet and stays on the page', async () => {
+			const { page, problems } = await phonePage('/');
+			try {
+				await playAlbum(page, 17);
+				await page.goto(app.url + '/albums', { waitUntil: 'networkidle' });
+				await tap(page, page.getByRole('navigation', { name: 'Primary' }).getByRole('link', { name: 'Favourites' }));
+				await page.waitForURL(/\/favourites$/);
+				await page.waitForSelector('#dock-open');
+				await tap(page, page.locator('#dock-open'));
+				await page.waitForFunction(() => document.querySelector('.app').classList.contains('player-open'));
+				await page.waitForTimeout(600);
+
+				await page.goBack();
+				await page.waitForFunction(() => !document.querySelector('.app').classList.contains('player-open'), null, { timeout: 5000 });
+				assert.equal(new URL(page.url()).pathname, '/favourites', 'back left the page under the sheet');
+
+				// Closed from the sheet itself, the entry goes with it: the next back
+				// is the page before.
+				await page.waitForTimeout(600);
+				await tap(page, page.locator('#dock-open'));
+				await page.waitForFunction(() => document.querySelector('.app').classList.contains('player-open'));
+				await page.waitForTimeout(600);
+				await tap(page, page.locator('#player-hide'));
+				await page.waitForFunction(() => !document.querySelector('.app').classList.contains('player-open'));
+				await page.waitForTimeout(600);
+				assert.equal(new URL(page.url()).pathname, '/favourites');
+				await page.goBack();
+				await page.waitForURL(/\/albums$/);
+				assert.equal(await sheetOpen(page), false);
+
+				// A link followed from the sheet takes the sheet's place in the
+				// history: back returns to the page the sheet was over.
+				await tap(page, page.locator('#dock-open'));
+				await page.waitForFunction(() => document.querySelector('.app').classList.contains('player-open'));
+				await page.waitForTimeout(600);
+				await tap(page, page.locator('aside.panel .artist a'));
+				await page.waitForURL(/\/artists\/ar17$/);
+				await page.waitForTimeout(600);
+				await page.goBack();
+				await page.waitForURL(/\/albums$/);
+				await page.waitForTimeout(600);
+				assert.equal(await sheetOpen(page), false, 'back from a page opened in the sheet brought the sheet up');
+			} finally {
+				await page.close();
+			}
+			assert.deepEqual(problems, []);
+		});
+
 		test('the tabs fold away scrolling down, and come back scrolling up', async () => {
 			const { page, problems } = await phonePage('/');
 			try {
@@ -3675,9 +4205,9 @@ describe('the sleeve', () => {
 	/*
 	 * In a view transition the root is painted as an image of itself, and
 	 * Firefox draws the glass in that image without the room behind it: the
-	 * rail and the player went from 40 to 31 for the length of the transition
-	 * and back with a bright frame (recorded, not in this suite). Only the
-	 * sleeve may be captured.
+	 * rail and the player went from 40 to 31 for the transition and back with a
+	 * bright frame (recorded, not in this suite). Only the sleeve may be
+	 * captured.
 	 */
 	test('a card click morphs the sleeve and captures nothing else', async () => {
 		const { page, problems } = await watchedPage();
@@ -3911,11 +4441,11 @@ describe('restoring the queue', () => {
 	});
 
 	/*
-	 * A play pressed while the saved queue's current track was still being
-	 * looked up was replaced by the saved queue when the lookup answered: the
-	 * dock showed the new track for a moment, then the old one, and the next
-	 * save wrote the old queue back. It surfaced in CI as phone tests that
-	 * came back to the previous test's album after a page load.
+	 * A play pressed while the saved queue's current track was being looked up
+	 * was replaced by the saved queue when the lookup answered: the dock showed
+	 * the new track, then the old one, and the next save wrote the old queue
+	 * back. It surfaced in CI as phone tests that came back to the previous
+	 * test's album after a page load.
 	 */
 	test('a track played while the saved queue is being looked up stays, and is what is saved', async () => {
 		await context.request.put(`${app.url}/api/play-state`, {
@@ -3945,6 +4475,105 @@ describe('restoring the queue', () => {
 				headers: { origin: app.url }
 			});
 			await page.close();
+		}
+	});
+
+	/*
+	 * A hidden or closed page wrote its queue whether or not it had changed
+	 * it. A browser left open with a queue from days before wrote it over the
+	 * one another browser had played since, and the account reopened on the
+	 * old track. Brought back to the front, it also kept showing the old one.
+	 */
+	test('a browser left idle does not write its queue over one played since, and takes the newer one when returned to', async () => {
+		const other = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+		const signIn = await other.request.post(`${app.url}/login`, {
+			form: { username: 'testuser', password: 'testpass', backend: 'subsonic', next: '/' },
+			headers: { origin: app.url, accept: 'text/html' },
+			maxRedirects: 0
+		});
+		assert.equal(signIn.status(), 303);
+		await context.request.put(`${app.url}/api/play-state`, {
+			data: { songIds: ['s30a', 's30b'], index: 0, position: 0, repeat: 'off', shuffle: false },
+			headers: { origin: app.url }
+		});
+		const title = (page) => page.evaluate(() => document.querySelector('aside.panel h2.title')?.textContent);
+		const saved = async () => (await (await context.request.get(`${app.url}/api/play-state`)).json()).songIds;
+		const show = (page, hidden) =>
+			page.evaluate((hidden) => {
+				Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden });
+				document.dispatchEvent(new Event('visibilitychange'));
+			}, hidden);
+
+		const playing = (page) =>
+			page.waitForFunction(() => [...document.querySelectorAll('audio')].some((a) => !a.paused && a.currentTime > 0.2), null, {
+				timeout: 10_000
+			});
+		const pause = async (page) => {
+			await page.locator('aside.panel').getByRole('button', { name: 'Pause', exact: true }).click();
+			await page.locator('aside.panel').getByRole('button', { name: 'Play', exact: true }).waitFor();
+			// Past the 1.2s the save waits for.
+			await page.waitForTimeout(1800);
+		};
+		subsonic.state.audio = { type: 'audio/wav', body: silentWav(60) };
+
+		const idle = await other.newPage();
+		const active = await context.newPage();
+		try {
+			// The idle browser plays the old queue and pauses, so its element holds
+			// the old track.
+			await idle.goto(app.url + '/', { waitUntil: 'load' });
+			await idle.waitForFunction(() => document.querySelector('aside.panel h2.title')?.textContent === 'Song 30a');
+			await idle.locator('aside.panel button.play').click();
+			await playing(idle);
+			await pause(idle);
+			await show(idle, true);
+
+			await active.goto(app.url + '/albums/al31', { waitUntil: 'load' });
+			await active.waitForFunction(() => document.querySelector('aside.panel h2.title')?.textContent === 'Song 30a');
+			await active.getByRole('button', { name: 'Play Song 31a', exact: true }).click();
+			await active.waitForFunction(() => document.querySelector('aside.panel h2.title')?.textContent === 'Song 31a');
+			await playing(active);
+			await pause(active);
+			assert.deepEqual(await saved(), ['s31a', 's31b']);
+
+			// Returned to: the newer queue, and play starts its track.
+			await show(idle, false);
+			await idle.waitForFunction(() => document.querySelector('aside.panel h2.title')?.textContent === 'Song 31a', null, {
+				timeout: 5000
+			});
+			await show(idle, true);
+			await idle.evaluate(() => window.dispatchEvent(new Event('pagehide')));
+			await idle.waitForTimeout(800);
+			assert.deepEqual(await saved(), ['s31a', 's31b'], 'the idle browser wrote its queue over the newer one');
+			await show(idle, false);
+			await idle.locator('aside.panel button.play').click();
+			await playing(idle);
+			assert.equal(await title(idle), 'Song 31a');
+			assert.deepEqual(
+				await idle.evaluate(() => [...document.querySelectorAll('audio')].filter((a) => !a.paused).map((a) => new URL(a.src).pathname)),
+				['/api/stream/s31a'],
+				'play started another track than the one shown'
+			);
+
+			// A browser that is playing keeps its queue when returned to.
+			await active.getByRole('button', { name: 'Play Song 31b', exact: true }).click();
+			await active.waitForFunction(() => document.querySelector('aside.panel h2.title')?.textContent === 'Song 31b');
+			await playing(active);
+			await pause(active);
+			assert.deepEqual(await saved(), ['s31a', 's31b']);
+			await show(idle, true);
+			await show(idle, false);
+			await idle.waitForTimeout(1500);
+			assert.equal(await title(idle), 'Song 31a', 'a playing browser took the saved queue');
+		} finally {
+			subsonic.state.audio = null;
+			await idle.close();
+			await active.close();
+			await other.close();
+			await context.request.put(`${app.url}/api/play-state`, {
+				data: { songIds: [], index: 0, position: 0, repeat: 'off', shuffle: false },
+				headers: { origin: app.url }
+			});
 		}
 	});
 });
@@ -4076,9 +4705,9 @@ describe('the audio output', () => {
 
 	/*
 	 * Chrome refuses the microphone at once, without a prompt, on a computer
-	 * with none connected. One sentence covered every refusal, so pressing
-	 * "List outputs" there looked like nothing happened. The browser's own
-	 * answers are stubbed here: headless Chromium has no outputs to name.
+	 * with none connected. One sentence covered every refusal, so "List
+	 * outputs" there looked like nothing happened. The browser's answers are
+	 * stubbed: headless Chromium has no outputs to name.
 	 */
 	async function outputPanel(stub, arg) {
 		const { page, problems } = await watchedPage();

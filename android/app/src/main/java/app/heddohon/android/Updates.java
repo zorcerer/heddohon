@@ -14,14 +14,14 @@ import java.util.regex.Pattern;
 /**
  * Whether a newer release of the app exists.
  *
- * The app is not in a store, so nothing tells the phone there is a newer
- * APK. Once a day, when the app is opened, it asks GitHub for Heddohon's
- * latest release and keeps the version. When that is later than this build,
- * the next start says so once, with the way to the release page; the app does
- * not download or install anything itself.
+ * The app is not in a store, so nothing tells the phone of a newer APK. Once a
+ * day, when the app is opened, it asks GitHub for Heddohon's latest release
+ * and keeps the version. When that is later than this build, the next start
+ * says so once, with the way to the release page. The app downloads and
+ * installs nothing itself.
  *
- * What GitHub learns is the phone's address and that this app asked. A build
- * without a release version (`0.0.0`, from a checkout) does not ask.
+ * GitHub learns the phone's address and that this app asked. A build without
+ * a release version (`0.0.0`, from a checkout) does not ask.
  */
 final class Updates {
 	static final String RELEASES = "https://github.com/zorcerer/heddohon/releases/latest";

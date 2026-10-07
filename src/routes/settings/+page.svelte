@@ -5,7 +5,9 @@
 	import type { SubmitFunction } from '@sveltejs/kit';
 	import { untrack } from 'svelte';
 	import Cover from '$lib/components/Cover.svelte';
+	import Avatar from '$lib/components/Avatar.svelte';
 	import Icon from '$lib/components/Icon.svelte';
+	import { avatarUrl, listeners } from '$lib/client/listeners.svelte';
 	import { player } from '$lib/client/player.svelte';
 	import { EQ_FREQUENCIES, EQ_RANGE_DB } from '$lib/client/audiochain';
 	import { EQ_PRESETS, processing } from '$lib/client/processing.svelte';
@@ -110,17 +112,47 @@
 			? `${data.sessionMaxHours / 24} day${data.sessionMaxHours === 24 ? '' : 's'}`
 			: `${data.sessionMaxHours} hour${data.sessionMaxHours === 1 ? '' : 's'}`
 	);
+	/*
+	 * What this account shows the others on this server; see `ListeningNow.svelte`.
+	 * Each control saves as it is used. The page's own copy stands until the
+	 * event stream or a save has said what the profile is.
+	 */
+	const profile = $derived(listeners.you ?? data.profile);
+	let profileName = $state(untrack(() => data.profile?.name ?? ''));
+	let profileBusy = $state(false);
+	let pictureInput = $state<HTMLInputElement | null>(null);
+
+	async function saveProfile(work: () => Promise<boolean>) {
+		profileBusy = true;
+		await work();
+		profileBusy = false;
+	}
+
+	async function saveName(event: SubmitEvent) {
+		event.preventDefault();
+		await saveProfile(() => listeners.save({ name: profileName.trim() || null }));
+		// As the server keeps it: cut, and its white space collapsed.
+		if (!listeners.error) profileName = listeners.you?.name ?? '';
+	}
+
+	async function choosePicture(input: HTMLInputElement) {
+		const file = input.files?.[0];
+		// Emptied, so choosing the same file again is a change.
+		input.value = '';
+		if (file) await saveProfile(() => listeners.setPicture(file));
+	}
+
 	let withdrawing = $state<string | null>(null);
 	let ending = $state<string | null>(null);
 
 	/*
 	 * One group of settings at a time, chosen by tab. The tabs are links to
-	 * `?tab=`, so a tab can be linked to and opens without JavaScript; with it,
+	 * `?tab=`, so a tab can be linked to and opens without JavaScript. With it,
 	 * the switch happens here without asking the server for the page again.
 	 *
-	 * Sections on other tabs are hidden rather than left out. The save form
-	 * spans Appearance and Playback, and the server reads every field of it on
-	 * each save, so a field missing from the post would be saved as its default.
+	 * Sections on other tabs are hidden, not left out. The save form spans
+	 * Appearance and Playback, and the server reads every field on each save,
+	 * so a field missing from the post would be saved as its default.
 	 */
 	const TABS = [
 		{ id: 'appearance', label: 'Appearance' },
@@ -164,6 +196,79 @@
 	const cache = $derived(
 		form && 'coverCache' in form && form.coverCache ? form.coverCache : data.coverCache
 	);
+
+	/*
+	 * Caching every cover: started here, done by the server (`coverfill.ts`).
+	 * The loader gives where it stands when the page opens, and while it runs
+	 * the page asks again every 1.5 seconds, with the Cover cache tab showing.
+	 */
+	let fill = $state(untrack(() => data.coverFill));
+	let fillError = $state('');
+	const filling = $derived(fill.state === 'listing' || fill.state === 'running');
+
+	$effect(() => {
+		fill = data.coverFill;
+	});
+
+	async function fillRequest(method: 'GET' | 'POST' | 'DELETE') {
+		const response = await fetch('/api/cover-fill', { method }).catch(() => null);
+		if (!response?.ok) {
+			// A poll that fails is asked again; a start that fails is said.
+			if (method !== 'GET') {
+				const body = await response?.json().catch(() => null);
+				fillError = body?.message ?? 'The server did not answer. Try again.';
+			}
+			return;
+		}
+		fillError = '';
+		const was = filling;
+		fill = await response.json();
+		// The loader reports the held size, which the fill has changed.
+		if (was && !filling) await invalidateAll();
+	}
+
+	$effect(() => {
+		if (!filling || shown !== 'storage') return;
+		const timer = setInterval(() => void fillRequest('GET'), 1500);
+		return () => clearInterval(timer);
+	});
+
+	/** Whether the server repeats the fill daily; see `keepFilled` in `coverfill.ts`. */
+	let daily = $state(untrack(() => data.coverFillDaily));
+
+	$effect(() => {
+		daily = data.coverFillDaily;
+	});
+
+	/** Sends the switch as it now stands, and puts it back where the server refused. */
+	async function saveDaily() {
+		const response = await fetch('/api/cover-fill', {
+			method: 'PUT',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ daily })
+		}).catch(() => null);
+		if (!response?.ok) {
+			const body = await response?.json().catch(() => null);
+			fillError = body?.message ?? 'The server did not answer. Try again.';
+			daily = !daily;
+			return;
+		}
+		// Switching it on starts a fill.
+		await fillRequest('GET');
+	}
+
+	const fillSummary = $derived.by(() => {
+		const count = (n: number) => `${n.toLocaleString()} cover${n === 1 ? '' : 's'}`;
+		const progress = `${fill.done.toLocaleString()} of ${count(fill.total)}`;
+		if (fill.state === 'done') {
+			const missing = fill.failed > 0 ? `, and ${fill.failed.toLocaleString()} could not be stored` : '';
+			return `${count(fill.stored)} stored. ${(fill.done - fill.stored - fill.failed).toLocaleString()} were already held${missing}.`;
+		}
+		if (fill.state === 'full') return `Stopped at the limit after ${progress}. A higher HEDDOHON_COVER_CACHE_MB holds the rest.`;
+		if (fill.state === 'stopped') return `Stopped after ${progress}. Starting again skips the covers already held.`;
+		if (fill.state === 'failed') return `The music server stopped answering after ${progress}. Starting again skips the covers already held.`;
+		return '';
+	});
 
 	/** Bytes as the nearest sensible unit, one decimal from a megabyte up. */
 	function formatSize(bytes: number): string {
@@ -213,10 +318,25 @@
 		};
 	}
 
+	/** Which of the two forms under "Your plays, elsewhere" is waiting on the server. */
+	let integrating = $state<'discord' | 'listenbrainz' | null>(null);
+
+	function integrationSubmit(kind: 'discord' | 'listenbrainz'): SubmitFunction {
+		return () => {
+			integrating = kind;
+			return async ({ update }) => {
+				// Reset, so a webhook address or a token does not stay in the field.
+				await update({ reset: true });
+				await invalidateAll();
+				integrating = null;
+			};
+		};
+	}
+
 	/**
-	 * Sends the browser to last.fm. The action returns the URL rather than
-	 * redirecting to it: `form-action 'self'` refuses a redirect to another
-	 * origin after a form post, and the enhanced form's `goto` refuses one too.
+	 * Sends the browser to last.fm. The action returns the URL: `form-action
+	 * 'self'` refuses a redirect to another origin after a form post, and the
+	 * enhanced form's `goto` refuses one too.
 	 */
 	const toLastfm: SubmitFunction = () => {
 		linking = 'lastfm';
@@ -279,9 +399,9 @@
 			saving = true;
 			return async ({ update }) => {
 				await update({ reset: false });
-				// The action only returns this page's data. Settings also drive the
+				// The action returns only this page's data. Settings also drive the
 				// layout (theme, grid density, player behaviour), so the layout load
-				// has to re-run for the rest of the interface to follow the change.
+				// re-runs.
 				await invalidateAll();
 				saving = false;
 			};
@@ -384,7 +504,7 @@
 
 			<label class="row">
 				<span class="label">
-					<span class="name">Aurora <span class="tag">Experimental</span></span>
+					Aurora
 					<span class="hint hh-muted">
 						A glow in the artwork's colours behind the glass. Moving, it drifts slowly, and the glass
 						redraws its blur as it does; still or off costs nothing, for older or low-powered
@@ -497,10 +617,10 @@
 			</label>
 
 			<!--
-				Unlike the rows above, these are kept in this browser rather than on the
-				account, for the headphones or speakers it plays through, and apply as
-				they are changed rather than on save. Their inputs have no names, so
-				the save form does not post them.
+				Unlike the rows above, these are kept in this browser, for the
+				headphones or speakers it plays through, and apply as they are
+				changed. Their inputs have no names, so the save form does not post
+				them.
 			-->
 			<h3 class="subhead">Equaliser</h3>
 			<p class="hh-muted note">Kept in this browser only. Applied as you change it.</p>
@@ -773,8 +893,8 @@
 
 		<!--
 			Every browser signed in to this account, the most recently used first,
-			with this one marked. Another can be signed out from here; this one signs
-			out with the button below, which also clears its cookie.
+			with this one marked. Another can be signed out from here. This one
+			signs out with the button below, which also clears its cookie.
 		-->
 		<div class="sessions-head">
 			<h3>Signed in on</h3>
@@ -799,10 +919,9 @@
 						</span>
 					</span>
 					{#if !entry.current && !entry.endable}
-						<!-- Signed in after this browser; see `endSessions` in auth.ts. In
-						     grey where the button would be, "Sign out from that browser"
-						     was read as a button that did not work, so it says why there
-						     is none and what to do instead. -->
+						<!-- Signed in after this browser; see `endSessions` in auth.ts. A
+						     greyed "Sign out from that browser" read as a button that did
+						     not work, so this says why there is none and what to do. -->
 						<span class="hh-muted later">
 							Signed in after this browser.
 							<span class="later-how">Sign it out there, or sign in again here.</span>
@@ -871,6 +990,107 @@
 			{/if}
 		</div>
 	</section>
+
+	<!-- Only where the operator has left it on; see `HEDDOHON_LISTENERS`. -->
+	{#if profile}
+		<section class="hh-card hh-glass group" id="listening" hidden={shown !== 'account'}>
+			<div class="group-head">
+				<h2>Listening now</h2>
+				<p class="hh-muted">
+					Accounts on this server can show each other what they are playing. While you are shown,
+					everyone signed in here sees your name, your picture and the track you are playing, for as
+					long as it plays. You see the others whether or not you are shown.
+				</p>
+			</div>
+
+			{#if listeners.error}
+				<p class="hh-muted note-inline" role="alert">{listeners.error}</p>
+			{/if}
+
+			<label class="row switch">
+				<span class="label">
+					Show others what I play
+					<span class="hint hh-muted">
+						{profile.shown
+							? `You are shown as ${profile.name ?? data.account.username}.`
+							: 'Off, nothing you play is shown to anyone.'}
+					</span>
+				</span>
+				<input
+					type="checkbox"
+					checked={profile.shown}
+					disabled={profileBusy}
+					onchange={(event) => {
+						const shown = event.currentTarget.checked;
+						void saveProfile(() => listeners.save({ shown }));
+					}}
+				/>
+			</label>
+
+			<div class="row">
+				<label class="label" for="profile-name">
+					Display name
+					<span class="hint hh-muted">
+						The name the others see, up to 32 characters. Left empty, it is your user name,
+						{data.account.username}.
+					</span>
+				</label>
+				<form class="profile-name" onsubmit={saveName}>
+					<input
+						id="profile-name"
+						class="hh-input"
+						type="text"
+						bind:value={profileName}
+						maxlength="32"
+						autocomplete="nickname"
+						spellcheck="false"
+						placeholder={data.account.username}
+					/>
+					<button class="hh-button" type="submit" disabled={profileBusy || profileName.trim() === (profile.name ?? '')}>
+						Save
+					</button>
+				</form>
+			</div>
+
+			<div class="row">
+				<span class="label">
+					Picture
+					<span class="hint hh-muted">
+						This browser cuts the middle of the image to a square and scales it to 256 pixels before
+						it is sent.
+					</span>
+				</span>
+				<div class="profile-picture">
+					<Avatar
+						name={profile.name ?? data.account.username}
+						src={avatarUrl(profile.id, profile.avatar)}
+						size={3.5}
+					/>
+					<input
+						bind:this={pictureInput}
+						type="file"
+						accept="image/*"
+						hidden
+						aria-label="Picture file"
+						onchange={(event) => choosePicture(event.currentTarget)}
+					/>
+					<button class="hh-button" type="button" disabled={profileBusy} onclick={() => pictureInput?.click()}>
+						{profile.avatar ? 'Change' : 'Choose a picture'}
+					</button>
+					{#if profile.avatar}
+						<button
+							class="hh-button danger"
+							type="button"
+							disabled={profileBusy}
+							onclick={() => saveProfile(() => listeners.removePicture())}
+						>
+							Remove
+						</button>
+					{/if}
+				</div>
+			</div>
+		</section>
+	{/if}
 
 	<!-- Only where the music server can link at least one service: Navidrome,
 	     with Last.fm or ListenBrainz turned on. -->
@@ -971,6 +1191,113 @@
 			</section>
 		{/if}
 	{/await}
+
+	<!-- Only where the operator has turned one of them on; see `integrations.ts`. -->
+	{#if data.integrations.offered.discord || data.integrations.offered.listenbrainz}
+		<section class="hh-card hh-glass group" id="activity" hidden={shown !== 'account'}>
+			<div class="group-head">
+				<h2>Your plays, elsewhere</h2>
+				<p class="hh-muted">
+					Sends the title, artist and album of each track you play past half its length, or four
+					minutes, from this server to what you link here, while “Report playback” under Playback is on.
+					A Discord channel gets the cover too.
+				</p>
+			</div>
+
+			{#if form && 'integrationError' in form && form.integrationError}
+				<p class="hh-muted note-inline" role="alert">{form.integrationError}</p>
+			{/if}
+
+			{#if data.integrations.offered.discord}
+				{@const name = data.integrations.linked.discord}
+				<div class="row switch">
+					<span class="label">
+						Discord channel
+						<span class="hint hh-muted">
+							{name
+								? `Posting each play through the webhook “${name}”.`
+								: 'Paste a webhook address from the channel: Edit channel, Integrations, Webhooks.'}
+						</span>
+					</span>
+					{#if name}
+						<form method="POST" action="?/unlinkIntegration" use:enhance={integrationSubmit('discord')}>
+							<input type="hidden" name="kind" value="discord" />
+							<button class="hh-button danger" type="submit" disabled={integrating === 'discord'}>
+								{integrating === 'discord' ? 'Unlinking…' : 'Unlink'}
+							</button>
+						</form>
+					{/if}
+				</div>
+				{#if !name}
+					<form class="token-row" method="POST" action="?/linkIntegration" use:enhance={integrationSubmit('discord')}>
+						<input type="hidden" name="kind" value="discord" />
+						<input
+							class="hh-input"
+							type="password"
+							name="value"
+							required
+							maxlength="300"
+							autocomplete="off"
+							spellcheck="false"
+							aria-label="Discord webhook address"
+							placeholder="https://discord.com/api/webhooks/…"
+						/>
+						<button class="hh-button" type="submit" disabled={integrating === 'discord'}>
+							{integrating === 'discord' ? 'Linking…' : 'Link'}
+						</button>
+					</form>
+				{/if}
+			{/if}
+
+			{#if data.integrations.offered.listenbrainz}
+				{@const user = data.integrations.linked.listenbrainz}
+				<div class="row switch">
+					<span class="label">
+						ListenBrainz
+						<span class="hint hh-muted">
+							{user && data.integrations.viaMusicServer
+								? `Scrobbling to ${user} from this server. ${data.serverLabel} links ListenBrainz itself, under Scrobbling: unlink it here to link it there.`
+								: user
+								? `Scrobbling to ${user}, and showing what is playing now.`
+								: 'Paste the user token from your own ListenBrainz settings page. This server sends what you play here.'}
+						</span>
+					</span>
+					{#if user}
+						<form method="POST" action="?/unlinkIntegration" use:enhance={integrationSubmit('listenbrainz')}>
+							<input type="hidden" name="kind" value="listenbrainz" />
+							<button class="hh-button danger" type="submit" disabled={integrating === 'listenbrainz'}>
+								{integrating === 'listenbrainz' ? 'Unlinking…' : 'Unlink'}
+							</button>
+						</form>
+					{/if}
+				</div>
+				{#if !user}
+					<form class="token-row" method="POST" action="?/linkIntegration" use:enhance={integrationSubmit('listenbrainz')}>
+						<input type="hidden" name="kind" value="listenbrainz" />
+						<input
+							class="hh-input"
+							type="password"
+							name="value"
+							required
+							maxlength="128"
+							autocomplete="off"
+							spellcheck="false"
+							aria-label="ListenBrainz user token"
+							placeholder="ListenBrainz user token"
+						/>
+						<button class="hh-button" type="submit" disabled={integrating === 'listenbrainz'}>
+							{integrating === 'listenbrainz' ? 'Linking…' : 'Link'}
+						</button>
+					</form>
+				{/if}
+			{/if}
+
+			<p class="hh-muted note">
+				A webhook address or a token is kept encrypted on this server and is not shown again. Unlinking
+				removes it, and so does a changed password on {data.serverLabel || 'the music server'}.
+			</p>
+		</section>
+	{/if}
 
 	<!-- Kept while sharing is off if the account still has links, so they can
 	     be withdrawn before the operator turns it back on. -->
@@ -1109,9 +1436,8 @@
 		<!--
 			The cache is keyed by the music server's cover id, with no account in
 			the key, so there is one copy of each cover for everyone. Any account
-			may clear it, including one the music server does not treat as an
-			administrator, and that is stated rather than enforced: what a clear
-			costs is that the next request for each cover goes upstream again.
+			may clear it: a clear costs each cover being fetched upstream once
+			more.
 		-->
 		<p class="hh-muted note">
 			Artwork is kept on the server the first time it is fetched, so a second
@@ -1140,6 +1466,64 @@
 					{clearing ? 'Clearing…' : 'Clear cover cache'}
 				</button>
 			</form>
+		{/if}
+
+		<!--
+			Offered to an account the music server lists as an administrator, and
+			refused to any other by the server: this has the music server render
+			every cover in the library.
+		-->
+		{#if cache.limitBytes > 0 && data.isAdmin}
+			<h3 class="subhead">Cache every cover</h3>
+			<p class="hh-muted note">
+				Reads the albums, artists and playlists of {data.serverLabel || 'the music server'} and
+				stores each cover at the sizes the pages draw: 96, 384, 512 and 1024 pixels for an album,
+				96 and 384 for an artist or a playlist. It runs on this server and carries on with the page
+				closed. Covers already held are skipped, and it stops at the limit above. A track with
+				artwork of its own is cached when it is played.
+				{#if data.account.backend === 'jellyfin'}
+					Jellyfin limits libraries per user, so these covers are held for your account only.
+				{/if}
+			</p>
+			<label class="row switch">
+				<span class="label">
+					Keep it filled
+					<span class="hint hh-muted">
+						The server does this itself once a day, and after a restart, so covers added since
+						are cached before anyone opens them. It uses your sign-in to
+						{data.serverLabel || 'the music server'} as stored here, and stays on when you sign out.
+					</span>
+				</span>
+				<input type="checkbox" bind:checked={daily} onchange={saveDaily} />
+			</label>
+			{#if filling}
+				<div class="fill">
+					<progress
+						aria-label="Covers cached"
+						max={fill.state === 'running' ? fill.total : undefined}
+						value={fill.state === 'running' ? fill.done : undefined}
+					></progress>
+					<span class="hh-muted hh-numeric">
+						{fill.state === 'listing'
+							? 'Reading the library…'
+							: `${fill.done.toLocaleString()} of ${fill.total.toLocaleString()}`}
+					</span>
+				</div>
+				<button class="hh-button" type="button" onclick={() => fillRequest('DELETE')}>
+					<Icon name="close" size={16} />
+					Stop
+				</button>
+			{:else}
+				<button class="hh-button" type="button" onclick={() => fillRequest('POST')}>
+					<Icon name="download" size={16} />
+					Cache every cover
+				</button>
+				{#if fillError}
+					<p class="hh-muted note-inline" role="alert">{fillError}</p>
+				{:else if fillSummary}
+					<p class="hh-muted note-inline" role="status">{fillSummary}</p>
+				{/if}
+			{/if}
 		{/if}
 	</section>
 
@@ -1304,11 +1688,8 @@
 		max-width: 54ch;
 	}
 
-	/*
-	 * Fades in rather than appearing in one frame. Opacity only, on the notice
-	 * itself: it is a pane of glass, and a transform on glass is kept off
-	 * throughout (see the design notes in the wiki).
-	 */
+	/* Fades in. Opacity only, on the notice itself: it is a pane of glass, and
+	   transforms are kept off glass (see the design notes in the wiki). */
 	@keyframes saved-in {
 		from {
 			opacity: 0;
@@ -1369,25 +1750,6 @@
 		font-weight: 500;
 		color: var(--text-strong);
 		font-size: 0.9375rem;
-	}
-
-	/* On one line with the name, where the label itself is a column. */
-	.name {
-		display: inline-flex;
-		align-items: center;
-		gap: var(--space-2);
-	}
-
-	/* Drawn like the lossless badge beside the transport: an outline in the accent. */
-	.tag {
-		padding: 0.05rem 0.4rem;
-		border-radius: var(--r-sm);
-		border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
-		color: var(--accent);
-		font-size: 0.6875rem;
-		font-weight: 500;
-		letter-spacing: 0.01em;
-		line-height: 1.5;
 	}
 
 	.hint {
@@ -1583,8 +1945,8 @@
 		font-weight: 500;
 	}
 
-	/* A second line under a fact rather than a run-on: this one is a sentence,
-	   and the eyebrow treatment set it in tracked uppercase that wrapped. */
+	/* A second line under a fact: it is a sentence, and the eyebrow treatment
+	   set it in tracked uppercase that wrapped. */
 	.sub {
 		display: block;
 		font-size: 0.8125rem;
@@ -1596,6 +1958,20 @@
 		max-width: 60ch;
 		padding-top: var(--space-3);
 		border-top: 1px solid var(--border-hairline);
+	}
+
+	.fill {
+		display: flex;
+		align-items: center;
+		gap: var(--space-3);
+		font-size: 0.875rem;
+	}
+
+	.fill progress {
+		flex: 1;
+		max-width: 24rem;
+		height: 0.375rem;
+		accent-color: var(--accent);
 	}
 
 	.danger:hover {
@@ -1674,6 +2050,24 @@
 		cursor: progress;
 	}
 
+	/* More specific than `.row form` above, which makes a form a block. */
+	.row .profile-name,
+	.profile-picture {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+	}
+
+	.profile-name .hh-input {
+		flex: 1;
+		min-width: 0;
+	}
+
+	.profile-picture {
+		flex-wrap: wrap;
+		gap: var(--space-3);
+	}
+
 	.sessions-head {
 		display: flex;
 		align-items: baseline;
@@ -1717,8 +2111,8 @@
 	}
 
 	@media (max-width: 40rem) {
-		/* Less padding on a phone: at 1.5rem each side, inside the page's own,
-		   a row had 303px of a 393px screen for its words and its control. */
+		/* Less padding on a phone: at 1.5rem each side, inside the page's own, a
+		   row had 303px of a 393px screen. */
 		.group {
 			padding: var(--space-4);
 		}

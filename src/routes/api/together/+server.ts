@@ -1,12 +1,12 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { endParty, hostedBy, startParty, togetherEnabled } from '$lib/server/together';
+import { endParty, hostedBy, joinedBy, startParty, togetherEnabled } from '$lib/server/together';
 
-/** The party this browser hosts, or null. */
+/** The party this browser hosts, and the one this account has joined as a member, or null for each. */
 export const GET: RequestHandler = async ({ locals }) => {
 	if (!locals.session) error(401, 'Not signed in');
 	if (!togetherEnabled()) error(404, 'Not found');
-	return json({ party: hostedBy(locals.session) });
+	return json({ party: hostedBy(locals.session), joined: joinedBy(locals.session) });
 };
 
 /** Starts listening together, or returns the party this browser already hosts. */

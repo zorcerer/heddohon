@@ -6,10 +6,12 @@ import { listen, togetherEnabled } from '$lib/server/together';
 const KEEPALIVE_MS = 25_000;
 
 /**
- * A listener's stream: what the host plays, how many are listening, the
- * reactions, and `ended`. Refused when the party has ended or is full.
+ * A listener's stream: what the host plays, what is up next, how many are
+ * listening, the reactions, and `ended`. Refused when the party has ended or
+ * is full, and for an account the host removed. The host's own browser, known
+ * by its session, is also sent the members and their additions.
  */
-export const GET: RequestHandler = async ({ params, request }) => {
+export const GET: RequestHandler = async ({ params, request, locals }) => {
 	if (!togetherEnabled()) error(404, 'Not found');
 	const encoder = new TextEncoder();
 	let leave: (() => void) | null = null;
@@ -31,18 +33,24 @@ export const GET: RequestHandler = async ({ params, request }) => {
 					// Closed between the check and the write; `cancel` cleans up.
 				}
 			};
-			const joined = listen(params.token, (event, data) => {
-				write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
-				// The party is over; the stream is too.
-				if (event === 'ended') {
-					close();
-					try {
-						controller.close();
-					} catch {
-						// Already closed.
-					}
+			// The party is over, or the host removed this account; the stream is too.
+			const end = () => {
+				close();
+				try {
+					controller.close();
+				} catch {
+					// Already closed.
 				}
-			});
+			};
+			const joined = listen(
+				params.token,
+				locals.session,
+				(event, data) => {
+					write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+					if (event === 'ended') end();
+				},
+				end
+			);
 			if (!joined) {
 				full = true;
 				controller.close();

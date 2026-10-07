@@ -8,12 +8,12 @@
  * state (settings, credentials) says so and puts it back.
  */
 import assert from 'node:assert/strict';
-import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { after, before, describe, test } from 'node:test';
+import { after, before, beforeEach, describe, test } from 'node:test';
 import { Client, startApp } from './harness.mjs';
-import { startAutoEq, startJellyfin, startStationHost, startSubsonic } from './mocks.mjs';
+import { OUTSIDE, startAutoEq, startJellyfin, startOutside, startStationHost, startSubsonic } from './mocks.mjs';
 
 let subsonic;
 let jellyfin;
@@ -40,9 +40,9 @@ function explain(message) {
 }
 
 /**
- * Signs in a new client as `username`, an account nothing is remembered for
- * yet, and runs `run` with it and the call counts reset. The mock serves one
- * user at a time, so it is switched for the length of `run` and put back.
+ * Signs in a new client as `username`, an account with nothing remembered,
+ * and runs `run` with it and the call counts reset. The mock serves one user
+ * at a time, so it is switched for `run` and put back.
  */
 async function asFreshAccount(username, run) {
 	subsonic.state.username = username;
@@ -289,11 +289,15 @@ describe('settings', () => {
 		assert.match((await user.page('/search')).html, /<html[^>]* data-font="manrope"/);
 	});
 
-	test('the aurora setting takes one of its three values and nothing else', async () => {
-		const moving = await (await user.json('/api/settings', 'PATCH', { aurora: 'moving' })).json();
-		assert.equal(moving.aurora, 'moving');
+	test('the aurora moves until an account says otherwise, and takes one of its three values and nothing else', async () => {
+		await asFreshAccount('skywatcher', async (client) => {
+			assert.equal((await (await client.request('/api/settings')).json()).aurora, 'moving');
+			assert.match((await client.page('/')).html, /<div class="aurora[ "]/);
+		});
+		const still = await (await user.json('/api/settings', 'PATCH', { aurora: 'still' })).json();
+		assert.equal(still.aurora, 'still');
 		const bogus = await (await user.json('/api/settings', 'PATCH', { aurora: '"><b>' })).json();
-		assert.equal(bogus.aurora, 'moving', 'an unknown value keeps the one stored');
+		assert.equal(bogus.aurora, 'still', 'an unknown value keeps the one stored');
 		const off = await (await user.json('/api/settings', 'PATCH', { aurora: 'off' })).json();
 		assert.equal(off.aurora, 'off');
 	});
@@ -495,9 +499,9 @@ describe('Jellyfin albums by play', () => {
 	const albumOrder = (html) => [...new Set([...html.matchAll(/href="\/albums\/(b\d)"/g)].map((m) => m[1]))];
 
 	test('are ranked from their songs\' plays, which is where Jellyfin keeps them', async () => {
-		// Jellyfin leaves an album's own play count and date unset however often
-		// its songs are played. Sorted by those, every album tied and came back
-		// in name order: First, Second, Third, Compilation.
+		// Jellyfin leaves an album's own play count and date unset. Sorted by
+		// those, every album tied and came back in name order: First, Second,
+		// Third, Compilation.
 		jellyfin.state.played = [
 			{ Id: 't1', AlbumId: 'b2', PlayCount: 4, LastPlayedDate: '2026-09-20T10:00:00.0000000Z' },
 			{ Id: 't2', AlbumId: 'b2', PlayCount: 3, LastPlayedDate: '2026-09-21T10:00:00.0000000Z' },
@@ -587,6 +591,36 @@ describe('held album details and suggestions', () => {
 			});
 		} finally {
 			subsonic.state.similarAlbums = 0;
+		}
+	});
+
+	/*
+	 * Navidrome with no similar artist in the library answers
+	 * `getSimilarSongs2` with the artist's own tracks, which the shelf leaves
+	 * out, and the album page had no shelf.
+	 */
+	test('a "You might like" shelf the similar tracks leave short is filled from the album\'s years or genre', async () => {
+		subsonic.state.similarAlbums = 2;
+		subsonic.state.alikeAlbums = 12;
+		try {
+			await asFreshAccount('eighth', async (client) => {
+				const { html } = await client.page('/albums/al4');
+				// The two similar ones first, then six from the same years: eight in all.
+				for (const name of ['Album 5', 'Album 6', 'Album 20', 'Album 25']) assert.match(html, new RegExp(`${name}\\b`), explain(`${name} is not on the shelf`));
+				assert.doesNotMatch(html, /Album 26\b/, 'the shelf holds more than eight');
+				assert.equal(subsonic.calls.get('getRandomSongs'), 1);
+				assert.deepEqual(subsonic.state.alikeAsked, { genre: null, fromYear: '2002', toYear: '2006' });
+			});
+			// With none similar at all, and the album's own artist among the answers.
+			subsonic.state.similarAlbums = 0;
+			await asFreshAccount('ninth', async (client) => {
+				const { html } = await client.page('/albums/al21');
+				assert.match(html, /Album 20\b/, explain('the shelf is missing'));
+				assert.match(html, /Album 22\b/);
+			});
+		} finally {
+			subsonic.state.similarAlbums = 0;
+			subsonic.state.alikeAlbums = 0;
 		}
 	});
 });
@@ -772,7 +806,11 @@ describe('playback on another browser', () => {
 		let read = 0;
 		const next = (type, timeout = 3000) =>
 			new Promise((resolve, reject) => {
-				const timer = setTimeout(() => reject(new Error(`no ${type} event within ${timeout}ms`)), timeout);
+				const timer = setTimeout(() => {
+					// Left waiting, it would take the next event of the type from the test.
+					waiting.splice(waiting.indexOf(check), 1);
+					reject(new Error(`no ${type} event within ${timeout}ms`));
+				}, timeout);
 				const check = () => {
 					const at = events.findIndex((event, i) => i >= read && event.type === type);
 					if (at < 0) return;
@@ -964,7 +1002,441 @@ describe('playback on another browser', () => {
 			assert.equal((await new Client(app.url).request(`${second.party.url}/stream?song=s4a`)).status, 404);
 			assert.equal((await new Client(app.url).json('/api/together', 'POST', {})).status, 401);
 		});
+
+		/** An account on the host's music server with the party's stream open, joined as a member. */
+		const member = async (party, username = 'seconduser', password = 'secondpass') => {
+			const client = await signedIn(username, password);
+			const stream = await listen(client, `${party.url}/events`);
+			const joined = await client.json(`${party.url}/join`, 'POST', { listener: stream.id });
+			assert.equal(joined.status, 200, explain('joining as a member was refused'));
+			return { client, stream, member: (await joined.json()).member };
+		};
+		const add = (client, party, songId) => client.json(`${party.url}/queue`, 'POST', { songId });
+		const upcoming = (client, applied, ids) =>
+			client.json('/api/together/queue', 'POST', {
+				applied,
+				upcoming: ids.map((id) => ({ songId: id, title: `Song ${id.slice(1)}`, artist: 'Artist' }))
+			});
+		/** The next `queue` event that `matches`. */
+		const queued = async (stream, matches) => {
+			for (;;) {
+				const event = await stream.next('queue');
+				if (matches(event)) return event;
+			}
+		};
+		/** Additions are held to one every 2 seconds per member. */
+		const gap = () => new Promise((done) => setTimeout(done, 2100));
+
+		test("a member's track reaches the host's browser, and is shown as theirs where the host's queue has it", async () => {
+			const { client, party } = await host();
+			const hosting = await listen(client, `${party.url}/events`);
+			const guest = await listen(new Client(app.url), `${party.url}/events`);
+			const second = await member(party);
+			try {
+				assert.deepEqual(await hosting.next('host'), { applied: 0, waiting: [], withdrawn: [] });
+				for (;;) {
+					const { members } = await hosting.next('members');
+					if (members.some((entry) => entry.id === second.member.id && entry.name === 'seconduser')) break;
+				}
+				assert.equal((await (await second.client.request('/api/together')).json()).joined.url, party.url);
+
+				const added = await add(second.client, party, 's5a');
+				assert.equal(added.status, 200, explain('the addition was refused'));
+				const { entry } = await added.json();
+				const event = await hosting.next('add');
+				assert.deepEqual(
+					{ seq: event.seq, entry: event.entry, song: event.song.id, title: event.song.title, by: event.by },
+					{ seq: 1, entry, song: 's5a', title: 'Song 5a', by: second.member }
+				);
+				// Before the host's browser has taken it, it leads what is up next.
+				const waiting = await queued(guest, (shown) => shown.queue.length > 0);
+				assert.deepEqual(waiting, { queue: [{ entry, title: 'Song 5a', artist: event.song.artist, by: second.member }], total: 1 });
+
+				// In the host's queue, after an earlier track of the host's own.
+				const report = await upcoming(client, 1, ['s3b', 's5a', 's5a']);
+				assert.deepEqual((await report.json()).added, [null, { entry, name: 'seconduser' }, null]);
+				const shown = await queued(guest, (now) => now.queue.length === 3);
+				assert.deepEqual(
+					shown.queue.map((row) => [row.title, row.by?.name ?? null]),
+					[
+						['Song 3b', null],
+						['Song 5a', 'seconduser'],
+						['Song 5a', null]
+					]
+				);
+				// Played or removed by the host, it is let go.
+				await upcoming(client, 1, ['s3b']);
+				assert.deepEqual((await queued(guest, (now) => now.queue.length === 1)).queue[0].by, null);
+				assert.equal((await second.client.json(`${party.url}/queue`, 'DELETE', { entry })).status, 404);
+			} finally {
+				hosting.cancel();
+				guest.cancel();
+				second.stream.cancel();
+				await client.json('/api/together', 'DELETE', {});
+			}
+		});
+
+		test('a visitor with no account, an account on the other server and one that has not joined cannot add', async () => {
+			const { client, party } = await host();
+			const visitor = new Client(app.url);
+			const anonymous = await listen(visitor, `${party.url}/events`);
+			const other = new Client(app.url);
+			await other.signIn({ username: 'jfuser', password: 'jfpass', backend: 'jellyfin' });
+			const elsewhere = await listen(other, `${party.url}/events`);
+			const second = await signedIn('seconduser', 'secondpass');
+			subsonic.calls.reset();
+			try {
+				assert.equal((await visitor.json(`${party.url}/join`, 'POST', { listener: anonymous.id })).status, 401);
+				assert.equal((await add(visitor, party, 's5a')).status, 401);
+				assert.equal((await visitor.json(`${party.url}/queue`, 'DELETE', { entry: 'x' })).status, 401);
+
+				assert.equal((await other.page(party.url)).response.status, 200, 'the other server does not listen');
+				assert.equal((await other.json(`${party.url}/join`, 'POST', { listener: elsewhere.id })).status, 403);
+				assert.equal((await add(other, party, 't1')).status, 403);
+
+				assert.equal((await add(second, party, 's5a')).status, 403, 'an account that has not joined adds');
+				// Another listener's stream is not one to join through without it being there.
+				assert.equal((await second.json(`${party.url}/join`, 'POST', { listener: 'nobody' })).status, 404);
+				assert.equal((await second.json(`${party.url}/join`, 'POST', { listener: anonymous.id })).status, 404, "a visitor's stream was joined by its id");
+				// From another site, with the member's cookie: the origin check refuses it.
+				const joined = await member(party);
+				const forged = await joined.client.json(`${party.url}/queue`, 'POST', { songId: 's5a' }, { origin: 'https://elsewhere.example' });
+				joined.stream.cancel();
+				assert.equal(forged.status, 403);
+				assert.equal((await second.json('/api/together/queue', 'POST', { applied: 0, upcoming: [] })).status, 404, 'a browser that is not the host reports the queue');
+				assert.equal((await second.json('/api/together/members', 'DELETE', { member: 'x' })).status, 404);
+				assert.equal(subsonic.calls.get('getSong'), 0, 'a refused addition was looked up');
+			} finally {
+				anonymous.cancel();
+				elsewhere.cancel();
+				await client.json('/api/together', 'DELETE', {});
+			}
+		});
+
+		test("a track the host's account cannot read is refused, and so is one the member's cannot", async () => {
+			const { client, party } = await host();
+			const second = await member(party);
+			subsonic.state.hidden.set('testuser', new Set(['s6a']));
+			subsonic.state.hidden.set('seconduser', new Set(['s7a']));
+			try {
+				const unread = await add(second.client, party, 's6a');
+				assert.equal(unread.status, 404);
+				assert.equal((await unread.json()).message, "Not in the host's library");
+				await gap();
+				const own = await add(second.client, party, 's7a');
+				assert.equal(own.status, 404);
+				assert.equal((await own.json()).message, 'Not in your library');
+				assert.equal((await add(second.client, party, 'x'.repeat(256))).status, 400);
+			} finally {
+				subsonic.state.hidden.clear();
+				second.stream.cancel();
+				await client.json('/api/together', 'DELETE', {});
+			}
+		});
+
+		test('additions are held to one every 2 seconds, and a refused one counts', async () => {
+			const { client, party } = await host();
+			const second = await member(party);
+			try {
+				assert.equal((await add(second.client, party, 's8a')).status, 200);
+				assert.equal((await add(second.client, party, 's8b')).status, 429);
+				await gap();
+				assert.equal((await add(second.client, party, 'gone')).status, 404);
+				assert.equal((await add(second.client, party, 's8b')).status, 429);
+				await gap();
+				assert.equal((await add(second.client, party, 's8b')).status, 200);
+				assert.equal((await upcoming(client, 0, Array.from({ length: 1001 }, () => 's1a'))).status, 400);
+			} finally {
+				second.stream.cancel();
+				await client.json('/api/together', 'DELETE', {});
+			}
+		});
+
+		test('a member takes back their own track only, and a member the host removes is out for the rest of the party', async () => {
+			subsonic.state.others.set('thirduser', 'thirdpass');
+			const { client, party } = await host();
+			const hosting = await listen(client, `${party.url}/events`);
+			const second = await member(party);
+			const third = await member(party, 'thirduser', 'thirdpass');
+			// The account's other page, open and not joined.
+			const idle = await listen(second.client, `${party.url}/events`);
+			try {
+				const first = (await (await add(second.client, party, 's9a')).json()).entry;
+				assert.equal((await third.client.json(`${party.url}/queue`, 'DELETE', { entry: first })).status, 404, "another member's track was taken back");
+				// Not in the host's queue yet: it is dropped where it waits.
+				assert.equal((await second.client.json(`${party.url}/queue`, 'DELETE', { entry: first })).status, 200);
+				assert.equal((await queued(third.stream, (now) => now.total === 0)).queue.length, 0);
+
+				await gap();
+				const kept = (await (await add(second.client, party, 's9b')).json()).entry;
+				const waits = (await (await add(third.client, party, 's9a')).json()).entry;
+				await upcoming(client, 2, ['s9b']);
+				// In the host's queue: the host's browser is told to take it out.
+				assert.equal((await second.client.json(`${party.url}/queue`, 'DELETE', { entry: kept })).status, 200);
+				assert.deepEqual(await hosting.next('remove'), { entry: kept });
+
+				assert.equal((await third.client.json('/api/together/members', 'DELETE', { member: second.member.id })).status, 404, 'a member removed a member');
+				assert.equal((await client.json('/api/together/members', 'DELETE', { member: second.member.id })).status, 200);
+				await second.stream.next('removed');
+				await idle.next('removed');
+				await Promise.race([
+					Promise.all([second.stream.closed, idle.closed]),
+					new Promise((_, reject) => setTimeout(() => reject(new Error('a stream of the removed account stayed open')), 3000))
+				]);
+				await report(client, song('s9a'));
+				assert.equal((await second.client.page(party.url)).response.status, 403);
+				assert.equal((await second.client.request(`${party.url}/events`)).status, 404);
+				assert.equal((await second.client.request(`${party.url}/stream?song=s9a`)).status, 404);
+				assert.equal((await second.client.request(`${party.url}/cover?song=s9a`)).status, 404);
+				assert.equal((await second.client.json(`${party.url}/join`, 'POST', { listener: third.stream.id })).status, 404);
+				assert.equal((await add(second.client, party, 's9a')).status, 403);
+				assert.equal((await (await second.client.request('/api/together')).json()).joined, null);
+				// The other member is as they were, and their waiting track with them.
+				assert.equal((await third.client.request(`${party.url}/stream?song=s9a`, { headers: { range: 'bytes=0-9' } })).status, 206);
+				const reopened = await listen(client, `${party.url}/events`);
+				const told = await reopened.next('host');
+				reopened.cancel();
+				assert.deepEqual([told.applied, told.waiting.map((addition) => addition.entry), told.withdrawn], [2, [waits], [kept]]);
+			} finally {
+				subsonic.state.others.delete('thirduser');
+				hosting.cancel();
+				second.stream.cancel();
+				third.stream.cancel();
+				idle.cancel();
+				await client.json('/api/together', 'DELETE', {});
+			}
+		});
+
+		test('a search for a member answers with songs of their own library, to an account only', async () => {
+			assert.equal((await new Client(app.url).request('/api/search?q=Artist%200003')).status, 401);
+			const client = await signedIn('seconduser', 'secondpass');
+			const found = await (await client.request('/api/search?q=Artist%200003')).json();
+			assert.deepEqual(Object.keys(found), ['songs']);
+			assert.equal(found.songs[0].id, 's3a');
+			assert.deepEqual(await (await client.request('/api/search?q=a')).json(), { songs: [] });
+		});
 	});
+	describe('listening now', () => {
+		/** The frame header of a JPEG that declares this size, and nothing after it: what `jpegSize` reads. */
+		const jpeg = (width, height, padding = 0) =>
+			new Uint8Array([
+				...[0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00],
+				...[0xff, 0xc0, 0x00, 0x11, 0x08, height >> 8, height & 255, width >> 8, width & 255, 0x03, 0x01, 0x11, 0x00, 0x02, 0x11, 0x01, 0x03, 0x11, 0x01],
+				...new Array(padding).fill(0),
+				...[0xff, 0xd9]
+			]);
+		const picture = (client, body) =>
+			client.request('/api/profile/avatar', { method: 'PUT', headers: { 'content-type': 'image/jpeg' }, body });
+		const playing = { songId: 's3a', title: 'Song 3a', artist: 'Artist 0003', coverArt: 'al-3', album: 'Album 0003', albumId: 'al3', position: 12, duration: 180, playing: true, volume: 0.5 };
+
+		test('an account is shown to the others once it chooses to be, under its name, for as long as it plays', async () => {
+			const first = await signedIn();
+			const second = await signedIn('seconduser', 'secondpass');
+			const a = await listen(first);
+			const b = await listen(second);
+			try {
+				// Each stream opens with the list and the account's own profile.
+				assert.deepEqual((await b.next('listeners')).listeners, []);
+				assert.deepEqual((await a.next('listeners')).you, { id: null, name: null, shown: false, avatar: null });
+
+				// Playing, and not shown: the other account is told nothing.
+				assert.equal((await first.json('/api/remote/state', 'POST', { peer: a.id, state: playing })).status, 200);
+				await assert.rejects(b.next('listeners', 300), /no listeners event/);
+
+				const saved = await first.json('/api/profile', 'PATCH', { shown: true });
+				assert.equal(saved.status, 200);
+				const profile = await saved.json();
+				assert.match(profile.id, /^[0-9a-f]{24}$/);
+				const { listeners, now } = await b.next('listeners');
+				assert.equal(typeof now, 'number');
+				assert.equal(listeners.length, 1);
+				const { at, ...shown } = listeners[0];
+				assert.equal(typeof at, 'number');
+				// Exactly these, and the handle in place of the account's id.
+				assert.deepEqual(shown, {
+					id: profile.id,
+					name: 'testuser',
+					avatar: null,
+					backend: 'subsonic',
+					songId: 's3a',
+					title: 'Song 3a',
+					artist: 'Artist 0003',
+					album: 'Album 0003',
+					albumId: 'al3',
+					coverArt: 'al-3',
+					position: 12,
+					duration: 180
+				});
+				// An account is not in its own list, and reads its profile from the same event.
+				const own = await a.next('listeners');
+				assert.deepEqual(own.listeners, []);
+				assert.equal(own.you.shown, true);
+
+				// A progress report is not passed on, and a seek is.
+				await first.json('/api/remote/state', 'POST', { peer: a.id, state: { ...playing, position: 13 } });
+				await assert.rejects(b.next('listeners', 300), /no listeners event/);
+				await first.json('/api/remote/state', 'POST', { peer: a.id, state: { ...playing, position: 100 } });
+				assert.equal((await b.next('listeners')).listeners[0].position, 100);
+
+				assert.equal((await first.json('/api/profile', 'PATCH', { name: 'DJ Test' })).status, 200);
+				assert.equal((await b.next('listeners')).listeners[0].name, 'DJ Test');
+
+				// Paused, it is gone from the list, and back when it plays.
+				await first.json('/api/remote/state', 'POST', { peer: a.id, state: { ...playing, playing: false } });
+				assert.deepEqual((await b.next('listeners')).listeners, []);
+				await first.json('/api/remote/state', 'POST', { peer: a.id, state: playing });
+				assert.equal((await b.next('listeners')).listeners.length, 1);
+
+				// Turned off while playing, and then the browser closing while shown.
+				await first.json('/api/profile', 'PATCH', { shown: false });
+				assert.deepEqual((await b.next('listeners')).listeners, []);
+				await first.json('/api/profile', 'PATCH', { shown: true });
+				assert.equal((await b.next('listeners')).listeners.length, 1);
+				a.cancel();
+				assert.deepEqual((await b.next('listeners')).listeners, []);
+			} finally {
+				a.cancel();
+				b.cancel();
+				await first.json('/api/profile', 'PATCH', { shown: false, name: null });
+			}
+		});
+
+		test('a display name is cleaned and cut to 32 characters, and is not the user name of another account', async () => {
+			const client = await signedIn();
+			const second = await signedIn('seconduser', 'secondpass');
+			const named = async (name) => (await (await client.json('/api/profile', 'PATCH', { name })).json()).name;
+			try {
+				assert.equal(await named('  Ada ‮  Lovelace\n'), 'Ada Lovelace');
+				assert.equal(await named('é'.repeat(40)), 'é'.repeat(32));
+				assert.equal(await named('   '), null);
+				assert.equal((await client.json('/api/profile', 'PATCH', { name: 'SecondUser' })).status, 409);
+				// The other account may go by its own user name.
+				assert.equal((await second.json('/api/profile', 'PATCH', { name: 'seconduser' })).status, 200);
+				for (const body of [{ name: 5 }, { shown: 'yes' }, {}, null, []]) {
+					assert.equal((await client.json('/api/profile', 'PATCH', body)).status, 400, JSON.stringify(body));
+				}
+				assert.deepEqual(await (await client.request('/api/profile')).json().then(({ id, ...rest }) => rest), {
+					name: null,
+					shown: false,
+					avatar: null
+				});
+			} finally {
+				await client.json('/api/profile', 'PATCH', { name: null });
+				await second.json('/api/profile', 'PATCH', { name: null });
+			}
+		});
+
+		test('a picture is a JPEG within the size and the dimensions, and is served as an image and nothing else', async () => {
+			const client = await signedIn();
+			const other = await signedIn('seconduser', 'secondpass');
+			try {
+				const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0x0d]);
+				assert.equal((await picture(client, png)).status, 400);
+				assert.equal((await picture(client, new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg"/>'))).status, 400);
+				assert.equal((await picture(client, new Uint8Array([0xff, 0xd8, 0xff, 0xd9]))).status, 400);
+				// A few bytes that declare 65535 pixels a side.
+				assert.equal((await picture(client, jpeg(65535, 65535))).status, 400);
+				assert.equal((await picture(client, jpeg(513, 256))).status, 400);
+				// A frame of 65535 a side inside what `FF 00` and a length make look
+				// like a segment, ahead of a small frame. A decoder drops `FF 00`
+				// and reads the large one.
+				const frame = (side) => [0xff, 0xc0, 0x00, 0x11, 0x08, side >> 8, side & 255, side >> 8, side & 255, 0x03, 0x01, 0x11, 0x00, 0x02, 0x11, 0x01, 0x03, 0x11, 0x01];
+				const hidden = new Uint8Array([0xff, 0xd8, 0xff, 0x00, 0x00, 0x15, ...frame(65535), ...frame(256), 0xff, 0xd9]);
+				assert.equal((await picture(client, hidden)).status, 400);
+				// A restart marker belongs to the scan, not to the header.
+				assert.equal((await picture(client, new Uint8Array([0xff, 0xd8, 0xff, 0xd0, ...frame(256), 0xff, 0xd9]))).status, 400);
+				assert.equal((await picture(client, jpeg(256, 256, 96 * 1024))).status, 413);
+
+				const bytes = jpeg(256, 256, 2000);
+				const set = await picture(client, bytes);
+				assert.equal(set.status, 200);
+				const { id, avatar } = await set.json();
+				assert.equal(typeof avatar, 'number');
+
+				// Another account fetches it by the handle.
+				const served = await other.request(`/api/profile/avatar/${id}?v=${avatar}`);
+				assert.equal(served.status, 200);
+				assert.equal(served.headers.get('content-type'), 'image/jpeg');
+				assert.equal(served.headers.get('x-content-type-options'), 'nosniff');
+				assert.equal(served.headers.get('content-security-policy'), "default-src 'none'; sandbox");
+				assert.match(served.headers.get('cache-control'), /^private, /);
+				assert.deepEqual(new Uint8Array(await served.arrayBuffer()), bytes);
+
+				assert.equal((await new Client(app.url).request(`/api/profile/avatar/${id}`)).status, 401);
+				assert.equal((await other.request(`/api/profile/avatar/${'0'.repeat(24)}`)).status, 404);
+				assert.equal((await other.request('/api/profile/avatar/..%2f..%2fprofile')).status, 404);
+				// One account does not remove another's.
+				assert.equal((await other.request('/api/profile/avatar', { method: 'DELETE' })).status, 200);
+				assert.equal((await other.request(`/api/profile/avatar/${id}`)).status, 200);
+
+				assert.equal((await client.request('/api/profile/avatar', { method: 'DELETE' })).status, 200);
+				assert.equal((await other.request(`/api/profile/avatar/${id}`)).status, 404);
+			} finally {
+				await client.request('/api/profile/avatar', { method: 'DELETE' });
+			}
+		});
+
+		test('a changed password leaves the account not shown, with its name and picture kept', async () => {
+			subsonic.state.username = 'wren';
+			subsonic.state.password = 'wrenpass';
+			try {
+				const client = await signedIn('wren', 'wrenpass');
+				assert.equal((await client.json('/api/profile', 'PATCH', { shown: true, name: 'Wren' })).status, 200);
+				const { avatar } = await (await picture(client, jpeg(256, 256))).json();
+				// On Subsonic this is also what the name passing to someone else looks like.
+				subsonic.state.password = 'another-password';
+				const next = await signedIn('wren', 'another-password');
+				const { id, ...profile } = await (await next.request('/api/profile')).json();
+				assert.deepEqual(profile, { name: 'Wren', shown: false, avatar });
+
+				// Playing, the account is in nobody's list until it turns the switch on again.
+				const watcher = await signedIn('seconduser', 'secondpass');
+				const a = await listen(next);
+				const b = await listen(watcher);
+				try {
+					assert.deepEqual((await b.next('listeners')).listeners, []);
+					await next.json('/api/remote/state', 'POST', { peer: a.id, state: playing });
+					// The list may be sent again for the saves above, which are held up
+					// to 250 ms. Whatever arrives has nobody in it.
+					await new Promise((done) => setTimeout(done, 400));
+					for (;;) {
+						const event = await b.next('listeners', 50).catch(() => null);
+						if (!event) break;
+						assert.deepEqual(event.listeners, [], 'an account whose password changed was shown');
+					}
+				} finally {
+					a.cancel();
+					b.cancel();
+				}
+			} finally {
+				subsonic.state.username = 'testuser';
+				subsonic.state.password = 'testpass';
+			}
+		});
+
+		test('with HEDDOHON_LISTENERS=false nothing is sent and the routes are gone', async () => {
+			const off = await startApp({ subsonicUrl: subsonic.url, jellyfinUrl: jellyfin.url, env: { HEDDOHON_LISTENERS: 'false' } });
+			try {
+				const client = new Client(off.url);
+				await client.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' });
+				const a = await listen(client);
+				try {
+					await a.next('peers');
+					await assert.rejects(a.next('listeners', 300), /no listeners event/);
+				} finally {
+					a.cancel();
+				}
+				assert.equal((await client.request('/api/profile')).status, 404);
+				assert.equal((await client.json('/api/profile', 'PATCH', { shown: true })).status, 404);
+				assert.equal((await picture(client, jpeg(256, 256))).status, 404);
+				assert.equal((await client.request(`/api/profile/avatar/${'0'.repeat(24)}`)).status, 404);
+				assert.doesNotMatch((await client.page('/settings?tab=account')).html, /Show others what I play/);
+			} finally {
+				await off.stop();
+			}
+		});
+	});
+
 });
 
 describe('cast addresses', () => {
@@ -1499,10 +1971,10 @@ describe('playing things', () => {
 	});
 
 	/*
-	 * Navidrome ignores `Range` while a transcode is still running and sends
-	 * the song from byte 0. Relayed as it came, with range support claimed on
-	 * its behalf, iOS Safari played the start of the song as the continuation;
-	 * and a stream that dropped could not be picked up where it stopped.
+	 * Navidrome ignores `Range` while a transcode is running and sends the song
+	 * from byte 0. Relayed with range support claimed, iOS Safari played the
+	 * start of the song as the continuation, and a dropped stream could not
+	 * resume.
 	 */
 	describe('a transcode', () => {
 		const body = Buffer.from(Array.from({ length: 1000 }, (_, i) => i % 251));
@@ -1550,10 +2022,10 @@ describe('playing things', () => {
 		});
 
 		/*
-		 * A read goes on after its request, so a loop of HEAD requests started a
-		 * transcode on the music server and a copy here for every one, without
-		 * limit (review of 2026-09-25). Past 2 reads in progress for an account,
-		 * a request is relayed as it comes, tied to its own connection.
+		 * A read outlives its request, so a loop of HEAD requests started a
+		 * transcode upstream and a copy here each time (review of 2026-09-25).
+		 * Past 2 reads in progress for an account, a request is relayed as it
+		 * comes.
 		 */
 		test('an account has at most 2 reads in progress; past that it is relayed', async () => {
 			subsonic.state.streamSlowMs = 1500;
@@ -1601,6 +2073,151 @@ describe('playing things', () => {
 			assert.equal(first.headers.get('content-range'), 'bytes 0-1/1000');
 			assert.equal(first.headers.get('accept-ranges'), 'bytes');
 			await first.arrayBuffer();
+		});
+
+		/*
+		 * The player opening a track at a position (a restored queue, a dropped
+		 * stream) cannot take it up in a stream without ranges: Firefox and
+		 * WebKit played from the start. Its address says so, and the answer
+		 * waits for the read.
+		 */
+		test('asked for whole, is answered once the read is done, in ranges', async () => {
+			subsonic.state.streamSlowMs = 400;
+			try {
+				const started = Date.now();
+				const response = await user.request('/api/stream/s9a?mode=mp3-192&whole=1', { headers: { range: 'bytes=0-' } });
+				assert.ok(Date.now() - started >= 350, 'answered before the read was done');
+				assert.equal(response.status, 206);
+				assert.equal(response.headers.get('content-range'), 'bytes 0-999/1000');
+				assert.equal(response.headers.get('accept-ranges'), 'bytes');
+				assert.deepEqual(Buffer.from(await response.arrayBuffer()), body);
+			} finally {
+				subsonic.state.streamSlowMs = 0;
+			}
+		});
+
+		/*
+		 * Asked for an estimated length, Navidrome 0.64.2 declares one and
+		 * closes the connection when the transcode comes to another size. The
+		 * read then ended in an error and what had arrived was dropped.
+		 */
+		test('is read to its end from a music server whose estimated length is off', async () => {
+			subsonic.state.estimateOff = true;
+			try {
+				const first = await user.request('/api/stream/s10a?mode=mp3-192');
+				assert.deepEqual(Buffer.from(await first.arrayBuffer()), body);
+				const again = await user.request('/api/stream/s10a?mode=mp3-192', { headers: { range: 'bytes=0-1' } });
+				assert.equal(again.status, 206, 'the read was not kept');
+				assert.equal(again.headers.get('content-range'), 'bytes 0-1/1000');
+				await again.arrayBuffer();
+			} finally {
+				subsonic.state.estimateOff = false;
+			}
+		});
+	});
+
+	/*
+	 * ffmpeg gives each Ogg stream it writes a random serial number, in every
+	 * page under a checksum. Two reads of one Opus transcode from Jellyfin
+	 * differed in those bytes alone, and a browser sent the rest of a track
+	 * from a second read ended the track at that byte.
+	 */
+	describe('an Ogg transcode', () => {
+		/** Ogg's checksum, a bit at a time: polynomial 0x04c11db7, initial value 0. */
+		const crc = (bytes) => {
+			let r = 0;
+			for (const byte of bytes) {
+				r ^= byte << 24;
+				for (let bit = 0; bit < 8; bit++) r = r & 0x80000000 ? (r << 1) ^ 0x04c11db7 : r << 1;
+			}
+			return r >>> 0;
+		};
+		/** One page as ffmpeg writes it: the stream's serial, and a checksum over the page. */
+		const page = (serial, sequence, packet) => {
+			const segments = [];
+			for (let left = packet.length; left >= 0; left -= 255) segments.push(Math.min(left, 255));
+			const header = Buffer.alloc(27 + segments.length);
+			header.write('OggS', 0, 'latin1');
+			header[5] = sequence === 0 ? 2 : 0;
+			header.writeBigUInt64LE(BigInt(sequence * 960), 6);
+			header.writeUInt32LE(serial, 14);
+			header.writeUInt32LE(sequence, 18);
+			header[26] = segments.length;
+			Buffer.from(segments).copy(header, 27);
+			const whole = Buffer.concat([header, packet]);
+			whole.writeUInt32LE(crc(whole), 22);
+			return whole;
+		};
+		const packets = [Buffer.alloc(19, 1), Buffer.alloc(600, 2), Buffer.alloc(255, 3), Buffer.alloc(4000, 4)];
+		const stream = (serial) => Buffer.concat(packets.map((packet, i) => page(serial, i, packet)));
+		const pagesOf = (bytes) => {
+			const pages = [];
+			for (let at = 0; at < bytes.length; ) {
+				const segments = bytes[at + 26];
+				let length = 27 + segments;
+				for (let i = 0; i < segments; i++) length += bytes[at + 27 + i];
+				pages.push(bytes.subarray(at, at + length));
+				at += length;
+			}
+			return pages;
+		};
+
+		before(async () => {
+			await user.json('/api/settings', 'PATCH', { transcode: true, transcodeCodec: 'opus', transcodeBitrateKbps: 128 });
+			subsonic.state.ignoreRange = true;
+		});
+
+		after(async () => {
+			subsonic.state.ignoreRange = false;
+			subsonic.state.audio = null;
+			await user.json('/api/settings', 'PATCH', { transcode: false, transcodeCodec: 'mp3', transcodeBitrateKbps: 192 });
+		});
+
+		test('is the same bytes from every read, whatever serial the music server gave it', async () => {
+			let serial = 0x1000;
+			const sent = [];
+			subsonic.state.audio = {
+				type: 'audio/ogg',
+				body: () => {
+					sent.push(stream((serial += 0x01010101)));
+					return sent.at(-1);
+				}
+			};
+			const first = Buffer.from(await (await user.request('/api/stream/s12a?mode=opus-128')).arrayBuffer());
+			// Another bitrate is another copy here, so another read of the music server.
+			await user.json('/api/settings', 'PATCH', { transcodeBitrateKbps: 96 });
+			const second = Buffer.from(await (await user.request('/api/stream/s12a?mode=opus-96')).arrayBuffer());
+			assert.equal(sent.length, 2, 'the second request was not a second read');
+			assert.notDeepEqual(sent[0], sent[1]);
+			assert.deepEqual(second, first, 'two reads of one transcode came out different');
+
+			// Still the music server's stream: every packet as sent, one serial
+			// throughout, and each page's checksum holding.
+			const pages = pagesOf(first);
+			assert.equal(pages.length, packets.length);
+			pages.forEach((bytes, i) => {
+				const original = pagesOf(sent[0])[i];
+				assert.deepEqual(bytes.subarray(26), original.subarray(26), `page ${i} lost its packet`);
+				assert.deepEqual(bytes.subarray(0, 14), original.subarray(0, 14));
+				assert.equal(bytes.readUInt32LE(14), pages[0].readUInt32LE(14), 'the pages do not share a serial');
+				const zeroed = Buffer.from(bytes);
+				zeroed.writeUInt32LE(0, 22);
+				assert.equal(bytes.readUInt32LE(22), crc(zeroed), `page ${i} has a checksum that does not hold`);
+			});
+
+			// A range of it, once whole, is cut from the same bytes.
+			const range = await user.request('/api/stream/s12a?mode=opus-96', { headers: { range: 'bytes=700-' } });
+			assert.equal(range.status, 206);
+			assert.deepEqual(Buffer.from(await range.arrayBuffer()), first.subarray(700));
+		});
+
+		test('that is not Ogg after all is passed on as it came', async () => {
+			const body = Buffer.concat([page(7, 0, Buffer.alloc(40, 9)), Buffer.from('not a page at all, and then some more bytes')]);
+			subsonic.state.audio = { type: 'audio/ogg', body };
+			const response = await user.request('/api/stream/s13a?mode=opus-96');
+			const got = Buffer.from(await response.arrayBuffer());
+			assert.equal(got.length, body.length);
+			assert.deepEqual(got.subarray(body.length - 43), body.subarray(body.length - 43));
 		});
 	});
 
@@ -1684,6 +2301,156 @@ describe('covers', () => {
 		assert.equal(response.headers.get('content-type'), 'application/octet-stream');
 		assert.match(response.headers.get('content-security-policy') ?? '', /sandbox/);
 	});
+
+	/** Asks where the account's fill stands until it is no longer running. */
+	async function fillEnd(client) {
+		for (let attempt = 0; attempt < 300; attempt++) {
+			const status = await (await client.request('/api/cover-fill')).json();
+			if (status.state !== 'listing' && status.state !== 'running') return status;
+			await new Promise((done) => setTimeout(done, 50));
+		}
+		assert.fail(explain('the fill did not end within 15s'));
+	}
+
+	test('an administrator caches every cover, and a page\'s covers are then answered from disk', async () => {
+		const started = await user.request('/api/cover-fill', { method: 'POST' });
+		assert.equal(started.status, 200, explain('the fill did not start'));
+		const end = await fillEnd(user);
+		// 12 albums at four sizes and 250 artists at two. The playlist has no cover.
+		assert.deepEqual(
+			{ state: end.state, total: end.total, done: end.done, failed: end.failed },
+			{ state: 'done', total: 548, done: 548, failed: 0 },
+			explain('the fill did not finish')
+		);
+		assert.ok(end.stored > 0);
+
+		subsonic.calls.reset();
+		// A card, the album page (640 is served as 512), the same at twice the density, and a row.
+		for (const path of ['/api/cover/al-7?size=384', '/api/cover/al-7?size=640', '/api/cover/al-7?size=1280', '/api/cover/ar-200?size=96']) {
+			const response = await user.request(path);
+			assert.equal(response.status, 200, path);
+			await response.arrayBuffer();
+		}
+		assert.equal(subsonic.calls.get('getCoverArt'), 0, 'a cover was fetched from the music server after the fill');
+
+		// A second fill reads the library and finds every cover held.
+		await user.request('/api/cover-fill', { method: 'POST' });
+		const again = await fillEnd(user);
+		assert.deepEqual({ state: again.state, done: again.done, stored: again.stored }, { state: 'done', done: 548, stored: 0 });
+		assert.equal(subsonic.calls.get('getCoverArt'), 0);
+		assert.match((await user.page('/settings?tab=storage')).html, /Cache every cover/);
+	});
+
+	test('an account the music server does not list as an administrator is refused a fill, and is not offered one', async () => {
+		subsonic.state.admin = false;
+		try {
+			subsonic.calls.reset();
+			const refused = await user.request('/api/cover-fill', { method: 'POST' });
+			assert.equal(refused.status, 403);
+			assert.equal(subsonic.calls.get('getAlbumList2'), 0, 'the library was read for an account that is not an administrator');
+			assert.doesNotMatch((await user.page('/settings?tab=storage')).html, /Cache every cover/);
+		} finally {
+			subsonic.state.admin = true;
+		}
+	});
+
+	test('kept filled, the server caches what is missing after a restart with nobody asking, and not once it is switched off', async () => {
+		const dataDir = mkdtempSync(join(tmpdir(), 'heddohon-e2e-kept-'));
+		const dir = join(dataDir, 'covers');
+		const start = () => startApp({ subsonicUrl: subsonic.url, jellyfinUrl: jellyfin.url, dataDir });
+		const signedIn = async (url) => {
+			const client = new Client(url);
+			await client.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' });
+			return client;
+		};
+		/** Stops the app, deletes ten covers and starts it again on the same data. */
+		const restartWithTenMissing = async (running) => {
+			await running.stop({ keepData: true });
+			for (const name of readdirSync(dir).slice(0, 10)) rmSync(join(dir, name));
+			return start();
+		};
+		let kept = await start();
+		try {
+			let client = await signedIn(kept.url);
+			subsonic.state.admin = false;
+			assert.equal((await client.json('/api/cover-fill', 'PUT', { daily: true })).status, 403);
+			subsonic.state.admin = true;
+			assert.equal((await client.json('/api/cover-fill', 'PUT', { daily: 'yes' })).status, 400);
+			// Switching it on starts a fill.
+			assert.equal((await client.json('/api/cover-fill', 'PUT', { daily: true })).status, 200);
+			assert.equal((await fillEnd(client)).state, 'done');
+			assert.equal(readdirSync(dir).length, 548);
+
+			kept = await restartWithTenMissing(kept);
+			for (let attempt = 0; attempt < 200 && readdirSync(dir).length < 548; attempt++) {
+				await new Promise((done) => setTimeout(done, 50));
+			}
+			assert.equal(readdirSync(dir).length, 548, `the covers were not fetched again\n${kept.output()}`);
+
+			client = await signedIn(kept.url);
+			assert.equal((await client.json('/api/cover-fill', 'PUT', { daily: false })).status, 200);
+			kept = await restartWithTenMissing(kept);
+			await new Promise((done) => setTimeout(done, 1000));
+			assert.equal(readdirSync(dir).length, 538);
+		} finally {
+			subsonic.state.admin = true;
+			await kept.stop();
+		}
+	});
+
+	test('a changed password switches off Keep it filled, and the account it runs as can switch it off without being an administrator', async () => {
+		const dailyOn = async (client) =>
+			/Keep it filled[\s\S]{0,900}?<input type="checkbox"[^>]*\schecked/.test((await client.page('/settings?tab=storage')).html);
+		await asFreshAccount('keeper', async (client) => {
+			// Nobody has it on, so there is nothing of this account's to switch off.
+			subsonic.state.admin = false;
+			try {
+				assert.equal((await client.json('/api/cover-fill', 'PUT', { daily: false })).status, 403);
+				subsonic.state.admin = true;
+				assert.equal((await client.json('/api/cover-fill', 'PUT', { daily: true })).status, 200);
+				await fillEnd(client);
+				assert.equal(await dailyOn(client), true);
+
+				// No longer an administrator, and still able to take its own sign-in out of use.
+				subsonic.state.admin = false;
+				assert.equal((await client.json('/api/cover-fill', 'PUT', { daily: false })).status, 200);
+				subsonic.state.admin = true;
+				assert.equal(await dailyOn(client), false);
+
+				assert.equal((await client.json('/api/cover-fill', 'PUT', { daily: true })).status, 200);
+				await fillEnd(client);
+				// The name signs in with another password: the same person, or someone given the name.
+				subsonic.state.password = 'another-password';
+				const next = new Client(app.url);
+				assert.equal((await next.signIn({ username: 'keeper', password: 'another-password', backend: 'subsonic' })).status, 303);
+				assert.equal(await dailyOn(next), false, 'the daily fill stayed on for a credential that never switched it on');
+			} finally {
+				subsonic.state.admin = true;
+			}
+		});
+	});
+
+	test('a fill stops at the disk budget and keeps what it stored', async () => {
+		subsonic.state.coverPadding = 40 * 1024;
+		const small = await startApp({ subsonicUrl: subsonic.url, jellyfinUrl: jellyfin.url, env: { HEDDOHON_COVER_CACHE_MB: '1' } });
+		try {
+			const client = new Client(small.url);
+			await client.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' });
+			assert.equal((await client.request('/api/cover-fill', { method: 'POST' })).status, 200);
+			const end = await fillEnd(client);
+			assert.equal(end.state, 'full', `the fill ended ${end.state} after ${end.done} of ${end.total}`);
+			// 40KB a cover into 1MB is 25 of them. Without the stop the sweep
+			// deletes the first as the last are written, and the fill runs to 548.
+			const dir = join(small.dataDir, 'covers');
+			const files = readdirSync(dir);
+			assert.equal(end.stored, 25);
+			assert.equal(files.length, 25);
+			assert.ok(files.reduce((sum, name) => sum + statSync(join(dir, name)).size, 0) <= 1024 * 1024);
+		} finally {
+			subsonic.state.coverPadding = 0;
+			await small.stop();
+		}
+	});
 });
 
 describe('genres', () => {
@@ -1765,8 +2532,8 @@ describe('linking Last.fm and ListenBrainz', () => {
 		assert.equal(unlinked.type, 'success');
 		assert.equal(nd().linked.listenbrainz, false);
 		// Navidrome allows 5 sign-ins per 20s from one address, so the session
-		// token is reused across these calls (and may already be held from the
-		// settings page loaded earlier in this file).
+		// token is reused across these calls (and may be held from the settings
+		// page loaded earlier in this file).
 		assert.ok(subsonic.calls.get('/auth/login') <= 1, `${subsonic.calls.get('/auth/login')} sign-ins`);
 	});
 
@@ -1908,6 +2675,33 @@ describe('links to albums and playlists', () => {
 		for (const text of ['Album 5', 'Song 5a', 'Song 5b']) assert.match(html, new RegExp(text));
 		assert.ok(!html.includes('al5') && !html.includes('s5a'), 'an upstream id reached the page');
 
+		// What a messaging app draws of the link: the title, the artist, and a
+		// cover it can fetch with no session and no page to resolve it against.
+		const meta = (name) => html.match(new RegExp(`<meta (?:property|name)="${name}" content="([^"]*)"`))?.[1];
+		assert.equal(meta('og:title'), 'Album 5');
+		assert.equal(meta('og:description'), 'Artist 0005 · Album, 2 tracks');
+		assert.equal(meta('og:type'), 'music.album');
+		assert.equal(meta('og:image'), `${app.url}${made.body.path}/cover?size=512`);
+		const preview = await fetch(meta('og:image'));
+		assert.equal(preview.status, 200);
+		assert.equal(preview.headers.get('content-type'), 'image/png');
+
+		// A search engine is told to keep the page out of its index. A fetcher
+		// that draws a preview is not: told the same, Discord drew none.
+		assert.equal(response.headers.get('x-robots-tag'), 'noindex, nofollow');
+		assert.match(html, /<meta name="robots" content="noindex, nofollow"/);
+		const asDiscord = await visitor.request(made.body.path, {
+			headers: { accept: 'text/html', 'user-agent': 'Mozilla/5.0 (compatible; Discordbot/2.0; +https://discordapp.com)' }
+		});
+		assert.equal(asDiscord.headers.get('x-robots-tag'), null);
+		const drawn = await asDiscord.text();
+		assert.doesNotMatch(drawn, /name="robots"/);
+		assert.match(drawn, /property="og:title" content="Album 5"/);
+		// And it may fetch the page: robots.txt answers without a session, and allows shared links only.
+		const robots = await fetch(`${app.url}/robots.txt`, { redirect: 'manual' });
+		assert.equal(robots.status, 200);
+		assert.match(await robots.text(), /^User-agent: \*\nAllow: \/share\/\nDisallow: \/$/m);
+
 		const status = async (path) => (await visitor.request(made.body.path + path)).status;
 		assert.equal(await status('/stream/0'), 200);
 		assert.equal(await status('/stream/1'), 200);
@@ -1920,6 +2714,8 @@ describe('links to albums and playlists', () => {
 		// Withdrawn: every position stops.
 		assert.equal((await user.request(`/api/shares/${made.body.id}`, { method: 'DELETE' })).status, 200);
 		assert.equal(await status('/stream/1'), 404);
+		// And the page no longer says what the link was to.
+		assert.doesNotMatch((await visitor.page(made.body.path)).html, /og:title|Album 5/);
 	});
 
 	test('a playlist link plays the playlist as its owner has it', async () => {
@@ -2117,7 +2913,7 @@ describe('signed in on', () => {
 		assert.match(html, /Safari on iPhone/);
 		assert.match(html, /This browser/);
 		// A browser signs out only sessions older than its own: the iPhone, signed
-		// in second, is offered the phone; the phone is told to use the iPhone.
+		// in second, is offered the phone, and the phone is told to use the iPhone.
 		assert.ok((await handles(iphone)).length >= 1);
 		assert.match(html, /Signed in after this browser\.\s*<span class="later-how[^"]*">Sign it out there, or sign in again here\.</);
 		assert.ok(!html.includes('Mozilla/5.0'), 'the whole user agent reached the page');
@@ -2930,5 +3726,317 @@ describe('the folder view', () => {
 		} finally {
 			await off.stop();
 		}
+	});
+});
+
+describe('plays sent to a Discord channel and to ListenBrainz', () => {
+	let outside;
+	let on;
+
+	before(async () => {
+		outside = await startOutside();
+		on = await startApp({
+			subsonicUrl: subsonic.url,
+			jellyfinUrl: jellyfin.url,
+			env: {
+				HEDDOHON_DISCORD: 'true',
+				HEDDOHON_DISCORD_URL: outside.url,
+				HEDDOHON_LISTENBRAINZ: 'true',
+				HEDDOHON_LISTENBRAINZ_URL: outside.url,
+				// Everything the server can write, for the test that looks for a secret in it.
+				HEDDOHON_LOG_LEVEL: 'debug'
+			}
+		});
+	});
+
+	after(async () => {
+		await on?.stop();
+		await outside?.close();
+	});
+
+	// Each test counts the posts from none, whatever the one before it left.
+	beforeEach(() => {
+		outside.posts.length = 0;
+		outside.state.webhookGone = false;
+	});
+
+	/** Posts a settings form action as the enhanced form does, and returns its status and the failure it names. */
+	async function action(client, name, fields = {}) {
+		const response = await client.request(`/settings?/${name}`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json', 'x-sveltekit-action': 'true' },
+			body: new URLSearchParams(fields).toString()
+		});
+		const result = await response.json();
+		const data = result.data ? JSON.parse(result.data) : null;
+		const values = data ? Object.fromEntries(Object.entries(data[0]).map(([k, i]) => [k, data[i]])) : {};
+		return { status: result.status ?? response.status, error: values.integrationError ?? null };
+	}
+	const signedIn = async (url, username, password, backend) => {
+		const client = new Client(url);
+		await client.signIn({ username, password, backend });
+		return client;
+	};
+	const play = (client, songId, extra) => client.json('/api/playback', 'POST', { songId, event: 'stop', position: 90, completed: true, ...extra });
+	/** Waits for `count` posts, and fails with what arrived. */
+	async function posts(count) {
+		for (let attempt = 0; attempt < 100 && outside.posts.length < count; attempt++) await new Promise((done) => setTimeout(done, 20));
+		assert.equal(outside.posts.length, count, explain(`posts: ${JSON.stringify(outside.posts)}`));
+		return outside.posts;
+	}
+	const section = async (client) => (await client.page('/settings?tab=account')).html.split('Your plays, elsewhere')[1] ?? '';
+
+	test('a Discord webhook is checked with Discord, kept out of the page, and posted to once per counted play', async () => {
+		const client = await signedIn(on.url, 'testuser', 'testpass', 'subsonic');
+		const address = `https://discord.com${OUTSIDE.webhook}`;
+
+		// The host an account types is not where the server connects.
+		const elsewhere = await action(client, 'linkIntegration', { kind: 'discord', value: `https://evil.example${OUTSIDE.webhook}` });
+		assert.equal(elsewhere.status, 400);
+		assert.match(elsewhere.error, /not a Discord webhook address/);
+		assert.equal(outside.calls.get(`GET ${OUTSIDE.webhook}`), 0);
+		const unknown = await action(client, 'linkIntegration', { kind: 'discord', value: address.replace(/w{68}$/, 'x'.repeat(68)) });
+		assert.deepEqual(unknown, { status: 400, error: 'Discord has no webhook at that address.' });
+		// ListenBrainz is one setting for an account. Where Navidrome links it
+		// itself, under Scrobbling, this server's own is not shown and not taken:
+		// the page had two token fields for it.
+		const viaNavidrome = subsonic.state.navidrome.linked;
+		const second = await action(client, 'linkIntegration', { kind: 'listenbrainz', value: OUTSIDE.listenBrainzToken });
+		assert.equal(second.status, 409);
+		assert.match(second.error, /under Scrobbling/);
+		assert.doesNotMatch(await section(client), /ListenBrainz/, 'a second ListenBrainz setting is on the page');
+		// A Navidrome with ListenBrainz turned off leaves it to this server.
+		subsonic.state.navidrome.enabled.listenbrainz = false;
+		try {
+			assert.match(await section(client), /ListenBrainz user token/);
+			assert.equal((await action(client, 'linkIntegration', { kind: 'listenbrainz', value: OUTSIDE.listenBrainzToken })).status, 200);
+			assert.match(await section(client), /Scrobbling to listener, and showing/);
+		} finally {
+			subsonic.state.navidrome.enabled.listenbrainz = true;
+		}
+		// Linked here from before: the row stays, to unlink it, and Navidrome is
+		// not given a token while this server holds one.
+		assert.match(await section(client), /Scrobbling to listener from this server\..*unlink it here to link it there/s);
+		const other = await client.request('/settings?/linkListenBrainz', {
+			method: 'POST',
+			headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json', 'x-sveltekit-action': 'true' },
+			body: new URLSearchParams({ token: OUTSIDE.listenBrainzToken }).toString()
+		});
+		assert.equal((await other.json()).status, 409);
+		assert.equal(viaNavidrome.listenbrainz, false);
+		assert.equal((await action(client, 'unlinkIntegration', { kind: 'listenbrainz' })).status, 200);
+
+		assert.equal((await action(client, 'linkIntegration', { kind: 'discord', value: address })).status, 200);
+		const linked = await section(client);
+		assert.match(linked, /through the webhook “Now playing”/);
+		assert.ok(!(await client.page('/settings?tab=account')).html.includes('w'.repeat(20)), 'the webhook token reached the page');
+
+		// A title written to be a link, and a mention: shown as text, pinging nobody.
+		subsonic.state.songTitles.set('s3a', '[free](https://evil.example) @everyone');
+		try {
+			assert.equal((await play(client, 's3a')).status, 200);
+			const [first] = await posts(1);
+			assert.equal(first.to, 'discord');
+			assert.deepEqual(first.body.allowed_mentions, { parse: [] });
+			const [embed] = first.body.embeds;
+			assert.equal(embed.title, '\\[free\\]\\(https://evil.example\\) @everyone');
+			assert.equal(embed.description, 'Artist 0003\nAlbum 3');
+			// The cover goes with the post as a file under a name of this server's
+			// choosing, since a cover here has no address Discord could fetch.
+			assert.deepEqual(embed.thumbnail, { url: 'attachment://cover.png' });
+			assert.deepEqual(first.body.attachments, [{ id: 0, filename: 'cover.png' }]);
+			assert.deepEqual(first.files.map((file) => [file.filename, file.type]), [['cover.png', 'image/png']]);
+			const served = Buffer.from(await (await client.request('/api/cover/al-3?size=256')).arrayBuffer());
+			assert.ok(served.length > 0);
+			assert.deepEqual(first.files[0].bytes, served);
+			// The user name is what the sign-in page accepts, and is not posted.
+			assert.ok(!JSON.stringify(first.body).includes('testuser'), 'the account\'s user name was posted');
+		} finally {
+			subsonic.state.songTitles.clear();
+		}
+
+		// A stop that does not count, and a play with "Report playback" off, post nothing.
+		await play(client, 's3a', { completed: false });
+		await client.json('/api/settings', 'PATCH', { reportPlayback: false });
+		await play(client, 's3a');
+		await client.json('/api/settings', 'PATCH', { reportPlayback: true });
+		// A cover the music server calls SVG is not passed on. The post goes without one.
+		subsonic.state.coverTypes.set('al-4', 'image/svg+xml');
+		try {
+			await play(client, 's4a');
+			const second = (await posts(2))[1];
+			assert.equal(second.body.embeds[0].title, 'Song 4a');
+			assert.equal(second.body.embeds[0].thumbnail, undefined);
+			assert.equal(second.body.attachments, undefined);
+			assert.deepEqual(second.files, []);
+		} finally {
+			subsonic.state.coverTypes.clear();
+		}
+
+		// Deleted on Discord: the first play that finds it gone unlinks it.
+		outside.state.webhookGone = true;
+		try {
+			await play(client, 's4a');
+			let html = await section(client);
+			for (let attempt = 0; attempt < 50 && /through the webhook/.test(html); attempt++) {
+				await new Promise((done) => setTimeout(done, 20));
+				html = await section(client);
+			}
+			assert.doesNotMatch(html, /through the webhook/);
+		} finally {
+			outside.state.webhookGone = false;
+			outside.posts.length = 0;
+		}
+	});
+
+	test('a changed password unlinks what the account had linked', async () => {
+		subsonic.state.username = 'outlet';
+		subsonic.state.password = 'outletpass';
+		try {
+			const client = await signedIn(on.url, 'outlet', 'outletpass', 'subsonic');
+			assert.equal((await action(client, 'linkIntegration', { kind: 'discord', value: `https://discord.com${OUTSIDE.webhook}` })).status, 200);
+			subsonic.state.password = 'another-password';
+			const next = await signedIn(on.url, 'outlet', 'another-password', 'subsonic');
+			assert.doesNotMatch(await section(next), /through the webhook/);
+			await play(next, 's3a');
+			await new Promise((done) => setTimeout(done, 200));
+			assert.equal(outside.posts.length, 0, 'a play went to the channel of whoever held the name before');
+		} finally {
+			subsonic.state.username = 'testuser';
+			subsonic.state.password = 'testpass';
+		}
+	});
+
+	test('ListenBrainz on Jellyfin: what is playing at the start of a track, and a listen once the play counts', async () => {
+		const client = await signedIn(on.url, 'jfuser', 'jfpass', 'jellyfin');
+		assert.deepEqual(await action(client, 'linkIntegration', { kind: 'listenbrainz', value: 'not-the-token' }), {
+			status: 400,
+			error: 'ListenBrainz did not accept that token.'
+		});
+		assert.equal((await action(client, 'linkIntegration', { kind: 'listenbrainz', value: OUTSIDE.listenBrainzToken })).status, 200);
+		const html = (await client.page('/settings?tab=account')).html;
+		assert.match(html, /Scrobbling to listener/);
+		assert.ok(!html.includes(OUTSIDE.listenBrainzToken), 'the token reached the page');
+
+		await client.json('/api/playback', 'POST', { songId: 't1', event: 'start', position: 0 });
+		const [now] = await posts(1);
+		assert.equal(now.body.listen_type, 'playing_now');
+		assert.equal(now.body.payload[0].listened_at, undefined);
+		assert.deepEqual(
+			[now.body.payload[0].track_metadata.track_name, now.body.payload[0].track_metadata.artist_name, now.body.payload[0].track_metadata.release_name],
+			['Track 1', 'Artist B', 'Second']
+		);
+
+		const before = Math.floor(Date.now() / 1000);
+		await play(client, 't1');
+		const listen = (await posts(2))[1];
+		assert.equal(listen.body.listen_type, 'single');
+		// Counted 90 seconds in, so the listen started 90 seconds before.
+		const at = listen.body.payload[0].listened_at;
+		assert.ok(at >= before - 91 && at <= before - 88, `listened_at is ${at - before}s from now`);
+
+		assert.equal((await action(client, 'unlinkIntegration', { kind: 'listenbrainz' })).status, 200);
+		await play(client, 't1');
+		await new Promise((done) => setTimeout(done, 200));
+		assert.equal(outside.posts.length, 2);
+		outside.posts.length = 0;
+	});
+
+	test('an account that reports plays, or tries addresses, faster than anyone listens is held to a burst of 5', async () => {
+		subsonic.state.username = 'burst';
+		subsonic.state.password = 'burstpass';
+		try {
+			const client = await signedIn(on.url, 'burst', 'burstpass', 'subsonic');
+			const address = `https://discord.com${OUTSIDE.webhook}`;
+			assert.equal((await action(client, 'linkIntegration', { kind: 'discord', value: address })).status, 200);
+			for (let n = 0; n < 12; n++) await play(client, 's3a');
+			await new Promise((done) => setTimeout(done, 300));
+			assert.equal(outside.posts.length, 5, 'every reported play was posted');
+
+			// The link above was the first attempt; four more reach Discord, and the sixth does not.
+			const unknown = address.replace(/w{68}$/, 'y'.repeat(68));
+			outside.calls.reset();
+			const statuses = [];
+			for (let n = 0; n < 6; n++) statuses.push((await action(client, 'linkIntegration', { kind: 'discord', value: unknown })).status);
+			assert.deepEqual(statuses, [400, 400, 400, 400, 429, 429]);
+			assert.equal(outside.calls.get(`GET ${new URL(unknown).pathname}`), 4);
+		} finally {
+			subsonic.state.username = 'testuser';
+			subsonic.state.password = 'testpass';
+		}
+	});
+
+	test('a ListenBrainz token and a webhook address are in nothing the server answers with, logs or stores unsealed', async () => {
+		subsonic.state.username = 'keeps';
+		subsonic.state.password = 'keepspass';
+		try {
+			const client = await signedIn(on.url, 'keeps', 'keepspass', 'subsonic');
+			const secrets = { 'ListenBrainz token': OUTSIDE.listenBrainzToken, 'webhook token': 'w'.repeat(68) };
+			/** Every body the server answered with, by what was asked. */
+			const answers = [];
+			const ask = async (what, response) => void answers.push([what, await (await response).text()]);
+			const form = (name, fields) =>
+				client.request(`/settings?/${name}`, {
+					method: 'POST',
+					headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json', 'x-sveltekit-action': 'true' },
+					body: new URLSearchParams(fields).toString()
+				});
+
+			// Linked, linked again over the first, and refused: each answer is kept.
+			// On a Navidrome with ListenBrainz turned off, where this server's own is offered.
+			subsonic.state.navidrome.enabled.listenbrainz = false;
+			for (let n = 0; n < 2; n++) {
+				await ask('linking ListenBrainz', form('linkIntegration', { kind: 'listenbrainz', value: OUTSIDE.listenBrainzToken }));
+				await ask('linking Discord', form('linkIntegration', { kind: 'discord', value: `https://discord.com${OUTSIDE.webhook}` }));
+			}
+			subsonic.state.navidrome.enabled.listenbrainz = true;
+			await ask('linking ListenBrainz twice over', form('linkIntegration', { kind: 'listenbrainz', value: OUTSIDE.listenBrainzToken }));
+
+			await ask('a start', client.json('/api/playback', 'POST', { songId: 's3a', event: 'start', position: 0 }));
+			await ask('a play', play(client, 's3a'));
+			// Both were used: "playing now", the post and the listen arrived, with the token where ListenBrainz reads it.
+			assert.deepEqual((await posts(3)).map((post) => post.to).sort(), ['discord', 'listenbrainz', 'listenbrainz']);
+
+			for (const path of ['/settings?tab=account', '/settings/__data.json', '/', '/__data.json', '/history', '/stats']) {
+				await ask(path, client.request(path, { headers: { accept: 'text/html' } }));
+			}
+			// A second account on the same server sees neither.
+			const other = await signedIn(on.url, 'testuser', 'testpass', 'subsonic');
+			await ask('another account\'s settings', other.request('/settings?tab=account', { headers: { accept: 'text/html' } }));
+
+			/** Every file under the data directory: the database, its journal, the logs. */
+			const files = (dir) =>
+				readdirSync(dir, { withFileTypes: true }).flatMap((entry) =>
+					entry.isDirectory() ? files(join(dir, entry.name)) : [join(dir, entry.name)]
+				);
+			const stored = files(on.dataDir);
+			assert.ok(stored.some((file) => file.endsWith('.db')) && stored.some((file) => file.includes('/logs/')), `files: ${stored}`);
+
+			for (const [name, secret] of Object.entries(secrets)) {
+				for (const [what, body] of answers) assert.ok(!body.includes(secret), `the ${name} is in the answer to ${what}`);
+				assert.ok(!on.output().includes(secret), `the ${name} is in the log`);
+				for (const file of stored) assert.ok(!readFileSync(file).includes(secret), `the ${name} is in ${file}`);
+			}
+			// The log was written at debug, so the lines that could have carried one are there.
+			assert.match(on.output(), /integration-linked/);
+			assert.match(on.output(), /debug request .*path=\/settings/);
+
+			await ask('unlinking', form('unlinkIntegration', { kind: 'listenbrainz' }));
+			await form('unlinkIntegration', { kind: 'discord' });
+		} finally {
+			subsonic.state.navidrome.enabled.listenbrainz = true;
+			subsonic.state.username = 'testuser';
+			subsonic.state.password = 'testpass';
+		}
+	});
+
+	test('neither is offered, or can be linked, unless the operator turned it on', async () => {
+		assert.doesNotMatch((await user.page('/settings?tab=account')).html, /Your plays, elsewhere/);
+		const response = await user.request('/settings?/linkIntegration', {
+			method: 'POST',
+			headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json', 'x-sveltekit-action': 'true' },
+			body: new URLSearchParams({ kind: 'discord', value: `https://discord.com${OUTSIDE.webhook}` }).toString()
+		});
+		assert.equal((await response.json()).status, 404);
 	});
 });

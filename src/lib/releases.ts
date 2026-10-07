@@ -3,17 +3,15 @@
  * EPs, singles, live records and compilations apart.
  *
  * Where the music server says, that is used: OpenSubsonic's `releaseTypes`,
- * which Navidrome fills from the files' RELEASETYPE tag, in MusicBrainz's
- * words. A record can carry several ("Album" and "Live"); a compilation or a
- * live record is listed as that whatever else it is, then an EP or a single,
- * and everything else is an album.
+ * which Navidrome fills from the RELEASETYPE tag in MusicBrainz's words. A
+ * record can carry several ("Album" and "Live"). A compilation or a live
+ * record is listed as that first, then an EP or a single, and anything else is
+ * an album.
  *
- * Where it does not say (untagged files, and Jellyfin, which has no such
- * field), the kind is read from the record's size, by the rule the stores
- * use: up to three tracks under half an hour is a single, four to six under
- * half an hour is an EP. Three tracks of twenty minutes each are an album.
- * Without a track count and a length there is nothing to go by, and it is an
- * album.
+ * Where it does not say (untagged files, and Jellyfin), the kind is read from
+ * the record's size, by the rule the stores use: up to three tracks under half
+ * an hour is a single, four to six under half an hour is an EP. Without a
+ * track count and a length it is an album.
  */
 import type { Album } from './types';
 

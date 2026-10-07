@@ -2,15 +2,16 @@
 	/**
 	 * A shared song, opened from a link, with or without an account.
 	 *
-	 * Laid out as the login page is: what this is on the left, one pane of glass
-	 * on the right, the crest behind it and the ambient field behind that. The
-	 * pane is the player panel at card size, with the artwork running to its top
-	 * corners and dissolving into the title, the scrubber and the transport.
+	 * Laid out as the login page is: what this is on the left, one pane of
+	 * glass on the right, the crest behind it and the ambient field behind
+	 * that. The pane is the player panel at card size, the artwork running to
+	 * its top corners and dissolving into the title, the scrubber and the
+	 * transport.
 	 *
-	 * It plays through an audio element of its own. The app's player belongs to
-	 * a signed-in account, keeps a queue on the server and reports plays to the
-	 * music server, and a visitor here may have no account at all. The audio and
-	 * the cover come from this link's own routes, which serve this one song.
+	 * It plays through its own audio element. The app's player belongs to a
+	 * signed-in account, keeps a queue on the server and reports plays, and a
+	 * visitor here may have no account. The audio and the cover come from this
+	 * link's own routes.
 	 */
 	import { onMount, tick } from 'svelte';
 	import { goto } from '$app/navigation';
@@ -38,7 +39,7 @@
 	/*
 	 * A song link is a list of one. An album or playlist link plays its tracks
 	 * in order from the one chosen, each fetched by its position in the list,
-	 * which is the only thing the page ever asks the link for.
+	 * the only thing the page asks the link for.
 	 */
 	const tracks = $derived(ready?.tracks ?? []);
 	const many = $derived(tracks.length > 1);
@@ -67,6 +68,13 @@
 			: []
 	);
 	const capitalized = $derived(aNoun[0].toUpperCase() + aNoun.slice(1));
+	/** The second line of a link's preview: the artist, and for a list how long it is. */
+	const previewText = $derived.by(() => {
+		if (!ready) return '';
+		const count = `${noun === 'album' ? 'Album' : 'Playlist'}, ${tracks.length} track${tracks.length === 1 ? '' : 's'}`;
+		if (noun === 'song') return ready.item.subtitle ?? 'A song';
+		return ready.item.subtitle ? `${ready.item.subtitle} · ${count}` : count;
+	});
 	const signedIn = $derived(Boolean(data.account));
 	const expires = $derived(
 		ready
@@ -81,10 +89,10 @@
 	const coverSrcset = $derived(coverPath ? `${coverPath}?size=512 1x, ${coverPath}?size=1024 2x` : undefined);
 
 	/*
-	 * The room's colour. A playable link takes it from its own cover once that
-	 * has decoded; anything else draws a hue, as the login page does. It is
-	 * held rather than applied so that the layout's own tint, which resolves a
-	 * null cover a microtask later, does not put the room back to frost.
+	 * The room's colour. A playable link takes it from its cover once decoded,
+	 * and anything else draws a hue, as the login page does. Held, not applied,
+	 * so the layout's own tint, which resolves a null cover a microtask later,
+	 * does not put the room back to frost.
 	 */
 	let heldHue = '';
 
@@ -99,18 +107,14 @@
 	onMount(() => {
 		const root = document.documentElement;
 		/*
-		 * A frame late, on purpose. The layout's own tint effect runs after this
-		 * page mounts and claims the room for "nothing playing"; held any sooner,
-		 * the colour was taken straight back to frost, which is what the first
-		 * iPhone 16 capture showed. The cover may also have loaded before the
-		 * page hydrated, when its `onload` could not yet run, so it is read here
-		 * rather than left to the event.
+		 * A frame late. The layout's tint effect runs after this page mounts and
+		 * claims the room for "nothing playing": held sooner, the colour went
+		 * straight back to frost (seen in the first iPhone 16 capture). The
+		 * cover may have loaded before hydration, before its load event could
+		 * be heard, so it is read here.
 		 */
-		/*
-		 * Listened for here rather than with `onload`: Svelte renders `onload` on
-		 * an image as an inline handler attribute, which the Content-Security-
-		 * Policy refuses.
-		 */
+		// Listened for here and not with `onload`, which Svelte renders as an
+		// inline handler attribute the Content-Security-Policy refuses.
 		const image = coverImage;
 		const onLoad = () => image && tint(image);
 		image?.addEventListener('load', onLoad);
@@ -130,9 +134,9 @@
 	});
 
 	/*
-	 * The login page's coming and going, for the same reasons. The page starts
-	 * covered and fades up; leaving it blurs what is behind the glass and lays
-	 * the veil back over the top before the navigation is applied.
+	 * The login page's coming and going. The page starts covered and fades up.
+	 * Leaving blurs what is behind the glass and lays the veil back over the
+	 * top before the navigation is applied.
 	 */
 	let phase = $state<'arriving' | 'idle' | 'leaving'>('arriving');
 	const leaving = $derived(phase === 'leaving');
@@ -190,8 +194,8 @@
 
 	/*
 	 * To a track by its position, playing. The element's source changes with
-	 * `current`, so play() waits a tick for it. From the transport, the end of
-	 * a track, the lock screen or the list.
+	 * `current`, so play() waits a tick for it. Called from the transport, the
+	 * end of a track, the lock screen and the list.
 	 */
 	async function playAt(position: number) {
 		if (position < 0 || position >= tracks.length) return;
@@ -232,9 +236,9 @@
 	}
 
 	/*
-	 * The lock screen and the headset buttons. A phone pausing a song shared in
-	 * a message and picking it up from the lock screen is the ordinary case for
-	 * this page, and without metadata the lock screen names the tab instead.
+	 * The lock screen and the headset buttons. A phone pausing a shared song
+	 * and resuming it from the lock screen is the ordinary case here, and
+	 * without metadata the lock screen names the tab.
 	 */
 	$effect(() => {
 		if (!song || !('mediaSession' in navigator)) return;
@@ -272,7 +276,23 @@
 
 <svelte:head>
 	<title>{song ? `${song.title}${song.artist ? ` · ${song.artist}` : ''}` : 'Shared link'} · {data.appName}</title>
-	<meta name="robots" content="noindex, nofollow" />
+	{#if data.noindex}
+		<meta name="robots" content="noindex, nofollow" />
+	{/if}
+	<!--
+		What a messaging app shows of a pasted link: the title, the artist and
+		the cover. The page gives all three to anyone holding the link anyway.
+	-->
+	{#if ready}
+		<meta property="og:type" content="music.{noun}" />
+		<meta property="og:site_name" content={data.appName} />
+		<meta property="og:title" content={ready.item.title} />
+		<meta property="og:description" content={previewText} />
+		{#if ready.previewImage}
+			<meta property="og:image" content={ready.previewImage} />
+		{/if}
+		<meta name="twitter:card" content="summary" />
+	{/if}
 </svelte:head>
 
 <div class="hh-ambience" aria-hidden="true"></div>
@@ -355,10 +375,9 @@
 				</div>
 
 				<div class="transport">
-					<!--
-						With several tracks the row is five: this, previous, play, next and
-						mute, so play sits in the middle. A song link keeps its three.
-					-->
+					<!-- With several tracks the row is five (this, previous, play,
+					     next, mute), so play is in the middle. A song link keeps its
+					     three. -->
 					{#if many}
 						<button
 							class="edge"
@@ -474,9 +493,8 @@
 
 			<!--
 				Nothing loads until play is pressed: the file can be a hundred
-				megabytes of FLAC, and a link opened to see what it is should not cost
-				that. `crossorigin` is unset on purpose, as it is on the app's own
-				elements; the stream is same-origin.
+				megabytes of FLAC. `crossorigin` is unset, as on the app's own
+				elements: the stream is same-origin.
 			-->
 			<audio
 				bind:this={audio}
@@ -521,7 +539,7 @@
 			</a>
 		{:else}
 			<!-- `noreferrer`, so this page's address, which holds the token, is not
-			     sent along. The referrer policy would already hold it back. -->
+			     sent along. The referrer policy already holds it back. -->
 			<a class="onward" href={SOURCE_URL} target="_blank" rel="noopener noreferrer">
 				<Icon name="github" size={16} />
 				<span>Shared with Heddohon</span>
@@ -551,7 +569,7 @@
 	}
 
 	/* Rests at 0 and is animated from 1, so a browser that never runs the
-	   animation is not left behind an opaque sheet. */
+	   animation is not left under an opaque sheet. */
 	.veil.hh-ambience {
 		z-index: 60;
 		opacity: 0;
@@ -577,8 +595,8 @@
 		}
 	}
 
-	/* The blur goes on what is behind the glass and never on an ancestor of it,
-	   which would make that ancestor the card's backdrop root. */
+	/* The blur goes on what is behind the glass, never on an ancestor of it,
+	   which would become the card's backdrop root. */
 	.crest-field.leaving,
 	.intro.leaving {
 		animation: soften var(--dur-state) var(--ease-out) both;
@@ -677,10 +695,10 @@
 	}
 
 	/*
-	 * Slightly taller than wide, as the panel's stage usually is, so the cover is
-	 * cropped in a little. It dissolves into the controls by masking the artwork
-	 * rather than painting over it: the card's ground is translucent and changes
-	 * with the room, so a painted gradient would show as a band.
+	 * Slightly taller than wide, as the panel's stage usually is, so the cover
+	 * is cropped in a little. It dissolves into the controls by a mask on the
+	 * artwork: the card's ground is translucent and changes with the room, so a
+	 * painted gradient would show as a band.
 	 */
 	/* Dither over the artwork so its fade does not step; see `--grain` in app.css. */
 	.art::after {
@@ -782,11 +800,9 @@
 			background var(--transition);
 	}
 
-	/*
-	 * The playing track's facts, folded under the transport as the player's
-	 * track details are: a one-row grid whose track opens from 0fr to 1fr.
-	 * Opacity on the fold, which holds no glass.
-	 */
+	/* The playing track's facts, folded under the transport as the player's
+	   track details are: a one-row grid whose track opens from 0fr to 1fr.
+	   Opacity on the fold, which holds no glass. */
 	.fold {
 		display: grid;
 		grid-template-rows: 0fr;
@@ -831,11 +847,9 @@
 		color: var(--text-default);
 	}
 
-	/*
-	 * An album's or playlist's tracks, under the transport: a column of
-	 * them the card scrolls within, about six rows tall, so the card stays the
-	 * size of the song card it grew from.
-	 */
+	/* An album's or playlist's tracks, under the transport: a column the card
+	   scrolls within, about six rows tall, so the card keeps the song card's
+	   size. */
 	.tracklist {
 		list-style: none;
 		margin: 0 calc(var(--space-2) * -1);
@@ -910,8 +924,8 @@
 		filter: var(--glow-icon);
 	}
 
-	/* The one filled control on the card: the accent disc is what says this is
-	   the thing to press, where the panel's play glyph sits among others. */
+	/* The one filled control on the card: the accent disc marks the thing to
+	   press. */
 	.play {
 		width: 4rem;
 		height: 4rem;
@@ -1046,20 +1060,19 @@
 	}
 
 	/*
-	 * A phone. The whole card has to sit on one screen with the play button in
-	 * reach of a thumb, which the tablet arrangement above does not do: on an
-	 * iPhone 16 (393x852) the square artwork alone was 332px tall and pushed the
-	 * transport under Safari's toolbar.
+	 * A phone. The whole card has to fit one screen with the play button in
+	 * reach of a thumb: on an iPhone 16 (393x852) the square artwork alone was
+	 * 332px tall and pushed the transport under Safari's toolbar.
 	 *
 	 * The artwork becomes a band whose height follows the screen's, the name
-	 * and the sentence share one line at the top, and the expiry, which is the
-	 * least urgent thing on the page, goes to a line under the card.
+	 * and the sentence share one line at the top, and the expiry goes to a line
+	 * under the card.
 	 */
 	@media (max-width: 36rem) {
 		.stage {
 			gap: var(--space-4);
-			/* Centred when the screen has room to spare, as the login page is;
-			   measured at 560px of content on an 852px iPhone 16. */
+			/* Centred when the screen has room to spare, as the login page is:
+			   560px of content on an 852px iPhone 16. */
 			align-content: center;
 			padding: var(--bare-top-tight) var(--space-4) var(--space-3);
 			grid-template-columns: minmax(0, 1fr);

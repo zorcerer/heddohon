@@ -21,16 +21,14 @@ export const load: PageServerLoad = async () => {
 	return {
 		appName: cfg.appName,
 		hint: cfg.registrationHint,
-		// Only the label and kind reach the browser. The upstream URL is
-		// deliberately never serialised into the page: the client has no business
-		// knowing where the music server lives, and cannot be tricked into
-		// pointing the app somewhere else.
+		// Only the label and kind reach the browser. The upstream URL is never
+		// serialised into the page.
 		servers: await Promise.all(
 			cfg.upstreams.map(async (upstream) => ({
 				kind: upstream.kind,
 				label: upstream.label,
-				// Off by default on Jellyfin, so it is only offered where the server
-				// says it is on. The answer is cached in the adapter.
+				// Off by default on Jellyfin, so offered only where the server says it
+				// is on. The answer is cached in the adapter.
 				quickConnect: (await backendFor(upstream.kind).quickConnect?.enabled()) ?? false
 			}))
 		)
@@ -60,9 +58,8 @@ export const actions: Actions = {
 		}
 		/*
 		 * Bounded before anything is counted. The username becomes a key in the
-		 * throttle table, and with no bound an anonymous visitor wrote a row the
-		 * size of the request body, 400 KB, for every distinct name sent. No
-		 * music server has accounts with names this long.
+		 * throttle table, and unbounded, an anonymous visitor wrote a row the
+		 * size of the request body, 400 KB, for every distinct name sent.
 		 */
 		if (username.length > MAX_USERNAME || password.length > MAX_PASSWORD) {
 			return fail(400, {
@@ -73,20 +70,17 @@ export const actions: Actions = {
 		}
 
 		/*
-		 * Counted before the upstream is touched, so a throttled attacker costs
-		 * the music server nothing at all. The keys are computed from the
-		 * submitted username rather than a resolved account, because the whole
-		 * point is to limit guesses at accounts that may not exist.
-		 *
-		 * The count happens here rather than after the answer comes back so that
-		 * concurrent attempts cannot all pass a check none of them has yet paid
-		 * for. Anything the upstream did not actually judge is handed back below.
+		 * Counted before the upstream is asked, so a throttled attacker costs the
+		 * music server nothing, and so concurrent attempts cannot all pass a
+		 * check none has paid for. The keys come from the submitted username,
+		 * not a resolved account: the limit is on guesses at accounts that may
+		 * not exist. Anything the upstream did not judge is handed back below.
 		 */
 		const keys = loginKeys(backend, username, event.getClientAddress(), await knownDevice(event, backend, username));
 		const verdict = await reserveLoginAttempt(keys);
 		if (!verdict.allowed) {
-			// Named at warn: a throttled address is the signal somebody is guessing,
-			// and it is the line an operator points fail2ban at.
+			// A throttled address is the sign of somebody guessing, and the line an
+			// operator points fail2ban at.
 			log.warn('sign-in-throttled', {
 				username,
 				backend,
@@ -105,9 +99,8 @@ export const actions: Actions = {
 			account = await signIn(backend, username, password);
 		} catch (err) {
 			if (err instanceof UpstreamError) {
-				// Only a rejected credential counts. An unreachable music server is
-				// not a wrong guess, and counting it would let an upstream outage
-				// lock every user out, so that attempt goes back.
+				// Only a rejected credential counts. Counting an unreachable music
+				// server would let an outage lock every user out.
 				if (err.kind === 'auth') await pruneLoginAttempts();
 				else await refundLoginAttempt(keys);
 				log.warn('sign-in-rejected', {
@@ -117,13 +110,12 @@ export const actions: Actions = {
 					kind: err.kind,
 					detail: err.kind === 'auth' ? undefined : err.message
 				});
-				// Do not distinguish "no such user" from "wrong password": that is
-				// the upstream server's information to leak, not ours.
+				// "No such user" and "wrong password" get the same message.
 				//
-				// Anything else gets a fixed message. `err.message` can carry the
-				// Subsonic server's own error text, the configured timeout or a fetch
-				// failure, and this response goes to a visitor who is not signed in.
-				// The detail is in the log line above.
+				// Anything else gets a fixed one. `err.message` can carry the Subsonic
+				// server's error text, the configured timeout or a fetch failure, and
+				// this response goes to a visitor who is not signed in. The detail is
+				// in the log line above.
 				const message =
 					err.kind === 'auth'
 						? 'That username and password were not accepted by the music server.'

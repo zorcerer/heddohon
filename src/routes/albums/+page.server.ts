@@ -24,8 +24,7 @@ export const load: PageServerLoad = async (event) => {
 	const page = Math.max(1, Number(event.url.searchParams.get('page')) || 1);
 	const offset = (page - 1) * PAGE_SIZE;
 
-	// One extra row tells us whether a next page exists without a count query,
-	// which Subsonic does not offer anyway.
+	// One extra row says whether a next page exists. Subsonic has no count query.
 	const albums = await library(event, ({ backend, credential }) =>
 		backend.getAlbums(credential, { sort, limit: PAGE_SIZE + 1, offset })
 	);

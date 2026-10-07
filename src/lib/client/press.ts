@@ -1,7 +1,7 @@
 /**
- * Starts the press effect on a `.hh-button` where it is pressed; the effect
- * itself is in `app.css`. One listener on the document, installed once by
- * the root layout, rather than a handler on every button.
+ * Starts the press effect on a `.hh-button` where it is pressed; the effect is
+ * in `app.css`. One listener on the document, installed once by the root
+ * layout.
  */
 import { prefersReducedMotion } from './sleeve-transition.svelte';
 

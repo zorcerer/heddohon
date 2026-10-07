@@ -9,12 +9,12 @@ import type { Song } from '$lib/types';
 /**
  * The original file, as a download.
  *
- * The same bytes `/api/stream` sends, with the account's credential, never
- * transcoded, and with `Content-Disposition: attachment` and a name built from
- * the tags. Ranges are relayed, so a browser can resume an interrupted one.
+ * The bytes `/api/stream` sends, with the account's credential, never
+ * transcoded, with `Content-Disposition: attachment` and a name built from the
+ * tags. Ranges are relayed, so a browser can resume.
  *
- * `HEDDOHON_DOWNLOADS=false` removes the button and this route. It is not a
- * copy protection: a signed-in browser is sent the same file to play it.
+ * `HEDDOHON_DOWNLOADS=false` removes the button and this route. It is not copy
+ * protection: a signed-in browser is sent the same file to play it.
  */
 const handler: RequestHandler = async (event) => {
 	const session = event.locals.session;
@@ -44,10 +44,10 @@ const handler: RequestHandler = async (event) => {
 };
 
 /**
- * `attachment` with the name twice: a plain ASCII one for old clients, and
- * the UTF-8 one RFC 6266 defines, which every current browser prefers. Both
- * are built from tags, which anyone who can edit the library writes, so
- * anything that could end the header or name a path is removed first.
+ * `attachment` with the name twice: plain ASCII for old clients, and the UTF-8
+ * one RFC 6266 defines, which current browsers prefer. Both come from tags,
+ * which anyone who can edit the library writes, so anything that could end the
+ * header or name a path is removed first.
  */
 function attachment(song: Song): string {
 	const base = [song.artist, song.title]

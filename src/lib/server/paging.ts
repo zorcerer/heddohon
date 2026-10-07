@@ -1,11 +1,9 @@
 /**
  * Page slicing for listings the music servers return whole.
  *
- * Subsonic's `getArtists` and `getStarred2` have no offset parameter — they hand
- * back the entire set in one response. Rendering ten thousand cards is avoidable:
- * the expensive part is the DOM and the serialised payload, and both are fixed by
- * slicing before the page is rendered. The request itself is paid once a minute
- * per account for artists, through `listings.ts`, rather than once per page.
+ * Subsonic's `getArtists` and `getStarred2` have no offset parameter. Slicing
+ * before the page is rendered bounds the DOM and the serialised payload. The
+ * request itself is held by `listings.ts`.
  */
 export const PAGE_SIZE = 100;
 
@@ -26,8 +24,8 @@ export function readPageNumber(params: URLSearchParams, key = 'page'): number {
 export function paginate<T>(items: readonly T[], page: number, size = PAGE_SIZE): Page<T> {
 	const total = items.length;
 	const pageCount = Math.max(1, Math.ceil(total / size));
-	// A page number past the end lands on the last page rather than showing
-	// nothing, which is what a stale bookmark or a shrinking library produces.
+	// A page number past the end (a stale bookmark, a library that shrank) lands
+	// on the last page.
 	const current = Math.min(Math.max(1, page), pageCount);
 	const start = (current - 1) * size;
 

@@ -67,11 +67,9 @@
 </MediaShelf>
 
 <style>
-	/*
-	 * A year's albums are one item of the shelf's line, as wide as that many
-	 * cards and their gaps, so the shelf's card width and gap (both smaller on
-	 * a phone) carry through by inheritance.
-	 */
+	/* A year's albums are one item of the shelf's line, as wide as that many
+	   cards and their gaps, so the shelf's card width and gap (both smaller on
+	   a phone) carry through. */
 	.year {
 		grid-column: span var(--albums);
 		display: grid;
@@ -87,11 +85,8 @@
 		gap: inherit;
 	}
 
-	/*
-	 * The timeline: a rule along the top of the line, broken by nothing, with
-	 * a mark where each year starts. It runs on through the gap after each
-	 * item so the rule reads as one line from today back.
-	 */
+	/* The timeline: an unbroken rule along the top of the line, with a mark
+	   where each year starts. It runs through the gap after each item. */
 	.mark {
 		position: relative;
 		display: flex;
@@ -133,10 +128,10 @@
 	}
 
 	/*
-	 * The date as a page torn from a day-to-a-page calendar: the size of a
-	 * cover and level with the covers beside it, the day at poster scale, and
-	 * a perforated top edge. It stays in the page's own colours; only the
-	 * mark for today takes the accent.
+	 * The date as a page from a day-to-a-page calendar: the size of a cover and
+	 * level with the covers beside it, the day at poster scale, and a
+	 * perforated top edge. In the page's own colours, with only the mark for
+	 * today in the accent.
 	 */
 	.leaf {
 		display: grid;

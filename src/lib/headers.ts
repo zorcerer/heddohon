@@ -1,29 +1,24 @@
 /**
  * The hardening headers every response carries.
  *
- * `harden()` in `hooks.server.ts` sets them on what SvelteKit answers, and the
- * build writes them into a middleware placed ahead of adapter-node's static
- * file server (`vite.config.ts`), which answers `/_app/*`, `/service-worker.js`
- * and everything in `static/` before any hook runs. Those responses went out
- * without them, and so did the trailing-slash redirects SvelteKit answers
- * before the hooks. One list, so the two cannot drift apart.
+ * `harden()` in `hooks.server.ts` sets them on what SvelteKit answers. The
+ * build also writes them into a middleware ahead of adapter-node's static file
+ * server (`vite.config.ts`), which answers `/_app/*`, `/service-worker.js` and
+ * `static/` before any hook runs, as SvelteKit does its trailing-slash
+ * redirects. One list for both.
  *
- * HSTS is set unconditionally rather than only on https. The app is always
- * behind a TLS-terminating proxy in the deployment it is written for, and the
- * header is ignored by browsers over plain http, so the only thing a condition
- * would add is a way to get it wrong.
+ * HSTS is set unconditionally. Browsers ignore it over plain http.
  *
- * The microphone for this origin only: Chrome and Edge name the audio outputs
- * only once the page may use it (`client/output.svelte.ts`), and ask for it
- * only when "List outputs" is pressed. A frame from another origin cannot
- * ask, and the app's pages admit no frames at all (`frame-src 'none'`).
+ * The microphone is allowed for this origin only: Chrome and Edge name the
+ * audio outputs only once the page may use it (`client/output.svelte.ts`), and
+ * it is asked for only when "List outputs" is pressed. The app's pages admit
+ * no frames (`frame-src 'none'`).
  *
  * `x-heddohon` marks a response as Heddohon's own. The service worker and the
- * offline page read it to tell Heddohon's error page (a music server that is
- * down) from a reverse proxy's (Heddohon itself is down). They read
- * `/healthz` for that before, which the operator checklist advises
- * restricting at the proxy, and where it was, every 502 became the offline
- * page and the offline page never reloaded.
+ * offline page read it to tell Heddohon's error page (the music server is
+ * down) from a reverse proxy's (Heddohon is down). They read `/healthz` for
+ * that before, which the operator checklist advises restricting at the proxy:
+ * where it was, every 502 became the offline page, which never reloaded.
  */
 export const MARKER = 'x-heddohon';
 
@@ -39,9 +34,9 @@ export const SECURITY_HEADERS: Record<string, string> = {
 };
 
 /**
- * The policy for the HTML files in `static/`, which SvelteKit does not render
- * and so gives no policy of its own. `offline.html` is the one: its own
- * stylesheet inline, its script from `/offline.js`.
+ * The policy for the HTML files in `static/`, which SvelteKit does not render:
+ * `offline.html`, with its stylesheet inline and its script from
+ * `/offline.js`.
  */
 export const STATIC_HTML_CSP =
 	"default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; " +
@@ -49,9 +44,8 @@ export const STATIC_HTML_CSP =
 
 /**
  * The policy for HTML SvelteKit answers without one: the error page it builds
- * itself when an endpoint throws, which does not go through the page renderer
- * that attaches the configured policy. That page is fixed text with an inline
- * stylesheet and no script.
+ * when an endpoint throws, outside the page renderer that attaches the
+ * configured policy. It is fixed text with an inline stylesheet and no script.
  */
 export const FALLBACK_HTML_CSP =
 	"default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'";

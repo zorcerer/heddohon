@@ -1,18 +1,15 @@
 /**
- * Account and session lifecycle.
+ * Accounts and sessions.
  *
- * Two rules drive the shape of this module:
- *  1. Heddohon never holds a password of its own. Every sign-in is a live call
- *     to the configured Navidrome/Jellyfin server; if the upstream says no,
- *     there is no local fallback that could say yes.
- *  2. A session is an opaque random token. The database stores only its HMAC
+ *  1. Heddohon holds no password of its own. Every sign-in is a live call to
+ *     the configured Navidrome/Jellyfin server, with no local fallback.
+ *  2. A session is an opaque random token. The database stores its HMAC
  *     digest and an absolute expiry, set at sign-in and never extended.
  */
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import type { Cookies } from '@sveltejs/kit';
 import type { BackendKind } from '$lib/types';
 import { config } from './config';
-import { randomBytes } from 'node:crypto';
 import {
 	constantTimeEquals,
 	deviceDigest,
@@ -29,29 +26,29 @@ import { forgetListings } from './listings';
 import { forgetDetails } from './details';
 import { forgetSuggestions } from './suggestions';
 import { forgetTranscodes } from './transcodes';
+import { dropKeeper, stopFill } from './coverfill';
+import { dropIntegrations } from './integrations';
 import { clearAccountState } from './settings';
+import { clearProfile, hideProfile } from './listening';
 import { forgetSharedItems, revokeAllShares } from './shares';
 import { foldName } from './names';
 import { endPartiesOf } from './together';
 
-export const SESSION_COOKIE = 'heddohon_session';
+const SESSION_COOKIE = 'heddohon_session';
 
 /**
- * The name used wherever the cookie is `Secure`.
+ * The cookie name wherever the cookie is `Secure`.
  *
- * Host-only is not enough on its own. A sibling origin on the same registrable
- * domain (`jellyfin.example.com` next to `music.example.com`) can write
- * `heddohon_session` with `Domain=.example.com`. Both then arrive in one
- * `Cookie` header, and the parser in `cookie@0.6.0` keeps the first occurrence,
- * which is ordered by creation time and so is the planted one. Signing in
- * overwrites the host-only cookie, a different cookie, so the plant keeps
- * winning and `destroySession` cannot clear it either.
+ * A sibling origin on the same registrable domain can set `heddohon_session`
+ * with `Domain=.example.com`. Both cookies then arrive in one header, and
+ * `cookie@0.6.0` keeps the first, which is the older, planted one. Signing in
+ * and `destroySession` write the host-only cookie and leave the plant.
  *
- * `__Host-` closes that: the browser refuses to set such a cookie with a
- * `Domain`, so nothing but this exact host can write one. The prefix requires
- * `Secure`, which is why the bare name is still used where the cookie is not.
+ * A browser refuses a `__Host-` cookie that carries a `Domain`, so only this
+ * host can set one. The prefix requires `Secure`, so plain http keeps the bare
+ * name.
  */
-export const SESSION_COOKIE_HOST = `__Host-${SESSION_COOKIE}`;
+const SESSION_COOKIE_HOST = `__Host-${SESSION_COOKIE}`;
 
 /** What the cookie helpers need from a request. */
 export interface CookieContext {
@@ -92,11 +89,11 @@ function toAccount(row: AccountRow): Account {
 /**
  * The username comparison as SQL, for the engine in use.
  *
- * `lower()` folds ASCII only on SQLite, as NOCASE did. PostgreSQL's follows
- * the database's locale: on a stock `postgres:16-alpine` (en_US.utf8)
- * `lower(U&'\212Aate') = 'kate'`, so a user named with a Kelvin sign signed
- * in to another user's account row, and took over its settings and links.
- * The "C" collation folds ASCII only, which is what Navidrome compares by.
+ * SQLite's `lower()` folds ASCII only. PostgreSQL's follows the locale: on a
+ * stock `postgres:16-alpine` (en_US.utf8) `lower(U&'\212Aate') = 'kate'`, so a
+ * name with a Kelvin sign signed in to another user's row and took over its
+ * settings and links. The "C" collation folds ASCII only, which is what
+ * Navidrome compares by.
  */
 function usernameMatch(kind: 'sqlite' | 'postgres'): string {
 	return kind === 'postgres'
@@ -104,10 +101,7 @@ function usernameMatch(kind: 'sqlite' | 'postgres'): string {
 		: 'lower(username) = lower(?)';
 }
 
-/**
- * Authenticates against the upstream server and, on success, upserts the local
- * account record with a freshly sealed credential.
- */
+/** Signs in upstream and stores the account with a freshly sealed credential. */
 export async function signIn(
 	kind: BackendKind,
 	username: string,
@@ -117,10 +111,7 @@ export async function signIn(
 	return storeAccount(kind, credential, remoteUserId);
 }
 
-/**
- * Completes a Quick Connect sign-in the user has approved upstream. The result
- * is stored exactly as a password sign-in's is.
- */
+/** Completes a Quick Connect sign-in approved upstream. Stored as a password sign-in is. */
 export async function signInWithQuickConnect(
 	kind: BackendKind,
 	secret: string,
@@ -141,18 +132,11 @@ async function storeAccount(
 	const timestamp = now();
 	const sealed = sealJson(credential);
 
-	/*
-	 * NOCASE, because Navidrome and Jellyfin both accept a username in any case.
-	 * A case-sensitive match gave `Alice` and `alice` two account rows for one
-	 * person, and with them two sets of settings, two saved queues and two
-	 * playback positions, which reads as the app losing state at random.
-	 *
-	 * Ordered so that repeated sign-ins keep landing on the same row where a
-	 * database written before this already holds both.
-	 */
-	//
-	// `lower()` on both sides rather than SQLite's `COLLATE NOCASE`, which
-	// PostgreSQL does not have; see `usernameMatch`.
+	// Matched in any case, as Navidrome and Jellyfin do: a case-sensitive match
+	// gave `Alice` and `alice` two rows, each with its own settings, queue and
+	// position. Ordered so repeated sign-ins land on the same row where an older
+	// database holds both. `lower()` instead of `COLLATE NOCASE`, which
+	// PostgreSQL lacks; see `usernameMatch`.
 	const existing = await database.get<AccountRow>(
 		`SELECT * FROM accounts WHERE backend = ? AND ${usernameMatch(database.kind)} ORDER BY created_at LIMIT 1`,
 		kind,
@@ -162,41 +146,44 @@ async function storeAccount(
 
 	if (existing && isAnotherUser(kind, existing.remote_user_id, remoteUserId)) {
 		/*
-		 * The music server has a different user under this name: an account
-		 * deleted and a new one created with the same name, or a rename that
-		 * freed it. Keeping the row handed the new person's credential to the
-		 * old person's sessions, which then read the new person's library until
-		 * they expired, and played the old person's links through it.
-		 * Everything tied to the old user goes before the credential changes,
-		 * so no request can pair an old session with the new credential.
+		 * The music server has a different user under this name (deleted and
+		 * recreated, or freed by a rename). Kept, the row handed the new user's
+		 * credential to the old user's sessions and links. Everything tied to
+		 * the old user goes before the credential changes, so no request pairs
+		 * an old session with the new credential.
 		 */
 		await destroyAllSessions(existing.id);
 		const links = await revokeAllShares(existing.id);
 		await clearAccountState(existing.id);
+		await clearProfile(existing.id);
+		await dropKeeper(kind, existing.id);
+		await dropIntegrations(existing.id);
 		deviceEpoch++;
 		log.warn('account-user-replaced', { account: existing.id, backend: kind, links });
 	} else if (existing && passwordChanged(existing.credential, credential)) {
 		/*
-		 * Subsonic reports no user id, so a name given to someone else cannot be
-		 * told apart from its owner changing their password. Both end the row's
-		 * sessions. Kept, the sessions of whoever held the old password went on
-		 * working with the new one: a Navidrome name reused for another person
-		 * handed that person's library to the previous holder until the
-		 * sessions expired. The cost is that changing a password signs out the other
-		 * devices, which is also what a password change is expected to do.
-		 *
-		 * Links, settings and the queue are kept, since the same person
-		 * changing their password would lose them.
+		 * Subsonic reports no user id, so a name given to someone else looks the
+		 * same as a password change. Both end the row's sessions: kept, they
+		 * worked with the new credential, which handed a reused name's library
+		 * to its previous holder. A password change therefore signs out the
+		 * other devices. Links, settings and the queue stay, since the same
+		 * person would lose them.
 		 */
 		await destroyAllSessions(existing.id);
+		// See `dropKeeper` and `dropIntegrations` for why these are not kept.
+		await dropKeeper(kind, existing.id);
+		await dropIntegrations(existing.id);
+		// Whoever holds the name now is shown to the other accounts only once
+		// they turn it on themselves.
+		await hideProfile(existing.id);
 		deviceEpoch++;
 		log.warn('account-password-changed', { account: existing.id, backend: kind });
 	}
 
 	if (existing) {
-		// The stored username follows the latest sign-in. It is the spelling the
-		// upstream accepted, and for Subsonic it is sent back in the query string
-		// of every request, so it has to match what was authenticated.
+		// The stored username follows the latest sign-in: Subsonic sends it in
+		// every request's query string, so it must be the spelling that
+		// authenticated.
 		await database.run(
 			'UPDATE accounts SET username = ?, credential = ?, remote_user_id = ?, last_login_at = ?, device_epoch = ? WHERE id = ?',
 			credential.username,
@@ -234,10 +221,8 @@ async function storeAccount(
 
 /**
  * Whether a sign-in under an existing row's name is a different upstream user.
- *
- * Jellyfin only. Its user id is a GUID that survives renames and is never
- * reused. The Subsonic adapter has no user id to compare, and stores the name
- * as typed in its place.
+ * Jellyfin only: its user id is a GUID that survives renames and is never
+ * reused. Subsonic has no user id, and the name is stored in its place.
  */
 function isAnotherUser(kind: BackendKind, stored: string | null, signedIn: string | null): boolean {
 	if (kind !== 'jellyfin' || !stored || !signedIn) return false;
@@ -278,9 +263,9 @@ export async function createSession(
 		created,
 		expiresAt,
 		created,
-		// `client_pseudonym` held an HMAC of the whole User-Agent, which nothing
-		// read and SECURITY.md says is not kept: every session from one browser
-		// build carried the same value, across accounts. Only the label is kept.
+		// `client_pseudonym` held an HMAC of the User-Agent, the same value for
+		// every session of one browser build, and nothing read it. Only the label
+		// is kept.
 		null,
 		deviceLabel(clientHint)
 	);
@@ -292,14 +277,13 @@ export async function createSession(
 		httpOnly: true,
 		sameSite: 'lax',
 		secure,
-		// The cookie dies with the session record; the server-side expiry is the
-		// one that actually matters, this just avoids sending a dead cookie.
+		// The server-side expiry is the one enforced. This stops a dead cookie
+		// being sent.
 		maxAge: Math.floor(maxAgeMs / 1000)
 	});
 
-	// A session issued under the bare name before this deployment became Secure
-	// would otherwise sit alongside the new one and be the value a downgrade
-	// reads. Clearing it costs nothing when it is not there.
+	// A bare-name cookie from before this deployment became Secure would be the
+	// value a downgrade reads.
 	if (secure) event.cookies.delete(SESSION_COOKIE, { path: '/' });
 
 	await pruneExpiredSessions();
@@ -307,12 +291,10 @@ export async function createSession(
 }
 
 /**
- * Sessions one account may hold at once. A sign-in past it ends the oldest.
+ * Sessions one account may hold. A sign-in past it ends the oldest.
  *
- * A correct password cleared the throttle, so any account holder could open
- * sessions without limit: 300 sign-ins in 1.5s made 300 rows, each kept
- * until it expired, and a Settings page of 290KB. 50 is more browsers than
- * one person stays signed in on.
+ * A correct password clears the throttle, so sign-ins were unlimited: 300 in
+ * 1.5s made 300 rows and a 290KB Settings page.
  */
 const MAX_SESSIONS_PER_ACCOUNT = 50;
 
@@ -331,31 +313,21 @@ async function capSessions(accountId: string): Promise<void> {
 }
 
 /**
- * Whether to mark the session cookie `Secure`, and with it which name the
- * cookie carries.
+ * Whether the session cookie is `Secure`, and with it which name it carries.
  *
- * 'auto' used to read `process.env.ORIGIN`, on the reasoning that CSRF had
- * already forced the operator to set it correctly. adapter-node disproves that.
- * With ORIGIN unset it derives the origin from the Host header and defaults the
- * scheme to 'https' (`get_origin` in the bundled handler), so an https
- * deployment behind Caddy or nginx passes its own CSRF check with ORIGIN unset
- * while this function saw nothing and returned false. The cookie then went out
- * without `Secure`, and one plain-http request to the public hostname, which any
- * page on the internet can provoke with an <img>, put the token on the wire in
- * clear.
+ * On 'auto' the request's own scheme is read first. `process.env.ORIGIN` is
+ * not used: with ORIGIN unset adapter-node derives the origin from Host and
+ * assumes https, so an https deployment behind a proxy passed the CSRF check
+ * while this returned false, and one plain-http request (any page can provoke
+ * one with an <img>) sent the token in clear.
  *
- * The request's own scheme is the signal that cannot be missing, so that is what
- * is read first. It is not the only one: `NODE_ENV=production` also turns
- * `Secure` on, whatever the scheme, and the Docker image sets it. A plain-http
- * deployment of the image therefore needs HEDDOHON_COOKIE_SECURE=false, or the
- * browser refuses the cookie and sign-in does not stick. The same adapter-node default is why this cannot break a working
- * plain-http deployment that leaves ORIGIN unset: there `url.protocol` is https
- * and the browser's Origin header is http, the cross-origin check in
- * hooks.server.ts rejects the mismatch, and sign-in already does not work.
+ * `NODE_ENV=production` also turns it on, and the Docker image sets that, so a
+ * plain-http deployment of the image needs HEDDOHON_COOKIE_SECURE=false. A
+ * plain-http deployment with ORIGIN unset did not work before either: there
+ * `url.protocol` is https, the browser's Origin is http, and the cross-origin
+ * check in hooks.server.ts rejects sign-in.
  *
- * Loopback over plain http stays exempt outside production so that `vite dev`
- * on the machine itself keeps working, where `Secure` would stop the browser
- * returning the cookie at all.
+ * Loopback over plain http is exempt outside production, so `vite dev` works.
  */
 export function cookieSecure(url: URL): boolean {
 	const setting = config().cookieSecure;
@@ -368,16 +340,14 @@ export function cookieSecure(url: URL): boolean {
 }
 
 /**
- * Resolves a request cookie to a live session, opening the stored credential.
- * Returns null for anything expired, unknown or undecryptable.
+ * Resolves the request's cookie to a live session and opens the credential.
+ * Null for anything expired, unknown or undecryptable.
  */
 export async function resolveSession(event: CookieContext): Promise<AuthenticatedSession | null> {
-	// Exactly one name is read, the one this deployment issues. Falling back to
-	// the bare name on a Secure deployment would re-open the shadowing described
-	// on SESSION_COOKIE_HOST: an unauthenticated visitor carrying a planted
-	// `heddohon_session` would be resolved into the session that planted it.
-	// The cost is that sessions issued before this change are not honoured, so
-	// upgrading signs everybody out once.
+	// Only the name this deployment issues is read. Falling back to the bare
+	// name on a Secure deployment reopens the shadowing described on
+	// SESSION_COOKIE_HOST. Sessions issued under the other name are not
+	// honoured.
 	const token = event.cookies.get(
 		cookieSecure(event.url) ? SESSION_COOKIE_HOST : SESSION_COOKIE
 	);
@@ -392,9 +362,8 @@ export async function resolveSession(event: CookieContext): Promise<Authenticate
 	if (cached && cached.until > now()) {
 		({ row, account } = cached);
 	} else {
-		// Taken before the reads, so a sign-out that lands while they are out is
-		// seen afterwards: the rows read may already be stale, and caching them
-		// would honour the ended session for another five seconds.
+		// Taken before the reads: a sign-out that lands during them bumps it, and
+		// the stale rows are then not cached.
 		const epoch = sessionEpoch;
 		row = await database.get(
 			'SELECT account_id, created_at, expires_at, last_seen_at FROM sessions WHERE token_digest = ?',
@@ -423,19 +392,14 @@ export async function resolveSession(event: CookieContext): Promise<Authenticate
 	try {
 		credential = openJson<StoredCredential>(account.credential);
 	} catch {
-		// The secret changed, or the row was tampered with. Either way this
-		// session can no longer be honoured.
+		// The secret changed, or the row was tampered with.
 		await destroySession(event);
 		return null;
 	}
 
-	// `last_seen_at` is observability only. It deliberately does not extend
-	// `expires_at`: the lifetime is absolute, not idle-based.
-	//
-	// Written at most once a minute per session. It was written on every
-	// request, and a library page opens dozens of covers, each of which came
-	// through here: a database write per image, serialised behind SQLite's one
-	// writer, to record a time nobody reads to the second.
+	// `last_seen_at` is informational and does not extend `expires_at`. Written
+	// at most once a minute: per request it was one write for every cover on a
+	// library page, queued behind SQLite's single writer.
 	const seen = now();
 	if (seen - row.last_seen_at >= LAST_SEEN_RESOLUTION_MS) {
 		row.last_seen_at = seen;
@@ -454,16 +418,14 @@ export async function resolveSession(event: CookieContext): Promise<Authenticate
 const LAST_SEEN_RESOLUTION_MS = 60_000;
 
 /*
- * On PostgreSQL, a resolved session is remembered for five seconds.
+ * On PostgreSQL a resolved session is remembered for five seconds.
  *
- * Every request resolves the session, and a library page opens dozens of
- * covers at once. Against SQLite in the same process that costs microseconds;
- * against a server on the network it was two round trips per image. Five
- * seconds is short enough that expiry, which is checked on every request from
- * the remembered row, stays exact, and everything in this process that ends a
- * session or changes an account drops the entry at once. A second Heddohon
- * process on the same database would see a sign-out elsewhere up to five
- * seconds late. SQLite is not cached: it gains nothing.
+ * Every request resolves the session, and against a database on the network
+ * that was two round trips per cover. Expiry is still checked on every request
+ * from the remembered row, and everything in this process that ends a session
+ * or changes an account drops the entry. A second Heddohon process on the same
+ * database sees a sign-out up to five seconds late. SQLite is in-process and
+ * is not cached.
  */
 const SESSION_CACHE_MS = 5000;
 const SESSION_CACHE_MAX = 5000;
@@ -474,9 +436,7 @@ const sessionCache = new Map<
 
 /**
  * Bumped by everything that ends a session or changes an account. A read that
- * started before a bump does not go into the cache. Invalidations are rare
- * (a sign-out, a sign-in, a rejected credential), so one counter for all of
- * them costs a few extra database reads at most.
+ * began before a bump is not cached.
  */
 let sessionEpoch = 0;
 
@@ -491,22 +451,17 @@ function forgetAccount(accountId: string): void {
 /*
  * Known devices, so that guessing at a username cannot lock its owner out.
  *
- * The username throttle is checked before the music server is asked, so ten
- * wrong guesses from anywhere refused the owner's right password as well, for
- * fifteen minutes, and an attacker could keep that up indefinitely. A browser
- * that has signed in as an account carries this cookie afterwards, and its
- * attempts at that account are counted against the device instead of the
- * username (see `loginKeys`). Guessing elsewhere does not reach that budget.
+ * The username throttle runs before the music server is asked, so ten wrong
+ * guesses from anywhere refused the owner's right password for fifteen
+ * minutes. A browser that has signed in as an account carries this cookie, and
+ * its attempts are counted against the device instead (see `loginKeys`).
  *
- * The value is a random id and an HMAC over the id, the backend and the
- * lower-cased username, so it cannot be made up and one device's cookie says
- * nothing about another's. It carries no session and opens nothing by itself.
- *
- * The backend is signed because a name on the Subsonic server and the same
- * name on the Jellyfin server can be two people. Signed over the username
- * alone, a cookie earned by signing in to one counted as known at the other,
- * and signing in to the first again cleared the device's counter, so its
- * holder could guess at the second without limit.
+ * The value is a random id and an HMAC over the id, the backend and the folded
+ * username. It carries no session. The backend is signed since one name on the
+ * Subsonic and Jellyfin servers can be two people: signed over the name alone,
+ * a cookie earned at one counted as known at the other, and signing in to the
+ * first again reset the device's counter, so the second could be guessed at
+ * without limit.
  */
 const DEVICE_COOKIE = 'heddohon_device';
 const DEVICE_MAX_AGE_S = 180 * 24 * 60 * 60;
@@ -517,12 +472,10 @@ function deviceCookieName(url: URL): string {
 }
 
 /*
- * The account's device generation is signed too, and it moves when a
- * password change or a new upstream user under the name is seen. A cookie
- * earned before then stops counting as known: whoever held the old password,
- * or the previous owner of a reused Jellyfin name, kept a guessing budget of
- * its own for 180 days, apart from the one the owner sees. The username is
- * folded as `foldName` does, for the reason given there.
+ * The account's device generation is signed too. It moves on a password change
+ * or a new upstream user under the name, so a cookie earned before stops
+ * counting as known. Without it the old password's holder kept a guessing
+ * budget of their own for 180 days. The username is folded by `foldName`.
  */
 function deviceSignature(id: string, kind: BackendKind, username: string, epoch: number): string {
 	return deviceDigest(`${id}:${kind}:${foldName(username)}:${epoch}`);
@@ -566,28 +519,26 @@ export function rememberDevice(event: CookieContext, account: Account): void {
 }
 
 export async function destroySession(event: CookieContext): Promise<void> {
-	// Both names, so that signing out of a deployment that has changed scheme
-	// since the cookie was issued still clears the row and the cookie.
+	// Both names, so a deployment that changed scheme since sign-in still
+	// clears the row and the cookie.
 	for (const name of [SESSION_COOKIE_HOST, SESSION_COOKIE]) {
 		const token = event.cookies.get(name);
 		if (token) {
 			const digest = tokenDigest(token);
 			await (await store()).run('DELETE FROM sessions WHERE token_digest = ?', digest);
-			// After the delete, so a read that began before it cannot cache the
-			// row it saw.
+			// After the delete, so a read that began before it cannot cache the row.
 			sessionEpoch++;
 			sessionCache.delete(digest);
 			cutSessionStreams([digest]);
 		}
 		// `secure` as the cookie was set. Left out, SvelteKit marks the deletion
-		// Secure on any host but localhost, and a browser ignores a Secure
-		// Set-Cookie that arrives over plain http, so on such a deployment the
-		// dead token stayed in the browser.
+		// Secure on any host but localhost, and a browser ignores that over plain
+		// http, so the dead token stayed.
 		event.cookies.delete(name, { path: '/', secure: name === SESSION_COOKIE_HOST || cookieSecure(event.url) });
 	}
 }
 
-/** Signs the account out everywhere — used when the upstream rejects the stored credential. */
+/** Signs the account out everywhere, as when the upstream rejects the stored credential. */
 export async function destroyAllSessions(accountId: string): Promise<void> {
 	const database = await store();
 	const ending = await database.all<{ token_digest: string }>(
@@ -602,40 +553,28 @@ export async function destroyAllSessions(accountId: string): Promise<void> {
 	forgetSuggestions(accountId);
 	forgetTranscodes(accountId);
 	forgetSharedItems(accountId);
-	// The account was signed in and now is not, without anybody asking for that.
-	// It means the password changed upstream, or the token was revoked there, and
-	// it is the explanation for "it logged me out on its own".
+	stopFill(accountId);
+	// Nobody asked for this sign-out: the password changed upstream or the token
+	// was revoked there. It explains "it logged me out on its own".
 	log.warn('sessions-destroyed', { account: accountId, sessions: result.changes });
 }
 
 let lastPrune = 0;
 
 async function pruneExpiredSessions(): Promise<void> {
-	// Cheap enough to do opportunistically, but not on every request.
+	// At most once a minute.
 	const timestamp = now();
 	if (timestamp - lastPrune < 60_000) return;
 	lastPrune = timestamp;
 	await (await store()).run('DELETE FROM sessions WHERE expires_at <= ?', timestamp);
 }
 
-export async function activeSessionCount(accountId: string): Promise<number> {
-	const row = await (await store()).get<{ count: number }>(
-		'SELECT COUNT(*) AS count FROM sessions WHERE account_id = ? AND expires_at > ?',
-		accountId,
-		now()
-	);
-	return Number(row?.count ?? 0);
-}
-
 /**
- * The name a session goes by in Settings, where each one can be signed out.
- *
- * Derived from the stored digest rather than kept as a column of its own, and
- * one-way: the page holds 16 hex characters of a hash of the digest, which is
- * itself an HMAC of the token, so a handle leads back to neither. A request to
- * end one is matched against the account's own sessions only.
+ * The name a session goes by in Settings: 16 hex characters of a hash of the
+ * stored digest, itself an HMAC of the token, so a handle leads back to
+ * neither. A request to end one is matched against the account's own sessions.
  */
-export function sessionHandle(digest: string): string {
+function sessionHandle(digest: string): string {
 	return createHash('sha256').update(`session-handle:${digest}`).digest('hex').slice(0, 16);
 }
 
@@ -653,10 +592,9 @@ export interface SessionSummary {
 }
 
 /**
- * The account's session that goes by `handle`, if it has not ended or
- * expired, for a request that carries no cookie: a speaker fetching a cast
- * address (`cast.ts`). Nothing is written, and `last_seen_at` is left alone,
- * since the browser is not the one asking.
+ * The account's live session named `handle`, for a request with no cookie: a
+ * speaker fetching a cast address (`cast.ts`). Writes nothing, `last_seen_at`
+ * included.
  */
 export async function sessionByHandle(accountId: string, handle: string): Promise<AuthenticatedSession | null> {
 	const database = await store();
@@ -713,15 +651,12 @@ export async function listSessions(session: AuthenticatedSession): Promise<Sessi
 }
 
 /**
- * Ends the account's sessions named by `handles`, or all of them but the
- * current one with `'others'`. Returns how many ended. A handle that is not one
- * of the account's own ends nothing.
+ * Ends the account's sessions named by `handles`, or with `'others'` all but
+ * the current one. Returns how many ended.
  *
- * Only sessions that began no later than this one. Any session could end any
- * other, so a stolen one could sign its owner out again each time they signed
- * back in, for as long as it lasted. Now the owner's fresh sign-in is out of
- * its reach, and ends it. A browser that signed in later is signed out from
- * that browser.
+ * Only sessions that began no later than this one. Otherwise a stolen session
+ * could sign its owner out after every fresh sign-in. The owner's newer
+ * session is out of its reach and can end it.
  */
 export async function endSessions(session: AuthenticatedSession, handles: string[] | 'others'): Promise<number> {
 	const database = await store();
@@ -746,8 +681,7 @@ export async function endSessions(session: AuthenticatedSession, handles: string
 			session.account.id
 		);
 		ended += result.changes;
-		// After the delete, so a read that began before it cannot cache the row
-		// it saw; the same order `destroySession` keeps.
+		// After the delete, as in `destroySession`.
 		sessionEpoch++;
 		sessionCache.delete(digest);
 	}
@@ -759,11 +693,9 @@ export async function endSessions(session: AuthenticatedSession, handles: string
 /*
  * Audio in progress, by session, so that ending a session stops it.
  *
- * A browser plays a track as one open-ended range, so the request that
- * matters was checked once, at its start, and a browser signed out from
- * Settings went on receiving the rest of the file. The registry is in
- * memory: a restart ends every stream anyway. The same shape as the one for
- * shared links in shares.ts.
+ * A browser plays a track as one open-ended range, checked once at its start,
+ * so a browser signed out from Settings kept receiving the file. In memory: a
+ * restart ends every stream. Shared links have the same registry in shares.ts.
  */
 const sessionStreams = new Map<string, Set<AbortController>>();
 

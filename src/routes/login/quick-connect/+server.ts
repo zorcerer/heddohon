@@ -13,10 +13,9 @@ import {
 import { log, reason } from '$lib/server/log';
 
 /**
- * Starts a Quick Connect request and answers with the code to show.
- *
- * Under `/login` so that it is reachable without a session. It is a POST, so
- * the cross-origin check in hooks.server.ts applies to it as to every write.
+ * Starts a Quick Connect request and answers with the code to show. Under
+ * `/login`, so reachable without a session. As a POST it passes the
+ * cross-origin check in hooks.server.ts.
  */
 export const POST: RequestHandler = async (event) => {
 	const body = (await event.request.json().catch(() => null)) as { backend?: unknown } | null;
@@ -52,8 +51,8 @@ export const POST: RequestHandler = async (event) => {
 		);
 	}
 
-	// Fresh per request. Jellyfin issues the token to the device that started the
-	// request, so this id is sealed with the secret and used again to finish.
+	// Fresh per request. Jellyfin issues the token to the device that started
+	// the request, so this id is sealed with the secret and used again to finish.
 	const deviceId = randomUUID();
 	let started;
 	try {

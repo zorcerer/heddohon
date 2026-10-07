@@ -1,9 +1,8 @@
 <script lang="ts">
 	/**
-	 * One release given a panel of its own: its artwork fills the panel,
-	 * cropped and zoomed in past its edges, with the details laid over the
-	 * darker lower corner. The page's only poster-scale moment; everything
-	 * below it is deliberately smaller.
+	 * One release given a panel of its own: its artwork fills the panel, cropped
+	 * and zoomed in past its edges, with the details over the darker lower
+	 * corner. The page's only poster-scale element.
 	 */
 	import type { Album } from '$lib/types';
 	import Cover from './Cover.svelte';
@@ -20,8 +19,8 @@
 	);
 </script>
 
-<!-- Measured by the space it is given, since the home page may set it beside a
-     column rather than across the page. -->
+<!-- Measured by the space it is given: the home page may set it beside a
+     column instead of across the page. -->
 <div class="frame">
 	<section class="featured">
 		<!-- 640px at twice the density: the panel is up to about 900px wide, and
@@ -31,7 +30,7 @@
 		</div>
 		<div class="scrim" aria-hidden="true"></div>
 
-		<!-- The whole panel opens the album; the links and the button in the
+		<!-- The whole panel opens the album. The links and the button in the
 		     details sit above this and keep their own clicks. -->
 		<a class="open" href="/albums/{album.id}" aria-label="Open {album.name}"></a>
 
@@ -97,14 +96,13 @@
 
 	/*
 	 * Zoomed in past the panel's edges and settling a little on arrival, then
-	 * drifting in a touch further under the pointer. A transform on a layer of
-	 * its own, so neither step repaints the picture. It holds no glass, and the
-	 * only glass over it is the play button, whose solid fill hides it.
+	 * drifting in further under the pointer. A transform on a layer of its own,
+	 * so neither step repaints the picture. It holds no glass, and the only
+	 * glass over it is the play button, whose solid fill hides it.
 	 *
-	 * The arrival fills backwards only. Filled forwards as well, the finished
+	 * The arrival fills backwards only. Filled forwards too, the finished
 	 * animation kept hold of `scale` with an end keyframe that follows the
-	 * hover value, so a hover jumped straight to 1.2 and the transition never
-	 * ran.
+	 * hover value, so a hover jumped to 1.2 and the transition never ran.
 	 */
 	.art {
 		position: absolute;
@@ -132,8 +130,8 @@
 			scale: 1.2;
 		}
 
-		/* The shade lifts as the picture comes closer, so it grows and brightens
-		   together. At 0.8 the details keep the darkest corner behind them. */
+		/* The shade lifts as the picture comes closer. At 0.8 the details keep
+		   the darkest corner behind them. */
 		.featured:hover .scrim {
 			opacity: 0.8;
 		}
@@ -141,8 +139,8 @@
 
 	/*
 	 * Darkest in the lower left, where the details are, and clear in the upper
-	 * right, where the picture is left to be seen. A touch of the accent in the
-	 * dark, so the shade belongs to the room rather than being plain black.
+	 * right. A touch of the accent in the dark, so the shade is the room's and
+	 * not plain black.
 	 */
 	.scrim {
 		position: absolute;

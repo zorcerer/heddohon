@@ -2,19 +2,18 @@
  * The player sheet on a phone turning into the dock as it closes, and back
  * out of it as it opens.
  *
- * It used to slide off the foot of the screen and leave the dock behind, two
- * things unrelated on screen. Now the sheet shrinks into the dock's outline
- * while its contents fade, and the cover flies from the top of the sheet to
- * the thumbnail in the dock, so what is left is visibly what the sheet was.
+ * The sheet shrinks into the dock's outline while its contents fade, and the
+ * cover flies from the top of the sheet to the thumbnail in the dock. Before,
+ * it slid off the foot of the screen and left the dock behind, unrelated.
  *
  * Everything that moves obeys the glass rules in `app.css`. The sheet's
- * wrapper is transformed, and a transform is not a backdrop root, so the
- * panel keeps its blur. Opacity goes on the panel's contents, never on the
- * panel or anything around it. The flying cover is a plain image of its own,
- * over everything, holding no glass.
+ * wrapper is transformed, and a transform is not a backdrop root, so the panel
+ * keeps its blur. Opacity goes on the panel's contents, never on the panel or
+ * anything around it. The flying cover is an image of its own, over
+ * everything, holding no glass.
  *
- * The CSS slide stays for everything this does not cover: a wider screen,
- * reduced motion, and nothing playing (so no dock row to land in).
+ * The CSS slide stays for what this does not cover: a wider screen, reduced
+ * motion, and nothing playing (so no dock row to land in).
  */
 import { tick } from 'svelte';
 import { DUR, EASE_OUT_CSS } from './motion';
@@ -22,7 +21,7 @@ import { takeRelease } from './sheet.svelte';
 
 /**
  * `morphing` holds the wrapper where the transform can move it (untranslated,
- * visible, no CSS transition), for the length of the animation. `parking` is
+ * visible, no CSS transition) for the length of the animation. `parking` is
  * the one frame after a close in which the closed state lands without its
  * transition, so the sheet does not slide off from where the morph left it.
  */
@@ -56,8 +55,8 @@ function place(el: HTMLElement, box: DOMRect) {
 
 /**
  * Starts the morph for a sheet that is `opening` or closing. Called in the
- * same update that changes `panelOpen`, so the wrapper is held by `morphing`
- * before the CSS slide can start.
+ * update that changes `panelOpen`, so the wrapper is held by `morphing` before
+ * the CSS slide can start.
  */
 export function morphSheet(opening: boolean) {
 	cleanUp();
@@ -80,11 +79,10 @@ function run(opening: boolean, pulled: number) {
 	const sheet = wrapper.getBoundingClientRect();
 	const target = dock.getBoundingClientRect();
 	// Both covers are measured before anything is animated. With `fill: 'both'`
-	// the wrapper's first keyframe applies the moment it is created, and the
-	// sheet's cover measured after it came out squashed to the dock: 367 by 74
-	// instead of 367 by 517 at 393 by 852. The flying cover opened into a strip
-	// across the dock and stayed there until the sheet's own cover took over at
-	// full size. Closing after a pull, the pull was counted twice.
+	// the wrapper's first keyframe applies when it is created, and the sheet's
+	// cover measured after it came out squashed to the dock: 367 by 74 instead
+	// of 367 by 517 at 393 by 852. The flying cover then opened into a strip
+	// across the dock. Closing after a pull, the pull was counted twice.
 	const sheetArt = panel.querySelector<HTMLElement>('.stage .art');
 	const big = sheetArt?.getBoundingClientRect();
 	const small = dockArt.getBoundingClientRect();
@@ -94,8 +92,7 @@ function run(opening: boolean, pulled: number) {
 	const lifted = `translate(0px, ${pulled}px) scale(1, 1)`;
 
 	// The corners are drawn in the panel's own space, which is scaled by a
-	// different amount each way; these are the radii that come out as the
-	// dock's once scaled.
+	// different amount each way. These radii come out as the dock's once scaled.
 	const radius = getComputedStyle(panel).borderTopLeftRadius;
 	const dockRadius = Number.parseFloat(getComputedStyle(dock).borderTopLeftRadius);
 	const squashed = `${dockRadius / sx}px / ${dockRadius / sy}px`;
@@ -107,8 +104,8 @@ function run(opening: boolean, pulled: number) {
 		panel.animate({ borderRadius: opening ? [squashed, radius] : [radius, squashed] }, options)
 	);
 
-	// Gone by 30 percent on the way down, and in from halfway on the way up: a
-	// page of controls squeezed to a 60px strip is not something to look at.
+	// Gone by 30 percent on the way down, and in from halfway on the way up: the
+	// controls are not shown squeezed to a 60px strip.
 	const fade = opening
 		? [{ opacity: 0 }, { opacity: 0, offset: 0.5 }, { opacity: 1 }]
 		: [{ opacity: 1 }, { opacity: 0, offset: 0.3 }, { opacity: 0 }];
@@ -120,8 +117,8 @@ function run(opening: boolean, pulled: number) {
 	const image = coverIn(sheetArt) ?? coverIn(dockArt);
 	// The sheet's own cover is hidden for the whole morph, so the flying one is
 	// the only cover on screen. The fade alone left it showing, squashed, for
-	// the first 30 percent of a close (down to 0.32 of its height at 120ms)
-	// and from halfway through an open.
+	// the first 30 percent of a close (down to 0.32 of its height at 120ms) and
+	// from halfway through an open.
 	if (sheetArt) {
 		hiddenArt = sheetArt;
 		sheetArt.style.visibility = 'hidden';
@@ -154,10 +151,10 @@ function run(opening: boolean, pulled: number) {
 		);
 	}
 
-	// Finished by the animation, or by the clock if the animation is held up:
-	// a page that stops drawing frames (a tab sent to the background, or
-	// headless WebKit, where this was found) leaves it pending indefinitely, and
-	// a sheet held mid-morph is a sheet that cannot be pressed.
+	// Finished by the animation, or by the clock if the animation is held up. A
+	// page that stops drawing frames (a backgrounded tab, or headless WebKit,
+	// where this was found) leaves it pending, and a sheet held mid-morph
+	// cannot be pressed.
 	const mine = ++generation;
 	const done = () => {
 		if (mine === generation) finish(opening);
@@ -184,11 +181,10 @@ function finish(opening: boolean) {
 		if (wrapper) wrapper.style.transformOrigin = '';
 		return;
 	}
-	// Closed: the closed state lands with its transition held off, so the
-	// sheet is hidden where it is rather than sliding away. Styles are read
-	// once with `parking` on, which settles the closed state then, before the
-	// class comes off; waiting a frame for it would wait for ever where no
-	// frames are drawn.
+	// Closed: the closed state lands with its transition held off, so the sheet
+	// is hidden where it is and does not slide away. Styles are read once with
+	// `parking` on, which settles the closed state before the class comes off.
+	// Waiting a frame for it would never end where no frames are drawn.
 	sheetMorph.phase = 'parking';
 	void tick().then(() => {
 		cleanUp();

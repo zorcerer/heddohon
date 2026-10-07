@@ -1,7 +1,4 @@
-/**
- * Thin wrapper the page loaders use, so every route handles a dead or angry
- * music server the same way instead of each inventing its own error shape.
- */
+/** What the page loaders call, so every route handles a failing music server the same way. */
 import { error, type ServerLoadEvent } from '@sveltejs/kit';
 import { backendFor, UpstreamError, type MediaBackend } from './backends';
 import { destroyAllSessions } from './auth';
@@ -26,9 +23,9 @@ export function libraryContext(locals: App.Locals): LibraryContext {
 }
 
 /**
- * Runs a library call and converts upstream failures into SvelteKit errors.
- * An authentication failure invalidates every session for the account, because
- * the stored credential itself has stopped working.
+ * Runs a library call and converts upstream failures into SvelteKit errors. An
+ * authentication failure ends every session for the account: the stored
+ * credential has stopped working.
  */
 export async function library<T>(
 	event: Pick<ServerLoadEvent, 'locals'>,

@@ -6,8 +6,7 @@ const PLAYLISTS_SHOWN = 12;
 
 /**
  * The Library tab on a phone: the ways into the collection, and two shelves
- * under them. Each shelf loads on its own, as on the home page, so a failing
- * endpoint leaves one shelf out rather than the page.
+ * under them. Each shelf loads on its own, as on the home page.
  */
 export const load: PageServerLoad = async ({ locals }) => {
 	const { backend, credential } = libraryContext(locals);

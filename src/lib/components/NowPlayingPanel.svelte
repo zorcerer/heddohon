@@ -2,24 +2,16 @@
 	/**
 	 * The player, as a panel down the right-hand side.
 	 *
-	 * This replaces the bottom bar. The bar laid the same controls out in one
-	 * horizontal strip, which meant the artwork was a 48px thumbnail and the
-	 * title had a third of a screen width to live in; a tall panel can give the
-	 * cover the whole width and stack the metadata under it, which is what the
-	 * reference for this design does.
+	 * It replaced a bottom bar, where the artwork was a 48px thumbnail and the
+	 * title had a third of the screen's width. A tall panel gives the cover its
+	 * whole width and stacks the metadata under it.
 	 *
-	 * Two consequences of moving the player here are worth stating, because they
-	 * are not cosmetic.
+	 * It is open by default: the bar was always visible, and a player that
+	 * hides would leave no play/pause on screen while browsing. The rail
+	 * carries a toggle to close it.
 	 *
-	 * It is open by default. A bottom bar is always visible, so scrapping it for
-	 * something that hides would mean no play/pause on screen while you browse —
-	 * every pause becoming find-the-button, then click. The panel is therefore
-	 * docked, and the rail carries a toggle so closing it is deliberate.
-	 *
-	 * The queue lives inside it, swapped in where the artwork is, rather than as
-	 * its own floating pane. Both wanted the right edge, and two slabs of glass
-	 * fighting over it looked like a bug. The footer row is what switches them,
-	 * which is also how the reference gets to its queue.
+	 * The queue is inside it, swapped in where the artwork is, and not a pane
+	 * of its own: both wanted the right edge. The footer row switches them.
 	 */
 	import { untrack } from 'svelte';
 	import { SLEEP_MINUTES, player } from '$lib/client/player.svelte';
@@ -60,13 +52,12 @@
 	/**
 	 * The lyrics arriving in the stage, and the artwork leaving under them.
 	 *
-	 * Opacity and a small vertical travel, and nothing else. A blur or a scale
-	 * reads well on a laptop and costs a repaint of the whole stage per frame on
-	 * a tablet, and every compositing layer built around this panel's
-	 * `backdrop-filter` has been a source of artefacts on iOS.
+	 * Opacity and a small vertical travel only. A blur or a scale costs a
+	 * repaint of the whole stage per frame on a tablet, and compositing layers
+	 * around this panel's `backdrop-filter` have caused artefacts on iOS.
 	 *
-	 * `distance` is in pixels and signed: the words come up from below, and go
-	 * back down the way they came.
+	 * `distance` is in pixels and signed: the words come up from below and go
+	 * back down.
 	 */
 	function lift(
 		node: Element,
@@ -85,14 +76,11 @@
 	/*
 	 * The title, artist and album slide in from the side the queue moved to
 	 * when the track changes, as the artwork above them crossfades: from the
-	 * right for the next track (and the one after a track ends), from the left
-	 * for the previous one (`player.direction`),
-	 * with a slight blur clearing as they land. The same elements are animated
-	 * rather than a keyed block crossfading two copies: two headings with two
-	 * titles would be on the page at once for the length of it, to a screen
-	 * reader and to anything that reads the title. Opacity and filter on the
-	 * text block, which holds no glass; the round buttons beside it are its
-	 * siblings.
+	 * right for the next track, from the left for the previous one
+	 * (`player.direction`), with a slight blur clearing as they land. The same
+	 * elements are animated, not a keyed block crossfading two copies, which
+	 * would put two headings with two titles on the page at once for a screen
+	 * reader. Opacity and filter go on the text block, which holds no glass.
 	 *
 	 * Not on the first render, so a page that arrives with a track loaded does
 	 * not animate one in.
@@ -117,16 +105,13 @@
 	}
 
 	let details = $state(false);
-	/*
-	 * Open by default. The panel is wide enough to hold the slider without
-	 * taking the artwork's room, and a volume control you have to go and find
-	 * is the one piece of transport that is worse for being tidied away.
-	 */
+	// Open by default: the panel is wide enough for the slider beside the
+	// artwork.
 	let volumeOpen = $state(true);
 	/*
 	 * Folded on a phone, where the sheet is the whole screen and the side
-	 * buttons set the level. iOS does not let a page set the volume at all, so
-	 * there the slider moved and the sound did not.
+	 * buttons set the level. iOS does not let a page set the volume, so there
+	 * the slider moved and the sound did not.
 	 */
 	$effect(() => {
 		if (player.sheetLayout) untrack(() => (volumeOpen = false));
@@ -135,10 +120,8 @@
 	/** The list of outputs under the volume row, where the browser has no picker of its own. */
 	let outputOpen = $state(false);
 
-	/*
-	 * The clock the sleep timer's countdown is read against. It ticks only
-	 * while a timed sleep is set, and each tick is one re-render of the badge.
-	 */
+	// The clock the sleep timer's countdown is read against. It ticks only while
+	// a timed sleep is set, and each tick re-renders the badge.
 	let now = $state(Date.now());
 	$effect(() => {
 		if (player.sleep?.kind !== 'at') return;
@@ -157,9 +140,8 @@
 
 	/*
 	 * The stage shows one thing at a time, so the two views that can take the
-	 * artwork's place are mutually exclusive. Without this the tool row could
-	 * light both buttons while only the first branch below was on screen — a
-	 * control claiming to be on while showing nothing.
+	 * artwork's place exclude each other. Without this the tool row could light
+	 * both buttons while only one view was on screen.
 	 */
 	function showQueue() {
 		if (lyricsWindow.open) lyricsWindow.close();
@@ -168,8 +150,8 @@
 
 	function hidePanel() {
 		player.togglePanel();
-		// The sliver left behind on the right-hand edge is what reopens it, so
-		// that is where the keyboard goes once this button is inert.
+		// The sliver left on the right-hand edge reopens it, so the keyboard goes
+		// there once this button is inert.
 		void handOff('player-grip');
 		// On a phone there is no sliver: the dock at the foot of the screen reopens it.
 		void handOff('dock-open');
@@ -182,8 +164,8 @@
 
 	// From the whole second played, so it ticks in the same frame as the elapsed
 	// time and the seek bar. From the exact time it ticked at the fraction of a
-	// second the duration carries, which is a second repaint of the panel
-	// (and of its blur) every second.
+	// second the duration carries: a second repaint of the panel, and of its
+	// blur, every second.
 	const remaining = $derived(Math.max(0, player.duration - Math.floor(player.currentTime)));
 	const volumeIcon = $derived(
 		player.muted || player.volume === 0 ? 'mute' : player.volume < 0.5 ? 'volume-low' : 'volume'
@@ -211,10 +193,10 @@
 
 	/*
 	 * A drag is followed with transforms and applied once, on release. The row
-	 * under the pointer moves with it and the rows it passes step out of the
-	 * way by one row height; the queue itself is not touched until the drop, so
-	 * the player never sees a half-made order. `animate:flip` then settles the
-	 * dropped row from where it was let go.
+	 * under the pointer moves with it and the rows it passes step aside by one
+	 * row height. The queue is not touched until the drop, so the player never
+	 * sees a half-made order. `animate:flip` then settles the dropped row from
+	 * where it was let go.
 	 */
 	let drag = $state<{ from: number; to: number; offset: number; startY: number; rowHeight: number } | null>(
 		null
@@ -296,10 +278,9 @@
 
 <aside class="panel hh-glass hh-glass--deep hh-tint-morph hh-float" aria-label="Now playing">
 	<!--
-		The handle a phone pulls the sheet down by, over the top of the artwork.
-		A tap on it closes the sheet too. It is a second way to do what the
-		chevron in the tool row does, for a finger, so it stays out of the tab
-		order and the accessibility tree, where that chevron already is.
+		The handle a phone pulls the sheet down by, over the top of the artwork. A
+		tap on it closes the sheet too. It doubles the chevron in the tool row for
+		a finger, so it stays out of the tab order and the accessibility tree.
 	-->
 	<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
 	<div class="grabber" aria-hidden="true" onclick={hidePanel} {...pullHandlers}><span></span></div>
@@ -322,9 +303,8 @@
 						{player.queue.length} · {formatDuration(queueTotal)}
 					</span>
 				</div>
-				<!-- Focusable for the same reason as the library and the lyrics:
-				     with no scrollbar, the keyboard is the pointer-free way to
-				     scroll a long queue. -->
+				<!-- Focusable, as the library and the lyrics are: with no scrollbar,
+				     the keyboard scrolls a long queue. -->
 				<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 				<ol class="queue-list" tabindex="0" bind:this={queueList}>
 					{#each player.queue as track, index (queueKeys[index])}
@@ -334,10 +314,8 @@
 							style:translate={rowShift(index)}
 						>
 							<div class="row" class:current={index === player.index} class:past={index < player.index}>
-								<!--
-									Dragged by pointer or finger, or moved one place at a time with
-									the arrow keys while it has focus.
-								-->
+								<!-- Dragged by pointer or finger, or moved one place at a time
+								     with the arrow keys while it has focus. -->
 								<button
 									class="row-grip"
 									type="button"
@@ -357,7 +335,9 @@
 								</button>
 								<span class="row-text">
 									<span class="row-title hh-truncate">{track.title}</span>
-									<span class="row-sub hh-truncate hh-muted">{track.artist ?? 'Unknown artist'}</span>
+									<span class="row-sub hh-truncate hh-muted">
+										{track.artist ?? 'Unknown artist'}{#if track.addedBy}<span class="row-by">{` · Added by ${track.addedBy.name}`}</span>{/if}
+									</span>
 								</span>
 								<button
 									class="row-remove"
@@ -394,8 +374,7 @@
 			>
 				<!--
 					The artwork runs into the panel's own top corners, so it carries
-					their radius rather than borrowing the panel's clip. See the note
-					on `img` in Cover.
+					their radius itself. See the note on `img` in Cover.
 				-->
 				<Cover
 					coverArt={song?.coverArt ?? null}
@@ -479,8 +458,8 @@
 						{/if}
 					</dl>
 					{#if page.data.downloads}
-						<!-- With the rest of the file's facts, where its format and size
-						     are already written, rather than as a seventh tool. -->
+						<!-- With the file's other facts, where its format and size are
+						     written, and not as a seventh tool. -->
 						<a class="download" href="/api/download/{encodeURIComponent(song.id)}" download>
 							<Icon name="download" size={14} />
 							Download original{song.quality.format ? ` ${song.quality.format.toUpperCase()}` : ''}{song
@@ -514,8 +493,8 @@
 					<!--
 						The badge is also the switch. Pressing it asks the music server
 						to convert instead of sending the file, and pressing it again
-						goes back, both without interrupting what is playing. The codec
-						and the bitrate it uses are in Settings.
+						goes back, without interrupting playback. The codec and the
+						bitrate are in Settings.
 					-->
 					<QualityBadge
 						quality={song.quality}
@@ -574,10 +553,9 @@
 					<span class="spinner" aria-hidden="true"></span>
 				{:else}
 					<!-- Both glyphs are drawn, one over the other, and the one not wanted
-					     shrinks away as the other grows in: a press turns the button over
-					     rather than swapping a picture. Heavier than the set's default: at
-					     34px the standard 2px stroke reads as a hairline beside the artwork
-					     above it. -->
+					     shrinks away as the other grows in. Heavier than the set's
+					     default: at 34px the standard 2px stroke reads as a hairline
+					     beside the artwork. -->
 					<span class="glyph" class:on={!player.playing}><Icon name="play" size={34} strokeWidth={3.4} /></span>
 					<span class="glyph" class:on={player.playing}><Icon name="pause" size={34} strokeWidth={3.4} /></span>
 				{/if}
@@ -647,9 +625,8 @@
 						</button>
 					{/if}
 					<!-- A speaker or a TV on the network. Where the browser lists its
-					     outputs, it is the last of them ("Cast…" below); a button of
-					     its own here as well was one control twice. Safari and iOS
-					     list no outputs, so there it is this button. -->
+					     outputs it is the last of them ("Cast…" below), so this button
+					     is for Safari and iOS, which list none. -->
 					{#if (player.castAvailable || player.casting) && (!audioOutputs.supported || audioOutputs.picker)}
 						<button
 							class="tool"
@@ -690,8 +667,8 @@
 								{output.label}
 							</button>
 						{/each}
-						<!-- A speaker or a TV on the network is somewhere the sound can go
-						     too; the same picker as the cast button beside the volume. -->
+						<!-- A speaker or a TV on the network: the same picker as the cast
+						     button beside the volume. -->
 						{#if player.castAvailable || player.casting}
 							<button
 								class="chip cast"
@@ -779,8 +756,8 @@
 				<Icon name="lyrics" size={18} />
 			</button>
 
-			<!-- Here rather than beside the favourite and playlist buttons: a third
-			     44px round there leaves the title about 160px on a docked panel. -->
+			<!-- Here and not beside the favourite and playlist buttons: a third 44px
+			     round there leaves the title about 160px on a docked panel. -->
 			{#if page.data.sharing}
 				<button
 					class="tool"
@@ -823,7 +800,7 @@
 			</button>
 
 			<!-- Only while another browser of the account has the player open, so
-			     the row is its usual seven the rest of the time. -->
+			     the row is otherwise its usual seven. -->
 			{#if remote.peers.length > 0}
 				<button
 					class="tool"
@@ -881,15 +858,13 @@
 		display: flex;
 		flex-direction: column;
 		overflow: hidden;
-		/*
-		 * The artwork's height is capped against the panel's *width* — see `.art`
-		 * — which needs a container to measure, not a viewport.
-		 */
+		/* The artwork's height is capped against the panel's width (see `.art`),
+		   which needs a container to measure. */
 		container-type: inline-size;
 		/*
-		 * No padding here: the artwork runs to the panel's own edges. It carries
-		 * the top corners' radius itself and this clip is the backstop, rather
-		 * than the other way round. The controls carry their own padding.
+		 * No padding: the artwork runs to the panel's edges and carries the top
+		 * corners' radius itself, with this clip as the backstop. The controls
+		 * carry their own padding.
 		 */
 	}
 
@@ -903,21 +878,20 @@
 	}
 
 	/*
-	 * Anything in the chrome that opens and closes folds rather than appearing.
+	 * Anything in the chrome that opens and closes folds.
 	 *
-	 * The row goes from `0fr` to `1fr`, which interpolates to the content's own
-	 * height without anything having to measure it first. The artwork takes up
-	 * the difference on the same frames: the chrome is fixed-size and the stage
-	 * is what gives height away, so opening this shrinks the cover and its crop
-	 * closes in rather than jumping.
+	 * The row goes from `0fr` to `1fr`, which interpolates to the content's
+	 * height without measuring it. The artwork takes up the difference on the
+	 * same frames: the chrome is fixed-size and the stage gives height away, so
+	 * opening this shrinks the cover and its crop closes in.
 	 *
 	 * The negative margin is the gap. A flex gap is paid for a child that is
-	 * present whatever its height, so a closed fold would hold an empty gap open
-	 * between the title and the scrubber. This cancels exactly that one, and
-	 * animates with the rest so nothing steps at either end.
+	 * present whatever its height, so a closed fold would hold an empty gap
+	 * between the title and the scrubber. This cancels that one, and animates
+	 * with the rest.
 	 *
-	 * Longer than `--transition`: this moves the artwork as well as itself, and
-	 * at 160ms a 60px fold reads as a jump with a blur on it.
+	 * Longer than `--transition`: this moves the artwork too, and at 160ms a
+	 * 60px fold reads as a jump.
 	 */
 	.fold {
 		flex: none;
@@ -937,8 +911,8 @@
 		margin-block-start: 0;
 	}
 
-	/* The clipped row. `min-height: 0` is what lets a grid item be shorter than
-	   its own content; without it the row never reaches zero. */
+	/* The clipped row. `min-height: 0` lets a grid item be shorter than its
+	   content, so the row can reach zero. */
 	.fold > * {
 		overflow: hidden;
 		min-height: 0;
@@ -948,15 +922,14 @@
 
 	/*
 	 * The one part of the panel that gives up its height. Everything below is
-	 * fixed-size chrome that must stay reachable, so when the panel is short the
-	 * artwork shrinks rather than the transport being pushed out of view.
+	 * fixed-size chrome that must stay reachable, so a short panel shrinks the
+	 * artwork and keeps the transport in view.
 	 */
 	.stage {
 		/*
-		 * Takes the room the controls do not. The artwork caps its own height, so
-		 * growing here no longer leaves a hole the way it did when the artwork was
-		 * a square: any slack ends up below the artwork's fade, where it reads as
-		 * the tail of the fade rather than as a gap.
+		 * Takes the room the controls do not. The artwork caps its own height,
+		 * so any slack ends up below the artwork's fade, where it reads as the
+		 * tail of the fade.
 		 */
 		flex: 1 1 auto;
 		/* Both text views fill the stage and scroll inside themselves. */
@@ -964,25 +937,24 @@
 		min-height: 0;
 		/*
 		 * One cell, and every view placed in it. A flex column put the outgoing
-		 * view above the incoming one and gave each half the height for the
-		 * length of a swap, which made the artwork jump as the lyrics arrived.
-		 * Stacked in a single grid cell they cross over each other in place, and
-		 * with only one view mounted this behaves exactly as the column did.
+		 * view above the incoming one and gave each half the height during a
+		 * swap, so the artwork jumped as the lyrics arrived. In one grid cell
+		 * they cross over each other in place.
 		 */
 		display: grid;
 		grid-template: 'stage' 1fr / 1fr;
 	}
 
-	/* Every view in the one cell, whether or not it animates: auto-placement
-	   would otherwise give a second, outgoing view a row of its own. */
+	/* Every view in the one cell, animating or not: auto-placement would give a
+	   second, outgoing view a row of its own. */
 	.stage > :global(*) {
 		grid-area: stage;
 		min-height: 0;
 	}
 
-	/* The words are what moves; the artwork under them only fades. Painting a
-	   ground under the lyrics would have to match the panel's own translucent
-	   surface, which changes with the cover behind it. */
+	/* The words move and the artwork under them only fades. A ground painted
+	   under the lyrics would have to match the panel's translucent surface,
+	   which changes with the cover behind it. */
 	.lyrics-layer {
 		display: flex;
 		flex-direction: column;
@@ -991,14 +963,13 @@
 	}
 
 	/*
-	 * The stage swaps one view for another, and a cut between an album cover and
-	 * a page of lyrics is the most abrupt change in the panel. The arriving view
-	 * fades up.
+	 * The arriving view fades up, so the stage does not cut between a cover and
+	 * a page of lyrics.
 	 *
-	 * The queue arrives this way and leaves at once: holding it for a fade means
-	 * holding a list that can be a thousand rows long. The lyrics and the
-	 * artwork are bounded, so those two carry a transition in both directions
-	 * instead, and cross over each other in the stage's single cell.
+	 * The queue arrives this way and leaves at once: holding it for a fade
+	 * means holding a list that can be a thousand rows. The lyrics and the
+	 * artwork are bounded, so they transition both ways and cross over each
+	 * other in the stage's cell.
 	 */
 	.stage > :global(*:not(.layer)) {
 		animation: stage-in var(--dur-state) var(--ease-out) both;
@@ -1011,28 +982,23 @@
 	}
 
 	/*
-	 * Full width, all the height the controls do not want, and cropped to fit —
-	 * which is what "zoomed in" means here: the cover is square, so filling a
-	 * box half again as tall as it is wide shows the middle of it, larger.
+	 * Full width, all the height the controls do not want, and cropped to fit:
+	 * the cover is square, so a box half again as tall as it is wide shows its
+	 * middle, larger.
 	 *
-	 * There was a cap at 125cqw, the proportion of the design this follows, to
-	 * hold the crop down. It bought a band of bare panel between where the
-	 * artwork faded out and where the title began — the fade stopped short of
-	 * the text instead of running into it, which is the whole point of the
-	 * fade. Filling the stage costs about eight percent more off each side of
-	 * the cover and is worth it.
+	 * A cap at 125cqw once held the crop down, and left a band of bare panel
+	 * between the end of the artwork's fade and the title. Filling the stage
+	 * crops about eight percent more off each side of the cover.
 	 */
 	.art {
 		display: block;
 		width: 100%;
 		height: 100%;
 		/*
-		 * And it dissolves into the controls rather than stopping at an edge. The
-		 * mask is on the artwork, not a gradient laid over it: a painted overlay
-		 * would have to match the panel's own translucent ground, which changes
-		 * with the cover behind it, so it would show as a band on some artwork
-		 * and not others. Taking the artwork away instead lets the panel's real
-		 * ground come through.
+		 * It dissolves into the controls. The mask is on the artwork, not a
+		 * gradient laid over it: an overlay would have to match the panel's
+		 * translucent ground, which changes with the cover behind it, and would
+		 * show as a band on some artwork.
 		 */
 		-webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 68%, transparent 100%);
 		mask-image: linear-gradient(to bottom, #000 0%, #000 68%, transparent 100%);
@@ -1042,8 +1008,8 @@
 		pointer-events: none;
 	}
 
-	/* Dither over the artwork, so its fade into the controls does not step.
-	   See `--grain` in app.css. Inside the mask, so it fades out with it. */
+	/* Dither over the artwork, so its fade into the controls does not step. See
+	   `--grain` in app.css. Inside the mask, so it fades out with it. */
 	.art {
 		position: relative;
 	}
@@ -1086,8 +1052,8 @@
 		flex: 1;
 	}
 
-	/* Rows the dragged one passes step aside smoothly; the dragged row itself
-	   follows the pointer with no lag. */
+	/* Rows the dragged one passes step aside smoothly. The dragged row follows
+	   the pointer with no lag. */
 	.queue-list > li {
 		position: relative;
 		transition: translate var(--dur-hover) var(--ease-out);
@@ -1178,6 +1144,11 @@
 		font-size: 0.75rem;
 	}
 
+	/* Who added a track, while listening together. */
+	.row-by {
+		color: var(--text-default);
+	}
+
 	.row-remove {
 		color: var(--text-faint);
 		padding: 0.25rem;
@@ -1245,8 +1216,8 @@
 		color: var(--text-default);
 	}
 
-	/* Underlined in the reference, and it earns it here: this one is a link to
-	   the artist while the line under it goes to the album. */
+	/* Underlined: this one links to the artist, and the line under it to the
+	   album. */
 	.artist a {
 		text-decoration: underline;
 		text-underline-offset: 3px;
@@ -1266,8 +1237,8 @@
 		flex: none;
 	}
 
-	/* Circular, translucent, 44px — the size a finger needs and the shape the
-	   reference uses to separate these from the transport row. */
+	/* Circular, translucent, 44px: the size a finger needs, and a shape apart
+	   from the transport row's. */
 	.round,
 	.round :global(button) {
 		width: 2.75rem;
@@ -1282,8 +1253,8 @@
 		color: var(--text-muted);
 	}
 
-	/* FavouriteButton draws its own button, so the wrapper must not add a second
-	   face behind it. */
+	/* FavouriteButton draws its own button, so the wrapper adds no second face
+	   behind it. */
 	.round:has(:global(button)) {
 		background: none;
 		border: none;
@@ -1428,7 +1399,7 @@
 	/*
 	 * Pressed, the transport gives under the pointer and springs back on
 	 * release. `scale` on the buttons themselves, which carry no glass. Touch
-	 * screens get the opacity cue in `app.css` instead.
+	 * screens get the opacity cue in `app.css`.
 	 */
 	@media (hover: hover) {
 		.edge:active:not(:disabled),
@@ -1444,8 +1415,8 @@
 		position: relative;
 	}
 
-	/* Play and pause, one over the other. The one not wanted shrinks to
-	   60 percent and fades; the wanted one springs back to full size. */
+	/* Play and pause, one over the other. The one not wanted shrinks to 60
+	   percent and fades, and the wanted one springs back to full size. */
 	.glyph {
 		grid-area: 1 / 1;
 		display: grid;
@@ -1510,8 +1481,7 @@
 			animation-duration: 2.4s;
 		}
 
-		/* Both states stay correct without the movement; they just arrive at
-		   once. */
+		/* Both states are correct without the movement. */
 		.fold {
 			transition: none;
 		}
@@ -1531,10 +1501,9 @@
 	}
 
 	/*
-	 * The slider needs to be told to take the rest of the row. Seekbar's rail is
-	 * `width: 100%`, and as a bare flex child with nothing to grow into that
-	 * resolved against a zero-width box — a volume control with no length to
-	 * drag along.
+	 * The slider takes the rest of the row. Seekbar's rail is `width: 100%`,
+	 * which as a bare flex child resolved against a zero-width box: a volume
+	 * control with no length to drag along.
 	 */
 	.volume-slider {
 		flex: 1;
@@ -1672,26 +1641,23 @@
 	/* ── Narrow ──────────────────────────────────────────────────────── */
 
 	/*
-	 * As a sheet rather than a column, the panel is as wide as the screen, so the
-	 * artwork would eat the whole viewport. Capping it keeps the transport above
-	 * the fold, which is the one thing that must never scroll out of reach.
+	 * As a sheet the panel is as wide as the screen, so the artwork would fill
+	 * the viewport. Capped, the transport stays above the fold.
 	 */
 	@media (max-width: 60rem) {
 		/*
-		 * A sheet covers the page instead of sitting beside it, so it has to be
-		 * much less see-through than a column: at the docked opacity the album
-		 * behind it read straight through the metadata — two layers of text on
-		 * top of each other, which is noise rather than depth. The blur stays,
-		 * so the cover's colour still comes through as a wash.
+		 * A sheet covers the page, so it is much less see-through than a column:
+		 * at the docked opacity the album behind it read through the metadata.
+		 * The blur stays, so the cover's colour still comes through as a wash.
 		 */
 		.panel {
 			--glass-base: 92%;
 		}
 
 		/*
-		 * The handle, a short bar across the top of the artwork where a sheet's
-		 * handle is on every phone. The strip it sits in is the whole width and
-		 * 28px tall, so the thumb does not have to find the bar itself.
+		 * The handle, a short bar across the top of the artwork. The strip it
+		 * sits in is the whole width and 28px tall, so the thumb does not have
+		 * to find the bar itself.
 		 */
 		.grabber {
 			display: block;
@@ -1715,9 +1681,9 @@
 		}
 
 		/* Pulled down by, as well as the handle: it is most of the top of the
-		   sheet, and the first place a thumb goes. It is a link, so the press
-		   that starts a pull must not start dragging the link or its picture
-		   (which cancels the pull) or bring up iOS's link preview. */
+		   sheet. It is a link, so the press that starts a pull must not drag the
+		   link or its picture (which cancels the pull) or bring up iOS's link
+		   preview. */
 		.art {
 			touch-action: none;
 			-webkit-touch-callout: none;

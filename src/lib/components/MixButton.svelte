@@ -3,12 +3,10 @@
 	 * Starts an instant mix: the queue replaced with what the music server
 	 * finds like a song, an album or an artist.
 	 *
-	 * The button reports the outcome itself, since there is no other place in
-	 * the interface for a passing message. On Navidrome without an external
-	 * agent every mix is empty, and a press that visibly did nothing would read
-	 * as a broken button; it says so instead, for four seconds, and the queue
-	 * is left as it was. The label is a live region, so a screen reader hears
-	 * it too.
+	 * The button reports the outcome itself: the interface has no other place
+	 * for a passing message. On Navidrome without an external agent every mix
+	 * is empty, and the button says so for four seconds, with the queue left as
+	 * it was. The label is a live region, for a screen reader.
 	 */
 	import { playInstantMix } from '$lib/client/actions';
 	import type { MixSeed } from '$lib/types';
@@ -80,11 +78,9 @@
 		border-radius: var(--r-md);
 	}
 
-	/*
-	 * An icon among icons on a phone, as the album page's other actions are,
-	 * until it has something to say: then the words show, and the row makes
-	 * room for them for the four seconds they are up.
-	 */
+	/* An icon among icons on a phone, as the album page's other actions are,
+	   until it has something to say: then the words show for their four
+	   seconds, and the row makes room. */
 	@media (max-width: 36rem) {
 		.hh-button.mix:not(.talking) {
 			width: 2.75rem;

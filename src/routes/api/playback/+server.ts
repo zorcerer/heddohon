@@ -3,12 +3,13 @@ import type { RequestHandler } from './$types';
 import { backendFor, UpstreamError } from '$lib/server/backends';
 import { getSettings } from '$lib/server/settings';
 import { recordPlay } from '$lib/server/history';
+import { coverBytes } from '$lib/server/coverfill';
+import { announcePlay, announceStart, DISCORD_COVER_SIZE } from '$lib/server/integrations';
 import { log, reason } from '$lib/server/log';
 
 /**
- * Now-playing and scrobble reporting. Deliberately fire-and-forget from the
- * client's point of view: a music server that is slow to accept a scrobble must
- * never stall playback.
+ * Now-playing and scrobble reporting. The client does not wait on it: a music
+ * server slow to accept a scrobble must not stall playback.
  */
 export const POST: RequestHandler = async ({ locals, request }) => {
 	const session = locals.session;
@@ -22,7 +23,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 	} | null;
 
 	// The bound every other id takes. Unbounded, a 200 KB id went to the music
-	// server in the query string of a scrobble.
+	// server in a scrobble's query string.
 	if (!body || typeof body.songId !== 'string' || body.songId.length === 0 || body.songId.length >= 256) {
 		error(400, 'songId is required');
 	}
@@ -39,9 +40,9 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 
 	// A play past the scrobble threshold goes into the account's history
 	// (`history.ts`) whether or not it is reported upstream, with the track as
-	// the music server describes it for the stats page: one lookup a play. A
+	// the music server describes it, for the stats page: one lookup per play. A
 	// failed lookup records the play without it, and a failed write is logged
-	// and does not touch the report.
+	// and leaves the report alone.
 	if (event === 'stop' && body.completed === true) {
 		const songId = body.songId;
 		const song = await backendFor(session.account.backend)
@@ -51,10 +52,27 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 		await recordPlay(session.account.id, songId, { song, keepDays: settings.historyDays }).catch((err) =>
 			log.warn('history-write-failed', { detail: reason(err) })
 		);
+		// To a Discord channel and ListenBrainz, where the account linked them,
+		// under the same switch as the report to the music server.
+		if (song && settings.reportPlayback) {
+			void announcePlay(session.account, song, position, (coverId) =>
+				coverBytes(session.account, session.credential, coverId, DISCORD_COVER_SIZE)
+			);
+		}
 	}
 
 	if (!settings.reportPlayback) {
 		return json({ reported: false, reason: 'disabled_by_user' });
+	}
+
+	if (event === 'start') {
+		const songId = body.songId;
+		void announceStart(session.account, () =>
+			backendFor(session.account.backend)
+				.getSongs(session.credential, [songId])
+				.then((songs) => songs[0] ?? null)
+				.catch(() => null)
+		);
 	}
 
 	try {

@@ -1,22 +1,14 @@
 <script lang="ts">
 	/**
-	 * Lyrics, in the player panel's stage.
+	 * Lyrics, in the player panel's stage, where they take the artwork's place
+	 * as the queue does.
 	 *
-	 * This was a floating sheet of its own. In the panel it takes the artwork's
-	 * place the way the queue does, which is worth the change for a reason
-	 * beyond tidiness: as a sheet it had to be positioned clear of the player's
-	 * controls at every width, and on a narrow screen — where the player is
-	 * itself a sheet over the page — it covered the transport of the track it
-	 * was showing the words to.
+	 * As a floating sheet it had to be positioned clear of the player's
+	 * controls at every width, and on a narrow screen, where the player is
+	 * itself a sheet, it covered the transport. The tool row closes it, and the
+	 * stage is a fixed area, so there is no Escape, close button or size toggle.
 	 *
-	 * Three things went with the dialog and none is missed. Escape (the tool row
-	 * closes it), a close button (likewise), and the expand/shrink toggle: the
-	 * stage is a fixed area, so there is no longer a small size and a large one
-	 * to choose between.
-	 *
-	 * Synced lyrics still follow playback, and clicking a timed line still seeks
-	 * to it — which is what makes this a way of navigating a song rather than
-	 * only of reading it.
+	 * Synced lyrics follow playback, and clicking a timed line seeks to it.
 	 */
 	import { activeLineIndex, lyricsWindow } from '$lib/client/lyrics.svelte';
 	import { player } from '$lib/client/player.svelte';
@@ -37,11 +29,9 @@
 	});
 
 	/**
-	 * Follow the playhead, centring the line being sung.
-	 *
-	 * `scrollIntoView` is the obvious call and the wrong one: it scrolls every
-	 * scrollable ancestor, so following a lyric would also drag the library page
-	 * behind the panel. This sets `scrollTop` on this container and nothing else.
+	 * Follows the playhead, centring the line being sung. `scrollIntoView`
+	 * scrolls every scrollable ancestor, so it would also drag the library page
+	 * behind the panel. This sets `scrollTop` on this container only.
 	 */
 	$effect(() => {
 		if (active < 0 || !scroller || !lyricsWindow.following) return;
@@ -55,9 +45,8 @@
 	});
 
 	/**
-	 * Any deliberate scroll hands control to the reader. Following resumes on its
-	 * own shortly after they stop, so looking back at a verse does not mean
-	 * re-enabling anything by hand.
+	 * Any deliberate scroll hands control to the reader. Following resumes by
+	 * itself shortly after they stop.
 	 */
 	function onUserScroll() {
 		lyricsWindow.following = false;
@@ -73,9 +62,9 @@
 	});
 
 	/**
-	 * Jumping to a line is the opposite of reading ahead: the reader has just
-	 * said where they want to be, so resume following immediately rather than
-	 * letting the pointerdown that preceded the click suspend it for six seconds.
+	 * Jumping to a line says where the reader wants to be, so following resumes
+	 * at once: otherwise the pointerdown before the click suspends it for six
+	 * seconds.
 	 */
 	function seekToLine(timeMs: number | null) {
 		player.seek((timeMs ?? 0) / 1000);
@@ -98,8 +87,8 @@
 	<!--
 		Focusable on purpose. A plain (unsynced) sheet has no focusable children,
 		so without a tab stop the scroll container is unreachable from the
-		keyboard — which WCAG 2.1.1 does not allow for scrollable regions. The
-		two rules below do not model scrollable regions, so they are wrong here.
+		keyboard, which WCAG 2.1.1 does not allow for scrollable regions. The two
+		rules below do not model scrollable regions.
 	-->
 	<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 	<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
@@ -214,8 +203,7 @@
 		color: var(--text-default);
 	}
 
-	/* Synced lyrics dim what has gone by and lift what is being sung, so the eye
-	   finds its place without hunting. */
+	/* Synced lyrics dim what has gone by and lift what is being sung. */
 	.synced .line.past {
 		color: var(--text-faint);
 	}

@@ -10,13 +10,12 @@ const LIMIT = 24;
 const GENRES_SHOWN = 8;
 
 /**
- * Search runs on the server on every keystroke-committed navigation, which
- * keeps the result set out of the client bundle and means a shared link to a
- * search reproduces exactly.
+ * Search runs on the server on every navigation a committed keystroke makes,
+ * so a link to a search reproduces it.
  *
- * Before a query, the page offers the largest genres to browse instead of an
- * empty field. They are streamed, and read from the same listing the genres
- * page uses, so a slow or failing genre list never holds the search field.
+ * Before a query, the page offers the largest genres to browse. They are
+ * streamed, from the listing the genres page uses, so a slow or failing genre
+ * list does not hold the search field.
  */
 export const load: PageServerLoad = async (event) => {
 	const query = (event.url.searchParams.get('q') ?? '').trim();

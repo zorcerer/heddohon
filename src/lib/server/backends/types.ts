@@ -18,12 +18,11 @@ import type {
 import type { LastfmStart, ScrobblerLinks, ScrobblerService } from './navidrome';
 
 /**
- * The secret material for one account, as stored (sealed) in the database.
+ * The secret material for one account, stored sealed in the database.
  *
- * Subsonic's authentication scheme hashes the password with a per-request salt,
- * so the plaintext password genuinely has to be recoverable — there is no token
- * to hold instead. Jellyfin issues an access token, and that is what we keep;
- * the password is discarded the moment login succeeds.
+ * Subsonic hashes the password with a per-request salt, so the plaintext has
+ * to be recoverable. Jellyfin issues an access token, which is kept, and the
+ * password is discarded when login succeeds.
  */
 export type StoredCredential =
 	| { kind: 'subsonic'; username: string; password: string }
@@ -37,14 +36,13 @@ export interface StreamRequest {
 	ifModifiedSince?: string | null;
 	method?: 'GET' | 'HEAD';
 	signal?: AbortSignal;
+	/** The body is read to its end here (`transcodes.ts`), so no estimated length is asked for. */
+	whole?: boolean;
 }
 
 /**
- * What the music server should be asked to produce instead of the file itself.
- *
- * Null is the ordinary case and the reason the player exists: the original
- * bytes, untouched. A value here is the account having asked for something it
- * can actually afford to stream.
+ * What the music server is asked to produce instead of the file itself. Null,
+ * the ordinary case, is the original bytes.
  */
 export interface TranscodeRequest {
 	codec: 'mp3' | 'opus' | 'aac';
@@ -66,7 +64,7 @@ export interface RadioStationSource {
 	homePageUrl: string | null;
 }
 
-export interface PlaylistMove {
+interface PlaylistMove {
 	from: number;
 	to: number;
 	/** The song the caller saw at `from`. */
@@ -85,11 +83,9 @@ export interface PlaybackReport {
 }
 
 /**
- * Where a Quick Connect request stands upstream.
- *
- * `expired` covers every way the secret stops being usable: the server's
- * 10-minute window ran out, the server restarted and forgot it, or an
- * administrator turned Quick Connect off while it was pending.
+ * Where a Quick Connect request stands upstream. `expired` covers every way
+ * the secret stops being usable: the 10-minute window ran out, the server
+ * restarted, or Quick Connect was turned off while it was pending.
  */
 export type QuickConnectState = 'waiting' | 'authorized' | 'expired';
 
@@ -97,11 +93,10 @@ export type QuickConnectState = 'waiting' | 'authorized' | 'expired';
  * Sign-in by a code the user approves from a device already signed in to the
  * music server. Only Jellyfin offers it, so the member is optional.
  *
- * `secret` is what the server later exchanges for a token, and so is as good as
- * a credential while the request is pending. It stays on this server; the
- * browser is only shown `code`. `deviceId` is chosen by the caller and must be
- * the same on every call for one request, since the server records the device
- * that asked and issues the token to it.
+ * `secret` is what the server exchanges for a token, so it is a credential
+ * while the request is pending and stays on this server. The browser is shown
+ * `code`. `deviceId` is chosen by the caller and must be the same on every
+ * call for one request: the server issues the token to the device that asked.
  */
 export interface QuickConnect {
 	/** Whether the server has Quick Connect turned on. False on any failure. */
@@ -118,11 +113,10 @@ export interface QuickConnect {
 /**
  * Linking the account to Last.fm and ListenBrainz on the music server, which
  * then scrobbles to them itself. Only Navidrome offers it, through its own
- * API rather than Subsonic's, so the member is optional and present on the
- * Subsonic backend, where `status` answers null for a server that is not
- * Navidrome. `backends/navidrome.ts` has the details.
+ * API, so the member is optional. On the Subsonic backend `status` answers
+ * null for a server that is not Navidrome. See `backends/navidrome.ts`.
  */
-export interface Scrobblers {
+interface Scrobblers {
 	status(cred: StoredCredential): Promise<ScrobblerLinks | null>;
 	/** False when ListenBrainz says the token is not valid. */
 	linkListenBrainz(cred: StoredCredential, token: string): Promise<boolean>;
@@ -135,8 +129,8 @@ export interface Scrobblers {
 
 /**
  * Everything the app can ask of a music server. Implementations are stateless:
- * the caller passes the opened credential on every call, which keeps decrypted
- * secrets scoped to a single request rather than living in a long-lived client.
+ * the caller passes the opened credential on every call, so decrypted secrets
+ * live for one request.
  */
 export interface MediaBackend {
 	readonly kind: BackendKind;
@@ -150,18 +144,11 @@ export interface MediaBackend {
 	/** Present only where the server can link Last.fm and ListenBrainz. */
 	readonly scrobblers?: Scrobblers;
 
-	/** Cheap liveness/authorisation check for an existing credential. */
-	verify(cred: StoredCredential): Promise<boolean>;
-
 	/**
 	 * Whether this account administers the music server, or null when the
-	 * server does not say.
-	 *
-	 * Null is a normal answer rather than a failure: a Subsonic server need not
-	 * implement `getUser`, and a server that does may refuse it. Nothing is
-	 * gated on the result. It is read so the interface can state who a
-	 * server-wide action reaches, and an unknown answer changes nothing about
-	 * what an account may do.
+	 * server does not say: a Subsonic server need not implement `getUser`, or
+	 * may refuse it. Caching every cover (`coverfill.ts`) needs `true`. Nothing
+	 * else an account may do depends on it.
 	 */
 	isAdmin(cred: StoredCredential): Promise<boolean | null>;
 
@@ -170,57 +157,50 @@ export interface MediaBackend {
 	getArtists(cred: StoredCredential): Promise<Artist[]>;
 	getArtist(cred: StoredCredential, id: string): Promise<ArtistDetail>;
 	/**
-	 * Every album credited to one artist.
-	 *
-	 * `getArtist` returns these too, along with a biography and a top-songs
-	 * list that cost a request each on the Subsonic side. This is the same
-	 * albums without those, for the album page, which wants the back catalogue
-	 * and nothing else.
+	 * Every album credited to one artist, for the album page. `getArtist`
+	 * returns these too, with a biography and top songs that cost a request
+	 * each on Subsonic.
 	 */
 	getArtistAlbums(cred: StoredCredential, artistId: string): Promise<Album[]>;
 
 	/**
 	 * Albums the artist is on without being credited for them: a guest on one
-	 * track, a song on a compilation. May include albums of the artist's own,
-	 * which the caller leaves out (`details.ts`); a plain Subsonic server does
+	 * track, a song on a compilation. May include the artist's own albums,
+	 * which the caller leaves out (`details.ts`): a plain Subsonic server does
 	 * not say who an album is by from its tracks.
 	 */
 	getAppearsOn(cred: StoredCredential, artistId: string, artistName: string): Promise<Album[]>;
 
 	/**
-	 * Artists the music server suggests alongside this one.
-	 *
-	 * Both servers answer this from their own metadata and neither computes it
-	 * locally: Subsonic servers read `similarArtist` out of `getArtistInfo2`,
-	 * which Navidrome fills from Last.fm and leaves empty when no Last.fm API
-	 * key is configured. An empty array is therefore a normal answer, not a
-	 * failure, and the page renders nothing rather than an empty shelf.
+	 * Artists the music server suggests alongside this one. Subsonic servers
+	 * read `similarArtist` from `getArtistInfo2`, which Navidrome fills from
+	 * Last.fm and leaves empty without a Last.fm API key, so an empty array is
+	 * a normal answer.
 	 */
 	getSimilarArtists(cred: StoredCredential, artistId: string, limit: number): Promise<Artist[]>;
 
 	/**
-	 * Albums to suggest alongside this one.
+	 * Albums to suggest alongside this one, without the album itself or
+	 * anything else by `artistId`: the album page shows that catalogue in its
+	 * own section.
 	 *
-	 * Subsonic has no album-to-album similarity endpoint at all:
-	 * `getSimilarSongs2` is keyed on an artist id and returns tracks, which
-	 * this groups back into albums. Passing `artistId` in saves the adapter a
-	 * round trip to look it up.
-	 *
-	 * Neither the album itself nor anything else by `artistId` is returned.
-	 * Both servers offer the artist's own records here, and the album page
-	 * already shows that catalogue in a section of its own, directly above.
+	 * Subsonic has no album similarity: `getSimilarSongs2` takes an artist id
+	 * and returns tracks, which are grouped into albums. Passing `artistId`
+	 * saves the adapter a lookup. `like` is the album's genre and year, from
+	 * which Subsonic fills a shelf the similar tracks leave short.
 	 */
 	getSimilarAlbums(
 		cred: StoredCredential,
 		albumId: string,
 		artistId: string | null,
-		limit: number
+		limit: number,
+		like?: { genre: string | null; year: number | null }
 	): Promise<Album[]>;
 
 	/**
 	 * Up to `limit` songs the music server considers like a song, an album or
 	 * an artist: an instant mix. Empty when it has none, which on Navidrome is
-	 * every item unless an external agent (Last.fm and others) is configured.
+	 * everything unless an external agent (Last.fm and others) is configured.
 	 * A song's mix starts with the song itself.
 	 */
 	getInstantMix(cred: StoredCredential, kind: MixSeed, id: string, limit: number): Promise<Song[]>;
@@ -233,16 +213,14 @@ export interface MediaBackend {
 	getGenreSongs(cred: StoredCredential, genreId: string, limit: number): Promise<Song[]>;
 
 	/**
-	 * A folder of the library as it is on disk, or the top with `id` null.
+	 * A folder of the library as it is on disk, or the top with `id` null. An
+	 * id that is not a folder is `not_found`.
 	 *
 	 * Subsonic: `getMusicFolders` for the libraries, `getIndexes` for the first
 	 * level of one, `getMusicDirectory` below that. Navidrome 0.55 and later
-	 * answer these from the folders on disk; earlier versions make up a tree of
+	 * answer from the folders on disk, earlier versions make up a tree of
 	 * artists and albums. Jellyfin: the music libraries from `/UserViews`, then
-	 * `/Items?ParentId=`, which lists what a library holds as it is on disk
-	 * (plain folders, and a folder of tracks as its album).
-	 *
-	 * An id that is not a folder is `not_found`.
+	 * `/Items?ParentId=` (plain folders, and a folder of tracks as its album).
 	 */
 	getFolder(cred: StoredCredential, id: string | null): Promise<Folder>;
 
@@ -257,18 +235,16 @@ export interface MediaBackend {
 
 	/**
 	 * Sets the listener's rating of a song or an album, 1 to 5, or clears it
-	 * with 0. Present only where the server keeps ratings: Subsonic's
-	 * `setRating`, which Navidrome implements. Jellyfin keeps a like or a
-	 * dislike per item and no scale, so the member is absent there and
+	 * with 0. Subsonic's `setRating`, which Navidrome implements. Jellyfin keeps
+	 * a like or a dislike and no scale, so the member is absent there and
 	 * `rating` is null on everything it returns.
 	 */
 	setRating?(cred: StoredCredential, id: string, rating: number): Promise<void>;
 
 	/**
-	 * The internet radio stations the server keeps, each with the address of
-	 * its stream. Present only where the server has such a list: Subsonic's
-	 * `getInternetRadioStations`. Jellyfin has none, so the member is absent
-	 * there and the Radio page is not offered.
+	 * The internet radio stations the server keeps, each with its stream's
+	 * address: Subsonic's `getInternetRadioStations`. Jellyfin has none, so the
+	 * member is absent there and the Radio page is not offered.
 	 */
 	getRadioStations?(cred: StoredCredential): Promise<RadioStationSource[]>;
 
@@ -280,20 +256,17 @@ export interface MediaBackend {
 	renamePlaylist(cred: StoredCredential, id: string, name: string): Promise<void>;
 	addToPlaylist(cred: StoredCredential, id: string, songIds: string[]): Promise<void>;
 	/**
-	 * Removes entries by their position in the playlist, not by song id.
-	 *
-	 * Position is the only identity both servers agree on: Subsonic removes by
-	 * zero-based index, Jellyfin by an opaque per-entry id. Song id would be
-	 * ambiguous anyway — the same track can legitimately appear twice.
+	 * Removes entries by their position in the playlist. Subsonic removes by
+	 * zero-based index and Jellyfin by a per-entry id, and the same song can
+	 * be in a playlist twice.
 	 */
 	removeFromPlaylist(cred: StoredCredential, id: string, indices: number[]): Promise<void>;
 	/**
 	 * Moves the entry at position `from` to position `to`, the rest keeping
 	 * their order. `songId` and `count` are what the caller saw: the song at
 	 * `from` and the number of entries. If the playlist no longer matches
-	 * (changed in another player since the page loaded), nothing is written
-	 * and an `UpstreamError` of kind `conflict` is thrown, so an edit made
-	 * elsewhere is not overwritten.
+	 * (changed in another player since the page loaded), nothing is written and
+	 * an `UpstreamError` of kind `conflict` is thrown.
 	 */
 	movePlaylistEntry(cred: StoredCredential, id: string, move: PlaylistMove): Promise<void>;
 	deletePlaylist(cred: StoredCredential, id: string): Promise<void>;
@@ -303,13 +276,12 @@ export interface MediaBackend {
 	 * Every song the account has played, each with the time of its last play,
 	 * for a one-time import into the history (`history.ts`).
 	 *
-	 * Neither server keeps a log of plays: each keeps a count and the last
-	 * date per song, so earlier plays have no time to import. Jellyfin: songs
-	 * with `Filters=IsPlayed` and `UserData.LastPlayedDate`, a page at a time.
-	 * Subsonic: every song through `search3` with an empty query, which
-	 * Navidrome answers with the whole library for syncing clients, keeping
-	 * those with OpenSubsonic's `played`. A server that answers the empty
-	 * query with nothing, or leaves `played` out, returns an empty list.
+	 * Both servers keep a count and the last date per song, and no log.
+	 * Jellyfin: songs with `Filters=IsPlayed` and `UserData.LastPlayedDate`, a
+	 * page at a time. Subsonic: every song through `search3` with an empty
+	 * query, which Navidrome answers with the whole library, keeping those with
+	 * OpenSubsonic's `played`. A server that answers the empty query with
+	 * nothing, or leaves `played` out, returns an empty list.
 	 */
 	getPlayedSongs(cred: StoredCredential): Promise<{ song: Song; playedAt: number }[]>;
 

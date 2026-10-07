@@ -6,8 +6,8 @@ import { openStation, RadioError, radioEnabled } from '$lib/server/radio';
 
 /**
  * A station's stream, fetched by this server and passed on; see `radio.ts`.
- * The id is one from the music server's list for this account. What went
- * wrong is said in general terms: the station's address stays in the log.
+ * The id is one from the music server's list for this account. Failures are
+ * reported in general terms: the station's address stays in the log.
  */
 export const GET: RequestHandler = async ({ locals, params, request }) => {
 	const session = locals.session;

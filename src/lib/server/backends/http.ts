@@ -13,9 +13,9 @@ export class UpstreamError extends Error {
 }
 
 /**
- * All upstream traffic goes through here so every call gets a timeout. Without
- * one, a music server that accepts a connection and then stalls would pin a
- * request handler open indefinitely.
+ * All upstream traffic goes through here, so every call has a timeout. Without
+ * one, a music server that accepts a connection and stalls holds the request
+ * handler open.
  */
 export async function upstreamFetch(url: string, init: RequestInit = {}): Promise<Response> {
 	const timeout = config().upstreamTimeoutMs;
@@ -23,14 +23,11 @@ export async function upstreamFetch(url: string, init: RequestInit = {}): Promis
 	const timer = setTimeout(() => controller.abort(new Error('upstream timeout')), timeout);
 
 	/*
-	 * A caller-supplied signal (client disconnected) must also abort the fetch.
+	 * A caller's signal (the client disconnected) also aborts the fetch.
 	 *
-	 * This listener deliberately outlives the `await` below. `fetch` resolves as
-	 * soon as the headers arrive, and for a stream that is when the interesting
-	 * part starts: tearing the listener down there left a browser that walked
-	 * away mid-track with its upstream connection still being read to the end,
-	 * into nothing. `once` means it cleans itself up after firing, and the
-	 * signal it is attached to lives no longer than the request.
+	 * The listener outlives the `await` below. `fetch` resolves when the
+	 * headers arrive, and removing the listener there left a stream being read
+	 * to its end after the browser had gone. `once` removes it after it fires.
 	 */
 	const external = init.signal;
 	const onExternalAbort = () => controller.abort(external?.reason);
@@ -39,13 +36,8 @@ export async function upstreamFetch(url: string, init: RequestInit = {}): Promis
 		else external.addEventListener('abort', onExternalAbort, { once: true });
 	}
 
-	/*
-	 * The path without its query.
-	 *
-	 * A Subsonic request carries the account's username, salt and token as query
-	 * parameters, so the full URL is a credential. The path is the part that says
-	 * what was asked for, and it is the same shape on both backends.
-	 */
+	// The path without its query: a Subsonic request carries the username, salt
+	// and token as query parameters, so the full URL is a credential.
 	const started = performance.now();
 	let path: string;
 	try {
@@ -56,10 +48,9 @@ export async function upstreamFetch(url: string, init: RequestInit = {}): Promis
 
 	try {
 		const response = await fetchWithinOrigin(url, { ...init, signal: controller.signal }, path);
-		// Time to headers, not to the last byte: for a stream those are minutes
-		// apart, and it is the wait before anything happens that is worth seeing.
-		// A page opens dozens of covers, so the line is only built when one of
-		// the two conditions that print it holds.
+		// Time to headers, not to the last byte, which for a stream is minutes
+		// later. A page opens dozens of covers, so the fields are built only when
+		// the line is printed.
 		if (response.status >= 500 || isEnabled('debug')) {
 			const fields = {
 				path,
@@ -78,19 +69,18 @@ export async function upstreamFetch(url: string, init: RequestInit = {}): Promis
 			throw new UpstreamError(`Music server did not respond within ${timeout}ms`, 504);
 		}
 		if (external?.aborted) {
-			// The client went away. Ordinary when somebody skips a track mid-load,
-			// and not a fault of the music server.
+			// The client went away, as when somebody skips a track mid-load.
 			log.debug('upstream-abandoned', { path, ms });
 		} else {
 			log.warn('upstream-unreachable', { path, ms, detail: reason(err) });
 		}
-		// The cause stays in the log line above. Node's own text names the host and
-		// port it could not reach (`connect ECONNREFUSED 10.0.0.5:4533`), and this
-		// message reaches the browser, which is never told the music server's address.
+		// The cause stays in the log line above. Node's text names the host and
+		// port (`connect ECONNREFUSED 10.0.0.5:4533`), and this message reaches
+		// the browser.
 		throw new UpstreamError('Could not reach the music server', 502);
 	} finally {
-		// Only the timeout is stood down here. The timer guards the wait for
-		// headers; once they are in, a slow-but-healthy stream must not be shot.
+		// Only the timeout is cleared. It guards the wait for headers, and a
+		// stream that is slow after them must not be cut.
 		clearTimeout(timer);
 	}
 }
@@ -101,12 +91,11 @@ const MAX_JSON_BYTES = 64 * 1024 * 1024;
 /**
  * A JSON body from the music server, read under a deadline and a size cap.
  *
- * `upstreamFetch` stops its timer once the headers arrive, so a stream is not
- * cut off, and `response.json()` after that had neither: a server that sent
- * headers and then trickled or never ended its body held the request open and
- * grew its buffer without limit. The body gets its own `upstreamTimeoutMs`,
- * and is refused past 64MB while it is still arriving. The cap is set well
- * above the answers that are not paged: a whole artist index, a whole playlist.
+ * `upstreamFetch` stops its timer at the headers, and `response.json()` after
+ * that had neither: a server that trickled or never ended its body held the
+ * request open and grew its buffer. The body gets its own `upstreamTimeoutMs`
+ * and is refused past 64MB as it arrives, well above the answers that are not
+ * paged (a whole artist index, a whole playlist).
  */
 export async function readJson(response: Response): Promise<unknown> {
 	const timeout = config().upstreamTimeoutMs;
@@ -156,12 +145,10 @@ export async function readJson(response: Response): Promise<unknown> {
 const MAX_REDIRECTS = 5;
 
 /**
- * Whether a redirect from `from` to `to` stays on the configured music server.
- *
- * The same origin, or the same host moving from http to https, which is what a
- * reverse proxy in front of Jellyfin does. Anything else is refused, including
- * https to http: that would put a Subsonic query string, which carries the
- * account's token, on the wire in clear.
+ * Whether a redirect from `from` to `to` stays on the configured music server:
+ * the same origin, or the same host moving from http to https, as a reverse
+ * proxy in front of Jellyfin does. https to http is refused: it would send a
+ * Subsonic query string, which carries the account's token, in clear.
  */
 function sameServer(from: URL, to: URL): boolean {
 	if (to.origin === from.origin) return true;
@@ -171,16 +158,14 @@ function sameServer(from: URL, to: URL): boolean {
 /**
  * `fetch`, following redirects only while they stay on the music server.
  *
- * `redirect: 'follow'` went wherever the upstream pointed. A compromised or
- * misconfigured music server could aim Heddohon at the internal network, and a
- * Jellyfin login body was replayed to the target. With shared links that
- * became reachable without an account, since a link's audio and cover are
- * fetched for anonymous visitors.
+ * With `redirect: 'follow'` a compromised or misconfigured music server could
+ * aim Heddohon at the internal network, and a Jellyfin login body was replayed
+ * to the target. Shared links made that reachable without an account.
  *
- * Followed by hand with the method rules fetch applies: 303 becomes a GET
- * without a body, as do 301 and 302 after a POST; 307 and 308 keep both.
- * Jellyfin's `/Audio/{id}/universal` redirects within the server, which is why
- * redirects are followed at all rather than refused.
+ * Followed by hand with fetch's method rules: 303 becomes a GET without a
+ * body, as do 301 and 302 after a POST, and 307 and 308 keep both. Redirects
+ * are followed at all since Jellyfin's `/Audio/{id}/universal` redirects
+ * within the server.
  */
 async function fetchWithinOrigin(url: string, init: RequestInit, path: string): Promise<Response> {
 	const start = new URL(url);
@@ -219,22 +204,17 @@ async function fetchWithinOrigin(url: string, init: RequestInit, path: string): 
 }
 
 /**
- * Upstream calls one request may have in flight at once, where it fans out.
- *
- * `/api/songs` takes 1000 ids and Subsonic has no batch lookup, so an unbounded
- * `Promise.all` opened 1000 concurrent `getSong.view` calls for one request from
- * any signed-in account.
+ * Upstream calls one request may have in flight where it fans out.
+ * `/api/songs` takes 1000 ids and Subsonic has no batch lookup, so an
+ * unbounded `Promise.all` opened 1000 concurrent `getSong.view` calls.
  */
-export const UPSTREAM_FANOUT = 8;
+const UPSTREAM_FANOUT = 8;
 
 /**
- * `Promise.all` over `items` with at most `limit` calls running at once. Results
- * keep the input order, and the first rejection rejects the whole call, as with
- * `Promise.all`. After a rejection no further calls are started.
- *
- * Nor after `signal` aborts, which callers pass as the request's. A browser
- * that went away left the loop running: 300 albums at 200ms each went on for
- * seconds after the request was gone, eight upstream connections at a time.
+ * `Promise.all` over `items` with at most `limit` calls running. Results keep
+ * the input order and the first rejection rejects the call. No further calls
+ * start after a rejection, or after `signal` aborts: with the browser gone,
+ * 300 albums at 200ms each ran on for seconds, eight connections at a time.
  */
 export async function mapLimited<T, R>(
 	items: readonly T[],
@@ -261,20 +241,16 @@ export async function mapLimited<T, R>(
 }
 
 /**
- * Builds a URL from the operator-configured base plus a fixed path. IDs are
- * always passed through `URLSearchParams` or `encodeURIComponent`, never
- * concatenated raw, so a hostile item id cannot escape the path.
+ * Builds a URL from the operator-configured base and a fixed path. Ids go
+ * through `URLSearchParams` or `encodeURIComponent`, never concatenated raw.
  */
 export type UpstreamParams = Record<string, string | number | Array<string | number> | undefined>;
 
 /**
- * Ids that must never reach a URL.
- *
- * `encodeURIComponent` escapes `/` but not `.`, so an id of `..` survives into a
- * path segment intact and `new URL()` then resolves it upward — `/Items/../x`
- * becomes `/x`. It stays on the operator's own server with the caller's own
- * credential, so this is a wrong-endpoint bug rather than a way out, but the
- * claim that ids cannot escape their segment was simply not true.
+ * Ids that must never reach a URL. `encodeURIComponent` does not escape `.`,
+ * so an id of `..` survives into a path segment and `new URL()` resolves it
+ * upward: `/Items/../x` becomes `/x`. That reaches another endpoint on the
+ * operator's own server, with the caller's own credential.
  */
 export function assertSafeId(id: string): string {
 	if (id === '.' || id === '..' || id === '') {
@@ -288,8 +264,8 @@ export function upstreamUrl(base: string, path: string, params?: UpstreamParams)
 	if (params) {
 		for (const [key, value] of Object.entries(params)) {
 			if (value === undefined) continue;
-			// Subsonic takes repeated keys for lists — `songId=a&songId=b` — so an
-			// array appends rather than overwriting.
+			// Subsonic takes repeated keys for lists (`songId=a&songId=b`), so an
+			// array appends.
 			if (Array.isArray(value)) {
 				for (const item of value) url.searchParams.append(key, String(item));
 			} else {

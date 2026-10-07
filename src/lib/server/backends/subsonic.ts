@@ -1,10 +1,9 @@
 /**
  * Subsonic API adapter (Navidrome, Gonic, Airsonic, …).
  *
- * Auth note: the Subsonic scheme is `t = md5(password + salt)` with a fresh
- * salt per request, which requires the plaintext password on every call. That
- * is a property of the protocol, not a choice — see StoredCredential. The
- * password is therefore held sealed at rest and opened only per request.
+ * The scheme is `t = md5(password + salt)` with a fresh salt per request, so
+ * the plaintext password is needed on every call (see StoredCredential). It is
+ * held sealed and opened per request.
  */
 import { log } from '../log';
 import { upstreamFor } from '../config';
@@ -81,11 +80,11 @@ function endpoint(cred: StoredCredential, method: string, params: UpstreamParams
 }
 
 /**
- * Subsonic error codes worth distinguishing: 40 = bad credentials, 70 = not found.
+ * Subsonic error codes: 40 = bad credentials, 70 = not found.
  *
- * The server's own text goes to the log, and the error carries a fixed one.
- * Routes pass an error's message to the browser, and Navidrome's text for an
- * internal failure can name its database file and path.
+ * The server's text goes to the log and the error carries a fixed one: routes
+ * pass an error's message to the browser, and Navidrome's text for an internal
+ * failure can name its database file and path.
  */
 function throwForSubsonicError(code: number, message: string): never {
 	if (message) log.warn('upstream-error', { code, detail: message });
@@ -108,11 +107,10 @@ function formBody(params: UpstreamParams): string {
 }
 
 /**
- * `form` goes in a POST body instead of the address. For a list long enough to
- * be refused as a URL: a reverse proxy in front of the music server commonly
- * allows 8KB of request line and headers (nginx's default), which a playlist of
- * about 250 tracks passed as `songId` parameters is over. OpenSubsonic calls
- * this `formPost`; Navidrome reads it.
+ * `form` goes in a POST body instead of the address, for a list too long for a
+ * URL: a reverse proxy commonly allows 8KB of request line and headers
+ * (nginx's default), and a playlist of about 250 tracks as `songId` parameters
+ * is over that. OpenSubsonic calls this `formPost`, and Navidrome reads it.
  */
 async function call<T extends Record<string, unknown>>(
 	cred: StoredCredential,
@@ -193,25 +191,20 @@ function numberOrNull(value: unknown): number | null {
 }
 
 /**
- * The year a record first came out, where the server knows it, rather than
- * the year of the edition in the library. A 2011 remaster of a 1973 album is
- * 1973 here.
+ * The year a record first came out, where the server knows it: a 2011 remaster
+ * of a 1973 album is 1973.
  *
  * `originalReleaseDate` is OpenSubsonic's (`{ year, month, day }`), which
- * Navidrome fills from the ORIGINALDATE or ORIGINALYEAR tag; `year` stays the
- * edition's. A server without it, or a file without the tag, falls back to
- * `year`, and so does a year of 0, which Navidrome sends for a date it has no
- * year for.
+ * Navidrome fills from the ORIGINALDATE or ORIGINALYEAR tag. Without it, or
+ * with a year of 0 (Navidrome's for a date without one), `year` is used, which
+ * is the edition's.
  */
 function yearOf(raw: Record<string, any>): number | null {
 	const original = numberOrNull(raw.originalReleaseDate?.year);
 	return original !== null && original > 0 ? original : numberOrNull(raw.year);
 }
 
-/**
- * OpenSubsonic's `replayGain` object, which Navidrome fills from the file's
- * tags. A plain Subsonic server leaves it out, and so does a file with no tags.
- */
+/** OpenSubsonic's `replayGain`, which Navidrome fills from the file's tags. Absent on a plain Subsonic server or an untagged file. */
 function replayGainOf(raw: unknown): ReplayGain | null {
 	if (typeof raw !== 'object' || raw === null) return null;
 	const value = raw as Record<string, unknown>;
@@ -224,19 +217,13 @@ function replayGainOf(raw: unknown): ReplayGain | null {
 	return gain.trackGain === null && gain.albumGain === null ? null : gain;
 }
 
-/**
- * When an item was starred. Subsonic reports `starred` as the time of the star
- * rather than a flag, and leaves it out of an item that is not starred.
- */
+/** When an item was starred. Subsonic's `starred` is the time of the star, absent on an item that is not starred. */
 function starredAt(value: unknown): number | null {
 	const parsed = typeof value === 'string' ? Date.parse(value) : NaN;
 	return Number.isFinite(parsed) ? parsed : null;
 }
 
-/**
- * The listener's rating, 0 to 5. Navidrome leaves `userRating` out of an item
- * that has none, so a missing value is 0 rather than unknown.
- */
+/** The listener's rating, 0 to 5. Navidrome leaves `userRating` out of an unrated item, so missing is 0. */
 function ratingOf(value: unknown): number {
 	const rating = numberOrNull(value) ?? 0;
 	return Math.min(5, Math.max(0, Math.round(rating)));
@@ -312,10 +299,8 @@ function toArtist(raw: Record<string, any>): Artist {
 
 /**
  * Navidrome reports a similar artist that is not in the library with the id
- * `-1` rather than leaving it out, and a link to that goes nowhere. The
- * `includeNotPresent` parameter defaults to false, so this should not arrive
- * at all. It is filtered anyway: the cost is one comparison, and the failure
- * mode is a card in the middle of the page that leads to a 404.
+ * `-1`, and a link to that is a 404. `includeNotPresent` defaults to false, so
+ * this should not arrive. It is filtered anyway.
  */
 function present(raw: Record<string, any>): boolean {
 	const id = raw.id === undefined || raw.id === null ? '' : String(raw.id);
@@ -325,19 +310,14 @@ function present(raw: Record<string, any>): boolean {
 /**
  * Groups tracks into the albums they belong to, keeping first-seen order.
  *
- * A song carries its album's id, name, artist and cover, which is everything a
- * card shows. It does not carry the album's own `starred` flag or track count,
- * so those are left null and false rather than filled in from the track: a
+ * A song carries its album's id, name, artist and cover. It does not carry the
+ * album's `starred` flag or track count, which are left null and false: a
  * favourite song does not make its album a favourite.
  *
  * Albums credited to `seedArtistId` are dropped. Subsonic's similar-songs list
  * includes the seed artist's own tracks, and the album page shows that
- * catalogue in its own section above this shelf, so keeping them here put the
- * same record on the page twice.
- *
- * The id compared is the track artist, which is not always the album artist:
- * a record by the seed artist whose tracks credit a guest can still get
- * through. That costs one duplicate card rather than anything worse.
+ * catalogue above this shelf. The id compared is the track artist, so a record
+ * by the seed artist whose tracks credit a guest can still get through.
  */
 function albumsFromSongs(
 	songs: Record<string, any>[],
@@ -389,16 +369,16 @@ function toPlaylist(raw: Record<string, any>): Playlist {
 }
 
 /**
- * The top of one library, which `getIndexes` lists by its music folder id
- * rather than `getMusicDirectory` by a directory id. The prefix keeps the two
+ * The top of one library, which `getIndexes` lists by its music folder id,
+ * where `getMusicDirectory` takes a directory id. The prefix keeps the two
  * kinds of id apart in a folder's address.
  */
 const LIBRARY_PREFIX = 'library:';
 
 /**
- * Folders read upward for the trail above a folder. Subsonic names a
- * directory's parent and nothing above it, so each level is a call of its
- * own, in series. `Artist/Album/Disc` is three.
+ * Folders read upward for the trail above a folder. Subsonic names only a
+ * directory's parent, so each level is its own call, in series.
+ * `Artist/Album/Disc` is three.
  */
 const MAX_FOLDER_DEPTH = 8;
 
@@ -467,21 +447,10 @@ export const subsonicBackend: MediaBackend = {
 		return { credential: cred, remoteUserId: username };
 	},
 
-	async verify(cred) {
-		try {
-			await call(cred, 'ping.view');
-			return true;
-		} catch {
-			return false;
-		}
-	},
-
 	/**
-	 * `getUser` for the caller's own account. Navidrome answers this for the
-	 * account asking, and reserves other usernames for administrators, so no
-	 * elevated permission is needed to read one's own record. Servers that do
-	 * not implement the method answer with an error, which is reported as
-	 * "not known" rather than as "not an administrator".
+	 * `getUser` for the caller's own account, which Navidrome answers without
+	 * elevated permission. A server that does not implement the method answers
+	 * with an error, reported as "not known".
 	 */
 	async isAdmin(cred) {
 		if (cred.kind !== 'subsonic') return null;
@@ -541,15 +510,15 @@ export const subsonicBackend: MediaBackend = {
 			genre: genreId,
 			count: Math.min(limit, 500)
 		});
-		// Subsonic returns these in library order; shuffled here so that playing a
-		// genre is not the same first album every time.
+		// Subsonic returns these in library order. Shuffled, so playing a genre
+		// does not start with the same album every time.
 		return shuffledCopy(asArray(body.songsByGenre?.song as Record<string, any>[]).map(toSong));
 	},
 
 	async getInstantMix(cred, kind, id, limit) {
-		// `getSimilarSongs` takes a song, an album or an artist id alike. It does
-		// not return the song it was asked about, so a song's mix fetches that
-		// song too and puts it first: the mix is "this, and more like it".
+		// `getSimilarSongs` takes a song, an album or an artist id, and does not
+		// return the song it was asked about, so a song's mix fetches that song
+		// and puts it first.
 		const [similar, seed] = await Promise.all([
 			call<{ similarSongs?: { song?: unknown } }>(cred, 'getSimilarSongs.view', {
 				id,
@@ -583,8 +552,8 @@ export const subsonicBackend: MediaBackend = {
 		const raw = body.artist;
 		if (!raw) throw new UpstreamError('Artist not found', 404, 'not_found');
 
-		// Both of these are optional extras: a server that lacks them should not
-		// break the page, so failures degrade to empty rather than propagating.
+		// Both are optional extras: a server without them gives an empty
+		// biography and no top songs.
 		const [info, top] = await Promise.allSettled([
 			call<{ artistInfo2?: Record<string, any> }>(cred, 'getArtistInfo2.view', { id, count: 0 }),
 			call<{ topSongs?: { song?: unknown } }>(cred, 'getTopSongs.view', {
@@ -608,9 +577,8 @@ export const subsonicBackend: MediaBackend = {
 	},
 
 	async getArtistAlbums(cred, artistId): Promise<Album[]> {
-		// `getArtist.view` carries the album list, so this is one request. The
-		// biography and top songs that getArtist above pairs it with are two
-		// more, and the album page has no use for either.
+		// `getArtist.view` carries the album list in one request, without the
+		// biography and top songs that `getArtist` above adds two more for.
 		const body = await call<{ artist?: Record<string, any> }>(cred, 'getArtist.view', {
 			id: artistId
 		});
@@ -621,12 +589,11 @@ export const subsonicBackend: MediaBackend = {
 	 * Subsonic has no call for this, so it is a search for the artist's name,
 	 * kept to the songs the artist is on: by `artistId`, or by OpenSubsonic's
 	 * `artists`, which Navidrome fills with every artist of a track ("A feat.
-	 * B"). Each song's album is one entry. `albumArtists`, where the server
-	 * sends it, leaves out the artist's own albums here; elsewhere `details.ts`
-	 * does, from the artist's album list.
+	 * B"). Each song's album is one entry. `albumArtists`, where sent, leaves
+	 * out the artist's own albums here. Elsewhere `details.ts` does.
 	 *
-	 * The search matches titles as well, and returns at most 500 songs, so an
-	 * artist on more than 500 tracks can be missing an album here.
+	 * The search also matches titles and returns at most 500 songs, so an
+	 * artist on more than 500 tracks can be missing an album.
 	 */
 	async getAppearsOn(cred, artistId, artistName): Promise<Album[]> {
 		const body = await call<{ searchResult3?: Record<string, any> }>(cred, 'search3.view', {
@@ -666,13 +633,10 @@ export const subsonicBackend: MediaBackend = {
 
 	async getSimilarArtists(cred, artistId, limit): Promise<Artist[]> {
 		/*
-		 * This is the second call to `getArtistInfo2` in an artist page view:
-		 * getArtist above makes the first, with count 0, for the biography.
-		 * The duplicate is deliberate. Folding the similar artists into
-		 * `ArtistDetail` would save the round trip, but it would also put them
-		 * on the path the page waits for, and this is loaded separately so a
-		 * slow Last.fm never delays the releases. Navidrome answers the second
-		 * call from its own cache of the first.
+		 * The second `getArtistInfo2` of an artist page view: `getArtist` makes
+		 * the first, with count 0, for the biography. Loaded separately so a
+		 * slow Last.fm does not delay the releases. Navidrome answers it from
+		 * its cache of the first.
 		 */
 		const body = await call<{ artistInfo2?: { similarArtist?: unknown } }>(
 			cred,
@@ -685,25 +649,60 @@ export const subsonicBackend: MediaBackend = {
 			.slice(0, limit);
 	},
 
-	async getSimilarAlbums(cred, albumId, artistId, limit): Promise<Album[]> {
-		// Subsonic has no album-to-album similarity. This is the nearest thing it
-		// offers: tracks by artists the server considers similar, grouped back
-		// into the albums they came from. `getSimilarSongs2` is specified to take
-		// an artist id only, so an album with no artist id has nothing to ask.
-		if (!artistId) return [];
+	async getSimilarAlbums(cred, albumId, artistId, limit, like): Promise<Album[]> {
+		// The nearest Subsonic has to album similarity: tracks by artists the
+		// server considers similar, grouped into their albums. `getSimilarSongs2`
+		// takes an artist id only, so an album without one has nothing to ask.
+		//
+		// Several tracks from one album count once on the shelf, so eight times
+		// the shelf size is asked for, capped at 100. The endpoint's default is
+		// 50.
+		const count = Math.min(100, limit * 8);
+		const found = artistId
+			? albumsFromSongs(
+					asArray(
+						(await call<{ similarSongs2?: { song?: unknown } }>(cred, 'getSimilarSongs2.view', { id: artistId, count }))
+							.similarSongs2?.song as Record<string, any>[]
+					),
+					{ excludeAlbumId: albumId, seedArtistId: artistId, limit }
+				)
+			: [];
+		if (found.length >= limit || !like) return found;
 
-		// The shelf counts distinct albums, and several tracks from one album
-		// count once, so the song count has to exceed the shelf size by some
-		// margin. Eight times, capped at 100. The endpoint's documented default
-		// is 50.
-		const body = await call<{ similarSongs2?: { song?: unknown } }>(cred, 'getSimilarSongs2.view', {
-			id: artistId,
-			count: Math.min(100, limit * 8)
-		});
-		return albumsFromSongs(
-			asArray(body.similarSongs2?.song as Record<string, any>[]),
-			{ excludeAlbumId: albumId, seedArtistId: artistId, limit }
+		/*
+		 * The rest of the shelf, from the album's own genre: random tracks under
+		 * it, grouped into albums as above. An album without a genre is given the
+		 * years around its own.
+		 *
+		 * Navidrome 0.64.2 with no similar artist in the library answers
+		 * `getSimilarSongs2` with the artist's own tracks (64 of 64 on
+		 * 2026-10-06), which are all dropped, so the album page had no shelf at
+		 * all where Jellyfin, which works from genres, had one.
+		 */
+		const within: Record<string, string | number> | null = like.genre
+			? { genre: like.genre }
+			: like.year !== null
+				? { fromYear: like.year - 2, toYear: like.year + 2 }
+				: null;
+		if (!within) return found;
+		const body = await call<{ randomSongs?: { song?: unknown } }>(cred, 'getRandomSongs.view', { size: count, ...within }).catch(
+			(err) => {
+				// What was found stands, unless the credential has stopped working.
+				if (err instanceof UpstreamError && err.kind === 'auth') throw err;
+				return null;
+			}
 		);
+		const held = new Set(found.map((album) => album.id));
+		const more = albumsFromSongs(asArray(body?.randomSongs?.song as Record<string, any>[]), {
+			excludeAlbumId: albumId,
+			seedArtistId: artistId,
+			limit: limit * 2
+		});
+		for (const album of more) {
+			if (found.length >= limit) break;
+			if (!held.has(album.id)) found.push(album);
+		}
+		return found;
 	},
 
 	async getFolder(cred, id): Promise<Folder> {
@@ -747,8 +746,7 @@ export const subsonicBackend: MediaBackend = {
 		let parent = directory.parent ? String(directory.parent) : null;
 		while (parent && !seen.has(parent) && parents.length < MAX_FOLDER_DEPTH) {
 			seen.add(parent);
-			// The trail is a convenience: a level that cannot be read ends it
-			// rather than failing the folder the listener asked for.
+			// A level that cannot be read ends the trail, not the folder asked for.
 			const above = await call<{ directory?: Record<string, any> }>(cred, 'getMusicDirectory.view', {
 				id: parent
 			}).catch(() => null);
@@ -778,13 +776,13 @@ export const subsonicBackend: MediaBackend = {
 	},
 
 	async getSongs(cred, ids) {
-		// One call per id, since Subsonic has no batch lookup, and bounded, since
-		// the caller may pass 1000 of them.
+		// One call per id, since Subsonic has no batch lookup, bounded since the
+		// caller may pass 1000.
 		//
-		// A track removed from the library answers error 70 and is left out,
-		// as Jellyfin leaves it out of a batch. Rethrown, it rejected the whole
-		// lookup, and a saved queue holding one deleted track did not restore
-		// at all. Any other failure still rejects.
+		// A track removed from the library answers error 70 and is left out, as
+		// Jellyfin leaves it out of a batch. Rethrown, it rejected the lookup and
+		// a saved queue holding one deleted track did not restore. Any other
+		// failure still rejects.
 		const songs = await mapLimited(ids, async (id) => {
 			try {
 				const body = await call<{ song?: Record<string, any> }>(cred, 'getSong.view', { id });
@@ -856,9 +854,9 @@ export const subsonicBackend: MediaBackend = {
 	},
 
 	async getLyrics(cred, song): Promise<Lyrics | null> {
-		// OpenSubsonic's getLyricsBySongId is the good one: it returns structured,
-		// optionally synced lines. Navidrome supports it; older servers do not, and
-		// answer with an error code that we treat as "ask the other way".
+		// OpenSubsonic's getLyricsBySongId returns structured, optionally synced
+		// lines. Navidrome supports it. An older server answers with an error
+		// code, and the plain call below is tried.
 		try {
 			const body = await call<{ lyricsList?: { structuredLyrics?: unknown } }>(
 				cred,
@@ -915,9 +913,8 @@ export const subsonicBackend: MediaBackend = {
 			name,
 			songId: songIds
 		});
-		// Older servers answer createPlaylist with an empty body. Falling back to a
-		// name lookup is not perfect — two playlists can share a name — so prefer
-		// the most recently created match.
+		// Older servers answer createPlaylist with an empty body. Two playlists
+		// can share a name, so the lookup takes the most recently created match.
 		if (body.playlist?.id) return String(body.playlist.id);
 
 		const listing = await call<{ playlists?: { playlist?: unknown } }>(cred, 'getPlaylists.view');
@@ -940,8 +937,8 @@ export const subsonicBackend: MediaBackend = {
 
 	async removeFromPlaylist(cred, id, indices) {
 		if (indices.length === 0) return;
-		// Subsonic removes by index and applies them against the original list, so
-		// they can all go in one call regardless of order.
+		// Subsonic applies the indexes against the original list, so one call
+		// takes them all in any order.
 		await call(cred, 'updatePlaylist.view', {
 			playlistId: id,
 			songIndexToRemove: [...indices].sort((a, b) => b - a)
@@ -950,10 +947,9 @@ export const subsonicBackend: MediaBackend = {
 
 	async movePlaylistEntry(cred, id, { from, to, songId, count }) {
 		// Subsonic cannot move an entry. `createPlaylist` with a `playlistId`
-		// replaces a playlist's entries with the list it is given, so the whole
-		// playlist is written back in the new order. Read again first, and
-		// refused if it is not what the page showed: a rewrite from a stale
-		// list would silently undo whatever was changed in the meantime.
+		// replaces a playlist's entries, so the whole playlist is written back in
+		// the new order. It is read again first and refused if it is not what the
+		// page showed: a rewrite from a stale list would undo changes made since.
 		const body = await call<{ playlist?: Record<string, any> }>(cred, 'getPlaylist.view', { id });
 		const entries = asArray(body.playlist?.entry as Record<string, any>[]).map((entry) => String(entry.id));
 		if (!body.playlist) throw new UpstreamError('Playlist not found', 404, 'not_found');
@@ -979,9 +975,8 @@ export const subsonicBackend: MediaBackend = {
 		if (entries.length <= 150) await call(cred, 'createPlaylist.view', { playlistId: id, songId: entries });
 		else await call(cred, 'createPlaylist.view', {}, { playlistId: id, songId: entries });
 
-		// An entry added by another client between the read and the write is lost
-		// by the rewrite, and Subsonic has no way to make the two one step. It is
-		// reported rather than left for the listener to find.
+		// An entry another client added between the read and the write is lost
+		// by the rewrite, which Subsonic cannot make one step. It is reported.
 		const after = await call<{ playlist?: Record<string, any> }>(cred, 'getPlaylist.view', { id });
 		const written = asArray(after.playlist?.entry as Record<string, any>[]).map((entry) => String(entry.id));
 		if (written.length !== entries.length || written.some((entry, i) => entry !== entries[i])) {
@@ -995,7 +990,7 @@ export const subsonicBackend: MediaBackend = {
 
 	async reportPlayback(cred, report: PlaybackReport) {
 		// Subsonic has no progress channel. `submission=false` marks the track as
-		// now-playing; `true` records an actual play.
+		// now-playing, `true` records a play.
 		if (report.event === 'progress') return;
 		if (report.event === 'stop' && !report.completed) return;
 		await call(cred, 'scrobble.view', {
@@ -1026,18 +1021,22 @@ export const subsonicBackend: MediaBackend = {
 	},
 
 	async openStream(cred, songId, req: StreamRequest, transcode): Promise<UpstreamResponse> {
-		// `format=raw` and `maxBitRate=0` together tell Navidrome to hand back the
-		// original file untouched, which is what this player is for and what it
-		// asks for unless the account has said otherwise.
+		// `format=raw` with `maxBitRate=0` asks Navidrome for the original file.
+		// A named format and a bitrate ask it to convert. Both values come from
+		// an allowlist in `settings.ts` and go through `URLSearchParams`.
 		//
-		// A named format and a bitrate ask Navidrome to convert instead. Both
-		// values come from an allowlist in `settings.ts` rather than from a
-		// request, and go through `URLSearchParams` like every other parameter.
+		// Asked for an estimated length, Navidrome declares one worked out from
+		// the bitrate and closes the connection when the transcode comes to
+		// another size. Against 0.64.2 at 128kbps, first requests for an MP3, an
+		// Opus and an AAC transcode each ended short of the declared length
+		// (2911365 of 2980905 bytes for the MP3), and the same three asked
+		// without it arrived whole. A read that has to reach the end
+		// (`transcodes.ts`) does not ask for one.
 		const url = endpoint(cred, 'stream.view', {
 			id: songId,
 			format: transcode ? transcode.codec : 'raw',
 			maxBitRate: transcode ? transcode.bitrateKbps : 0,
-			estimateContentLength: 'true'
+			estimateContentLength: req.whole ? 'false' : 'true'
 		});
 		const response = await upstreamFetch(url, {
 			method: req.method ?? 'GET',
