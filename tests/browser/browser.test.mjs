@@ -2503,6 +2503,73 @@ describe('the aurora', () => {
 	});
 });
 
+describe('the player panel on a wide screen', () => {
+	/*
+	 * The column's width used to be what animated, with the panel riding its
+	 * edge: a layout of the page on every frame of the slide (29 in Chromium
+	 * for one close), reported from an iPad Pro in landscape as a few frames a
+	 * second. The panel moves by `translate` now, and the column changes
+	 * width in one step: at once to open, and once the panel has left to
+	 * close. Read from the transitions the press starts, not from a clock.
+	 */
+	test('slides by translate, and the page is laid out once', async () => {
+		const { page, problems } = await watchedPage();
+		/** The transitions on an element just after a press, as `property duration+delay`. */
+		const started = (selector) =>
+			page.evaluate(
+				(selector) =>
+					new Promise((done) =>
+						requestAnimationFrame(() =>
+							done(
+								document
+									.querySelector(selector)
+									.getAnimations()
+									.filter((a) => a.transitionProperty)
+									.map((a) => {
+										const timing = a.effect.getComputedTiming();
+										return `${a.transitionProperty} ${timing.duration}+${timing.delay}`;
+									})
+							)
+						)
+					),
+				selector
+			);
+		const edges = () =>
+			page.evaluate(() => {
+				const box = (selector) => document.querySelector(selector).getBoundingClientRect();
+				return {
+					content: Math.round(box('main.content').right),
+					panel: Math.round(box('aside.panel').left),
+					grip: Math.round(box('#player-grip').left)
+				};
+			});
+		try {
+			await page.goto(app.url + '/albums', { waitUntil: 'networkidle' });
+			const open = await edges();
+
+			await page.getByRole('button', { name: 'Hide the player' }).click();
+			assert.deepEqual(await started('.dock'), ['translate 480+0'], 'the panel is not what moves');
+			assert.deepEqual(await started('.app'), ['grid-template-columns 0+480'], 'the column does not wait for the panel to leave');
+			await page.waitForFunction((was) => document.querySelector('main.content').getBoundingClientRect().right > was, open.content);
+			await page.waitForFunction(() => document.querySelector('.dock').getAnimations().length === 0);
+			const closed = await edges();
+			// The sliver is 2rem wide, at the right-hand edge, 12px in from it.
+			assert.equal(closed.grip, 1440 - 12 - 32);
+			assert.equal(closed.panel, closed.grip, 'the hidden panel does not start at the sliver');
+			assert.equal(closed.content - open.content, closed.panel - open.panel, 'the page did not take the width the panel gave up');
+
+			await page.getByRole('button', { name: 'Show the player' }).click();
+			assert.deepEqual(await started('.dock'), ['translate 480+0']);
+			assert.deepEqual(await started('.app'), [], 'the column waits, or animates, on the way in');
+			await page.waitForFunction(() => document.querySelector('.dock').getAnimations().length === 0);
+			assert.deepEqual(await edges(), open);
+		} finally {
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+});
+
 describe('the heart in the player', () => {
 	/*
 	 * The player keeps one heart and hands it each new song. When it kept the
