@@ -504,7 +504,7 @@
 
 			<label class="row">
 				<span class="label">
-					<span class="name">Aurora <span class="tag">Experimental</span></span>
+					Aurora
 					<span class="hint hh-muted">
 						A glow in the artwork's colours behind the glass. Moving, it drifts slowly, and the glass
 						redraws its blur as it does; still or off costs nothing, for older or low-powered
@@ -1750,25 +1750,6 @@
 		font-weight: 500;
 		color: var(--text-strong);
 		font-size: 0.9375rem;
-	}
-
-	/* On one line with the name, where the label itself is a column. */
-	.name {
-		display: inline-flex;
-		align-items: center;
-		gap: var(--space-2);
-	}
-
-	/* Drawn like the lossless badge beside the transport: an outline in the accent. */
-	.tag {
-		padding: 0.05rem 0.4rem;
-		border-radius: var(--r-sm);
-		border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
-		color: var(--accent);
-		font-size: 0.6875rem;
-		font-weight: 500;
-		letter-spacing: 0.01em;
-		line-height: 1.5;
 	}
 
 	.hint {

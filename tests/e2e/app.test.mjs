@@ -289,11 +289,15 @@ describe('settings', () => {
 		assert.match((await user.page('/search')).html, /<html[^>]* data-font="manrope"/);
 	});
 
-	test('the aurora setting takes one of its three values and nothing else', async () => {
-		const moving = await (await user.json('/api/settings', 'PATCH', { aurora: 'moving' })).json();
-		assert.equal(moving.aurora, 'moving');
+	test('the aurora moves until an account says otherwise, and takes one of its three values and nothing else', async () => {
+		await asFreshAccount('skywatcher', async (client) => {
+			assert.equal((await (await client.request('/api/settings')).json()).aurora, 'moving');
+			assert.match((await client.page('/')).html, /<div class="aurora[ "]/);
+		});
+		const still = await (await user.json('/api/settings', 'PATCH', { aurora: 'still' })).json();
+		assert.equal(still.aurora, 'still');
 		const bogus = await (await user.json('/api/settings', 'PATCH', { aurora: '"><b>' })).json();
-		assert.equal(bogus.aurora, 'moving', 'an unknown value keeps the one stored');
+		assert.equal(bogus.aurora, 'still', 'an unknown value keeps the one stored');
 		const off = await (await user.json('/api/settings', 'PATCH', { aurora: 'off' })).json();
 		assert.equal(off.aurora, 'off');
 	});

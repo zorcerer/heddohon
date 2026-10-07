@@ -104,7 +104,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
 	normalizeVolume: false,
 	reportPlayback: true,
 	historyDays: 0,
-	aurora: 'off',
+	aurora: 'moving',
 	showQualityBadge: true,
 	gridSize: 'comfortable',
 	uiScale: '100',
