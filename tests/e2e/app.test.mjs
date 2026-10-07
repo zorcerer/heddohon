@@ -1993,7 +1993,7 @@ describe('playing things', () => {
 
 		test('is streamed as it arrives on the first request: no length, no ranges, not kept', async () => {
 			subsonic.calls.reset();
-			const response = await user.request('/api/stream/s2a?mode=mp3-192', { headers: { range: 'bytes=0-1' } });
+			const response = await user.request('/api/stream/s2a?mode=mp3-192', { headers: { range: 'bytes=0-' } });
 			assert.equal(response.status, 200);
 			assert.equal(response.headers.get('accept-ranges'), null);
 			assert.equal(response.headers.get('content-length'), null);
@@ -2059,7 +2059,7 @@ describe('playing things', () => {
 			const signIn = await user.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' });
 			assert.equal(signIn.status, 303);
 
-			const after = await user.request('/api/stream/s2a?mode=mp3-192', { headers: { range: 'bytes=0-1' } });
+			const after = await user.request('/api/stream/s2a?mode=mp3-192', { headers: { range: 'bytes=0-' } });
 			assert.equal(after.status, 200, 'the transcode held before the sessions ended was served after');
 			await after.arrayBuffer();
 		});
@@ -2091,6 +2091,28 @@ describe('playing things', () => {
 				assert.equal(response.headers.get('content-range'), 'bytes 0-999/1000');
 				assert.equal(response.headers.get('accept-ranges'), 'bytes');
 				assert.deepEqual(Buffer.from(await response.arrayBuffer()), body);
+			} finally {
+				subsonic.state.streamSlowMs = 0;
+			}
+		});
+
+		/*
+		 * Apple's player opens a track with `bytes=0-1` and takes its length
+		 * from the answer. Answered with a 200 without a length, an iPad played
+		 * the transcode as a live broadcast: it glitched and went silent, and the
+		 * volume slider did not move the level (2026-10-07).
+		 */
+		test('asked for a range with an end, is answered once the read is done, in ranges', async () => {
+			subsonic.state.streamSlowMs = 400;
+			try {
+				const started = Date.now();
+				const response = await user.request('/api/stream/s11a?mode=mp3-192', { headers: { range: 'bytes=0-1' } });
+				assert.ok(Date.now() - started >= 350, 'answered before the read was done');
+				assert.equal(response.status, 206);
+				assert.equal(response.headers.get('content-range'), 'bytes 0-1/1000');
+				assert.equal(response.headers.get('content-length'), '2');
+				assert.equal(response.headers.get('accept-ranges'), 'bytes');
+				assert.deepEqual(Buffer.from(await response.arrayBuffer()), body.subarray(0, 2));
 			} finally {
 				subsonic.state.streamSlowMs = 0;
 			}
