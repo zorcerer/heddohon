@@ -1337,6 +1337,14 @@ describe('playback on another browser', () => {
 				// A few bytes that declare 65535 pixels a side.
 				assert.equal((await picture(client, jpeg(65535, 65535))).status, 400);
 				assert.equal((await picture(client, jpeg(513, 256))).status, 400);
+				// A frame of 65535 a side inside what `FF 00` and a length make look
+				// like a segment, ahead of a small frame. A decoder drops `FF 00`
+				// and reads the large one.
+				const frame = (side) => [0xff, 0xc0, 0x00, 0x11, 0x08, side >> 8, side & 255, side >> 8, side & 255, 0x03, 0x01, 0x11, 0x00, 0x02, 0x11, 0x01, 0x03, 0x11, 0x01];
+				const hidden = new Uint8Array([0xff, 0xd8, 0xff, 0x00, 0x00, 0x15, ...frame(65535), ...frame(256), 0xff, 0xd9]);
+				assert.equal((await picture(client, hidden)).status, 400);
+				// A restart marker belongs to the scan, not to the header.
+				assert.equal((await picture(client, new Uint8Array([0xff, 0xd8, 0xff, 0xd0, ...frame(256), 0xff, 0xd9]))).status, 400);
 				assert.equal((await picture(client, jpeg(256, 256, 96 * 1024))).status, 413);
 
 				const bytes = jpeg(256, 256, 2000);
@@ -1365,6 +1373,44 @@ describe('playback on another browser', () => {
 				assert.equal((await other.request(`/api/profile/avatar/${id}`)).status, 404);
 			} finally {
 				await client.request('/api/profile/avatar', { method: 'DELETE' });
+			}
+		});
+
+		test('a changed password leaves the account not shown, with its name and picture kept', async () => {
+			subsonic.state.username = 'wren';
+			subsonic.state.password = 'wrenpass';
+			try {
+				const client = await signedIn('wren', 'wrenpass');
+				assert.equal((await client.json('/api/profile', 'PATCH', { shown: true, name: 'Wren' })).status, 200);
+				const { avatar } = await (await picture(client, jpeg(256, 256))).json();
+				// On Subsonic this is also what the name passing to someone else looks like.
+				subsonic.state.password = 'another-password';
+				const next = await signedIn('wren', 'another-password');
+				const { id, ...profile } = await (await next.request('/api/profile')).json();
+				assert.deepEqual(profile, { name: 'Wren', shown: false, avatar });
+
+				// Playing, the account is in nobody's list until it turns the switch on again.
+				const watcher = await signedIn('seconduser', 'secondpass');
+				const a = await listen(next);
+				const b = await listen(watcher);
+				try {
+					assert.deepEqual((await b.next('listeners')).listeners, []);
+					await next.json('/api/remote/state', 'POST', { peer: a.id, state: playing });
+					// The list may be sent again for the saves above, which are held up
+					// to 250 ms. Whatever arrives has nobody in it.
+					await new Promise((done) => setTimeout(done, 400));
+					for (;;) {
+						const event = await b.next('listeners', 50).catch(() => null);
+						if (!event) break;
+						assert.deepEqual(event.listeners, [], 'an account whose password changed was shown');
+					}
+				} finally {
+					a.cancel();
+					b.cancel();
+				}
+			} finally {
+				subsonic.state.username = 'testuser';
+				subsonic.state.password = 'testpass';
 			}
 		});
 

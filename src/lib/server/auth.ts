@@ -29,7 +29,7 @@ import { forgetTranscodes } from './transcodes';
 import { dropKeeper, stopFill } from './coverfill';
 import { dropIntegrations } from './integrations';
 import { clearAccountState } from './settings';
-import { clearProfile } from './listening';
+import { clearProfile, hideProfile } from './listening';
 import { forgetSharedItems, revokeAllShares } from './shares';
 import { foldName } from './names';
 import { endPartiesOf } from './together';
@@ -173,6 +173,9 @@ async function storeAccount(
 		// See `dropKeeper` and `dropIntegrations` for why these are not kept.
 		await dropKeeper(kind, existing.id);
 		await dropIntegrations(existing.id);
+		// Whoever holds the name now is shown to the other accounts only once
+		// they turn it on themselves.
+		await hideProfile(existing.id);
 		deviceEpoch++;
 		log.warn('account-password-changed', { account: existing.id, backend: kind });
 	}
