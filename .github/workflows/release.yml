@@ -200,18 +200,6 @@ jobs:
       version: ${{ needs.plan.outputs.version }}
       upload: true
 
-  # The plugin for Navidrome, with this version in its manifest, attached to
-  # the release once it exists. A failure here leaves the release and its
-  # image as they are.
-  plugin:
-    needs: [plan, publish]
-    permissions:
-      contents: write
-    uses: ./.github/workflows/plugin.yml
-    with:
-      version: ${{ needs.plan.outputs.version }}
-      upload: true
-
   # The Android app, as this version and signed with the release key,
   # attached to the release once it exists. A failure here leaves the release
   # and its image as they are.
