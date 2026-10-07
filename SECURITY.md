@@ -286,7 +286,8 @@ later, the first to sign the link token it sends through last.fm.
 
 Navidrome tells a scrobbler plugin of every play of a user, whichever app made
 it, and keeps a scrobble history that only a plugin can read. The Heddohon
-plugin (`plugin/navidrome`, installed in Navidrome as `heddohon.ndp`) posts
+plugin ([heddohon-navidrome-plugin](https://github.com/zorcerer/heddohon-navidrome-plugin), a repository of
+its own, installed in Navidrome as `heddohon.ndp`) posts
 each play to `POST /api/plugin/navidrome`, and Heddohon notes it in that
 account's listening history. An account can also import its whole scrobble
 history from Settings. It is off unless `HEDDOHON_NAVIDROME_PLUGIN_TOKEN` is

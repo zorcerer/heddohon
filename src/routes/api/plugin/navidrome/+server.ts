@@ -17,7 +17,7 @@ import {
 	type PluginPlayback
 } from '$lib/server/plugin';
 
-/** The version of the messages the plugin sends; `protocol` in `plugin/navidrome/main.go`. */
+/** The version of the messages the plugin sends; `protocol` in `main.go` of zorcerer/heddohon-navidrome-plugin. */
 const PROTOCOL = 1;
 
 const refuse = (status: number, code: string) => json({ error: code }, { status });

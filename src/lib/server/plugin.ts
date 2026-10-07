@@ -1,6 +1,8 @@
 /**
- * What the Heddohon plugin for Navidrome sends (`plugin/navidrome` in the
- * repository), which is how plays made in other apps reach the history.
+ * What the Heddohon plugin for Navidrome sends, which is how plays made in
+ * other apps reach the history. The plugin is in a repository of its own,
+ * github.com/zorcerer/heddohon-navidrome-plugin, whose README sets out the
+ * messages; a change to one of them is a change there too.
  *
  * Navidrome calls the plugin for every play of a user, whichever client made
  * it, and keeps a scrobble history only a plugin can read. A plugin cannot be
