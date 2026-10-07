@@ -23,6 +23,9 @@
 		"electron-builder": "^26.15.3",
 		"playwright-core": "1.63.0"
 	},
+	"overrides": {
+		"global-agent": "^4.1.3"
+	},
 	"build": {
 		"appId": "app.heddohon.desktop",
 		"productName": "Heddohon",
