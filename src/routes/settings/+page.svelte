@@ -5,7 +5,9 @@
 	import type { SubmitFunction } from '@sveltejs/kit';
 	import { untrack } from 'svelte';
 	import Cover from '$lib/components/Cover.svelte';
+	import Avatar from '$lib/components/Avatar.svelte';
 	import Icon from '$lib/components/Icon.svelte';
+	import { avatarUrl, listeners } from '$lib/client/listeners.svelte';
 	import { player } from '$lib/client/player.svelte';
 	import { EQ_FREQUENCIES, EQ_RANGE_DB } from '$lib/client/audiochain';
 	import { EQ_PRESETS, processing } from '$lib/client/processing.svelte';
@@ -110,6 +112,36 @@
 			? `${data.sessionMaxHours / 24} day${data.sessionMaxHours === 24 ? '' : 's'}`
 			: `${data.sessionMaxHours} hour${data.sessionMaxHours === 1 ? '' : 's'}`
 	);
+	/*
+	 * What this account shows the others on this server; see `ListeningNow.svelte`.
+	 * Each control saves as it is used. The page's own copy stands until the
+	 * event stream or a save has said what the profile is.
+	 */
+	const profile = $derived(listeners.you ?? data.profile);
+	let profileName = $state(untrack(() => data.profile?.name ?? ''));
+	let profileBusy = $state(false);
+	let pictureInput = $state<HTMLInputElement | null>(null);
+
+	async function saveProfile(work: () => Promise<boolean>) {
+		profileBusy = true;
+		await work();
+		profileBusy = false;
+	}
+
+	async function saveName(event: SubmitEvent) {
+		event.preventDefault();
+		await saveProfile(() => listeners.save({ name: profileName.trim() || null }));
+		// As the server keeps it: cut, and its white space collapsed.
+		if (!listeners.error) profileName = listeners.you?.name ?? '';
+	}
+
+	async function choosePicture(input: HTMLInputElement) {
+		const file = input.files?.[0];
+		// Emptied, so choosing the same file again is a change.
+		input.value = '';
+		if (file) await saveProfile(() => listeners.setPicture(file));
+	}
+
 	let withdrawing = $state<string | null>(null);
 	let ending = $state<string | null>(null);
 
@@ -958,6 +990,107 @@
 			{/if}
 		</div>
 	</section>
+
+	<!-- Only where the operator has left it on; see `HEDDOHON_LISTENERS`. -->
+	{#if profile}
+		<section class="hh-card hh-glass group" id="listening" hidden={shown !== 'account'}>
+			<div class="group-head">
+				<h2>Listening now</h2>
+				<p class="hh-muted">
+					Accounts on this server can show each other what they are playing. While you are shown,
+					everyone signed in here sees your name, your picture and the track you are playing, for as
+					long as it plays. You see the others whether or not you are shown.
+				</p>
+			</div>
+
+			{#if listeners.error}
+				<p class="hh-muted note-inline" role="alert">{listeners.error}</p>
+			{/if}
+
+			<label class="row switch">
+				<span class="label">
+					Show others what I play
+					<span class="hint hh-muted">
+						{profile.shown
+							? `You are shown as ${profile.name ?? data.account.username}.`
+							: 'Off, nothing you play is shown to anyone.'}
+					</span>
+				</span>
+				<input
+					type="checkbox"
+					checked={profile.shown}
+					disabled={profileBusy}
+					onchange={(event) => {
+						const shown = event.currentTarget.checked;
+						void saveProfile(() => listeners.save({ shown }));
+					}}
+				/>
+			</label>
+
+			<div class="row">
+				<label class="label" for="profile-name">
+					Display name
+					<span class="hint hh-muted">
+						The name the others see, up to 32 characters. Left empty, it is your user name,
+						{data.account.username}.
+					</span>
+				</label>
+				<form class="profile-name" onsubmit={saveName}>
+					<input
+						id="profile-name"
+						class="hh-input"
+						type="text"
+						bind:value={profileName}
+						maxlength="32"
+						autocomplete="nickname"
+						spellcheck="false"
+						placeholder={data.account.username}
+					/>
+					<button class="hh-button" type="submit" disabled={profileBusy || profileName.trim() === (profile.name ?? '')}>
+						Save
+					</button>
+				</form>
+			</div>
+
+			<div class="row">
+				<span class="label">
+					Picture
+					<span class="hint hh-muted">
+						This browser cuts the middle of the image to a square and scales it to 256 pixels before
+						it is sent.
+					</span>
+				</span>
+				<div class="profile-picture">
+					<Avatar
+						name={profile.name ?? data.account.username}
+						src={avatarUrl(profile.id, profile.avatar)}
+						size={3.5}
+					/>
+					<input
+						bind:this={pictureInput}
+						type="file"
+						accept="image/*"
+						hidden
+						aria-label="Picture file"
+						onchange={(event) => choosePicture(event.currentTarget)}
+					/>
+					<button class="hh-button" type="button" disabled={profileBusy} onclick={() => pictureInput?.click()}>
+						{profile.avatar ? 'Change' : 'Choose a picture'}
+					</button>
+					{#if profile.avatar}
+						<button
+							class="hh-button danger"
+							type="button"
+							disabled={profileBusy}
+							onclick={() => saveProfile(() => listeners.removePicture())}
+						>
+							Remove
+						</button>
+					{/if}
+				</div>
+			</div>
+		</section>
+	{/if}
 
 	<!-- Only where the music server can link at least one service: Navidrome,
 	     with Last.fm or ListenBrainz turned on. -->
@@ -1934,6 +2067,24 @@
 	.withdraw:disabled {
 		opacity: 0.6;
 		cursor: progress;
+	}
+
+	/* More specific than `.row form` above, which makes a form a block. */
+	.row .profile-name,
+	.profile-picture {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+	}
+
+	.profile-name .hh-input {
+		flex: 1;
+		min-width: 0;
+	}
+
+	.profile-picture {
+		flex-wrap: wrap;
+		gap: var(--space-3);
 	}
 
 	.sessions-head {

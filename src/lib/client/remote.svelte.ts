@@ -9,7 +9,9 @@
  * seconds while it plays, so a controlling browser shows a moving position.
  */
 import type { RemoteCommand, RemotePeer, RemoteState } from '$lib/server/remote';
+import type { ListenersEvent } from '$lib/server/listening';
 import type { Song } from '$lib/types';
+import { listeners } from './listeners.svelte';
 import { player } from './player.svelte';
 
 /** How often a playing browser reports its position. */
@@ -56,6 +58,10 @@ class Remote {
 			this.#skew = Date.now() - now;
 			this.peers = peers.filter((peer) => peer.id !== this.self).sort((a, b) => b.since - a.since);
 		});
+		// What the other accounts are playing; see `listeners.svelte.ts`.
+		source.addEventListener('listeners', (event) => {
+			listeners.take(JSON.parse((event as MessageEvent).data) as ListenersEvent);
+		});
 		source.addEventListener('command', (event) => {
 			void this.#apply(JSON.parse((event as MessageEvent).data) as RemoteCommand);
 		});
@@ -64,6 +70,7 @@ class Remote {
 		source.addEventListener('error', () => {
 			this.self = null;
 			this.peers = [];
+			listeners.clear();
 		});
 		this.#progress = setInterval(() => {
 			if (player.playing) this.report(true);
@@ -80,6 +87,10 @@ class Remote {
 		this.self = null;
 		this.peers = [];
 		this.open = false;
+		listeners.clear();
+		// Signed out: the next account in this tab has a profile of its own.
+		listeners.you = null;
+		listeners.open = false;
 	}
 
 	/**
@@ -104,6 +115,8 @@ class Remote {
 					title: song.title,
 					artist: song.artist,
 					coverArt: song.coverArt,
+					album: song.album,
+					albumId: song.albumId,
 					position: player.currentTime,
 					duration: player.duration || song.duration,
 					playing: player.engaged,

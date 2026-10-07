@@ -1,6 +1,6 @@
 /**
- * Persistence: accounts, sessions, settings, play state, share links and the
- * sign-in throttle.
+ * Persistence: accounts, sessions, settings, play state, share links,
+ * profiles and the sign-in throttle.
  *
  * SQLite in the data directory by default, or PostgreSQL with
  * `HEDDOHON_DATABASE_URL` set. The cover cache is on disk either way.
@@ -131,6 +131,20 @@ CREATE TABLE IF NOT EXISTS integrations (
   secret      TEXT NOT NULL,
   created_at  INTEGER NOT NULL,
   PRIMARY KEY (account_id, kind)
+);
+
+-- What an account shows of itself to the others signed in to this server: a
+-- name, a picture and whether what it plays is shown. The handle is what the
+-- others know it by, in place of the account's id; see listening.ts.
+CREATE TABLE IF NOT EXISTS profiles (
+  account_id  TEXT PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
+  handle      TEXT NOT NULL UNIQUE,
+  name        TEXT,
+  shown       INTEGER NOT NULL,
+  -- A JPEG in base64, or null; see MAX_AVATAR_BYTES in listening.ts.
+  avatar      TEXT,
+  avatar_at   INTEGER,
+  updated_at  INTEGER NOT NULL
 );
 
 -- Values the server keeps for itself, not for an account: whose cover fill is
@@ -427,6 +441,7 @@ async function importFromSqlite(pool: pg.Pool): Promise<void> {
 		shares: ['id', 'token_digest', 'account_id', 'backend', 'song_id', 'created_at', 'expires_at', 'kind'],
 		plays: ['account_id', 'song_id', 'played_at', 'title', 'artist', 'artist_id', 'album', 'album_id', 'cover_art', 'duration'],
 		integrations: ['account_id', 'kind', 'secret', 'created_at'],
+		profiles: ['account_id', 'handle', 'name', 'shown', 'avatar', 'avatar_at', 'updated_at'],
 		meta: ['key', 'value']
 	} as const;
 	const counts: Record<string, number> = {};

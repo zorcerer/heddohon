@@ -802,7 +802,11 @@ describe('playback on another browser', () => {
 		let read = 0;
 		const next = (type, timeout = 3000) =>
 			new Promise((resolve, reject) => {
-				const timer = setTimeout(() => reject(new Error(`no ${type} event within ${timeout}ms`)), timeout);
+				const timer = setTimeout(() => {
+					// Left waiting, it would take the next event of the type from the test.
+					waiting.splice(waiting.indexOf(check), 1);
+					reject(new Error(`no ${type} event within ${timeout}ms`));
+				}, timeout);
 				const check = () => {
 					const at = events.findIndex((event, i) => i >= read && event.type === type);
 					if (at < 0) return;
@@ -1208,6 +1212,181 @@ describe('playback on another browser', () => {
 			assert.deepEqual(await (await client.request('/api/search?q=a')).json(), { songs: [] });
 		});
 	});
+	describe('listening now', () => {
+		/** The frame header of a JPEG that declares this size, and nothing after it: what `jpegSize` reads. */
+		const jpeg = (width, height, padding = 0) =>
+			new Uint8Array([
+				...[0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00],
+				...[0xff, 0xc0, 0x00, 0x11, 0x08, height >> 8, height & 255, width >> 8, width & 255, 0x03, 0x01, 0x11, 0x00, 0x02, 0x11, 0x01, 0x03, 0x11, 0x01],
+				...new Array(padding).fill(0),
+				...[0xff, 0xd9]
+			]);
+		const picture = (client, body) =>
+			client.request('/api/profile/avatar', { method: 'PUT', headers: { 'content-type': 'image/jpeg' }, body });
+		const playing = { songId: 's3a', title: 'Song 3a', artist: 'Artist 0003', coverArt: 'al-3', album: 'Album 0003', albumId: 'al3', position: 12, duration: 180, playing: true, volume: 0.5 };
+
+		test('an account is shown to the others once it chooses to be, under its name, for as long as it plays', async () => {
+			const first = await signedIn();
+			const second = await signedIn('seconduser', 'secondpass');
+			const a = await listen(first);
+			const b = await listen(second);
+			try {
+				// Each stream opens with the list and the account's own profile.
+				assert.deepEqual((await b.next('listeners')).listeners, []);
+				assert.deepEqual((await a.next('listeners')).you, { id: null, name: null, shown: false, avatar: null });
+
+				// Playing, and not shown: the other account is told nothing.
+				assert.equal((await first.json('/api/remote/state', 'POST', { peer: a.id, state: playing })).status, 200);
+				await assert.rejects(b.next('listeners', 300), /no listeners event/);
+
+				const saved = await first.json('/api/profile', 'PATCH', { shown: true });
+				assert.equal(saved.status, 200);
+				const profile = await saved.json();
+				assert.match(profile.id, /^[0-9a-f]{24}$/);
+				const { listeners, now } = await b.next('listeners');
+				assert.equal(typeof now, 'number');
+				assert.equal(listeners.length, 1);
+				const { at, ...shown } = listeners[0];
+				assert.equal(typeof at, 'number');
+				// Exactly these, and the handle in place of the account's id.
+				assert.deepEqual(shown, {
+					id: profile.id,
+					name: 'testuser',
+					avatar: null,
+					backend: 'subsonic',
+					songId: 's3a',
+					title: 'Song 3a',
+					artist: 'Artist 0003',
+					album: 'Album 0003',
+					albumId: 'al3',
+					coverArt: 'al-3',
+					position: 12,
+					duration: 180
+				});
+				// An account is not in its own list, and reads its profile from the same event.
+				const own = await a.next('listeners');
+				assert.deepEqual(own.listeners, []);
+				assert.equal(own.you.shown, true);
+
+				// A progress report is not passed on, and a seek is.
+				await first.json('/api/remote/state', 'POST', { peer: a.id, state: { ...playing, position: 13 } });
+				await assert.rejects(b.next('listeners', 300), /no listeners event/);
+				await first.json('/api/remote/state', 'POST', { peer: a.id, state: { ...playing, position: 100 } });
+				assert.equal((await b.next('listeners')).listeners[0].position, 100);
+
+				assert.equal((await first.json('/api/profile', 'PATCH', { name: 'DJ Test' })).status, 200);
+				assert.equal((await b.next('listeners')).listeners[0].name, 'DJ Test');
+
+				// Paused, it is gone from the list, and back when it plays.
+				await first.json('/api/remote/state', 'POST', { peer: a.id, state: { ...playing, playing: false } });
+				assert.deepEqual((await b.next('listeners')).listeners, []);
+				await first.json('/api/remote/state', 'POST', { peer: a.id, state: playing });
+				assert.equal((await b.next('listeners')).listeners.length, 1);
+
+				// Turned off while playing, and then the browser closing while shown.
+				await first.json('/api/profile', 'PATCH', { shown: false });
+				assert.deepEqual((await b.next('listeners')).listeners, []);
+				await first.json('/api/profile', 'PATCH', { shown: true });
+				assert.equal((await b.next('listeners')).listeners.length, 1);
+				a.cancel();
+				assert.deepEqual((await b.next('listeners')).listeners, []);
+			} finally {
+				a.cancel();
+				b.cancel();
+				await first.json('/api/profile', 'PATCH', { shown: false, name: null });
+			}
+		});
+
+		test('a display name is cleaned and cut to 32 characters, and is not the user name of another account', async () => {
+			const client = await signedIn();
+			const second = await signedIn('seconduser', 'secondpass');
+			const named = async (name) => (await (await client.json('/api/profile', 'PATCH', { name })).json()).name;
+			try {
+				assert.equal(await named('  Ada ‮  Lovelace\n'), 'Ada Lovelace');
+				assert.equal(await named('é'.repeat(40)), 'é'.repeat(32));
+				assert.equal(await named('   '), null);
+				assert.equal((await client.json('/api/profile', 'PATCH', { name: 'SecondUser' })).status, 409);
+				// The other account may go by its own user name.
+				assert.equal((await second.json('/api/profile', 'PATCH', { name: 'seconduser' })).status, 200);
+				for (const body of [{ name: 5 }, { shown: 'yes' }, {}, null, []]) {
+					assert.equal((await client.json('/api/profile', 'PATCH', body)).status, 400, JSON.stringify(body));
+				}
+				assert.deepEqual(await (await client.request('/api/profile')).json().then(({ id, ...rest }) => rest), {
+					name: null,
+					shown: false,
+					avatar: null
+				});
+			} finally {
+				await client.json('/api/profile', 'PATCH', { name: null });
+				await second.json('/api/profile', 'PATCH', { name: null });
+			}
+		});
+
+		test('a picture is a JPEG within the size and the dimensions, and is served as an image and nothing else', async () => {
+			const client = await signedIn();
+			const other = await signedIn('seconduser', 'secondpass');
+			try {
+				const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0x0d]);
+				assert.equal((await picture(client, png)).status, 400);
+				assert.equal((await picture(client, new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg"/>'))).status, 400);
+				assert.equal((await picture(client, new Uint8Array([0xff, 0xd8, 0xff, 0xd9]))).status, 400);
+				// A few bytes that declare 65535 pixels a side.
+				assert.equal((await picture(client, jpeg(65535, 65535))).status, 400);
+				assert.equal((await picture(client, jpeg(513, 256))).status, 400);
+				assert.equal((await picture(client, jpeg(256, 256, 96 * 1024))).status, 413);
+
+				const bytes = jpeg(256, 256, 2000);
+				const set = await picture(client, bytes);
+				assert.equal(set.status, 200);
+				const { id, avatar } = await set.json();
+				assert.equal(typeof avatar, 'number');
+
+				// Another account fetches it by the handle.
+				const served = await other.request(`/api/profile/avatar/${id}?v=${avatar}`);
+				assert.equal(served.status, 200);
+				assert.equal(served.headers.get('content-type'), 'image/jpeg');
+				assert.equal(served.headers.get('x-content-type-options'), 'nosniff');
+				assert.equal(served.headers.get('content-security-policy'), "default-src 'none'; sandbox");
+				assert.match(served.headers.get('cache-control'), /^private, /);
+				assert.deepEqual(new Uint8Array(await served.arrayBuffer()), bytes);
+
+				assert.equal((await new Client(app.url).request(`/api/profile/avatar/${id}`)).status, 401);
+				assert.equal((await other.request(`/api/profile/avatar/${'0'.repeat(24)}`)).status, 404);
+				assert.equal((await other.request('/api/profile/avatar/..%2f..%2fprofile')).status, 404);
+				// One account does not remove another's.
+				assert.equal((await other.request('/api/profile/avatar', { method: 'DELETE' })).status, 200);
+				assert.equal((await other.request(`/api/profile/avatar/${id}`)).status, 200);
+
+				assert.equal((await client.request('/api/profile/avatar', { method: 'DELETE' })).status, 200);
+				assert.equal((await other.request(`/api/profile/avatar/${id}`)).status, 404);
+			} finally {
+				await client.request('/api/profile/avatar', { method: 'DELETE' });
+			}
+		});
+
+		test('with HEDDOHON_LISTENERS=false nothing is sent and the routes are gone', async () => {
+			const off = await startApp({ subsonicUrl: subsonic.url, jellyfinUrl: jellyfin.url, env: { HEDDOHON_LISTENERS: 'false' } });
+			try {
+				const client = new Client(off.url);
+				await client.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' });
+				const a = await listen(client);
+				try {
+					await a.next('peers');
+					await assert.rejects(a.next('listeners', 300), /no listeners event/);
+				} finally {
+					a.cancel();
+				}
+				assert.equal((await client.request('/api/profile')).status, 404);
+				assert.equal((await client.json('/api/profile', 'PATCH', { shown: true })).status, 404);
+				assert.equal((await picture(client, jpeg(256, 256))).status, 404);
+				assert.equal((await client.request(`/api/profile/avatar/${'0'.repeat(24)}`)).status, 404);
+				assert.doesNotMatch((await client.page('/settings?tab=account')).html, /Show others what I play/);
+			} finally {
+				await off.stop();
+			}
+		});
+	});
+
 });
 
 describe('cast addresses', () => {

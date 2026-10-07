@@ -55,6 +55,8 @@ export interface AppConfig {
 	downloads: boolean;
 	/** Whether a browser can control playback on the account's other browsers; see `remote.ts`. */
 	remoteControl: boolean;
+	/** Whether accounts may show each other what they play; see `listening.ts`. Each account is off until it turns it on. */
+	listeners: boolean;
 	/** LRCLIB base URL for lyrics the music server lacks, or null when off. */
 	lrclibUrl: string | null;
 	/** Base URL of the AutoEq results for headphone corrections, or null when off; see `autoeq.ts`. */
@@ -279,6 +281,10 @@ function build(): AppConfig {
 		// The browsers are known to one process only, so a deployment of several
 		// behind a load balancer turns it off.
 		remoteControl: flagEnv('HEDDOHON_REMOTE_CONTROL', true),
+		// On, an account that chooses to is shown to every other account on this
+		// server with what it plays. It rides on the remote control streams, so it
+		// needs those too.
+		listeners: flagEnv('HEDDOHON_LISTENERS', true),
 		// Off unless asked for: it sends the artist, title, album and length of
 		// every track whose lyrics are opened to a third party.
 		lrclibUrl: flagEnv('HEDDOHON_LYRICS_LRCLIB', false)
@@ -387,6 +393,7 @@ export function config(): AppConfig {
 			sharing: true,
 			downloads: true,
 			remoteControl: true,
+			listeners: true,
 			lrclibUrl: null,
 			autoeqUrl: null,
 			discordUrl: null,

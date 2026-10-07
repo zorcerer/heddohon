@@ -12,7 +12,9 @@ const seconds = (value: unknown): number =>
 	typeof value === 'number' && Number.isFinite(value) ? Math.min(Math.max(0, value), 86_400) : 0;
 
 /**
- * What this browser is playing, for the account's other browsers to show.
+ * What this browser is playing, for the account's other browsers to show,
+ * and for the other accounts where this one has chosen to be shown
+ * (`listening.ts`).
  * `peer` is the id its own stream was given; a report for a stream another
  * session opened is refused.
  */
@@ -32,11 +34,14 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 		const songId = text(raw?.songId);
 		if (!raw || !songId || songId.length >= 256) error(400, 'state needs a songId');
 		const coverArt = text(raw.coverArt);
+		const albumId = text(raw.albumId);
 		state = {
 			songId,
 			title: text(raw.title) ?? 'Unknown title',
 			artist: text(raw.artist),
 			coverArt: coverArt && coverArt.length < 256 ? coverArt : null,
+			album: text(raw.album),
+			albumId: albumId && albumId.length < 256 ? albumId : null,
 			position: seconds(raw.position),
 			duration: seconds(raw.duration),
 			playing: raw.playing === true,

@@ -27,6 +27,7 @@
 	import PhoneDock from '$lib/components/PhoneDock.svelte';
 	import DevicesDialog from '$lib/components/DevicesDialog.svelte';
 	import InstallCard from '$lib/components/InstallCard.svelte';
+	import ListeningNow from '$lib/components/ListeningNow.svelte';
 	import Reactions from '$lib/components/Reactions.svelte';
 	import TogetherDialog from '$lib/components/TogetherDialog.svelte';
 	import PlaylistPicker from '$lib/components/PlaylistPicker.svelte';
@@ -789,6 +790,9 @@
 		{/if}
 		{#if data.sharing}
 			<ShareDialog />
+		{/if}
+		{#if data.listeners}
+			<ListeningNow backend={data.account.backend} username={data.account.username} />
 		{/if}
 		<!-- Not on a cast receiver's page, which only a Cast device opens. -->
 		{#if !page.url.pathname.startsWith('/cast/')}
