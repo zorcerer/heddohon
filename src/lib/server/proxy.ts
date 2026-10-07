@@ -316,6 +316,14 @@ export function relayRequestFor<T extends { range: string | null }>(req: T, tran
  * read to finish, which takes seconds (see `transcodes.ts`). Once whole, every
  * request gets exact ranges and the real length.
  *
+ * A range with an end waits for the read too. Apple's player (Safari, every
+ * browser on an iPhone or iPad, an AirPlay receiver) opens a track by asking
+ * for `bytes=0-1` and takes the length from the answer. Given a 200 without a
+ * length, it plays the track as a live broadcast. On an iPad on 2026-10-07,
+ * MP3 and Opus opened that way glitched and went silent, and the volume
+ * slider did not move the level. Chromium and Firefox open a track with
+ * `bytes=0-`.
+ *
  * `fallback` answers for a transcode too large to hold.
  */
 export async function proxyTranscode(
@@ -363,7 +371,7 @@ export async function proxyTranscode(
 	// `whole` in the address is the player opening a track at a position, which
 	// a stream without ranges cannot give it (`#srcOf` in the player). It
 	// changes when the answer is sent, not what is sent.
-	const wanted = event.url.searchParams.has('whole') || (range !== null && range.start > 0);
+	const wanted = event.url.searchParams.has('whole') || (range !== null && (range.start > 0 || range.end !== null));
 	if (!entry.done && wanted) await settled(entry, 30_000);
 	if (entry.failed === 'oversize') return fallback();
 
