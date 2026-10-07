@@ -671,10 +671,20 @@ popup or under Settings, Account. What it is limited to:
   from the pixels, which leaves out the file's metadata. The server checks what
   it is sent whoever made it: the bytes have to start a JPEG, and the size it
   declares is read from its frame header, since a few kilobytes can declare
-  65535 pixels a side and every viewer's browser would decode them. It is kept
+  65535 pixels a side and every viewer's browser would decode them. Before
+  the frame header only tables, application data and comments are stepped
+  over; any other marker is refused, `FF 00` among them, which libjpeg drops
+  and this check would otherwise have skipped as a segment with a frame
+  hidden inside. It is kept
   in the database and served to signed-in accounts from
   `/api/profile/avatar/<handle>` as `image/jpeg`, with `nosniff` and
   `Content-Security-Policy: default-src 'none'; sandbox`, as proxied media is.
+- **A changed password switches it off.** On Subsonic a user name given to
+  another person looks the same as a password change, so the switch goes off
+  with the sessions and whoever signs in next is shown only after turning it
+  on. The display name and the picture stay, as settings do. Where the music
+  server reports a different user under the name (Jellyfin), the profile is
+  removed.
 - **Bounds:** the list is sent to everyone at most once in 250 ms; 100
   accounts in one list.
 

@@ -199,6 +199,17 @@ export async function readAvatar(handle: string): Promise<Buffer | null> {
 }
 
 /**
+ * Takes an account out of what is shown, keeping its name and picture, when
+ * its password changes (see `storeAccount` in auth.ts). On Subsonic that is
+ * also what a name given to another person looks like, and that person has
+ * not chosen to be shown.
+ */
+export async function hideProfile(accountId: string): Promise<void> {
+	await (await store()).run('UPDATE profiles SET shown = 0, updated_at = ? WHERE account_id = ?', now(), accountId);
+	known.delete(accountId);
+}
+
+/**
  * Removes an account's profile, when its row passes to a different upstream
  * user (see `storeAccount` in auth.ts). Its sessions have ended by then, so
  * it is in no list.
@@ -228,11 +239,16 @@ export function jpegSize(bytes: Uint8Array): { width: number; height: number } |
 		}
 		// The scan, or the end: the frame header comes before both.
 		if (marker === 0xda || marker === 0xd9) return null;
-		// Markers that stand alone, with no length after them.
-		if (marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) {
-			at += 2;
-			continue;
-		}
+		/*
+		 * Only the segments a header is made of are stepped over: tables, the
+		 * frame, application data and comments, all from 0xC0 up, each with a
+		 * length. Anything else is refused, restart markers included, which
+		 * belong to the scan. libjpeg does not take `FF 00` for a segment: it
+		 * drops the two bytes and looks for the next marker. Stepped over here by
+		 * the length after it, `FF 00` could hold a frame of 65535 pixels a side
+		 * for the decoder, ahead of a small one for this check.
+		 */
+		if (marker < 0xc0 || (marker >= 0xd0 && marker <= 0xd8)) return null;
 		const length = (bytes[at + 2] << 8) | bytes[at + 3];
 		if (length < 2) return null;
 		// A frame header: SOF0 to SOF15, less the three in that range that are
