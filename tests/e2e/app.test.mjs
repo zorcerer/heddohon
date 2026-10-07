@@ -4040,3 +4040,369 @@ describe('plays sent to a Discord channel and to ListenBrainz', () => {
 		assert.equal((await response.json()).status, 404);
 	});
 });
+
+describe('plays from other apps, through the Navidrome plugin', () => {
+	const TOKEN = 'plugin-token-0123456789abcdef0123456789';
+	let on;
+
+	before(async () => {
+		on = await startApp({
+			subsonicUrl: subsonic.url,
+			jellyfinUrl: jellyfin.url,
+			env: {
+				HEDDOHON_NAVIDROME_PLUGIN_TOKEN: TOKEN,
+				// For the test that holds the music server's answer back.
+				HEDDOHON_UPSTREAM_TIMEOUT_MS: '1000',
+				// Everything the server can write, for the test that looks for the token in it.
+				HEDDOHON_LOG_LEVEL: 'debug'
+			}
+		});
+	});
+
+	after(async () => {
+		await on?.stop();
+	});
+
+	const told = (message) => `${message}\n--- app output ---\n${on.output()}`;
+
+	/** A message as the plugin posts it: its token, the app's own address as `Origin`, version 1. */
+	const plugin = (message, { token = TOKEN, origin = on.url, headers = {} } = {}) =>
+		fetch(`${on.url}/api/plugin/navidrome`, {
+			method: 'POST',
+			headers: {
+				'content-type': 'application/json',
+				...(origin ? { origin } : {}),
+				...(token ? { authorization: `Bearer ${token}` } : {}),
+				...headers
+			},
+			body: JSON.stringify({ v: 1, ...message })
+		});
+	/** Unix seconds, `ago` milliseconds back. */
+	const seconds = (ago = 0) => Math.floor((Date.now() - ago) / 1000);
+	const DAY = 24 * 60 * 60 * 1000;
+	const titles = (html) => [...html.matchAll(/class="title hh-truncate[^"]*">([^<]+)</g)].map((m) => m[1]);
+	const history = async (client) => titles((await client.page('/history')).html);
+
+	/** As `asFreshAccount`, on the app with the plugin's endpoint. */
+	async function asListener(username, run) {
+		subsonic.state.username = username;
+		subsonic.state.password = `${username}pass`;
+		try {
+			const client = new Client(on.url);
+			const signedIn = await client.signIn({ username, password: `${username}pass`, backend: 'subsonic' });
+			assert.equal(signedIn.status, 303, told('the sign-in failed'));
+			subsonic.calls.reset();
+			subsonic.state.scrobbles.length = 0;
+			await run(client);
+		} finally {
+			subsonic.state.username = 'testuser';
+			subsonic.state.password = 'testpass';
+		}
+	}
+
+	/** What a form action answered, out of devalue's flat form. */
+	async function action(client, name) {
+		const response = await client.request(`/settings?/${name}`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json', 'x-sveltekit-action': 'true' },
+			body: ''
+		});
+		const result = await response.json();
+		const flat = JSON.parse(result.data);
+		const revive = (at) => {
+			const value = flat[at];
+			if (Array.isArray(value)) return value.map(revive);
+			if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, to]) => [key, revive(to)]));
+			return value;
+		};
+		return { type: result.type, status: result.status, data: revive(0) };
+	}
+
+	/** Polls as the plugin does until the account's history is wanted, and returns what is asked of it. */
+	async function untilWanted(username) {
+		for (let tries = 0; tries < 100; tries++) {
+			const { wanted } = await (await plugin({ type: 'poll' })).json();
+			const mine = wanted.find((want) => want.username === username);
+			if (mine) return mine;
+			await new Promise((done) => setTimeout(done, 20));
+		}
+		assert.fail(told(`the history of ${username} was never asked for`));
+	}
+
+	test('the endpoint takes the plugin\'s token and nothing in its place', async () => {
+		const poll = { type: 'poll' };
+		for (const token of [null, 'x', TOKEN.slice(0, -1), `${TOKEN}x`, TOKEN.toUpperCase()]) {
+			const response = await plugin(poll, { token });
+			assert.equal(response.status, 401, `token ${token}`);
+			assert.deepEqual(await response.json(), { error: 'not_authenticated' });
+		}
+		// A signed-in browser is not the plugin.
+		const session = [...user.cookies].map(([name, value]) => `${name}=${value}`).join('; ');
+		assert.equal((await plugin(poll, { token: null, headers: { cookie: session } })).status, 401);
+		// The token does not stand in for the origin check.
+		for (const origin of [null, 'https://evil.example']) {
+			const response = await plugin(poll, { origin });
+			assert.equal(response.status, 403, `origin ${origin}`);
+			assert.deepEqual(await response.json(), { error: 'cross_origin_forbidden' });
+		}
+
+		const taken = await plugin(poll);
+		assert.equal(taken.status, 200, told('the poll was refused'));
+		assert.deepEqual(await taken.json(), { wanted: [] });
+		assert.match(taken.headers.get('cache-control') ?? '', /no-store/);
+
+		// The app of the other tests has no token set.
+		const off = await fetch(`${app.url}/api/plugin/navidrome`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json', origin: app.url, authorization: `Bearer ${TOKEN}` },
+			body: JSON.stringify({ v: 1, ...poll })
+		});
+		assert.equal(off.status, 404);
+	});
+
+	test('a message that is not one the plugin sends is refused whole', async () => {
+		const play = { username: 'testuser', songId: 's3a', at: seconds() };
+		const refused = [
+			[{ v: 2, type: 'poll' }, 'unsupported_version'],
+			[{ type: 'nope' }, 'invalid_message'],
+			[{ type: 'plays' }, 'invalid_message'],
+			[{ type: 'plays', plays: [play, { ...play, at: String(play.at) }] }, 'invalid_message'],
+			[{ type: 'plays', plays: [{ ...play, at: play.at + 0.5 }] }, 'invalid_message'],
+			[{ type: 'plays', plays: [{ ...play, at: -1 }] }, 'invalid_message'],
+			// An hour ahead of this server's clock.
+			[{ type: 'plays', plays: [{ ...play, at: play.at + 3600 }] }, 'invalid_message'],
+			[{ type: 'plays', plays: [{ ...play, songId: 'x'.repeat(256) }] }, 'invalid_message'],
+			[{ type: 'plays', plays: [{ ...play, username: '' }] }, 'invalid_message'],
+			[{ type: 'plays', plays: [null] }, 'invalid_message'],
+			[{ type: 'plays', plays: Array.from({ length: 101 }, () => play) }, 'invalid_message'],
+			[{ type: 'history', plays: [] }, 'invalid_message'],
+			[{ type: 'history', username: 'testuser', plays: Array.from({ length: 2001 }, () => ({ songId: 's3a', at: play.at })) }, 'invalid_message']
+		];
+		for (const [message, error] of refused) {
+			const response = await plugin(message);
+			assert.equal(response.status, 400, told(JSON.stringify(message).slice(0, 120)));
+			assert.deepEqual(await response.json(), { error });
+		}
+		const notJson = await fetch(`${on.url}/api/plugin/navidrome`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json', origin: on.url, authorization: `Bearer ${TOKEN}` },
+			body: 'v=1'
+		});
+		assert.equal(notJson.status, 400);
+		assert.deepEqual(await history(user), [], 'a refused message left a play behind');
+	});
+
+	test('a play in another app is noted for the account its user name signs in to, once', async () => {
+		await asListener('roamer', async (client) => {
+			// Navidrome matches a user name in any case, and so does this.
+			const play = { username: 'Roamer', songId: 's3a', at: seconds(60_000) };
+			const taken = await plugin({ type: 'plays', plays: [play] });
+			assert.equal(taken.status, 200, told('the play was refused'));
+			assert.deepEqual(await history(client), ['Song 3a']);
+			// The track as the music server describes it, which the stats are made of.
+			assert.match((await client.page('/stats?period=all')).html, /Artist 0003/);
+			assert.equal(subsonic.calls.get('scrobble'), 0, 'a play Navidrome reported was reported back to it');
+
+			// Sent again, as after an answer the plugin did not get.
+			await plugin({ type: 'plays', plays: [play] });
+			assert.deepEqual(await history(client), ['Song 3a']);
+
+			// A user who has never signed in here has no history to go into.
+			assert.equal((await plugin({ type: 'plays', plays: [{ ...play, username: 'stranger', songId: 's4a' }] })).status, 200);
+			assert.deepEqual(await history(client), ['Song 3a']);
+
+			// Several in one message, each to its own account.
+			await plugin({ type: 'plays', plays: [{ ...play, songId: 's4a', at: seconds(30_000) }, { ...play, username: 'stranger' }] });
+			assert.deepEqual(await history(client), ['Song 4a', 'Song 3a']);
+
+			// One play in two requests at once: the look for it and its insert are
+			// not split by the other request's.
+			const twice = { type: 'plays', plays: [{ username: 'roamer', songId: 's5a', at: seconds(90_000) }] };
+			await Promise.all([plugin(twice), plugin(twice), plugin(twice)]);
+			assert.deepEqual(await history(client), ['Song 4a', 'Song 3a', 'Song 5a']);
+		});
+	});
+
+	test('an account turns plays from other apps off, and its own plays are still noted', async () => {
+		await asListener('homebody', async (client) => {
+			const settings = (await client.page('/settings?tab=history')).html;
+			assert.match(settings, /Plays from other apps/);
+			assert.equal((await (await client.json('/api/settings', 'PATCH', {})).json()).historyOtherApps, true, 'on unless turned off');
+			await client.json('/api/settings', 'PATCH', { historyOtherApps: false });
+			assert.equal((await plugin({ type: 'plays', plays: [{ username: 'homebody', songId: 's3a', at: seconds(60_000) }] })).status, 200);
+			assert.deepEqual(await history(client), []);
+			await client.json('/api/playback', 'POST', { songId: 's4a', event: 'stop', position: 100, completed: true });
+			assert.deepEqual(await history(client), ['Song 4a']);
+		});
+		// Where the plugin's endpoint is off, the page does not offer the switch.
+		assert.doesNotMatch((await user.page('/settings?tab=history')).html, /Plays from other apps/);
+	});
+
+	test('a play made here is scrobbled with its time, and is not noted again when Navidrome reports it', async () => {
+		await asListener('athome', async (client) => {
+			await client.json('/api/playback', 'POST', { songId: 's4a', event: 'start', position: 0, completed: false });
+			const before = Date.now();
+			await client.json('/api/playback', 'POST', { songId: 's4a', event: 'stop', position: 100, completed: true });
+			const [started, played] = subsonic.state.scrobbles;
+			assert.deepEqual(started, { id: 's4a', submission: 'false', time: null });
+			assert.equal(played.submission, 'true');
+			const time = Number(played.time);
+			assert.ok(time >= before && time <= Date.now(), `scrobbled with time ${played.time}`);
+
+			// Navidrome hands the plugin that time, in seconds.
+			await plugin({ type: 'plays', plays: [{ username: 'athome', songId: 's4a', at: Math.floor(time / 1000) }] });
+			assert.deepEqual(await history(client), ['Song 4a']);
+			// From before the time was sent, Navidrome dated the scrobble a moment after the play.
+			await plugin({ type: 'plays', plays: [{ username: 'athome', songId: 's4a', at: Math.floor(time / 1000) + 20 }] });
+			assert.deepEqual(await history(client), ['Song 4a']);
+			// The same song a minute earlier is another play.
+			await plugin({ type: 'plays', plays: [{ username: 'athome', songId: 's4a', at: Math.floor(time / 1000) - 60 }] });
+			assert.deepEqual(await history(client), ['Song 4a', 'Song 4a']);
+		});
+	});
+
+	test('a play is dropped for a song the account cannot read or a credential that no longer signs in, and kept back while the music server is silent', async () => {
+		await asListener('guarded', async (client) => {
+			const play = (songId, ago = 60_000) => plugin({ type: 'plays', plays: [{ username: 'guarded', songId, at: seconds(ago) }] });
+
+			subsonic.state.hidden.set('guarded', new Set(['s5a']));
+			try {
+				assert.equal((await play('s5a')).status, 200);
+				assert.equal((await play('nothing-by-this-id')).status, 200);
+				assert.deepEqual(await history(client), []);
+			} finally {
+				subsonic.state.hidden.delete('guarded');
+			}
+
+			// The password changed on the music server: what is stored here is no
+			// longer that user's, and nothing is noted on its word.
+			subsonic.state.password = 'changed-upstream';
+			try {
+				assert.equal((await play('s3a')).status, 200, told('a rejected credential failed the request'));
+			} finally {
+				subsonic.state.password = 'guardedpass';
+			}
+			assert.equal((await client.request('/api/settings')).status, 200, 'the plugin signed the account out');
+			assert.deepEqual(await history(client), []);
+
+			// No answer from the music server: the plugin is told to send the play again.
+			subsonic.state.stalled.add('getSong');
+			try {
+				const held = await play('s3a');
+				assert.equal(held.status, 503, told('a play whose song could not be read was taken'));
+				assert.deepEqual(await held.json(), { error: 'upstream_unavailable' });
+			} finally {
+				subsonic.state.stalled.delete('getSong');
+			}
+			assert.equal((await play('s3a')).status, 200);
+			assert.deepEqual(await history(client), ['Song 3a']);
+		});
+	});
+
+	test('an import brings in every play Navidrome kept, a page at a time, for the account that asked', async () => {
+		await asListener('collector', async (client) => {
+			await client.json('/api/playback', 'POST', { songId: 's3a', event: 'stop', position: 100, completed: true });
+			const here = Math.floor(Number(subsonic.state.scrobbles.at(-1).time) / 1000);
+			// The songs come from the library's played tracks, as for the import without the plugin.
+			for (const id of ['s3a', 's4b', 's5a']) subsonic.state.played.set(id, new Date().toISOString());
+			try {
+				await plugin({ type: 'poll' });
+				assert.match((await client.page('/settings?tab=history')).html, /Navidrome keeps every play in its scrobble history/);
+				const asked = action(client, 'importHistory');
+				assert.deepEqual(await untilWanted('collector'), { username: 'collector', from: 0 });
+
+				// A page for a user who asked for nothing is not taken.
+				await plugin({ type: 'history', username: 'testuser', plays: [{ songId: 's6a', at: seconds(DAY) }], more: false });
+
+				const second = seconds(10 * DAY);
+				const first = await plugin({
+					type: 'history',
+					username: 'collector',
+					plays: [
+						{ songId: 's4b', at: seconds(30 * DAY) },
+						// Two plays of one song, which the last-play import has one of.
+						{ songId: 's5a', at: seconds(20 * DAY) },
+						{ songId: 's5a', at: second }
+					],
+					more: true
+				});
+				// The next page is asked for from the last second of this one.
+				assert.deepEqual((await first.json()).wanted, [{ username: 'collector', from: second }]);
+				const last = await plugin({
+					type: 'history',
+					username: 'collector',
+					plays: [
+						// That second again, a track no longer in the library, and the play made here.
+						{ songId: 's5a', at: second },
+						{ songId: 'deleted-since', at: seconds(9 * DAY) },
+						{ songId: 's3a', at: here }
+					],
+					more: false
+				});
+				assert.deepEqual((await last.json()).wanted, []);
+
+				const result = await asked;
+				assert.equal(result.type, 'success', told('the import failed'));
+				assert.deepEqual(result.data, { historyImported: { found: 5, imported: 3 }, historyImportFull: true });
+				assert.deepEqual(await history(client), ['Song 3a', 'Song 5a', 'Song 5a', 'Song 4b']);
+				assert.deepEqual(await history(user), [], 'a page went into the history of an account that had not asked');
+
+				// A page after the last is for no import, and adds nothing.
+				await plugin({ type: 'history', username: 'collector', plays: [{ songId: 's4b', at: seconds(5 * DAY) }], more: false });
+				assert.deepEqual(await history(client), ['Song 3a', 'Song 5a', 'Song 5a', 'Song 4b']);
+			} finally {
+				subsonic.state.played.clear();
+			}
+		});
+	});
+
+	test('an import asks only for what the account keeps, and says so when Navidrome will not send it', async () => {
+		await asListener('keeper', async (client) => {
+			await client.json('/api/settings', 'PATCH', { historyDays: 90 });
+			await plugin({ type: 'poll' });
+			const asked = action(client, 'importHistory');
+			const want = await untilWanted('keeper');
+			assert.ok(Math.abs(want.from - seconds(90 * DAY)) <= 5, `asked from ${want.from}`);
+			// A second click while it runs.
+			const again = await action(client, 'importHistory');
+			assert.deepEqual([again.type, again.status], ['failure', 409]);
+
+			await plugin({ type: 'history', username: 'keeper', failed: true });
+			const result = await asked;
+			assert.deepEqual([result.type, result.status], ['failure', 502]);
+			assert.match(result.data.historyImportError, /has to be allowed your user/);
+			assert.deepEqual((await (await plugin({ type: 'poll' })).json()).wanted, []);
+		});
+	});
+
+	test('until the plugin is heard from, the import is the last play of each song', async () => {
+		const quiet = await startApp({ subsonicUrl: subsonic.url, jellyfinUrl: jellyfin.url, env: { HEDDOHON_NAVIDROME_PLUGIN_TOKEN: TOKEN } });
+		subsonic.state.played.set('s3a', new Date(Date.now() - DAY).toISOString());
+		try {
+			const client = new Client(quiet.url);
+			await client.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' });
+			const settings = (await client.page('/settings?tab=history')).html;
+			assert.match(settings, /has not been heard from in the last minute/);
+			assert.match(settings, /keeps the date each track was last\s+played/);
+			const result = await action(client, 'importHistory');
+			assert.deepEqual(result.data, { historyImported: { found: 1, imported: 1 } });
+		} finally {
+			subsonic.state.played.clear();
+			await quiet.stop();
+		}
+	});
+
+	test('the token is in no answer, no line of the log and no file', async () => {
+		const page = (await user.page('/settings?tab=history')).html;
+		assert.ok(!page.includes(TOKEN));
+		assert.ok(!on.output().includes(TOKEN), 'the token is in the log');
+		// The log was written at debug, so the lines that could have carried it are there.
+		assert.match(on.output(), /debug request .*path=\/api\/plugin\/navidrome/);
+		assert.match(on.output(), /plugin-refused/);
+		const files = readdirSync(on.dataDir, { recursive: true })
+			.map((name) => join(on.dataDir, String(name)))
+			.filter((file) => statSync(file).isFile());
+		assert.ok(files.some((file) => file.endsWith('.db')), `files: ${files}`);
+		for (const file of files) assert.ok(!readFileSync(file).includes(TOKEN), `the token is in ${file}`);
+	});
+});

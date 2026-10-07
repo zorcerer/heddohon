@@ -72,6 +72,11 @@ export interface AppConfig {
 	/** Whether a station may be on a private address. Off unless asked for. */
 	radioPrivate: boolean;
 	/**
+	 * What the Heddohon plugin for Navidrome proves itself with, or null when
+	 * its endpoint is off; see `plugin.ts`.
+	 */
+	navidromePluginToken: string | null;
+	/**
 	 * SHA-256 fingerprints of the certificates an Android app this server
 	 * vouches for is signed with; see `routes/.well-known/assetlinks.json`.
 	 */
@@ -164,6 +169,28 @@ function flagEnv(name: string, fallback: boolean): boolean {
 	if (['1', 'true', 'yes', 'on'].includes(raw)) return true;
 	if (['0', 'false', 'no', 'off'].includes(raw)) return false;
 	throw new ConfigError(`${name} must be true or false`);
+}
+
+/**
+ * `HEDDOHON_NAVIDROME_PLUGIN_TOKEN`, which turns on the endpoint the Navidrome
+ * plugin posts plays to (`plugin.ts`). Whoever holds it can add plays to the
+ * history of any Navidrome account here, so it is held to the length asked of
+ * `HEDDOHON_SECRET`. It is typed into Navidrome's settings, and so may not be
+ * that secret, which opens every stored credential.
+ */
+function navidromePluginToken(secret: string): string | null {
+	const token = env('HEDDOHON_NAVIDROME_PLUGIN_TOKEN');
+	if (token === undefined) return null;
+	if (token.length < 32) {
+		throw new ConfigError(
+			`HEDDOHON_NAVIDROME_PLUGIN_TOKEN must be at least 32 characters (got ${token.length}). ` +
+				'Generate one with: openssl rand -hex 32'
+		);
+	}
+	if (token === secret) {
+		throw new ConfigError('HEDDOHON_NAVIDROME_PLUGIN_TOKEN must not be the value of HEDDOHON_SECRET');
+	}
+	return token;
 }
 
 /**
@@ -314,6 +341,7 @@ function build(): AppConfig {
 		// address is refused unless `radioPrivate` is set.
 		radio: flagEnv('HEDDOHON_RADIO', true),
 		radioPrivate: flagEnv('HEDDOHON_RADIO_PRIVATE', false),
+		navidromePluginToken: navidromePluginToken(secret),
 		androidFingerprints: androidFingerprints(),
 		database: databaseConfig()
 	};
@@ -401,6 +429,7 @@ export function config(): AppConfig {
 			folders: true,
 			radio: true,
 			radioPrivate: false,
+			navidromePluginToken: null,
 			androidFingerprints: [ANDROID_RELEASE_KEY],
 			database: { kind: 'sqlite' }
 		};

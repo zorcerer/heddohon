@@ -1,7 +1,7 @@
 /**
  * The tracks an account has played, for the history page.
  *
- * Neither music server keeps a log to read: Subsonic's recent list is of
+ * Neither music server's API has a log to read: Subsonic's recent list is of
  * albums, and Jellyfin's `DatePlayed` is each item's last play. A row is
  * written here when a play passes the scrobble threshold, which the player
  * reports to `/api/playback` once per play, whether or not the account reports
@@ -9,6 +9,11 @@
  *
  * The music server's last play of each song can be brought in once from
  * Settings (`importPlays`).
+ *
+ * Navidrome does keep a log, its scrobble history, which only a plugin inside
+ * it can read. Where the Heddohon plugin is installed (`plugin.ts`), a play
+ * made in another app is written here as Navidrome reports it
+ * (`recordScrobble`), and the import is of every play (`openScrobbleImport`).
  *
  * Plays through a shared link reach no account's `/api/playback` and are not
  * recorded.
@@ -183,6 +188,174 @@ export async function importPlays(
 		return { found: played.length, imported: rows.length };
 	} finally {
 		importing.delete(accountId);
+	}
+}
+
+/**
+ * How far apart this server's time for a play and Navidrome's time for its
+ * scrobble may be and still be one play. A play made here is recorded and then
+ * scrobbled with the same time (`at` in `PlaybackReport`), and before that was
+ * sent Navidrome dated the scrobble as it arrived, a request later. A track is
+ * not scrobbled before 30 seconds of it have played, so two plays of one song
+ * by one listener are further apart than this.
+ */
+const SAME_SCROBBLE_MS = 30 * 1000;
+
+/**
+ * One at a time for an account: a look for a play and then its insert, which
+ * must not interleave with another's. A play Navidrome reports as it happens
+ * and the page of an import can hold the same play, and on PostgreSQL each
+ * statement is a round trip during which the other runs.
+ *
+ * In this process's memory, like the imports themselves (`plugin.ts`).
+ */
+const turns = new Map<string, Promise<unknown>>();
+
+function inTurn<T>(accountId: string, work: () => Promise<T>): Promise<T> {
+	const turn = (turns.get(accountId) ?? Promise.resolve()).then(work);
+	const done = turn.catch(() => undefined);
+	turns.set(accountId, done);
+	void done.then(() => {
+		if (turns.get(accountId) === done) turns.delete(accountId);
+	});
+	return turn;
+}
+
+/**
+ * Records a play Navidrome reports through its plugin (`plugin.ts`), which
+ * hears of every play of the account, the ones made here among them. False
+ * for one the history already holds, and for one older than the account keeps.
+ */
+export async function recordScrobble(
+	accountId: string,
+	song: Song,
+	at: number,
+	keepDays: number,
+	now = Date.now()
+): Promise<boolean> {
+	if (keepDays !== 0 && at < now - keepDays * DAY_MS) return false;
+	return inTurn(accountId, async () => {
+		if (await hasScrobble(accountId, song.id, at)) return false;
+		await recordPlay(accountId, song.id, { at, song, keepDays });
+		return true;
+	});
+}
+
+/** Whether the history holds a play of the song within `SAME_SCROBBLE_MS` of `at`. */
+export async function hasScrobble(accountId: string, songId: string, at: number): Promise<boolean> {
+	// The time first: the index is on the account and the time, and the range
+	// holds a play or two.
+	const row = await (await store()).get<{ song_id: string }>(
+		'SELECT song_id FROM plays WHERE account_id = ? AND played_at >= ? AND played_at <= ? AND song_id = ? LIMIT 1',
+		accountId,
+		at - SAME_SCROBBLE_MS,
+		at + SAME_SCROBBLE_MS,
+		songId
+	);
+	return row !== undefined;
+}
+
+/** An import of Navidrome's scrobble history, which arrives a page at a time; see `plugin.ts`. */
+export interface ScrobbleImport {
+	/** Adds a page: the plays the history lacks, of songs the account can read. */
+	add(plays: Play[]): Promise<void>;
+	/** Scrobbles received and plays added so far. */
+	readonly result: ImportResult;
+	/** Drops what is past the account's limits and lets another import start. */
+	end(): Promise<void>;
+}
+
+/**
+ * Starts an import of every play Navidrome kept for the account, where
+ * `importPlays` has only the last play of each song.
+ *
+ * `read` is the same call, used here for the songs alone: a scrobble names
+ * only a song's id, and a song with a scrobble has been played. A scrobble of
+ * a song the account can no longer read is skipped, as is one the history
+ * already holds (`SAME_SCROBBLE_MS`), which covers plays made here, an earlier
+ * import of either kind and a page sent twice. Null while an import for the
+ * account is running.
+ */
+export async function openScrobbleImport(
+	accountId: string,
+	read: () => Promise<{ song: Song; playedAt: number }[]>,
+	keepDays: number,
+	now = Date.now()
+): Promise<ScrobbleImport | null> {
+	if (importing.has(accountId)) return null;
+	importing.add(accountId);
+	try {
+		const songs = new Map<string, Song>();
+		for (const { song } of await read()) songs.set(song.id, song);
+		const database = await store();
+		const oldest = keepDays === 0 ? 0 : now - keepDays * DAY_MS;
+		const result: ImportResult = { found: 0, imported: 0 };
+		let ended = false;
+
+		/**
+		 * A page's plays the history lacks. What it holds is read as each page
+		 * arrives. Read once at the start, it missed the plays Navidrome
+		 * reported while the import ran: 47 were in the history twice after an
+		 * import of 6,073 made while plays were still arriving.
+		 */
+		const missing = async (plays: Play[]): Promise<{ song: Song; playedAt: number }[]> => {
+			const wanted = plays.filter(({ songId, playedAt }) => songs.has(songId) && playedAt >= oldest && playedAt <= now);
+			if (wanted.length === 0) return [];
+			let first = Infinity;
+			let last = -Infinity;
+			for (const { playedAt } of wanted) {
+				first = Math.min(first, playedAt);
+				last = Math.max(last, playedAt);
+			}
+			const held = new Map<string, number[]>();
+			for (const row of await database.all<{ song_id: string; played_at: number }>(
+				'SELECT song_id, played_at FROM plays WHERE account_id = ? AND played_at >= ? AND played_at <= ?',
+				accountId,
+				first - SAME_SCROBBLE_MS,
+				last + SAME_SCROBBLE_MS
+			)) {
+				const times = held.get(row.song_id) ?? [];
+				times.push(Number(row.played_at));
+				held.set(row.song_id, times);
+			}
+			const rows: { song: Song; playedAt: number }[] = [];
+			for (const { songId, playedAt } of wanted) {
+				const times = held.get(songId) ?? [];
+				if (times.some((at) => Math.abs(at - playedAt) <= SAME_SCROBBLE_MS)) continue;
+				// Held with the rest, so the same play later in the page is skipped too.
+				times.push(playedAt);
+				held.set(songId, times);
+				rows.push({ song: songs.get(songId)!, playedAt });
+			}
+			return rows;
+		};
+
+		return {
+			result,
+			add: (plays) =>
+				inTurn(accountId, async () => {
+					if (ended) return;
+					result.found += plays.length;
+					const rows = await missing(plays);
+					for (let i = 0; i < rows.length; i += IMPORT_CHUNK) {
+						const chunk = rows.slice(i, i + IMPORT_CHUNK);
+						await database.run(
+							`INSERT INTO plays (${COLUMNS}) VALUES ${chunk.map(() => ROW).join(', ')}`,
+							...chunk.flatMap(({ song, playedAt }) => playRow(accountId, song.id, playedAt, song))
+						);
+					}
+					result.imported += rows.length;
+				}),
+			async end() {
+				if (ended) return;
+				ended = true;
+				importing.delete(accountId);
+				await trim(accountId, now, keepDays);
+			}
+		};
+	} catch (err) {
+		importing.delete(accountId);
+		throw err;
 	}
 }
 
