@@ -106,6 +106,16 @@
 			body: JSON.stringify({ historyDays: days })
 		}).catch(() => undefined);
 	}
+	/** Whether what the account plays in other apps is shown to the other accounts, saved as it is changed. */
+	let listeningOtherApps = $state(untrack(() => data.settings.listeningOtherApps));
+	async function showOtherApps(on: boolean) {
+		listeningOtherApps = on;
+		await fetch('/api/settings', {
+			method: 'PATCH',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ listeningOtherApps: on })
+		}).catch(() => undefined);
+	}
 	/** Whether plays the Navidrome plugin reports from other apps are noted, saved as it is changed. */
 	let historyOtherApps = $state(untrack(() => data.settings.historyOtherApps));
 	async function keepOtherApps(on: boolean) {
@@ -1036,6 +1046,28 @@
 					}}
 				/>
 			</label>
+
+			<!-- Only with the Navidrome plugin, which is what hears of the other apps. -->
+			{#if data.plugin}
+				<label class="row switch">
+					<span class="label">
+						Include what I play in other apps
+						<span class="hint hh-muted">
+							{data.serverLabel || 'Navidrome'} tells this server what you play in any other app signed in as
+							you, and with this on the others see that too, with no browser of yours open here. Most apps
+							do not say when they pause or stop, so a track is shown until it would have ended.
+							{#if !profile.shown}
+								It applies once you are shown.
+							{/if}
+						</span>
+					</span>
+					<input
+						type="checkbox"
+						checked={listeningOtherApps}
+						onchange={(event) => void showOtherApps(event.currentTarget.checked)}
+					/>
+				</label>
+			{/if}
 
 			<div class="row">
 				<label class="label" for="profile-name">

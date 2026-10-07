@@ -17,20 +17,30 @@
  *   that account, never text from the request.
  * - A page of scrobble history is taken only for an account that asked for an
  *   import from Settings, while that import is open.
+ * - What an app is playing now is held in memory for that account's own
+ *   browsers (`reportApp` in `remote.ts`), under the same lookup: the track
+ *   shown is the one Navidrome describes to the account. The one text taken
+ *   from the request is the app's name, cleaned and cut to 32 characters, and
+ *   it is shown to that account alone.
  * - Nothing is read: the answer names the accounts with an import open and
  *   holds nothing else.
  *
  * An account turns plays from other apps off under Settings
- * (`historyOtherApps`).
+ * (`historyOtherApps`). What its apps play is shown to other accounts only
+ * where it has turned that on (`listeningOtherApps`; see `listening.ts`).
  */
+import { createHash } from 'node:crypto';
 import type { Account } from './auth';
 import { accountOfUser } from './auth';
-import { backendFor, UpstreamError } from './backends';
+import { backendFor, UpstreamError, type StoredCredential } from './backends';
+import { CLIENT_NAME } from './backends/subsonic';
 import { config } from './config';
 import { constantTimeEquals, pluginDigest } from './crypto';
 import { openScrobbleImport, recordScrobble, hasScrobble, type ImportResult, type ScrobbleImport } from './history';
+import { appChanged, cleanName } from './listening';
 import { log } from './log';
 import { foldName } from './names';
+import { reportApp } from './remote';
 import { getSettings } from './settings';
 import type { BackendKind, Song } from '$lib/types';
 
@@ -134,6 +144,105 @@ export async function takePlays(plays: PluginPlay[]): Promise<number> {
 		if (await recordScrobble(account.id, song, play.at, settings.historyDays)) recorded++;
 	}
 	return recorded;
+}
+
+/* ── What another app is playing now ──────────────────────────────────────── */
+
+export const PLAYBACK_STATES = ['starting', 'playing', 'paused', 'stopped', 'expired'] as const;
+
+export interface PluginPlayback {
+	username: string;
+	songId: string;
+	state: (typeof PLAYBACK_STATES)[number];
+	/** Seconds into the track. */
+	position: number;
+	/** Navidrome's id for the client. */
+	player: string;
+	/** What the client calls itself. */
+	playerName: string | null;
+}
+
+/**
+ * How long a track looked up for a playback report is held. An app that says
+ * where it is does so every few seconds, each time for the same track.
+ */
+const TRACK_HELD_MS = 10 * 60 * 1000;
+/** A track the account could not read is asked for again after this. */
+const TRACK_MISSED_MS = 60 * 1000;
+const MAX_TRACKS_HELD = 500;
+
+/** By account and song. Null for a track the account's credential did not read. */
+const tracks = new Map<string, { song: Song | null; until: number }>();
+
+async function trackFor(account: Account, credential: StoredCredential, songId: string): Promise<Song | null> {
+	const key = `${account.id}\0${songId}`;
+	const now = Date.now();
+	const held = tracks.get(key);
+	if (held && held.until > now) return held.song;
+	let song: Song | null;
+	try {
+		song = (await backendFor('subsonic').getSongs(credential, [songId]))[0] ?? null;
+	} catch (err) {
+		// A music server that did not answer is asked again at the next report.
+		if (!(err instanceof UpstreamError) || (err.kind !== 'auth' && err.kind !== 'not_found')) return null;
+		song = null;
+	}
+	tracks.delete(key);
+	// The oldest goes first: a Map keeps the order its keys were set in.
+	if (tracks.size >= MAX_TRACKS_HELD) tracks.delete(tracks.keys().next().value!);
+	tracks.set(key, { song, until: now + (song ? TRACK_HELD_MS : TRACK_MISSED_MS) });
+	return song;
+}
+
+/**
+ * Takes Navidrome's report of what an app is playing, pausing or has stopped.
+ *
+ * Navidrome reports every client of the user, this server among them, which
+ * is left out by its client name: its browsers report for themselves. The
+ * rest is held for the account's own browsers to show and pick up from
+ * (`remote.ts`), and for the other accounts only where the account has
+ * turned on "Include what I play in other apps".
+ *
+ * Dropped as a play is: a user with no account here, a credential that no
+ * longer signs in, a song the account cannot read.
+ */
+export async function takePlayback(report: PluginPlayback): Promise<void> {
+	const cfg = config();
+	if (!cfg.remoteControl) return;
+	if (report.playerName?.toLowerCase() === CLIENT_NAME) return;
+	const found = await accountOfUser('subsonic', report.username);
+	if (!found) return;
+	const { account, credential } = found;
+
+	const ended = report.state === 'stopped' || report.state === 'expired';
+	const song = ended ? null : await trackFor(account, credential, report.songId);
+	if (!song) {
+		reportApp(account.id, report.player, null);
+		return appChanged(account);
+	}
+	const settings = await getSettings(account.id);
+	reportApp(account.id, report.player, {
+		// Navidrome's id stays here. The browsers tell two apps apart by this.
+		id: createHash('sha256').update(report.player).digest('hex').slice(0, 16),
+		name: cleanName(report.playerName) ?? null,
+		state: {
+			songId: song.id,
+			title: song.title,
+			artist: song.artist,
+			coverArt: song.coverArt,
+			album: song.album,
+			albumId: song.albumId,
+			position: song.duration > 0 ? Math.min(report.position, song.duration) : report.position,
+			duration: song.duration,
+			playing: report.state !== 'paused',
+			volume: 1
+		},
+		// A client that only says a track started sends `playing` at 0 and
+		// nothing after it. Any other report is from one that says where it is.
+		exact: report.state !== 'playing' || report.position > 0,
+		shared: cfg.listeners && settings.listeningOtherApps
+	});
+	await appChanged(account);
 }
 
 /* ── Importing the scrobble history ───────────────────────────────────────── */

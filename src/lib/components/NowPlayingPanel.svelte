@@ -799,18 +799,19 @@
 				{/if}
 			</button>
 
-			<!-- Only while another browser of the account has the player open, so
-			     the row is otherwise its usual seven. -->
-			{#if remote.peers.length > 0}
+			<!-- Only while another browser of the account has the player open, or
+			     another app of it is playing, so the row is otherwise its usual
+			     seven. -->
+			{#if remote.peers.length + remote.apps.length > 0}
 				<button
 					class="tool"
 					class:on={remote.open}
 					onclick={() => (remote.open = true)}
-					aria-label="Devices ({remote.peers.length} other)"
+					aria-label="Devices ({remote.peers.length + remote.apps.length} other)"
 					title="Devices"
 				>
 					<Icon name="devices" size={18} />
-					<span class="count hh-numeric">{remote.peers.length}</span>
+					<span class="count hh-numeric">{remote.peers.length + remote.apps.length}</span>
 				</button>
 			{/if}
 

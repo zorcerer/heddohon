@@ -3,6 +3,12 @@
 	 * The account's other browsers with the player open, each with what it is
 	 * playing and a remote for it. Mounted once in the root layout and opened
 	 * from the player's tool row; `client/remote.svelte.ts` holds the state.
+	 *
+	 * Above them, where the Navidrome plugin reports it, what the account's
+	 * other apps are playing. An app takes no command, so it has one button,
+	 * which plays its track here from where the app has got to. Most apps tell
+	 * Navidrome that a track started and nothing after, and the entry says so:
+	 * the time shown is then worked out from the start.
 	 */
 	import { remote } from '$lib/client/remote.svelte';
 	import { player } from '$lib/client/player.svelte';
@@ -39,7 +45,7 @@
 <dialog bind:this={dialog} onclose={() => (remote.open = false)} class="devices hh-glass" aria-labelledby="devices-title">
 	<header>
 		<div>
-			<span class="hh-eyebrow">Your other browsers</span>
+			<span class="hh-eyebrow">{remote.apps.length > 0 ? 'Your other browsers and apps' : 'Your other browsers'}</span>
 			<h2 id="devices-title">Devices</h2>
 		</div>
 		<button class="close" onclick={() => (remote.open = false)} aria-label="Close">
@@ -51,12 +57,52 @@
 		<p class="alert" role="alert">{remote.error}</p>
 	{/if}
 
-	{#if remote.peers.length === 0}
+	{#if remote.peers.length === 0 && remote.apps.length === 0}
 		<p class="hh-muted empty">
 			Heddohon is not open in another browser signed in as you. Open it on another device and it shows here.
 		</p>
 	{:else}
 		<ul class="list">
+			{#each remote.apps as app (app.id)}
+				{@const state = app.state}
+				{@const position = remote.positionOf(state, now)}
+				{@const name = app.name ?? 'Another app'}
+				<li class="peer">
+					<div class="who">
+						<Icon name="devices" size={16} />
+						<span class="device">{name}</span>
+						<span class="hh-muted opened">another app</span>
+					</div>
+
+					<div class="now">
+						<span class="art"><Cover coverArt={state.coverArt} size={96} alt="" radius="var(--r-sm)" fill /></span>
+						<div class="text">
+							<span class="title hh-truncate">{state.title}</span>
+							<span class="artist hh-truncate hh-muted">{state.artist ?? ''}</span>
+						</div>
+						<span class="hh-muted status">{state.playing ? 'Playing' : 'Paused'}</span>
+					</div>
+
+					<div class="moves">
+						<button class="hh-button" onclick={() => remote.pickUp(app)}>
+							Continue here
+						</button>
+						<span class="hh-numeric hh-muted time at">
+							{app.exact ? 'at' : 'at about'} {formatDuration(position)}
+						</span>
+					</div>
+
+					<p class="hh-muted app-note">
+						{#if app.exact}
+							Continues from where {name} is. It goes on playing there until you stop it.
+						{:else}
+							{name} tells the music server that a track started and not where it is in it, as most apps
+							do: few report their position so far. The time is where the track would be had it played
+							without a pause. It goes on playing there until you stop it.
+						{/if}
+					</p>
+				</li>
+			{/each}
 			{#each remote.peers as peer (peer.id)}
 				{@const state = peer.state}
 				<li class="peer">
@@ -343,6 +389,18 @@
 
 	.screen-link a:hover {
 		color: var(--glow-color);
+	}
+
+	.time.at {
+		min-width: 0;
+		text-align: left;
+		align-self: center;
+	}
+
+	.app-note {
+		margin: 0;
+		font-size: 0.75rem;
+		line-height: 1.45;
 	}
 
 	.moves .hh-button:disabled {

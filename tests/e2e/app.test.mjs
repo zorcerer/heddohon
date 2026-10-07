@@ -58,6 +58,58 @@ async function asFreshAccount(username, run) {
 	}
 }
 
+/**
+ * A browser's event stream, read as it arrives. `next(type)` resolves with
+ * the next event of that type, and `closed` when the server ends it.
+ */
+async function listen(client, path = '/api/remote/events') {
+	const response = await client.request(path, { headers: { accept: 'text/event-stream' } });
+	assert.equal(response.status, 200, explain('the event stream was refused'));
+	assert.match(response.headers.get('content-type') ?? '', /^text\/event-stream/);
+	const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
+	const events = [];
+	const waiting = [];
+	let buffer = '';
+	const closed = (async () => {
+		for (;;) {
+			const { value, done } = await reader.read().catch(() => ({ done: true }));
+			if (done) return;
+			buffer += value;
+			let end;
+			while ((end = buffer.indexOf('\n\n')) >= 0) {
+				const block = buffer.slice(0, end);
+				buffer = buffer.slice(end + 2);
+				const type = /^event: (.*)$/m.exec(block)?.[1];
+				const data = /^data: (.*)$/m.exec(block)?.[1];
+				if (!type) continue;
+				events.push({ type, data: JSON.parse(data) });
+				for (const wait of [...waiting]) wait();
+			}
+		}
+	})();
+	let read = 0;
+	const next = (type, timeout = 3000) =>
+		new Promise((resolve, reject) => {
+			const timer = setTimeout(() => {
+				// Left waiting, it would take the next event of the type from the test.
+				waiting.splice(waiting.indexOf(check), 1);
+				reject(new Error(`no ${type} event within ${timeout}ms`));
+			}, timeout);
+			const check = () => {
+				const at = events.findIndex((event, i) => i >= read && event.type === type);
+				if (at < 0) return;
+				read = at + 1;
+				clearTimeout(timer);
+				waiting.splice(waiting.indexOf(check), 1);
+				resolve(events[at].data);
+			};
+			waiting.push(check);
+			check();
+		});
+	const { id } = await next('hello');
+	return { id, next, closed, cancel: () => reader.cancel().catch(() => undefined) };
+}
+
 describe('how long a sign-in lasts', () => {
 	/** The session cookie's `Max-Age` from a sign-in, in seconds. */
 	async function lifetime(url) {
@@ -774,58 +826,6 @@ describe('folders', () => {
 });
 
 describe('playback on another browser', () => {
-	/**
-	 * A browser's event stream, read as it arrives. `next(type)` resolves with
-	 * the next event of that type, and `closed` when the server ends it.
-	 */
-	async function listen(client, path = '/api/remote/events') {
-		const response = await client.request(path, { headers: { accept: 'text/event-stream' } });
-		assert.equal(response.status, 200, explain('the event stream was refused'));
-		assert.match(response.headers.get('content-type') ?? '', /^text\/event-stream/);
-		const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
-		const events = [];
-		const waiting = [];
-		let buffer = '';
-		const closed = (async () => {
-			for (;;) {
-				const { value, done } = await reader.read().catch(() => ({ done: true }));
-				if (done) return;
-				buffer += value;
-				let end;
-				while ((end = buffer.indexOf('\n\n')) >= 0) {
-					const block = buffer.slice(0, end);
-					buffer = buffer.slice(end + 2);
-					const type = /^event: (.*)$/m.exec(block)?.[1];
-					const data = /^data: (.*)$/m.exec(block)?.[1];
-					if (!type) continue;
-					events.push({ type, data: JSON.parse(data) });
-					for (const wait of [...waiting]) wait();
-				}
-			}
-		})();
-		let read = 0;
-		const next = (type, timeout = 3000) =>
-			new Promise((resolve, reject) => {
-				const timer = setTimeout(() => {
-					// Left waiting, it would take the next event of the type from the test.
-					waiting.splice(waiting.indexOf(check), 1);
-					reject(new Error(`no ${type} event within ${timeout}ms`));
-				}, timeout);
-				const check = () => {
-					const at = events.findIndex((event, i) => i >= read && event.type === type);
-					if (at < 0) return;
-					read = at + 1;
-					clearTimeout(timer);
-					waiting.splice(waiting.indexOf(check), 1);
-					resolve(events[at].data);
-				};
-				waiting.push(check);
-				check();
-			});
-		const { id } = await next('hello');
-		return { id, next, closed, cancel: () => reader.cancel().catch(() => undefined) };
-	}
-
 	const signedIn = async (username = 'testuser', password = 'testpass') => {
 		const client = new Client(app.url);
 		await client.signIn({ username, password, backend: 'subsonic' });
@@ -4389,6 +4389,155 @@ describe('plays from other apps, through the Navidrome plugin', () => {
 		} finally {
 			subsonic.state.played.clear();
 			await quiet.stop();
+		}
+	});
+
+	/** What Navidrome reports an app doing, as the plugin passes it on. */
+	const playback = (username, state, more = {}) =>
+		plugin({ type: 'playback', username, songId: 's3a', state, positionMs: 0, player: 'player-1', playerName: 'Symfonium', ...more });
+	const signedInAs = async (username, password) => {
+		const client = new Client(on.url);
+		assert.equal((await client.signIn({ username, password, backend: 'subsonic' })).status, 303);
+		return client;
+	};
+
+	test('what another app plays is shown to the account\'s own browsers, with whether the app says where it is', async () => {
+		const client = await signedInAs('testuser', 'testpass');
+		const other = await signedInAs('seconduser', 'secondpass');
+		const mine = await listen(client);
+		const theirs = await listen(other);
+		try {
+			assert.deepEqual((await mine.next('peers')).apps, []);
+			await theirs.next('peers');
+
+			// A client that only says a track started: playing, at 0.
+			assert.equal((await playback('testuser', 'playing')).status, 200, told('the report was refused'));
+			const [app] = (await mine.next('peers')).apps;
+			const { at, ...state } = app.state;
+			assert.equal(typeof at, 'number');
+			// The track as the music server describes it to the account, and of
+			// the request only the app's name.
+			assert.deepEqual(state, {
+				songId: 's3a',
+				title: 'Song 3a',
+				artist: 'Artist 0003',
+				coverArt: 'al-3',
+				album: 'Album 3',
+				albumId: 'al3',
+				position: 0,
+				duration: 180,
+				playing: true,
+				volume: 1
+			});
+			assert.equal(app.name, 'Symfonium');
+			assert.equal(app.exact, false);
+			// Navidrome's id for the player stays on the server.
+			assert.match(app.id, /^[0-9a-f]{16}$/);
+			// One account's app is told to no other account's browsers.
+			await assert.rejects(theirs.next('peers', 300), /no peers event/);
+
+			// One that says where it is, and that it paused.
+			await playback('testuser', 'playing', { positionMs: 42_000 });
+			const moved = (await mine.next('peers')).apps[0];
+			assert.deepEqual([moved.state.position, moved.exact, moved.id], [42, true, app.id]);
+			await playback('testuser', 'paused', { positionMs: 50_000 });
+			const paused = (await mine.next('peers')).apps[0];
+			assert.deepEqual([paused.state.position, paused.state.playing, paused.exact], [50, false, true]);
+
+			// A second app beside it, the most recently heard first, under a name
+			// cut to 32 characters with what would turn the text around removed.
+			await playback('testuser', 'starting', { player: 'player-2', songId: 's4a', playerName: `Evil\u202e\u0007 ${'x'.repeat(100)}` });
+			const both = (await mine.next('peers')).apps;
+			assert.deepEqual(both.map((one) => one.state.title), ['Song 4a', 'Song 3a']);
+			assert.equal(both[0].name, `Evil ${'x'.repeat(27)}`);
+			assert.equal(both[0].exact, true);
+
+			// Stopped, and a session Navidrome gave up on, each take their app out.
+			await playback('testuser', 'stopped', { player: 'player-2', songId: 's4a' });
+			assert.equal((await mine.next('peers')).apps.length, 1);
+			await playback('testuser', 'expired');
+			assert.deepEqual((await mine.next('peers')).apps, []);
+
+			// This server's own plays come back from Navidrome too, under the name
+			// it gives as a client, and its browsers have already said them.
+			await playback('testuser', 'playing', { playerName: 'Heddohon' });
+			// A song the account cannot read, and a user with no account here.
+			subsonic.state.hidden.set('testuser', new Set(['s5a']));
+			await playback('testuser', 'playing', { songId: 's5a' });
+			subsonic.state.hidden.delete('testuser');
+			assert.equal((await playback('stranger', 'playing')).status, 200);
+			await assert.rejects(mine.next('peers', 300), /no peers event/);
+
+			for (const wrong of [{ state: 'dancing' }, { positionMs: -1 }, { positionMs: '5' }, { player: '' }, { songId: 'x'.repeat(256) }, { playerName: 7 }]) {
+				const response = await playback('testuser', wrong.state ?? 'playing', wrong);
+				assert.equal(response.status, 400, JSON.stringify(wrong));
+			}
+		} finally {
+			mine.cancel();
+			theirs.cancel();
+			await playback('testuser', 'stopped');
+			await playback('testuser', 'stopped', { player: 'player-2', songId: 's4a' });
+		}
+	});
+
+	test('what an account plays in another app is shown to the others only once it has said so, and with no browser of its own open', async () => {
+		const first = await signedInAs('testuser', 'testpass');
+		const second = await signedInAs('seconduser', 'secondpass');
+		const a = await listen(first);
+		const b = await listen(second);
+		const shown = async () => (await b.next('listeners')).listeners.map((listener) => [listener.name, listener.title]);
+		try {
+			assert.equal((await (await first.request('/api/settings')).json()).listeningOtherApps, false, 'off until the account turns it on');
+			assert.match((await first.page('/settings?tab=account')).html, /Include what I play in other apps/);
+			await b.next('listeners');
+			await a.next('peers');
+			await first.json('/api/profile', 'PATCH', { shown: true });
+			assert.deepEqual(await shown(), []);
+
+			// Shown, and playing in another app: its own browsers see it, the others do not.
+			await playback('testuser', 'playing');
+			assert.equal((await a.next('peers')).apps.length, 1);
+			await assert.rejects(b.next('listeners', 300), /no listeners event/);
+
+			// Turned on, the app playing now is shown at once, under the track the
+			// music server describes.
+			assert.equal((await first.json('/api/settings', 'PATCH', { listeningOtherApps: true })).status, 200);
+			assert.deepEqual(await shown(), [['testuser', 'Song 3a']]);
+
+			// With every browser of the account closed it is still listening.
+			a.cancel();
+			await assert.rejects(b.next('listeners', 300), /no listeners event/);
+			const late = await listen(await signedInAs('seconduser', 'secondpass'));
+			assert.equal((await late.next('listeners')).listeners.length, 1, 'gone from the list with its browser');
+			late.cancel();
+
+			// A pause takes it out and playing puts it back, as in a browser.
+			await playback('testuser', 'paused', { positionMs: 10_000 });
+			assert.deepEqual(await shown(), []);
+			await playback('testuser', 'playing', { positionMs: 10_000 });
+			assert.deepEqual(await shown(), [['testuser', 'Song 3a']]);
+			// The next track.
+			await playback('testuser', 'playing', { songId: 's4a' });
+			assert.deepEqual(await shown(), [['testuser', 'Song 4a']]);
+
+			// Turned off while it plays, either switch takes it out at once.
+			await first.json('/api/settings', 'PATCH', { listeningOtherApps: false });
+			assert.deepEqual(await shown(), []);
+			await first.json('/api/settings', 'PATCH', { listeningOtherApps: true });
+			assert.deepEqual(await shown(), [['testuser', 'Song 4a']]);
+			await first.json('/api/profile', 'PATCH', { shown: false });
+			assert.deepEqual(await shown(), []);
+			await first.json('/api/profile', 'PATCH', { shown: true });
+			assert.deepEqual(await shown(), [['testuser', 'Song 4a']]);
+
+			await playback('testuser', 'stopped', { songId: 's4a' });
+			assert.deepEqual(await shown(), []);
+		} finally {
+			a.cancel();
+			b.cancel();
+			await playback('testuser', 'stopped');
+			await first.json('/api/profile', 'PATCH', { shown: false });
+			await first.json('/api/settings', 'PATCH', { listeningOtherApps: false });
 		}
 	});
 

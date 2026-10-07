@@ -2552,9 +2552,15 @@ describe('playback on another browser', () => {
 	 */
 	let remoteApp;
 	const browsers = [];
+	/** For the test that plays the part of the Navidrome plugin. */
+	const PLUGIN_TOKEN = 'plugin-token-0123456789abcdef0123456789';
 
 	before(async () => {
-		remoteApp = await startApp({ subsonicUrl: subsonic.url, jellyfinUrl: jellyfin.url });
+		remoteApp = await startApp({
+			subsonicUrl: subsonic.url,
+			jellyfinUrl: jellyfin.url,
+			env: { HEDDOHON_NAVIDROME_PLUGIN_TOKEN: PLUGIN_TOKEN }
+		});
 	});
 
 	after(async () => {
@@ -2616,6 +2622,56 @@ describe('playback on another browser', () => {
 			subsonic.state.audio = null;
 		}
 		assert.deepEqual([...desktopProblems, ...phoneProblems], []);
+	});
+
+	test('another app shows under Devices with where it is, or would be, and "Continue here" plays its track from there', async () => {
+		const { page, problems } = await signedInPage();
+		/** What Navidrome reports the app doing, as its plugin posts it. */
+		const report = (state, positionMs) =>
+			fetch(`${remoteApp.url}/api/plugin/navidrome`, {
+				method: 'POST',
+				headers: { 'content-type': 'application/json', origin: remoteApp.url, authorization: `Bearer ${PLUGIN_TOKEN}` },
+				body: JSON.stringify({ v: 1, type: 'playback', username: 'testuser', songId: 's7a', state, positionMs, player: 'phone-1', playerName: 'Symfonium' })
+			});
+		subsonic.state.audio = { type: 'audio/wav', body: silentWav(30) };
+		try {
+			await page.goto(remoteApp.url + '/', { waitUntil: 'load' });
+
+			// An app that says a track started and nothing more. The browsers of
+			// the tests before this one are still open, and listed below it.
+			assert.equal((await report('playing', 0)).status, 200);
+			const devices = page.getByRole('button', { name: /^Devices/ });
+			await devices.waitFor({ timeout: 5000 });
+			await devices.click();
+			const app = page.locator('dialog.devices li.peer').filter({ hasText: 'another app' });
+			await app.getByText('Symfonium', { exact: true }).waitFor({ timeout: 5000 });
+			assert.equal(await page.locator('dialog.devices li.peer').first().getByText('Symfonium', { exact: true }).count(), 1, 'the app is not first in the list');
+			await app.getByText('Song 7a').waitFor();
+			await app.getByText(/^at about 0:0\d$/).waitFor();
+			await app.getByText(/few report their position so far/).waitFor();
+
+			// One that says where it is: the time is its own, and the notice goes.
+			await report('playing', 12_000);
+			await app.getByText(/^at 0:1\d$/).waitFor({ timeout: 5000 });
+			await app.getByText(/Continues from where Symfonium is/).waitFor();
+			assert.equal(await app.getByText(/few report their position/).count(), 0);
+
+			await app.getByRole('button', { name: 'Continue here' }).click();
+			await titleIs(page, 'Song 7a');
+			await page.waitForFunction(
+				() => [...document.querySelectorAll('audio')].some((a) => !a.paused && a.currentTime >= 12 && a.currentTime < 25),
+				null,
+				{ timeout: 5000 }
+			);
+
+			// The app stopping takes it out of the list, and the button with it.
+			await report('stopped', 14_000);
+			await app.waitFor({ state: 'detached', timeout: 5000 });
+		} finally {
+			subsonic.state.audio = null;
+			await report('stopped', 0);
+		}
+		assert.deepEqual(problems, []);
 	});
 
 	test('"Play this queue there" moves the queue to the other browser and pauses this one', async () => {
@@ -2680,7 +2736,7 @@ describe('playback on another browser', () => {
 			});
 			await section.locator('input[type=file]').setInputFiles({ name: 'me.png', mimeType: 'image/png', buffer: Buffer.from(png) });
 			await section.locator('.avatar img').waitFor({ timeout: 5000 });
-			await section.getByRole('checkbox').check();
+			await section.getByRole('checkbox', { name: /Show others what I play/ }).check();
 			await section.getByText('You are shown as Mira.').waitFor({ timeout: 5000 });
 
 			await pill.waitFor({ timeout: 5000 });
