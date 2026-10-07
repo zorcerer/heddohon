@@ -854,9 +854,10 @@ textarea {
  * second (210 over 70 seconds, about 1.2px each at 1440px wide, which the 48px
  * blur hides). In headless Chromium at 1440x900, which blurs in software: a
  * full core at every frame, 63 percent at six steps a second, 33 at three, and
- * 1 percent held still. A GPU blurs the glass in a few milliseconds. It is off
- * by default and then not in the page. Settings turns it on moving or held
- * still (`.aurora.still`). The drift is 70 seconds each way.
+ * 1 percent held still. A GPU blurs the glass in a few milliseconds. It moves
+ * by default (since 2026-10-07; before, it was off until turned on). Settings
+ * holds it still (`.aurora.still`) or turns it off, and off it is not in the
+ * page. The drift is 70 seconds each way.
  *
  * The element fills the room and clips. The bands are its `::before`, larger
  * than the room, so the drift never shows an edge.

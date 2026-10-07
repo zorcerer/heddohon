@@ -39,6 +39,10 @@ before(async () => {
 	// The install card sits over the foot of the content once something plays,
 	// in a browser that offers to install; its own tests turn it back on.
 	await context.request.patch(`${app.url}/api/settings`, { data: { installCardDismissed: true }, headers: { origin: app.url } });
+	// The aurora moves unless an account says otherwise, and headless Chromium
+	// blurs the glass over it in software: about a third of a core, under tests
+	// that time what the page does and read its colours. It has its own test.
+	await context.request.patch(`${app.url}/api/settings`, { data: { aurora: 'off' }, headers: { origin: app.url } });
 });
 
 after(async () => {
@@ -2453,7 +2457,7 @@ describe('shelves', () => {
 });
 
 describe('the aurora', () => {
-	test('is off by default, and drifts or holds still from Settings', async () => {
+	test('drifts by default, and holds still or goes from Settings', async () => {
 		const origin = { origin: app.url, 'content-type': 'application/json' };
 		const { page, problems } = await watchedPage();
 		const state = () =>
@@ -2464,16 +2468,33 @@ describe('the aurora', () => {
 				return { shown: true, running: animation?.playState === 'running' };
 			});
 		try {
-			await page.goto(app.url + '/albums', { waitUntil: 'networkidle' });
-			assert.deepEqual(await state(), { shown: false, running: false });
+			// An account that has never chosen: a context of its own, signed in as one.
+			const fresh = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+			try {
+				const signIn = await fresh.request.post(`${app.url}/login`, {
+					form: { username: 'seconduser', password: 'secondpass', backend: 'subsonic', next: '/' },
+					headers: { origin: app.url, accept: 'text/html' },
+					maxRedirects: 0
+				});
+				assert.equal(signIn.status(), 303);
+				const first = await fresh.newPage();
+				await first.goto(app.url + '/albums', { waitUntil: 'networkidle' });
+				assert.equal(await first.locator('.aurora:not(.still)').count(), 1, 'an account that had not chosen has no moving aurora');
+			} finally {
+				await fresh.close();
+			}
 
 			await context.request.patch(`${app.url}/api/settings`, { headers: origin, data: { aurora: 'moving' } });
-			await page.reload({ waitUntil: 'networkidle' });
+			await page.goto(app.url + '/albums', { waitUntil: 'networkidle' });
 			assert.deepEqual(await state(), { shown: true, running: true });
 
 			await context.request.patch(`${app.url}/api/settings`, { headers: origin, data: { aurora: 'still' } });
 			await page.reload({ waitUntil: 'networkidle' });
 			assert.deepEqual(await state(), { shown: true, running: false });
+
+			await context.request.patch(`${app.url}/api/settings`, { headers: origin, data: { aurora: 'off' } });
+			await page.reload({ waitUntil: 'networkidle' });
+			assert.deepEqual(await state(), { shown: false, running: false });
 		} finally {
 			await context.request.patch(`${app.url}/api/settings`, { headers: origin, data: { aurora: 'off' } });
 			await page.close();
@@ -2550,6 +2571,9 @@ describe('playback on another browser', () => {
 			maxRedirects: 0
 		});
 		assert.equal(signIn.status(), 303);
+		// As for the first app's account: these tests run three pages at once and
+		// time what they do, one of them against a limit of 2 seconds.
+		await context.request.patch(`${remoteApp.url}/api/settings`, { data: { aurora: 'off' }, headers: { origin: remoteApp.url } });
 		const page = await context.newPage();
 		const problems = [];
 		page.on('console', (message) => message.type() === 'error' && problems.push(message.text()));
