@@ -31,6 +31,7 @@ The website, with screenshots and the install steps, is
 - **Shared links** to songs, albums and playlists that play without an account, and listening together live.
 - **A phone layout**, an installable app, and desktop apps for Linux and Windows. The Android APK is experimental.
 - **Synced across devices:** the queue and settings follow the account, and one browser can control another.
+- **Listening now:** accounts that turn it on see what each other is playing, under a display name and a picture.
 - **Crossfade, a 10-band equaliser** with AutoEq headphone corrections, ReplayGain and a sleep timer.
 - **Scrobbling** to Last.fm and ListenBrainz.
 - **Listening history and statistics**, kept on your own server.

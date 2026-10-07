@@ -3,6 +3,7 @@ import type { RequestHandler } from './$types';
 import { config } from '$lib/server/config';
 import { tiedToSession } from '$lib/server/auth';
 import { deviceLabel } from '$lib/server/device';
+import { arrived } from '$lib/server/listening';
 import { join, leave } from '$lib/server/remote';
 
 /**
@@ -13,8 +14,9 @@ import { join, leave } from '$lib/server/remote';
 const KEEPALIVE_MS = 25_000;
 
 /**
- * This browser's stream of what the account's other browsers are playing and
- * of the commands they send it; see `remote.ts`. It ends with the session:
+ * This browser's stream of what the account's other browsers are playing, of
+ * the commands they send it (`remote.ts`), and of what the other accounts
+ * that chose to be shown are playing (`listening.ts`). It ends with the session:
  * signing out, being signed out from Settings and expiry all cut it.
  */
 export const GET: RequestHandler = async ({ locals, request }) => {
@@ -52,6 +54,8 @@ export const GET: RequestHandler = async ({ locals, request }) => {
 				return;
 			}
 			peerId = peer.id;
+			// What the other accounts are playing comes down this stream too.
+			if (config().listeners) void arrived(session.account, peer.id).catch(() => undefined);
 			keepalive = setInterval(() => write(': keepalive\n\n'), KEEPALIVE_MS);
 		},
 		cancel: close

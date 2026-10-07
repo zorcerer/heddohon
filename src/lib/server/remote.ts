@@ -11,6 +11,9 @@
  *
  * A command goes only to a peer of the same account, and a report of what a
  * peer plays is taken only from the session that opened its stream.
+ *
+ * The one thing that crosses accounts is in `listening.ts`: what an account
+ * that chose to be shown is playing, sent down every stream.
  */
 import { randomUUID } from 'node:crypto';
 
@@ -20,6 +23,9 @@ export interface RemoteState {
 	title: string;
 	artist: string | null;
 	coverArt: string | null;
+	/** The album and its id, for a link to it where the track is shown to other accounts; see `listening.ts`. */
+	album: string | null;
+	albumId: string | null;
 	/** Seconds, as of `at`. */
 	position: number;
 	duration: number;
@@ -63,6 +69,17 @@ const MAX_PEERS_PER_ACCOUNT = 20;
 
 const accounts = new Map<string, Map<string, Peer>>();
 
+/**
+ * Told the account whenever what its browsers play may have changed: a report,
+ * or a stream closing. `listening.ts` sets it, to keep what an account shows
+ * the others current. A hook, so this module does not import that one.
+ */
+let watcher: ((accountId: string) => void) | null = null;
+
+export function watch(changed: (accountId: string) => void): void {
+	watcher = changed;
+}
+
 function view(peer: Peer): RemotePeer {
 	return { id: peer.id, device: peer.device, since: peer.since, state: peer.state };
 }
@@ -101,6 +118,7 @@ export function leave(accountId: string, id: string): void {
 	if (!peers?.delete(id)) return;
 	if (peers.size === 0) accounts.delete(accountId);
 	else announce(accountId);
+	watcher?.(accountId);
 }
 
 /**
@@ -112,7 +130,35 @@ export function report(accountId: string, session: string, id: string, state: Om
 	if (!peer || peer.session !== session) return false;
 	peer.state = state ? { ...state, at: Date.now() } : null;
 	announce(accountId);
+	watcher?.(accountId);
 	return true;
+}
+
+/** Whether the account has a browser with the player open. */
+export function present(accountId: string): boolean {
+	return accounts.has(accountId);
+}
+
+/** What each of the account's browsers that is playing has reported, with the browser's id. */
+export function playingOn(accountId: string): { peer: string; state: RemoteState }[] {
+	const playing: { peer: string; state: RemoteState }[] = [];
+	for (const peer of accounts.get(accountId)?.values() ?? []) {
+		if (peer.state?.playing) playing.push({ peer: peer.id, state: peer.state });
+	}
+	return playing;
+}
+
+/** Sends an event to one browser of the account. */
+export function tell(accountId: string, id: string, event: string, data: unknown): void {
+	accounts.get(accountId)?.get(id)?.send(event, data);
+}
+
+/** Sends an event to every browser with a stream open, with the data `dataFor` makes for its account. */
+export function tellEveryone(event: string, dataFor: (accountId: string) => unknown): void {
+	for (const [accountId, peers] of accounts) {
+		const data = dataFor(accountId);
+		for (const peer of peers.values()) peer.send(event, data);
+	}
 }
 
 /** Sends a command to a peer of the account. False when there is no such peer. */

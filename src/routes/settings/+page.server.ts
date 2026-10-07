@@ -18,6 +18,7 @@ import { linkStateDigest } from '$lib/server/crypto';
 import { log, reason } from '$lib/server/log';
 import { describeShares, revokeAllShares, revokeShare } from '$lib/server/shares';
 import { clearHistory, importPlays, recentPlays } from '$lib/server/history';
+import { getProfile } from '$lib/server/listening';
 
 /**
  * A ListenBrainz user token as issued: a UUID, 36 characters. Up to 128 of the
@@ -64,7 +65,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 	// Independent reads, started together. Awaited in turn, the page waited for
 	// the sum of a directory scan, two upstream calls and two database reads.
 	const offered = offeredIntegrations();
-	const [coverCache, coverFillKeeper, isAdmin, settings, sessions, shares, history, linked, upstream] = await Promise.all([
+	const [coverCache, coverFillKeeper, isAdmin, settings, sessions, shares, history, linked, upstream, profile] = await Promise.all([
 		cacheStats(),
 		filledBy(session.account.backend),
 		/*
@@ -82,7 +83,9 @@ export const load: PageServerLoad = async ({ locals }) => {
 		recentPlays(session.account.id, 0, 0),
 		linkedIntegrations(session.account.id),
 		// Waited for only where it decides what the page offers, below.
-		offered.listenbrainz && scrobblers ? scrobblerLinks : null
+		offered.listenbrainz && scrobblers ? scrobblerLinks : null,
+		// What the account shows the others here, where that is offered; see `listening.ts`.
+		cfg.listeners && cfg.remoteControl ? getProfile(session.account.id) : null
 	]);
 
 	/*
@@ -116,7 +119,9 @@ export const load: PageServerLoad = async ({ locals }) => {
 			linked,
 			viaMusicServer
 		},
-		historyCount: history.total
+		historyCount: history.total,
+		// As the `listeners` event carries it, which replaces it once the stream is open.
+		profile: profile && { id: profile.handle, name: profile.name, shown: profile.shown, avatar: profile.avatarAt }
 	};
 };
 

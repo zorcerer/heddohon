@@ -635,6 +635,53 @@ nothing.
 library holds for a query, 24 at most. It is what a member's search box calls;
 the search page reads the same through its loader.
 
+## Listening now
+
+Accounts signed in to one Heddohon can see what each other is playing. An
+account is shown only after it turns "Show others what I play" on, in the
+popup or under Settings, Account. What it is limited to:
+
+- **It needs `HEDDOHON_LISTENERS` and `HEDDOHON_REMOTE_CONTROL` on.** With
+  either off, `/api/profile` and the routes under it answer 404, and nothing
+  is sent.
+- **Off for every account until the account turns it on.** An account that is
+  not shown still sees the accounts that are.
+- **Who sees it: every signed-in account on this Heddohon,** on either music
+  server of a deployment with two. It is sent down the event stream a signed-in
+  browser already holds open, so it needs a session and ends with it.
+- **What is shown,** while a track is playing and for no longer: the display
+  name, or the account's user name on the music server where none is set; the
+  picture; the track's title, artist, album and cover id; its length and
+  position; the track's and the album's ids; and which kind of music server
+  the account is on. A pause, a closed browser, signing out and turning the
+  switch off each take the account out of the list at once. Nothing of it is
+  written to disk: the list is in the process's memory.
+- **The account's id is not sent.** Other accounts know a profile by a handle,
+  12 random bytes made with the profile row.
+- **Library permissions still decide what a viewer can open.** A title and an
+  artist are shown to an account whose library does not hold the track. The
+  cover, the album page and "Play it here" are fetched with the viewer's own
+  credential, and the music server refuses what the viewer may not read.
+- **The display name is text.** At most 32 characters, with control characters
+  and the marks that set text direction removed, shown through Svelte's
+  escaping and never placed in HTML by the server. A name that is the user
+  name of another account on this Heddohon is refused when it is saved.
+- **The picture is a JPEG of at most 96 KB and 512 pixels a side.** The
+  browser sends one it has cut square and scaled to 256 pixels, drawn again
+  from the pixels, which leaves out the file's metadata. The server checks what
+  it is sent whoever made it: the bytes have to start a JPEG, and the size it
+  declares is read from its frame header, since a few kilobytes can declare
+  65535 pixels a side and every viewer's browser would decode them. It is kept
+  in the database and served to signed-in accounts from
+  `/api/profile/avatar/<handle>` as `image/jpeg`, with `nosniff` and
+  `Content-Security-Policy: default-src 'none'; sandbox`, as proxied media is.
+- **Bounds:** the list is sent to everyone at most once in 250 ms; 100
+  accounts in one list.
+
+Two display names can be the same, and a name is compared with user names only
+when it is saved: an account that signs in for the first time later can have
+the user name another account already goes by.
+
 ## Cross-origin writes
 
 SvelteKit's CSRF check covers form content types only, and every state-changing
@@ -828,7 +875,11 @@ Covers are cached under `$HEDDOHON_DATA_DIR/covers` (see
 | Star rating | a whole number from 0 to 5 |
 | Remote control streams per account | 20 |
 | Remote command | one of nine types; a seek from 0 to 86400 s, a volume from 0 to 1, a queue of 1 to 1000 ids |
-| Remote state text (title, artist) | 300 characters, cut |
+| Remote state text (title, artist, album) | 300 characters, cut |
+| Display name | 32 characters, cut; control and direction characters removed |
+| Profile picture | a JPEG of at most 96 KB and 512 pixels a side |
+| Profile handle in a path | 24 hexadecimal characters |
+| "Listening now" list | 100 accounts; sent at most once in 250 ms |
 | Cast addresses per request | 1 to 1000 track ids |
 | Cast address lifetime | 6 hours, never past the session |
 | Listen-together session | 12 hours, never past the host's session; 50 listeners; 200 sessions a process |

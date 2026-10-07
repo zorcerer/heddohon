@@ -19,6 +19,8 @@ export const load: LayoutServerLoad = async ({ locals, url }) => {
 		remoteControl: cfg.remoteControl,
 		// Listening together needs both; see `together.ts`.
 		together: cfg.sharing && cfg.remoteControl,
+		// What the others are playing arrives on the remote control stream; see `listening.ts`.
+		listeners: cfg.listeners && cfg.remoteControl,
 		// Whether headphone corrections can be searched for; see `autoeq.ts`.
 		autoeq: cfg.autoeqUrl !== null,
 		// Whether the library can be browsed by folder; see `HEDDOHON_FOLDERS`.

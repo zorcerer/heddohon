@@ -2614,6 +2614,98 @@ describe('playback on another browser', () => {
 			subsonic.state.audio = null;
 		}
 	});
+	/*
+	 * Two accounts on one music server. The second sets itself up under
+	 * Settings as a person would, picture included: the browser cuts and
+	 * re-encodes the image, which the page's policy has to allow.
+	 */
+	test('an account that chooses to be shown appears to another with its name, its picture and its track, which the other plays from the popup', async () => {
+		const { page: viewer, problems } = await signedInPage();
+		const { page: shown, problems: shownProblems } = await signedInPage('seconduser', 'secondpass');
+		const write = (method, path, data) =>
+			shown.context().request.fetch(remoteApp.url + path, { method, data, headers: { origin: remoteApp.url } });
+		subsonic.state.audio = { type: 'audio/wav', body: silentWav(60) };
+		try {
+			await viewer.goto(remoteApp.url + '/', { waitUntil: 'load' });
+			const pill = viewer.locator('button.heads');
+
+			await shown.goto(remoteApp.url + '/albums/al7', { waitUntil: 'load' });
+			await shown.getByRole('button', { name: 'Play Song 7b', exact: true }).click();
+			await titleIs(shown, 'Song 7b');
+			await shown.waitForFunction(() => [...document.querySelectorAll('audio')].some((a) => !a.paused), null, { timeout: 5000 });
+			// Playing, and not shown: nothing appears to the other account.
+			await viewer.waitForTimeout(600);
+			assert.equal(await pill.count(), 0, 'an account that had not chosen to be shown was shown');
+
+			// By the rail and the tab, so the track keeps playing across the page change.
+			await shown.locator('nav.rail a[href="/settings"]').click();
+			await shown.getByRole('link', { name: 'Account', exact: true }).click();
+			const section = shown.locator('section#listening');
+			await section.getByLabel('Display name').fill('Mira');
+			await section.getByRole('button', { name: 'Save' }).click();
+			// A 300x200 PNG, wider than tall, drawn in the page.
+			const png = await shown.evaluate(async () => {
+				const canvas = document.createElement('canvas');
+				canvas.width = 300;
+				canvas.height = 200;
+				const context = canvas.getContext('2d');
+				context.fillStyle = '#c0392b';
+				context.fillRect(0, 0, 300, 200);
+				const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+				return Array.from(new Uint8Array(await blob.arrayBuffer()));
+			});
+			await section.locator('input[type=file]').setInputFiles({ name: 'me.png', mimeType: 'image/png', buffer: Buffer.from(png) });
+			await section.locator('.avatar img').waitFor({ timeout: 5000 });
+			await section.getByRole('checkbox').check();
+			await section.getByText('You are shown as Mira.').waitFor({ timeout: 5000 });
+
+			await pill.waitFor({ timeout: 5000 });
+			assert.equal(await pill.getAttribute('aria-label'), 'Listening now: Mira');
+			// Over the content column: clear of the rail and of the player.
+			const box = async (locator) => locator.evaluate((node) => node.getBoundingClientRect().toJSON());
+			const [at, rail, panel] = [await box(pill), await box(viewer.locator('nav.rail')), await box(viewer.locator('.app > .player'))];
+			assert.ok(at.left >= rail.right && at.right <= panel.left, `the pill is at ${at.left} to ${at.right}, the rail ends at ${rail.right} and the player starts at ${panel.left}`);
+
+			await pill.click();
+			const dialog = viewer.locator('dialog.listening');
+			const row = dialog.locator('li.listener', { hasText: 'Mira' });
+			await row.getByText('Song 7b').waitFor({ timeout: 5000 });
+			// The picture arrived as the square the browser cut: 256 by 256.
+			await viewer.waitForFunction(() => document.querySelector('dialog.listening li.listener .avatar img')?.naturalWidth === 256, null, { timeout: 5000 });
+			assert.equal(await row.locator('.avatar img').evaluate((image) => image.naturalHeight), 256);
+			assert.equal(await row.locator('a.art').getAttribute('href'), '/albums/al7');
+			// The popup opens out of the pill: they share the corner.
+			const opened = await box(dialog);
+			assert.ok(Math.abs(opened.right - at.right) < 1 && Math.abs(opened.bottom - at.bottom) < 1, `the popup's corner is ${opened.right},${opened.bottom}, the pill's ${at.right},${at.bottom}`);
+
+			await row.getByRole('button', { name: 'Play it here' }).click();
+			await titleIs(viewer, 'Song 7b');
+			await viewer.waitForFunction(() => !document.querySelector('dialog.listening')?.open, null, { timeout: 5000 });
+
+			// On a phone the pill sits above the dock.
+			await viewer.setViewportSize({ width: 393, height: 641 });
+			await viewer.waitForFunction(
+				() => {
+					const pill = document.querySelector('button.heads')?.getBoundingClientRect();
+					const dock = document.querySelector('.phone-dock')?.getBoundingClientRect();
+					return pill && dock && dock.height > 0 && pill.bottom <= dock.top && pill.bottom > dock.top - 24;
+				},
+				null,
+				{ timeout: 5000 }
+			);
+			await viewer.setViewportSize({ width: 1440, height: 900 });
+
+			// Paused, the account is gone from the other's screen.
+			await shown.locator('aside.panel').getByRole('button', { name: 'Pause', exact: true }).click();
+			await pill.waitFor({ state: 'detached', timeout: 5000 });
+		} finally {
+			subsonic.state.audio = null;
+			await write('PATCH', '/api/profile', { shown: false, name: null });
+			await write('DELETE', '/api/profile/avatar');
+		}
+		assert.deepEqual([...problems, ...shownProblems], []);
+	});
+
 
 	test('a visitor with no account joins, follows a skip and a pause, and a reaction reaches the host', async () => {
 		const { page: hostPage, problems } = await signedInPage();
