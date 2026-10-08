@@ -225,7 +225,34 @@ export interface Store {
 	 * statement.
 	 */
 	exclusive<T>(key: string, work: (store: Store) => Promise<T>): Promise<T>;
+	/**
+	 * Writes the database as it stands to `file`, a SQLite database in one
+	 * file, whichever kind this one is; see `backup.ts`. Sign-ins and the
+	 * sign-in throttle are left out, as from the import below: a session ended
+	 * after the copy was made would otherwise work again once it was restored.
+	 */
+	backup(file: string): Promise<void>;
 }
+
+/**
+ * The tables that move between databases, and their columns: read from a
+ * SQLite file into PostgreSQL (`importFromSqlite`) and written from
+ * PostgreSQL into a SQLite file (`backup`). Accounts first: the others refer
+ * to them. `sessions` and `login_attempts` are not in it.
+ */
+const COPIED_TABLES = {
+	accounts: ['id', 'backend', 'username', 'remote_user_id', 'credential', 'created_at', 'last_login_at', 'device_epoch'],
+	settings: ['account_id', 'data', 'updated_at'],
+	play_state: ['account_id', 'data', 'updated_at'],
+	shares: ['id', 'token_digest', 'account_id', 'backend', 'song_id', 'created_at', 'expires_at', 'kind'],
+	plays: ['account_id', 'song_id', 'played_at', 'title', 'artist', 'artist_id', 'album', 'album_id', 'cover_art', 'duration'],
+	integrations: ['account_id', 'kind', 'secret', 'created_at'],
+	profiles: ['account_id', 'handle', 'name', 'shown', 'avatar', 'avatar_at', 'updated_at'],
+	meta: ['key', 'value']
+} as const;
+
+/** The row in `meta` that says a SQLite file was copied into this PostgreSQL database. */
+const IMPORT_MARKER = 'sqlite_import';
 
 /** Where the SQLite database lives, and where an import reads it from. */
 function sqliteFile(): string {
@@ -278,6 +305,24 @@ class SqliteStore implements Store {
 	exclusive<T>(_key: string, work: (store: Store) => Promise<T>): Promise<T> {
 		return work(this);
 	}
+
+	/*
+	 * SQLite's online backup, which copies a database in use page by page and
+	 * starts over when a write lands, so the copy is one moment of it. Copying
+	 * `heddohon.db` by hand misses what is still in `heddohon.db-wal`.
+	 */
+	async backup(file: string): Promise<void> {
+		await this.handle.backup(file);
+		const copy = new Database(file);
+		try {
+			copy.exec('DELETE FROM sessions; DELETE FROM login_attempts;');
+			// One file, without a `-wal` beside it, and without the deleted rows.
+			copy.pragma('journal_mode = DELETE');
+			copy.exec('VACUUM');
+		} finally {
+			copy.close();
+		}
+	}
 }
 
 /** `?` to `$1`, `$2`... None of the SQL here has a `?` inside a string. */
@@ -323,6 +368,49 @@ class PostgresStore implements Store {
 			throw err;
 		} finally {
 			client.release();
+		}
+	}
+
+	/*
+	 * Every table read in one transaction, so the rows agree with each other
+	 * (REPEATABLE READ holds one snapshot; a settings row never arrives without
+	 * its account), then written to a new SQLite file with the schema above.
+	 * The import marker stays behind: restored into an empty PostgreSQL
+	 * database, the file is imported, and the marker is written then.
+	 */
+	async backup(file: string): Promise<void> {
+		if (!(this.db instanceof pg.Pool)) throw new Error('a backup is not made inside a transaction');
+		const rows = new Map<string, Record<string, unknown>[]>();
+		const client = await this.db.connect();
+		try {
+			await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
+			for (const [table, columns] of Object.entries(COPIED_TABLES)) {
+				rows.set(table, (await client.query(`SELECT ${columns.join(', ')} FROM ${table}`)).rows);
+			}
+			await client.query('COMMIT');
+		} catch (err) {
+			await client.query('ROLLBACK').catch(() => undefined);
+			throw err;
+		} finally {
+			client.release();
+		}
+
+		const copy = openSqlite(file);
+		try {
+			copy.transaction(() => {
+				for (const [table, columns] of Object.entries(COPIED_TABLES)) {
+					const insert = copy.prepare(
+						`INSERT INTO ${table} (${columns.join(', ')}) VALUES (${columns.map(() => '?').join(', ')})`
+					);
+					for (const row of rows.get(table) ?? []) {
+						if (table === 'meta' && row.key === IMPORT_MARKER) continue;
+						insert.run(...columns.map((column) => row[column] ?? null));
+					}
+				}
+			})();
+			copy.pragma('journal_mode = DELETE');
+		} finally {
+			copy.close();
 		}
 	}
 }
@@ -422,35 +510,24 @@ async function open(): Promise<Store> {
  * not filled from the old file again.
  */
 async function importFromSqlite(pool: pg.Pool): Promise<void> {
-	const marker = await pool.query("SELECT value FROM meta WHERE key = 'sqlite_import'");
+	const marker = await pool.query('SELECT value FROM meta WHERE key = $1', [IMPORT_MARKER]);
 	if (marker.rowCount) return;
 
 	const existing = await pool.query('SELECT COUNT(*) AS count FROM accounts');
 	const file = sqliteFile();
 	const record = (value: string) =>
-		pool.query("INSERT INTO meta (key, value) VALUES ('sqlite_import', $1) ON CONFLICT (key) DO NOTHING", [value]);
+		pool.query('INSERT INTO meta (key, value) VALUES ($1, $2) ON CONFLICT (key) DO NOTHING', [IMPORT_MARKER, value]);
 
 	if (Number(existing.rows[0]?.count) > 0) return void (await record('skipped: database not empty'));
 	if (!existsSync(file)) return void (await record('skipped: no SQLite file'));
 
 	const source = new Database(file, { readonly: true, fileMustExist: true });
-	const tables = {
-		accounts: ['id', 'backend', 'username', 'remote_user_id', 'credential', 'created_at', 'last_login_at'],
-		settings: ['account_id', 'data', 'updated_at'],
-		play_state: ['account_id', 'data', 'updated_at'],
-		shares: ['id', 'token_digest', 'account_id', 'backend', 'song_id', 'created_at', 'expires_at', 'kind'],
-		plays: ['account_id', 'song_id', 'played_at', 'title', 'artist', 'artist_id', 'album', 'album_id', 'cover_art', 'duration'],
-		integrations: ['account_id', 'kind', 'secret', 'created_at'],
-		profiles: ['account_id', 'handle', 'name', 'shown', 'avatar', 'avatar_at', 'updated_at'],
-		meta: ['key', 'value']
-	} as const;
 	const counts: Record<string, number> = {};
 
 	const client = await pool.connect();
 	try {
 		await client.query('BEGIN');
-		// Accounts first: the others refer to them.
-		for (const [table, wanted] of Object.entries(tables)) {
+		for (const [table, wanted] of Object.entries(COPIED_TABLES)) {
 			// Only the columns the file has: a file from before a column was added
 			// (`ADDED_COLUMNS`) is copied without it. Asked for by name, a missing
 			// column failed the whole table, which was then skipped as absent.
@@ -477,7 +554,8 @@ async function importFromSqlite(pool: pg.Pool): Promise<void> {
 			for (const row of rows) await client.query(insert, columns.map((column) => row[column]));
 			counts[table] = rows.length;
 		}
-		await client.query("INSERT INTO meta (key, value) VALUES ('sqlite_import', $1)", [
+		await client.query('INSERT INTO meta (key, value) VALUES ($1, $2)', [
+			IMPORT_MARKER,
 			`imported ${new Date().toISOString()}`
 		]);
 		await client.query('COMMIT');

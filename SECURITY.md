@@ -382,6 +382,44 @@ request from Navidrome to Heddohon. Heddohon makes no request to the plugin.
 (`md5(password + salt)`), so the sealed value is the password itself.
 Jellyfin issues a token at sign-in and Heddohon discards the password.
 
+## Database backup
+
+An account the music server lists as an administrator can download the
+database as a ZIP from Settings, Storage (`POST /api/backup`). The archive
+holds `heddohon.db`, a SQLite database in one file whichever database the
+server runs on, a `backup.json` with the row count of each table, and a
+`README.txt` with the steps to restore.
+
+- **Who.** The music server is asked whether the account is an administrator
+  on each request, as for a cover fill, and "not known" (a Subsonic server
+  without `getUser`) is refused. With two music servers configured, an
+  administrator of either gets the rows of both.
+- **What it holds.** Every account's rows: the music-server credential and the
+  linked services sealed as above, the digests of shared links, settings, saved
+  queues, listening history and profiles. Whoever holds the file can read every
+  account's user name, settings and listening history.
+- **What it does not hold.** `HEDDOHON_SECRET`, so the file alone opens no
+  credential and forges no link. Sign-ins and the sign-in throttle, so a
+  session ended after the backup was made does not work again on a server
+  restored from it; everyone signs in once. Covers and logs.
+- **A write, by its method.** It is a POST, so the cross-origin check applies
+  and a link on another site cannot start one in an administrator's browser.
+  The answer is `private, no-store`.
+- **Bounded.** One is made at a time, and a second request is answered 429.
+  The copy is written to a directory of its own in the data directory (mode
+  0700), read into memory and removed, and a database past 512MB is refused
+  with 409.
+- **Logged.** `backup-made` at `warn`, with the account and the size.
+- **A consistent copy.** On SQLite it is SQLite's online backup, which
+  includes what is still in `heddohon.db-wal`. On PostgreSQL every table is
+  read in one REPEATABLE READ transaction.
+
+Restoring is putting `heddohon.db` in the data directory with the same
+`HEDDOHON_SECRET`. A test restores an archive into an empty data directory,
+signs in, and reads back a setting saved before the backup. Restoring into an
+empty PostgreSQL database was run by hand against PostgreSQL 15 on
+2026-10-08; the tree has no PostgreSQL suite.
+
 ## Sessions
 
 The cookie is a **256-bit random token** with no payload. The database stores
@@ -1237,6 +1275,10 @@ session token and any `u`, `t`, `s` or `p` query parameter.
    in `HEDDOHON_NAVIDROME_PLUGIN_TOKEN` and in the plugin's settings, and an
    `https://` address for the plugin where Navidrome is on another network.
    Leave the variable unset where the plugin is not installed.
+10. **Keep backups private, and the secret somewhere else.** An archive from
+    Settings holds every account's listening history and sealed credentials.
+    It restores only with the `HEDDOHON_SECRET` it was made under, which is
+    not in it.
 
 ## Audit history
 
