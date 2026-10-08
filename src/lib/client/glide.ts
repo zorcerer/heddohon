@@ -80,14 +80,18 @@ function resting(element: HTMLElement): [number, number] | null {
 
 /**
  * Notes where everything under `root` is, to be called before the layout
- * changes. The function returned is called once it has, and starts the
- * animations.
+ * changes. The function returned is called once it has: it puts everything
+ * back where it was, held there, and returns the function that lets it go.
+ * The two are apart so that the frame the page is laid out in, which is a
+ * long one, is drawn with nothing moved, and the moving starts in the next:
+ * started in the long frame, a move is part-way through when it is first
+ * seen.
  *
  * A glide still running is taken from where its elements are drawn, since a
  * box is measured with its transform. A second press during the slide turns
  * everything round from there.
  */
-export function glideFrom(root: HTMLElement): () => void {
+export function glideFrom(root: HTMLElement): () => () => void {
 	const height = window.innerHeight;
 	const pages: Noted[] = [];
 	for (const page of root.children) {
@@ -135,7 +139,7 @@ export function glideFrom(root: HTMLElement): () => void {
 		// `translate` and `scale`, not `transform`, which an element may have
 		// one of that is to stay as it is. They apply before it.
 		const rests = plan.map(({ element }) => resting(element) ?? [0, 0]);
-		plan.forEach(({ element, x, y, sx, sy }, i) => {
+		const held = plan.map(({ element, x, y, sx, sy }, i) => {
 			const rest = rests[i];
 			const start: Keyframe = { translate: `${rest[0] + x}px ${rest[1] + y}px` };
 			const end: Keyframe = { translate: `${rest[0]}px ${rest[1]}px` };
@@ -144,7 +148,14 @@ export function glideFrom(root: HTMLElement): () => void {
 				end.scale = '1 1';
 				start.transformOrigin = end.transformOrigin = 'top left';
 			}
-			element.animate([start, end], { id: ID, duration: DUR.travel, easing: EASE_OUT_CSS });
+			const animation = element.animate([start, end], { id: ID, duration: DUR.travel, easing: EASE_OUT_CSS });
+			// Held on its first frame, which is the element where it was.
+			animation.pause();
+			return animation;
 		});
+		return () => {
+			// One ended since by a later glide is left ended.
+			for (const animation of held) if (animation.playState === 'paused') animation.play();
+		};
 	};
 }

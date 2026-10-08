@@ -2533,34 +2533,59 @@ describe('the player panel on a wide screen', () => {
 	 * was reported as the interface snapping. Now the layout changes once and
 	 * what is on the page is carried from where it was (`client/glide.ts`).
 	 *
-	 * Read with every animation held at its first frame, which is the frame
-	 * the listener sees first, and again with them finished.
+	 * The frame the page is laid out in is a long one, so nothing moves in
+	 * it: a move started there is part-way through when it is first seen, and
+	 * the panel, on a curve that covers half its distance in the first 100ms,
+	 * was seen to snap. The moving starts in the frame after.
+	 *
+	 * Read as the page is laid out, then with every animation held at its
+	 * first frame, and again with them finished.
 	 */
-	/** Presses a button of the panel and holds what the press started at its start. Returns how many there are of each. */
-	const pressAndHold = (page, label) =>
-		page.evaluate(
-			(label) =>
+	/**
+	 * Presses a button of the panel. Returns what is drawn where once the page
+	 * has its new layout and before anything has moved (`laidOut`), and then
+	 * holds what the press started at its start and counts it.
+	 */
+	const pressAndHold = async (page, label) => {
+		const early = await page.evaluate((label) => {
+			[...document.querySelectorAll('button')].find((b) => b.getAttribute('aria-label') === label).click();
+			// After the click's own work, and before the next frame: what is
+			// already moving then started in the frame the page is laid out in.
+			return new Promise((done) =>
+				setTimeout(() =>
+					done(
+						document.querySelector('.dock').getAnimations().length +
+							document.getAnimations().filter((a) => a.id === 'glide' && a.playState === 'running').length
+					)
+				)
+			);
+		}, label);
+		const laidOut = { ...(await places(page)), early };
+		const moving = await page.evaluate(
+			() =>
 				new Promise((done) => {
-					[...document.querySelectorAll('button')].find((b) => b.getAttribute('aria-label') === label).click();
-					// Two frames on: the class has changed and the glide has been started.
-					requestAnimationFrame(() =>
-						requestAnimationFrame(() => {
-							const held = document.getAnimations().filter((a) => Number.isFinite(a.effect.getComputedTiming().endTime));
-							for (const animation of held) {
-								animation.pause();
-								animation.currentTime = 0;
-							}
-							window.__held = held;
-							done({
-								glide: held.filter((a) => a.id === 'glide').length,
-								dock: document.querySelector('.dock').getAnimations().map((a) => a.transitionProperty),
-								app: document.querySelector('.app').getAnimations().map((a) => a.transitionProperty)
-							});
-						})
-					);
-				}),
-			label
+					let frames = 0;
+					const look = () => {
+						const dock = document.querySelector('.dock').getAnimations();
+						// Nothing starts for a listener who asked for less motion.
+						if (dock.length === 0 && ++frames < 10) return requestAnimationFrame(look);
+						const held = document.getAnimations().filter((a) => Number.isFinite(a.effect.getComputedTiming().endTime));
+						for (const animation of held) {
+							animation.pause();
+							animation.currentTime = 0;
+						}
+						window.__held = held;
+						done({
+							glide: held.filter((a) => a.id === 'glide').length,
+							dock: dock.map((a) => a.transitionProperty),
+							app: document.querySelector('.app').getAnimations().map((a) => a.transitionProperty)
+						});
+					};
+					requestAnimationFrame(look);
+				})
 		);
+		return { ...moving, laidOut };
+	};
 	const letGo = async (page) => {
 		await page.evaluate(() => window.__held.forEach((animation) => animation.finish()));
 		// Past the moment the column takes its width back on the way in.
@@ -2591,6 +2616,15 @@ describe('the player panel on a wide screen', () => {
 			// Hiding it. The first frame is the page as it was, and no part of the
 			// layout is what animates: the panel moves, and the cards with it.
 			const hiding = await pressAndHold(page, 'Hide the player');
+			// Laid out, and drawn as it was: the page has its new width, and the
+			// cards, the buttons and the panel are where they were.
+			assert.ok(hiding.laidOut.content > open.content, 'the page was not laid out at once');
+			assert.equal(hiding.laidOut.early, 0, 'the panel or a card started moving in the frame the page was laid out in');
+			assert.deepEqual(
+				[hiding.laidOut.cards, hiding.laidOut.sort, hiding.laidOut.panel],
+				[open.cards, open.sort, open.panel],
+				'something had moved in the frame the page was laid out in'
+			);
 			assert.deepEqual(hiding.dock, ['translate'], 'the panel is not what moves');
 			assert.deepEqual(hiding.app, [], 'the columns animate, which lays the page out on every frame');
 			assert.ok(hiding.glide >= 8, `only ${hiding.glide} things are carried`);
@@ -2610,6 +2644,12 @@ describe('the player panel on a wide screen', () => {
 			// box stays as wide as it was until the panel has arrived, so a card on
 			// its way out from under the panel is not cut off.
 			const showing = await pressAndHold(page, 'Show the player');
+			assert.equal(showing.laidOut.early, 0, 'the panel or a card started moving in the frame the page was laid out in');
+			assert.deepEqual(
+				[showing.laidOut.cards, showing.laidOut.sort, showing.laidOut.panel],
+				[closed.cards, closed.sort, closed.panel],
+				'something had moved in the frame the page was laid out in'
+			);
 			assert.deepEqual(showing.dock, ['translate']);
 			assert.deepEqual(showing.app, []);
 			assert.ok(showing.glide >= 8, `only ${showing.glide} things are carried`);

@@ -582,27 +582,54 @@
 	 * `panelArriving` holds the column at the sliver's width while the panel comes
 	 * in, with the page padded by what the column will take. Dropped when the
 	 * panel has arrived, it changes nothing on the page.
+	 *
+	 * `panelIn` is where the panel is drawn, and follows `player.panelOpen` a
+	 * frame late. The frame the page is laid out in is a long one, and a
+	 * transition started with it has run for that long before anything of it
+	 * is seen: on the curve the slide uses, 100ms in is past half the distance,
+	 * so the panel was first seen most of the way across (reported from an
+	 * iPad as the player having "a sort of snap to it"). The page is laid out
+	 * with everything held where it was, that frame is drawn, and the panel
+	 * and the page start moving in the next.
 	 */
 	let panelArriving = $state(false);
 	let panelArrived: ReturnType<typeof setTimeout> | undefined;
+	let panelIn = $state(untrack(() => player.panelOpen));
 	let panelWas: boolean | null = null;
+	let panelMove = 0;
+	/** Past the end of the slide, so the layout the column's width costs does not land on its last frames. */
+	const ARRIVED_AFTER_MS = 120;
 	$effect.pre(() => {
 		const open = player.panelOpen;
 		untrack(() => {
 			const was = panelWas;
 			panelWas = open;
-			if (was === null || was === open) return;
+			if (was === open) return;
 			clearTimeout(panelArrived);
-			// The sheet of a narrow screen has its own way of moving, and a
-			// listener who asked for less motion gets the new layout at once.
-			if (!content || player.sheetLayout || !player.viewportKnown || prefersReducedMotion()) {
+			const move = ++panelMove;
+			// The first run, the sheet of a narrow screen, which has its own way of
+			// moving, and a listener who asked for less motion: the new layout and
+			// the panel's place at once.
+			if (was === null || !content || player.sheetLayout || !player.viewportKnown || prefersReducedMotion()) {
 				panelArriving = false;
+				panelIn = open;
 				return;
 			}
 			const carry = glideFrom(content);
 			panelArriving = open;
-			if (open) panelArrived = setTimeout(() => (panelArriving = false), DUR.travel);
-			void tick().then(carry);
+			void tick().then(() => {
+				const start = carry();
+				// The second of the two is the first frame after the one the page
+				// was laid out in.
+				requestAnimationFrame(() =>
+					requestAnimationFrame(() => {
+						if (move !== panelMove) return;
+						panelIn = open;
+						start();
+						if (open) panelArrived = setTimeout(() => (panelArriving = false), DUR.travel + ARRIVED_AFTER_MS);
+					})
+				);
+			});
 		});
 	});
 
@@ -754,6 +781,7 @@
 		class="app"
 		class:player-open={player.panelOpen}
 		class:panel-arriving={panelArriving}
+		class:panel-in={panelIn}
 		class:viewport-known={player.viewportKnown}
 		class:has-song={Boolean(player.current)}
 	>
@@ -1157,7 +1185,7 @@
 		transition: translate var(--slide);
 	}
 
-	.app:not(.player-open) .dock {
+	.app:not(.panel-in) .dock {
 		translate: calc(var(--player-width) - var(--player-sliver)) 0;
 	}
 
@@ -1176,7 +1204,7 @@
 	 * lost its blur and its darkening and showed the page through it, then
 	 * snapped back, on every close.
 	 */
-	.app:not(.player-open) .body {
+	.app:not(.panel-in) .body {
 		visibility: hidden;
 		transition: visibility 0s linear var(--slide-duration);
 	}
@@ -1213,7 +1241,7 @@
 
 	/* Closing: it arrives over the second half of the slide, as the panel's
 	   edge reaches the place it takes over from. */
-	.app:not(.player-open) .grip {
+	.app:not(.panel-in) .grip {
 		opacity: 1;
 		transition:
 			opacity var(--dur-hover) var(--ease-out) calc(var(--slide-duration) - var(--dur-hover)),
@@ -1447,7 +1475,7 @@
 		}
 
 		.dock,
-		.app:not(.player-open) .dock {
+		.app:not(.panel-in) .dock {
 			position: static;
 			width: auto;
 			height: 100%;
@@ -1477,11 +1505,11 @@
 	@media (prefers-reduced-motion: reduce) {
 		.app:not(.player-open),
 		.dock,
-		.app:not(.player-open) .dock,
+		.app:not(.panel-in) .dock,
 		.body,
-		.app:not(.player-open) .body,
+		.app:not(.panel-in) .body,
 		.grip,
-		.app:not(.player-open) .grip,
+		.app:not(.panel-in) .grip,
 		.player,
 		.app:not(.player-open) .player {
 			transition: none;
