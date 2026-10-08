@@ -1476,7 +1476,24 @@ describe('the tint through changes that come close together', () => {
 			await page.waitForURL(/\/albums\/al32$/);
 			await navigate(page, '/albums/al33');
 			await page.waitForURL(/\/albums\/al33$/);
-			await page.waitForTimeout(2200);
+			// Until the rail shows the last album's colour, and then the length of
+			// a fade. That is two fades of 900ms and the fetch of a cover, which a
+			// fixed 2.2s did not always cover: on a runner under load the sampling
+			// stopped on the second album's blue (CI, 2026-10-07 and 2026-10-08).
+			await page
+				.waitForFunction(
+					() => {
+						const last = window.__layers?.at(-1);
+						if (!last) return false;
+						const front = last[0][1] > 0.5 ? last[0][0] : last[1][0];
+						const [r, g, b] = front.match(/[\d.]+/g).map(Number);
+						return g > r && g > b;
+					},
+					null,
+					{ timeout: 10_000 }
+				)
+				.catch(() => undefined);
+			await page.waitForTimeout(1000);
 			const frames = await stop();
 
 			assert.deepEqual(repaintsWhileVisible(frames), []);
