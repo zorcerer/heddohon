@@ -546,6 +546,81 @@ describe('a pause, a skip and a seek through the graph', () => {
 	});
 });
 
+describe('what the system is told the page plays', () => {
+	/*
+	 * Safari's Audio Session API, which no browser the suite runs has: a stand-in
+	 * is put on `navigator` before the page loads. On an iPhone the type decides
+	 * whether a Web Audio graph is suspended when the app leaves the screen.
+	 */
+	test('is playback, set before anything plays and left alone where the browser has no such setting', async () => {
+		const { page, problems } = await watchedPage();
+		await page.addInitScript(() => {
+			const written = [];
+			let type = 'auto';
+			Object.defineProperty(navigator, 'audioSession', {
+				value: {
+					get type() {
+						return type;
+					},
+					set type(value) {
+						written.push(value);
+						type = value;
+					}
+				}
+			});
+			window.__audioSessionTypes = written;
+		});
+		await page.goto(app.url + '/albums/al1', { waitUntil: 'networkidle' });
+		assert.deepEqual(await page.evaluate(() => window.__audioSessionTypes), ['playback']);
+		assert.equal(await page.evaluate(() => navigator.audioSession.type), 'playback');
+		await page.close();
+
+		// Without it, as in Chromium and Firefox, nothing is written and nothing fails.
+		const plain = await watchedPage();
+		await plain.page.goto(app.url + '/albums/al1', { waitUntil: 'networkidle' });
+		assert.equal(await plain.page.evaluate(() => 'audioSession' in navigator), false);
+		await plain.page.close();
+		assert.deepEqual([...problems, ...plain.problems], []);
+	});
+
+	test('a graph the system stopped while the page was away starts again when the page is back', async () => {
+		const { page, problems } = await watchedPage();
+		await page.addInitScript(() => {
+			localStorage.setItem('heddohon:audio-processing', JSON.stringify({ enabled: true, gains: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0] }));
+			const Native = window.AudioContext;
+			window.__contexts = [];
+			window.AudioContext = class extends Native {
+				constructor(...args) {
+					super(...args);
+					window.__contexts.push(this);
+				}
+			};
+		});
+		subsonic.state.audio = { type: 'audio/wav', body: silentWav(30) };
+		try {
+			await page.goto(app.url + '/albums/al1', { waitUntil: 'networkidle' });
+			await page.getByRole('button', { name: 'Play Song 1a', exact: true }).click();
+			await page.waitForFunction(() => [...document.querySelectorAll('audio')].some((a) => !a.paused && a.currentTime > 0.2), null, { timeout: 5000 });
+			assert.equal(await page.evaluate(() => window.__contexts.length), 1);
+			assert.equal(await page.evaluate(() => window.__contexts[0].state), 'running');
+
+			// What iOS does to it with the app in the background: the graph stops
+			// and the element goes on, with a position and no sound.
+			await page.evaluate(() => window.__contexts[0].suspend());
+			assert.equal(await page.evaluate(() => window.__contexts[0].state), 'suspended');
+			assert.ok(await page.evaluate(() => [...document.querySelectorAll('audio')].some((a) => !a.paused)));
+
+			await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+			await page.waitForFunction(() => window.__contexts[0].state === 'running', null, { timeout: 5000 });
+		} finally {
+			subsonic.state.audio = null;
+			await page.evaluate(() => localStorage.removeItem('heddohon:audio-processing')).catch(() => undefined);
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+});
+
 describe('the equaliser', () => {
 	test('is off until switched on, then kept in this browser with its bands', async () => {
 		const { page, problems } = await watchedPage();
@@ -1476,7 +1551,24 @@ describe('the tint through changes that come close together', () => {
 			await page.waitForURL(/\/albums\/al32$/);
 			await navigate(page, '/albums/al33');
 			await page.waitForURL(/\/albums\/al33$/);
-			await page.waitForTimeout(2200);
+			// Until the rail shows the last album's colour, and then the length of
+			// a fade. That is two fades of 900ms and the fetch of a cover, which a
+			// fixed 2.2s did not always cover: on a runner under load the sampling
+			// stopped on the second album's blue (CI, 2026-10-07 and 2026-10-08).
+			await page
+				.waitForFunction(
+					() => {
+						const last = window.__layers?.at(-1);
+						if (!last) return false;
+						const front = last[0][1] > 0.5 ? last[0][0] : last[1][0];
+						const [r, g, b] = front.match(/[\d.]+/g).map(Number);
+						return g > r && g > b;
+					},
+					null,
+					{ timeout: 10_000 }
+				)
+				.catch(() => undefined);
+			await page.waitForTimeout(1000);
 			const frames = await stop();
 
 			assert.deepEqual(repaintsWhileVisible(frames), []);
@@ -1520,13 +1612,17 @@ describe('resuming a transcode', () => {
 				{ timeout: 5000 }
 			);
 			await page.locator('aside.panel button.play').click();
+			// The track, not the second element: at the first press of Play it
+			// plays a muted `/silence.wav` once, to be allowed to play later. On a
+			// slow runner that was under way before the track, and was read as
+			// playback from 0.0s (dev, 2026-10-08).
 			await page.waitForFunction(
-				() => [...document.querySelectorAll('audio')].some((a) => !a.paused && a.currentTime > 0),
+				() => [...document.querySelectorAll('audio')].some((a) => !a.paused && a.currentTime > 0 && a.currentSrc.includes('/api/stream/')),
 				null,
 				{ timeout: 15_000 }
 			);
 			const at = await page.evaluate(() =>
-				Math.max(...[...document.querySelectorAll('audio')].filter((a) => !a.paused).map((a) => a.currentTime))
+				Math.max(...[...document.querySelectorAll('audio')].filter((a) => !a.paused && a.currentSrc.includes('/api/stream/')).map((a) => a.currentTime))
 			);
 			assert.ok(at >= 24, `playback started at ${at.toFixed(1)}s instead of 25s`);
 		} finally {
@@ -1579,12 +1675,12 @@ describe('resuming a transcode', () => {
 			assert.equal(await page.evaluate(() => [...document.querySelectorAll('audio')].some((a) => a.currentTime > 0)), false);
 
 			await page.waitForFunction(
-				() => [...document.querySelectorAll('audio')].some((a) => !a.paused && a.currentTime > 0),
+				() => [...document.querySelectorAll('audio')].some((a) => !a.paused && a.currentTime > 0 && a.currentSrc.includes('/api/stream/')),
 				null,
 				{ timeout: 15_000 }
 			);
 			const at = await page.evaluate(() =>
-				Math.max(...[...document.querySelectorAll('audio')].filter((a) => !a.paused).map((a) => a.currentTime))
+				Math.max(...[...document.querySelectorAll('audio')].filter((a) => !a.paused && a.currentSrc.includes('/api/stream/')).map((a) => a.currentTime))
 			);
 			assert.ok(at >= 24, `playback started at ${at.toFixed(1)}s instead of 25s`);
 			assert.ok(streams.length > 0);
@@ -2505,68 +2601,163 @@ describe('the aurora', () => {
 
 describe('the player panel on a wide screen', () => {
 	/*
-	 * The column's width used to be what animated, with the panel riding its
-	 * edge: a layout of the page on every frame of the slide (29 in Chromium
-	 * for one close), reported from an iPad Pro in landscape as a few frames a
-	 * second. The panel moves by `translate` now, and the column changes
-	 * width in one step: at once to open, and once the panel has left to
-	 * close. Read from the transitions the press starts, not from a clock.
+	 * Showing and hiding the panel changes the width of the page beside it.
+	 * Animating that width laid the page out on every frame, a few frames a
+	 * second on an iPad Pro. Changing it in one step, with only the panel
+	 * moving (0.6.1), made a grid of albums jump to a new column count, which
+	 * was reported as the interface snapping. Now the layout changes once and
+	 * what is on the page is carried from where it was (`client/glide.ts`).
+	 *
+	 * The frame the page is laid out in is a long one, so nothing moves in
+	 * it: a move started there is part-way through when it is first seen, and
+	 * the panel, on a curve that covers half its distance in the first 100ms,
+	 * was seen to snap. The moving starts in the frame after.
+	 *
+	 * Read as the page is laid out, then with every animation held at its
+	 * first frame, and again with them finished.
 	 */
-	test('slides by translate, and the page is laid out once', async () => {
-		const { page, problems } = await watchedPage();
-		/** The transitions on an element just after a press, as `property duration+delay`. */
-		const started = (selector) =>
-			page.evaluate(
-				(selector) =>
-					new Promise((done) =>
-						requestAnimationFrame(() =>
-							done(
-								document
-									.querySelector(selector)
-									.getAnimations()
-									.filter((a) => a.transitionProperty)
-									.map((a) => {
-										const timing = a.effect.getComputedTiming();
-										return `${a.transitionProperty} ${timing.duration}+${timing.delay}`;
-									})
-							)
-						)
-					),
-				selector
+	/**
+	 * Presses a button of the panel. Returns what is drawn where once the page
+	 * has its new layout and before anything has moved (`laidOut`), and then
+	 * holds what the press started at its start and counts it.
+	 */
+	const pressAndHold = async (page, label) => {
+		const early = await page.evaluate((label) => {
+			[...document.querySelectorAll('button')].find((b) => b.getAttribute('aria-label') === label).click();
+			// After the click's own work, and before the next frame: what is
+			// already moving then started in the frame the page is laid out in.
+			return new Promise((done) =>
+				setTimeout(() =>
+					done(
+						document.querySelector('.dock').getAnimations().length +
+							document.getAnimations().filter((a) => a.id === 'glide' && a.playState === 'running').length
+					)
+				)
 			);
-		const edges = () =>
-			page.evaluate(() => {
-				const box = (selector) => document.querySelector(selector).getBoundingClientRect();
-				return {
-					content: Math.round(box('main.content').right),
-					panel: Math.round(box('aside.panel').left),
-					grip: Math.round(box('#player-grip').left)
-				};
-			});
+		}, label);
+		const laidOut = { ...(await places(page)), early };
+		const moving = await page.evaluate(
+			() =>
+				new Promise((done) => {
+					let frames = 0;
+					const look = () => {
+						const dock = document.querySelector('.dock').getAnimations();
+						// Nothing starts for a listener who asked for less motion.
+						if (dock.length === 0 && ++frames < 10) return requestAnimationFrame(look);
+						const held = document.getAnimations().filter((a) => Number.isFinite(a.effect.getComputedTiming().endTime));
+						for (const animation of held) {
+							animation.pause();
+							animation.currentTime = 0;
+						}
+						window.__held = held;
+						done({
+							glide: held.filter((a) => a.id === 'glide').length,
+							dock: dock.map((a) => a.transitionProperty),
+							app: document.querySelector('.app').getAnimations().map((a) => a.transitionProperty)
+						});
+					};
+					requestAnimationFrame(look);
+				})
+		);
+		return { ...moving, laidOut };
+	};
+	const letGo = async (page) => {
+		await page.evaluate(() => window.__held.forEach((animation) => animation.finish()));
+		// Past the moment the column takes its width back on the way in.
+		await page.waitForFunction(() => !document.querySelector('.app').classList.contains('panel-arriving'), null, { timeout: 3000 });
+	};
+	/** Where the cards and the sort buttons are drawn, to the pixel. */
+	const places = (page) =>
+		page.evaluate(() => {
+			const box = (element) => {
+				const { left, top, width, height } = element.getBoundingClientRect();
+				return [left, top, width, height].map(Math.round).join(' ');
+			};
+			return {
+				cards: [...document.querySelectorAll('main.content [data-glide] > *')].slice(0, 12).map(box),
+				sort: box(document.querySelector('main.content nav.sorts')),
+				content: Math.round(document.querySelector('main.content').getBoundingClientRect().right),
+				panel: Math.round(document.querySelector('aside.panel').getBoundingClientRect().left),
+				grip: Math.round(document.querySelector('#player-grip').getBoundingClientRect().left)
+			};
+		});
+
+	test('lays the page out once, and carries the cards and the buttons to their new places', async () => {
+		const { page, problems } = await watchedPage();
 		try {
 			await page.goto(app.url + '/albums', { waitUntil: 'networkidle' });
-			const open = await edges();
+			const open = await places(page);
 
-			await page.getByRole('button', { name: 'Hide the player' }).click();
-			assert.deepEqual(await started('.dock'), ['translate 480+0'], 'the panel is not what moves');
-			assert.deepEqual(await started('.app'), ['grid-template-columns 0+480'], 'the column does not wait for the panel to leave');
-			await page.waitForFunction((was) => document.querySelector('main.content').getBoundingClientRect().right > was, open.content);
-			await page.waitForFunction(() => document.querySelector('.dock').getAnimations().length === 0);
-			const closed = await edges();
+			// Hiding it. The first frame is the page as it was, and no part of the
+			// layout is what animates: the panel moves, and the cards with it.
+			const hiding = await pressAndHold(page, 'Hide the player');
+			// Laid out, and drawn as it was: the page has its new width, and the
+			// cards, the buttons and the panel are where they were.
+			assert.ok(hiding.laidOut.content > open.content, 'the page was not laid out at once');
+			assert.equal(hiding.laidOut.early, 0, 'the panel or a card started moving in the frame the page was laid out in');
+			assert.deepEqual(
+				[hiding.laidOut.cards, hiding.laidOut.sort, hiding.laidOut.panel],
+				[open.cards, open.sort, open.panel],
+				'something had moved in the frame the page was laid out in'
+			);
+			assert.deepEqual(hiding.dock, ['translate'], 'the panel is not what moves');
+			assert.deepEqual(hiding.app, [], 'the columns animate, which lays the page out on every frame');
+			assert.ok(hiding.glide >= 8, `only ${hiding.glide} things are carried`);
+			const hidingFrom = await places(page);
+			assert.deepEqual(hidingFrom.cards, open.cards, 'the cards do not start from where they were');
+			assert.equal(hidingFrom.sort, open.sort, 'the sort buttons do not start from where they were');
+			assert.ok(hidingFrom.content > open.content, 'the page has not taken its new width in the first frame');
+			await letGo(page);
+			const closed = await places(page);
+			assert.notDeepEqual(closed.cards, open.cards, 'hiding the panel left the grid as it was');
 			// The sliver is 2rem wide, at the right-hand edge, 12px in from it.
 			assert.equal(closed.grip, 1440 - 12 - 32);
 			assert.equal(closed.panel, closed.grip, 'the hidden panel does not start at the sliver');
 			assert.equal(closed.content - open.content, closed.panel - open.panel, 'the page did not take the width the panel gave up');
 
-			await page.getByRole('button', { name: 'Show the player' }).click();
-			assert.deepEqual(await started('.dock'), ['translate 480+0']);
-			assert.deepEqual(await started('.app'), [], 'the column waits, or animates, on the way in');
-			await page.waitForFunction(() => document.querySelector('.dock').getAnimations().length === 0);
-			assert.deepEqual(await edges(), open);
+			// Showing it. The page is laid out for its new width at once, and its
+			// box stays as wide as it was until the panel has arrived, so a card on
+			// its way out from under the panel is not cut off.
+			const showing = await pressAndHold(page, 'Show the player');
+			assert.equal(showing.laidOut.early, 0, 'the panel or a card started moving in the frame the page was laid out in');
+			assert.deepEqual(
+				[showing.laidOut.cards, showing.laidOut.sort, showing.laidOut.panel],
+				[closed.cards, closed.sort, closed.panel],
+				'something had moved in the frame the page was laid out in'
+			);
+			assert.deepEqual(showing.dock, ['translate']);
+			assert.deepEqual(showing.app, []);
+			assert.ok(showing.glide >= 8, `only ${showing.glide} things are carried`);
+			const showingFrom = await places(page);
+			assert.deepEqual(showingFrom.cards, closed.cards, 'the cards do not start from where they were');
+			assert.equal(showingFrom.content, closed.content, 'the page\'s box was narrowed before the panel arrived');
+			assert.ok(await page.evaluate(() => document.querySelector('.app').classList.contains('panel-arriving')));
+			await page.evaluate(() => window.__held.forEach((animation) => animation.finish()));
+			// Arrived, with the column still to take its width: nothing moves when it does.
+			const arrivedAt = await places(page);
+			await letGo(page);
+			const reopened = await places(page);
+			assert.deepEqual(reopened.cards, arrivedAt.cards, 'the cards moved when the column took its width');
+			assert.deepEqual(reopened, open, 'shown again, the page is not as it was');
 		} finally {
 			await page.close();
 		}
 		assert.deepEqual(problems, []);
+	});
+
+	test('carries nothing for a listener who asked for less motion', async () => {
+		const reduced = await browser.newContext({ viewport: { width: 1440, height: 900 }, reducedMotion: 'reduce', storageState: await context.storageState() });
+		const page = await reduced.newPage();
+		try {
+			await page.goto(app.url + '/albums', { waitUntil: 'networkidle' });
+			const before = await places(page);
+			const hiding = await pressAndHold(page, 'Hide the player');
+			assert.equal(hiding.glide, 0);
+			assert.deepEqual(hiding.dock, []);
+			assert.notDeepEqual((await places(page)).cards, before.cards, 'the page did not take its new layout at once');
+		} finally {
+			await reduced.close();
+		}
 	});
 });
 

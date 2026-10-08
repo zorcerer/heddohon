@@ -94,6 +94,46 @@
 	let saving = $state(false);
 	let clearing = $state(false);
 	let clearingHistory = $state(false);
+
+	let backingUp = $state(false);
+	let backupError = $state('');
+	let backupDone = $state('');
+
+	/**
+	 * Asks for the database as a ZIP (`/api/backup`) and hands it to the
+	 * browser as a download. Fetched, not a form posted to the address: a
+	 * refusal then shows here, and the page with the music playing stays.
+	 */
+	async function downloadBackup() {
+		backingUp = true;
+		backupError = '';
+		backupDone = '';
+		try {
+			const response = await fetch('/api/backup', { method: 'POST' });
+			if (!response.ok) {
+				const body = await response.json().catch(() => null);
+				backupError = body?.message ?? 'The server did not answer. Try again.';
+				return;
+			}
+			const name =
+				/filename="([^"]+)"/.exec(response.headers.get('content-disposition') ?? '')?.[1] ?? 'heddohon-backup.zip';
+			const archive = await response.blob();
+			const url = URL.createObjectURL(archive);
+			const link = document.createElement('a');
+			link.href = url;
+			link.download = name;
+			document.body.append(link);
+			link.click();
+			link.remove();
+			// Held until the browser has taken the download up.
+			setTimeout(() => URL.revokeObjectURL(url), 60_000);
+			backupDone = `${name}, ${formatSize(archive.size)}`;
+		} catch {
+			backupError = 'The server did not answer. Try again.';
+		} finally {
+			backingUp = false;
+		}
+	}
 	let importingHistory = $state(false);
 	/** How long the listening history is kept, saved on its own as it is changed. */
 	let historyDays = $state(untrack(() => data.settings.historyDays));
@@ -651,7 +691,8 @@
 					<span class="hint hh-muted">
 						Plays through Web Audio at the output device's rate, which the equaliser needs. Volume
 						normalisation can then raise quiet tracks as well as lower loud ones, and a crossfade works on
-						an iPhone or iPad.
+						an iPhone or iPad. There, with this on, playing on while the app is in the background or the
+						screen is locked needs iOS 17.5 or later.
 						{#if player.processing && !processing.enabled}
 							Switched off; this page keeps processing until it is loaded again.
 						{/if}
@@ -1568,6 +1609,37 @@
 			{/if}
 		{/if}
 	</section>
+
+	<!--
+		Offered to an account the music server lists as an administrator, and
+		refused to any other by the server: the archive holds every account's
+		rows.
+	-->
+	{#if data.isAdmin}
+		<section class="hh-card hh-glass group" id="backup" hidden={shown !== 'storage'}>
+			<div class="group-head">
+				<h2>Database backup</h2>
+			</div>
+
+			<p class="hh-muted note">
+				Downloads a ZIP of this server's database: every account with its sign-in to
+				{data.serverLabel || 'the music server'} encrypted, settings, saved queues, shared links,
+				listening history, linked services and profiles. Sign-ins are left out, so everyone signs in
+				once after a restore, and covers are fetched again. The file opens only with this server's
+				HEDDOHON_SECRET, which is not in it: keep a copy of that as well. The steps to restore are in
+				the archive.
+			</p>
+			<button class="hh-button" type="button" onclick={downloadBackup} disabled={backingUp}>
+				<Icon name="download" size={16} />
+				{backingUp ? 'Making the backup…' : 'Download a backup'}
+			</button>
+			{#if backupError}
+				<p class="hh-muted note-inline" role="alert">{backupError}</p>
+			{:else if backupDone}
+				<p class="hh-muted note-inline" role="status">{backupDone}</p>
+			{/if}
+		</section>
+	{/if}
 
 	<section class="hh-card hh-glass group" hidden={shown !== 'history'}>
 		<div class="group-head">

@@ -11,6 +11,7 @@ import assert from 'node:assert/strict';
 import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { crc32, inflateRawSync } from 'node:zlib';
 import { after, before, beforeEach, describe, test } from 'node:test';
 import { Client, startApp } from './harness.mjs';
 import { OUTSIDE, startAutoEq, startJellyfin, startOutside, startStationHost, startSubsonic } from './mocks.mjs';
@@ -3026,6 +3027,158 @@ describe('signed in on', () => {
 			assert.match(html, /Firefox on Android/);
 		} finally {
 			await upgraded.stop();
+		}
+	});
+});
+
+/*
+ * The database as a ZIP, for an administrator, from Settings. The archive is
+ * read here by the format, not by this tree's own writer: the directory at
+ * the end, then each file's header, then its bytes inflated.
+ */
+describe('a backup of the database', () => {
+	// The session tests above end every older session of the account, the shared
+	// client's among them.
+	before(async () => {
+		assert.equal((await user.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' })).status, 303);
+	});
+
+	function unzip(bytes) {
+		const end = bytes.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]));
+		assert.ok(end >= 0, 'the archive has no end record');
+		const count = bytes.readUInt16LE(end + 10);
+		let at = bytes.readUInt32LE(end + 16);
+		const files = new Map();
+		for (let i = 0; i < count; i++) {
+			assert.equal(bytes.readUInt32LE(at), 0x02014b50, 'not a directory entry');
+			const packed = bytes.readUInt32LE(at + 20);
+			const size = bytes.readUInt32LE(at + 24);
+			const nameLength = bytes.readUInt16LE(at + 28);
+			const local = bytes.readUInt32LE(at + 42);
+			const name = bytes.toString('utf8', at + 46, at + 46 + nameLength);
+			assert.equal(bytes.readUInt32LE(local), 0x04034b50, 'not a file header');
+			const start = local + 30 + bytes.readUInt16LE(local + 26) + bytes.readUInt16LE(local + 28);
+			const data = inflateRawSync(bytes.subarray(start, start + packed));
+			assert.equal(data.length, size, `${name} is not the length the archive gives`);
+			assert.equal(crc32(data), bytes.readUInt32LE(at + 16), `${name} does not match its checksum`);
+			files.set(name, data);
+			at += 46 + nameLength + bytes.readUInt16LE(at + 30) + bytes.readUInt16LE(at + 32);
+		}
+		return files;
+	}
+
+	/** Asks for a backup as the signed-in administrator and opens it. */
+	async function backup() {
+		const response = await user.request('/api/backup', { method: 'POST' });
+		assert.equal(response.status, 200, explain('the backup was refused'));
+		return { response, files: unzip(Buffer.from(await response.arrayBuffer())) };
+	}
+
+	test('is refused to nobody signed in, to another origin, and to an account that is not an administrator', async () => {
+		assert.equal((await new Client(app.url).request('/api/backup', { method: 'POST' })).status, 401);
+		assert.equal((await user.request('/api/backup', { method: 'POST', origin: 'https://evil.example' })).status, 403);
+		assert.equal((await user.request('/api/backup')).status, 405, 'a GET is outside the origin check');
+
+		subsonic.state.admin = false;
+		try {
+			const refused = await user.request('/api/backup', { method: 'POST' });
+			assert.equal(refused.status, 403);
+			assert.doesNotMatch(refused.headers.get('content-type') ?? '', /zip/);
+			assert.doesNotMatch((await user.page('/settings?tab=storage')).html, /Database backup/);
+		} finally {
+			subsonic.state.admin = true;
+		}
+		assert.match((await user.page('/settings?tab=storage')).html, /Database backup/);
+	});
+
+	test('holds the database in one file, without the sign-ins, and leaves nothing behind', async () => {
+		const { default: Database } = await import('better-sqlite3');
+		const before = await (await user.request('/api/settings')).json();
+		await user.json('/api/settings', 'PATCH', { volume: 0.37 });
+		try {
+			const { response, files } = await backup();
+			assert.equal(response.headers.get('content-type'), 'application/zip');
+			assert.equal(response.headers.get('cache-control'), 'private, no-store');
+			assert.match(
+				response.headers.get('content-disposition') ?? '',
+				/^attachment; filename="heddohon-backup-\d{4}-\d\d-\d\dT\d\d-\d\d-\d\dZ\.zip"$/
+			);
+			assert.deepEqual([...files.keys()], ['heddohon.db', 'backup.json', 'README.txt']);
+
+			const dir = mkdtempSync(join(tmpdir(), 'heddohon-e2e-backup-'));
+			writeFileSync(join(dir, 'heddohon.db'), files.get('heddohon.db'));
+			const copy = new Database(join(dir, 'heddohon.db'), { readonly: true });
+			try {
+				const rows = (table) => copy.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get().n;
+				assert.equal(copy.pragma('journal_mode', { simple: true }), 'delete', 'the copy needs a file beside it');
+				assert.equal(copy.pragma('integrity_check', { simple: true }), 'ok');
+				assert.equal(rows('sessions'), 0, 'sign-ins are in the copy');
+				assert.equal(rows('login_attempts'), 0);
+				const account = copy.prepare("SELECT id, credential FROM accounts WHERE backend = 'subsonic' AND username = 'testuser'").get();
+				assert.ok(account, 'the account is not in the copy');
+				assert.doesNotMatch(account.credential, /testpass/, 'the credential is not sealed');
+				const saved = JSON.parse(copy.prepare('SELECT data FROM settings WHERE account_id = ?').get(account.id).data);
+				assert.equal(saved.volume, 0.37);
+
+				const manifest = JSON.parse(files.get('backup.json').toString());
+				assert.equal(manifest.from, 'sqlite');
+				assert.deepEqual(manifest.leftOut, ['sessions', 'login_attempts']);
+				assert.equal(manifest.tables.accounts, rows('accounts'));
+				assert.equal(manifest.tables.plays, rows('plays'));
+			} finally {
+				copy.close();
+			}
+
+			const readme = files.get('README.txt').toString();
+			assert.match(readme, /HEDDOHON_SECRET/);
+			assert.doesNotMatch(readme + files.get('backup.json'), /e2e-secret/, 'the secret is in the archive');
+
+			assert.deepEqual(readdirSync(app.dataDir).filter((name) => name.startsWith('backup-')), [], 'the working copy was left in the data directory');
+			assert.equal((await user.request('/api/settings')).status, 200, 'making a backup signed the account out');
+			assert.match(app.output(), /backup-made/, 'the log does not say a backup was made');
+		} finally {
+			await user.json('/api/settings', 'PATCH', { volume: before.volume });
+		}
+	});
+
+	test('one is made at a time, and a second is told to wait', async () => {
+		const answers = await Promise.all(Array.from({ length: 4 }, () => user.request('/api/backup', { method: 'POST' })));
+		for (const answer of answers) {
+			assert.ok(answer.status === 200 || answer.status === 429, `a backup was answered ${answer.status}`);
+			if (answer.status === 429) assert.equal(answer.headers.get('retry-after'), '5');
+			await answer.arrayBuffer();
+		}
+		assert.ok(answers.some((answer) => answer.status === 200), 'none of four requests at once was answered');
+	});
+
+	/*
+	 * The restore the archive's README gives for SQLite: the file in an empty
+	 * data directory, and the same secret (the harness gives every app one).
+	 */
+	test('restores: the file in a data directory is the server it came from, and everyone signs in once', async () => {
+		const before = await (await user.request('/api/settings')).json();
+		await user.json('/api/settings', 'PATCH', { volume: 0.21 });
+		let restored;
+		try {
+			const { files } = await backup();
+			const dataDir = mkdtempSync(join(tmpdir(), 'heddohon-e2e-restore-'));
+			writeFileSync(join(dataDir, 'heddohon.db'), files.get('heddohon.db'));
+			restored = await startApp({ subsonicUrl: subsonic.url, jellyfinUrl: jellyfin.url, dataDir });
+
+			// The session that made the backup is not in it.
+			const carried = new Client(restored.url);
+			for (const [name, value] of user.cookies) carried.cookies.set(name, value);
+			assert.equal((await carried.request('/api/settings')).status, 401, 'a sign-in from before the backup works on the restored server');
+
+			const client = new Client(restored.url);
+			const signIn = await client.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' });
+			assert.equal(signIn.status, 303, restored.output());
+			assert.equal((await (await client.request('/api/settings')).json()).volume, 0.21, 'the settings did not come back');
+			// The credential opened with the secret: a page that reads the library.
+			assert.equal((await client.page('/albums')).response.status, 200, restored.output());
+		} finally {
+			await restored?.stop();
+			await user.json('/api/settings', 'PATCH', { volume: before.volume });
 		}
 	});
 });
