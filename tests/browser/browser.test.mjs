@@ -1537,13 +1537,17 @@ describe('resuming a transcode', () => {
 				{ timeout: 5000 }
 			);
 			await page.locator('aside.panel button.play').click();
+			// The track, not the second element: at the first press of Play it
+			// plays a muted `/silence.wav` once, to be allowed to play later. On a
+			// slow runner that was under way before the track, and was read as
+			// playback from 0.0s (dev, 2026-10-08).
 			await page.waitForFunction(
-				() => [...document.querySelectorAll('audio')].some((a) => !a.paused && a.currentTime > 0),
+				() => [...document.querySelectorAll('audio')].some((a) => !a.paused && a.currentTime > 0 && a.currentSrc.includes('/api/stream/')),
 				null,
 				{ timeout: 15_000 }
 			);
 			const at = await page.evaluate(() =>
-				Math.max(...[...document.querySelectorAll('audio')].filter((a) => !a.paused).map((a) => a.currentTime))
+				Math.max(...[...document.querySelectorAll('audio')].filter((a) => !a.paused && a.currentSrc.includes('/api/stream/')).map((a) => a.currentTime))
 			);
 			assert.ok(at >= 24, `playback started at ${at.toFixed(1)}s instead of 25s`);
 		} finally {
@@ -1596,12 +1600,12 @@ describe('resuming a transcode', () => {
 			assert.equal(await page.evaluate(() => [...document.querySelectorAll('audio')].some((a) => a.currentTime > 0)), false);
 
 			await page.waitForFunction(
-				() => [...document.querySelectorAll('audio')].some((a) => !a.paused && a.currentTime > 0),
+				() => [...document.querySelectorAll('audio')].some((a) => !a.paused && a.currentTime > 0 && a.currentSrc.includes('/api/stream/')),
 				null,
 				{ timeout: 15_000 }
 			);
 			const at = await page.evaluate(() =>
-				Math.max(...[...document.querySelectorAll('audio')].filter((a) => !a.paused).map((a) => a.currentTime))
+				Math.max(...[...document.querySelectorAll('audio')].filter((a) => !a.paused && a.currentSrc.includes('/api/stream/')).map((a) => a.currentTime))
 			);
 			assert.ok(at >= 24, `playback started at ${at.toFixed(1)}s instead of 25s`);
 			assert.ok(streams.length > 0);
