@@ -691,7 +691,8 @@
 					<span class="hint hh-muted">
 						Plays through Web Audio at the output device's rate, which the equaliser needs. Volume
 						normalisation can then raise quiet tracks as well as lower loud ones, and a crossfade works on
-						an iPhone or iPad.
+						an iPhone or iPad. There, with this on, playing on while the app is in the background or the
+						screen is locked needs iOS 17.5 or later.
 						{#if player.processing && !processing.enabled}
 							Switched off; this page keeps processing until it is loaded again.
 						{/if}

@@ -546,6 +546,81 @@ describe('a pause, a skip and a seek through the graph', () => {
 	});
 });
 
+describe('what the system is told the page plays', () => {
+	/*
+	 * Safari's Audio Session API, which no browser the suite runs has: a stand-in
+	 * is put on `navigator` before the page loads. On an iPhone the type decides
+	 * whether a Web Audio graph is suspended when the app leaves the screen.
+	 */
+	test('is playback, set before anything plays and left alone where the browser has no such setting', async () => {
+		const { page, problems } = await watchedPage();
+		await page.addInitScript(() => {
+			const written = [];
+			let type = 'auto';
+			Object.defineProperty(navigator, 'audioSession', {
+				value: {
+					get type() {
+						return type;
+					},
+					set type(value) {
+						written.push(value);
+						type = value;
+					}
+				}
+			});
+			window.__audioSessionTypes = written;
+		});
+		await page.goto(app.url + '/albums/al1', { waitUntil: 'networkidle' });
+		assert.deepEqual(await page.evaluate(() => window.__audioSessionTypes), ['playback']);
+		assert.equal(await page.evaluate(() => navigator.audioSession.type), 'playback');
+		await page.close();
+
+		// Without it, as in Chromium and Firefox, nothing is written and nothing fails.
+		const plain = await watchedPage();
+		await plain.page.goto(app.url + '/albums/al1', { waitUntil: 'networkidle' });
+		assert.equal(await plain.page.evaluate(() => 'audioSession' in navigator), false);
+		await plain.page.close();
+		assert.deepEqual([...problems, ...plain.problems], []);
+	});
+
+	test('a graph the system stopped while the page was away starts again when the page is back', async () => {
+		const { page, problems } = await watchedPage();
+		await page.addInitScript(() => {
+			localStorage.setItem('heddohon:audio-processing', JSON.stringify({ enabled: true, gains: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0] }));
+			const Native = window.AudioContext;
+			window.__contexts = [];
+			window.AudioContext = class extends Native {
+				constructor(...args) {
+					super(...args);
+					window.__contexts.push(this);
+				}
+			};
+		});
+		subsonic.state.audio = { type: 'audio/wav', body: silentWav(30) };
+		try {
+			await page.goto(app.url + '/albums/al1', { waitUntil: 'networkidle' });
+			await page.getByRole('button', { name: 'Play Song 1a', exact: true }).click();
+			await page.waitForFunction(() => [...document.querySelectorAll('audio')].some((a) => !a.paused && a.currentTime > 0.2), null, { timeout: 5000 });
+			assert.equal(await page.evaluate(() => window.__contexts.length), 1);
+			assert.equal(await page.evaluate(() => window.__contexts[0].state), 'running');
+
+			// What iOS does to it with the app in the background: the graph stops
+			// and the element goes on, with a position and no sound.
+			await page.evaluate(() => window.__contexts[0].suspend());
+			assert.equal(await page.evaluate(() => window.__contexts[0].state), 'suspended');
+			assert.ok(await page.evaluate(() => [...document.querySelectorAll('audio')].some((a) => !a.paused)));
+
+			await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+			await page.waitForFunction(() => window.__contexts[0].state === 'running', null, { timeout: 5000 });
+		} finally {
+			subsonic.state.audio = null;
+			await page.evaluate(() => localStorage.removeItem('heddohon:audio-processing')).catch(() => undefined);
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+});
+
 describe('the equaliser', () => {
 	test('is off until switched on, then kept in this browser with its bands', async () => {
 		const { page, problems } = await watchedPage();
