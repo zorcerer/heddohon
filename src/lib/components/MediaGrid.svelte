@@ -54,7 +54,9 @@
 	}
 </script>
 
+<!-- `data-glide`: the cards are carried to their new places when the player panel changes the width; see `client/glide.ts`. -->
 <div
+	data-glide
 	class="grid hh-stagger"
 	class:roomy={density === 'roomy'}
 	class:whole={wholeRows}
