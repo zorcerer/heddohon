@@ -46,7 +46,8 @@ import type {
 } from '$lib/types';
 
 const API_VERSION = '1.16.1';
-const CLIENT_NAME = 'heddohon';
+/** The `c` parameter: what the music server knows this client as. `plugin.ts` knows its own plays by it. */
+export const CLIENT_NAME = 'heddohon';
 
 interface SubsonicEnvelope<T = Record<string, unknown>> {
 	'subsonic-response': T & {
@@ -995,7 +996,10 @@ export const subsonicBackend: MediaBackend = {
 		if (report.event === 'stop' && !report.completed) return;
 		await call(cred, 'scrobble.view', {
 			id: report.songId,
-			submission: report.event === 'stop' ? 'true' : 'false'
+			submission: report.event === 'stop' ? 'true' : 'false',
+			// Milliseconds, as the API takes them. Without it the server dates the
+			// play as the request arrives.
+			time: report.event === 'stop' ? report.at : undefined
 		});
 	},
 

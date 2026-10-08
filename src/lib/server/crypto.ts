@@ -128,3 +128,12 @@ export function linkStateDigest(value: string): string {
 export function castDigest(value: string): string {
 	return createHmac('sha256', keyFor('cast')).update(value).digest('base64url');
 }
+
+/**
+ * The digest the Navidrome plugin's token is compared by; see `plugin.ts`.
+ * Two digests are the same length whatever was sent, which is what
+ * `constantTimeEquals` needs to take the same time for any guess.
+ */
+export function pluginDigest(token: string): string {
+	return createHmac('sha256', keyFor('navidrome-plugin')).update(token).digest('base64url');
+}

@@ -80,6 +80,12 @@ export interface PlaybackReport {
 	event: 'start' | 'progress' | 'stop';
 	/** Only meaningful for `stop`: whether the play should count as a scrobble. */
 	completed?: boolean;
+	/**
+	 * Only meaningful for a completed `stop`: epoch millis the play is recorded
+	 * at in the history here. Navidrome dates the scrobble with it, so the play
+	 * its plugin reports back is known for the same one (`plugin.ts`).
+	 */
+	at?: number;
 }
 
 /**

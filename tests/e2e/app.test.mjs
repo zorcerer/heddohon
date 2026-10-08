@@ -58,6 +58,58 @@ async function asFreshAccount(username, run) {
 	}
 }
 
+/**
+ * A browser's event stream, read as it arrives. `next(type)` resolves with
+ * the next event of that type, and `closed` when the server ends it.
+ */
+async function listen(client, path = '/api/remote/events') {
+	const response = await client.request(path, { headers: { accept: 'text/event-stream' } });
+	assert.equal(response.status, 200, explain('the event stream was refused'));
+	assert.match(response.headers.get('content-type') ?? '', /^text\/event-stream/);
+	const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
+	const events = [];
+	const waiting = [];
+	let buffer = '';
+	const closed = (async () => {
+		for (;;) {
+			const { value, done } = await reader.read().catch(() => ({ done: true }));
+			if (done) return;
+			buffer += value;
+			let end;
+			while ((end = buffer.indexOf('\n\n')) >= 0) {
+				const block = buffer.slice(0, end);
+				buffer = buffer.slice(end + 2);
+				const type = /^event: (.*)$/m.exec(block)?.[1];
+				const data = /^data: (.*)$/m.exec(block)?.[1];
+				if (!type) continue;
+				events.push({ type, data: JSON.parse(data) });
+				for (const wait of [...waiting]) wait();
+			}
+		}
+	})();
+	let read = 0;
+	const next = (type, timeout = 3000) =>
+		new Promise((resolve, reject) => {
+			const timer = setTimeout(() => {
+				// Left waiting, it would take the next event of the type from the test.
+				waiting.splice(waiting.indexOf(check), 1);
+				reject(new Error(`no ${type} event within ${timeout}ms`));
+			}, timeout);
+			const check = () => {
+				const at = events.findIndex((event, i) => i >= read && event.type === type);
+				if (at < 0) return;
+				read = at + 1;
+				clearTimeout(timer);
+				waiting.splice(waiting.indexOf(check), 1);
+				resolve(events[at].data);
+			};
+			waiting.push(check);
+			check();
+		});
+	const { id } = await next('hello');
+	return { id, next, closed, cancel: () => reader.cancel().catch(() => undefined) };
+}
+
 describe('how long a sign-in lasts', () => {
 	/** The session cookie's `Max-Age` from a sign-in, in seconds. */
 	async function lifetime(url) {
@@ -774,58 +826,6 @@ describe('folders', () => {
 });
 
 describe('playback on another browser', () => {
-	/**
-	 * A browser's event stream, read as it arrives. `next(type)` resolves with
-	 * the next event of that type, and `closed` when the server ends it.
-	 */
-	async function listen(client, path = '/api/remote/events') {
-		const response = await client.request(path, { headers: { accept: 'text/event-stream' } });
-		assert.equal(response.status, 200, explain('the event stream was refused'));
-		assert.match(response.headers.get('content-type') ?? '', /^text\/event-stream/);
-		const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
-		const events = [];
-		const waiting = [];
-		let buffer = '';
-		const closed = (async () => {
-			for (;;) {
-				const { value, done } = await reader.read().catch(() => ({ done: true }));
-				if (done) return;
-				buffer += value;
-				let end;
-				while ((end = buffer.indexOf('\n\n')) >= 0) {
-					const block = buffer.slice(0, end);
-					buffer = buffer.slice(end + 2);
-					const type = /^event: (.*)$/m.exec(block)?.[1];
-					const data = /^data: (.*)$/m.exec(block)?.[1];
-					if (!type) continue;
-					events.push({ type, data: JSON.parse(data) });
-					for (const wait of [...waiting]) wait();
-				}
-			}
-		})();
-		let read = 0;
-		const next = (type, timeout = 3000) =>
-			new Promise((resolve, reject) => {
-				const timer = setTimeout(() => {
-					// Left waiting, it would take the next event of the type from the test.
-					waiting.splice(waiting.indexOf(check), 1);
-					reject(new Error(`no ${type} event within ${timeout}ms`));
-				}, timeout);
-				const check = () => {
-					const at = events.findIndex((event, i) => i >= read && event.type === type);
-					if (at < 0) return;
-					read = at + 1;
-					clearTimeout(timer);
-					waiting.splice(waiting.indexOf(check), 1);
-					resolve(events[at].data);
-				};
-				waiting.push(check);
-				check();
-			});
-		const { id } = await next('hello');
-		return { id, next, closed, cancel: () => reader.cancel().catch(() => undefined) };
-	}
-
 	const signedIn = async (username = 'testuser', password = 'testpass') => {
 		const client = new Client(app.url);
 		await client.signIn({ username, password, backend: 'subsonic' });
@@ -1993,7 +1993,7 @@ describe('playing things', () => {
 
 		test('is streamed as it arrives on the first request: no length, no ranges, not kept', async () => {
 			subsonic.calls.reset();
-			const response = await user.request('/api/stream/s2a?mode=mp3-192', { headers: { range: 'bytes=0-1' } });
+			const response = await user.request('/api/stream/s2a?mode=mp3-192', { headers: { range: 'bytes=0-' } });
 			assert.equal(response.status, 200);
 			assert.equal(response.headers.get('accept-ranges'), null);
 			assert.equal(response.headers.get('content-length'), null);
@@ -2059,7 +2059,7 @@ describe('playing things', () => {
 			const signIn = await user.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' });
 			assert.equal(signIn.status, 303);
 
-			const after = await user.request('/api/stream/s2a?mode=mp3-192', { headers: { range: 'bytes=0-1' } });
+			const after = await user.request('/api/stream/s2a?mode=mp3-192', { headers: { range: 'bytes=0-' } });
 			assert.equal(after.status, 200, 'the transcode held before the sessions ended was served after');
 			await after.arrayBuffer();
 		});
@@ -2091,6 +2091,28 @@ describe('playing things', () => {
 				assert.equal(response.headers.get('content-range'), 'bytes 0-999/1000');
 				assert.equal(response.headers.get('accept-ranges'), 'bytes');
 				assert.deepEqual(Buffer.from(await response.arrayBuffer()), body);
+			} finally {
+				subsonic.state.streamSlowMs = 0;
+			}
+		});
+
+		/*
+		 * Apple's player opens a track with `bytes=0-1` and takes its length
+		 * from the answer. Answered with a 200 without a length, an iPad played
+		 * the transcode as a live broadcast: it glitched and went silent, and the
+		 * volume slider did not move the level (2026-10-07).
+		 */
+		test('asked for a range with an end, is answered once the read is done, in ranges', async () => {
+			subsonic.state.streamSlowMs = 400;
+			try {
+				const started = Date.now();
+				const response = await user.request('/api/stream/s11a?mode=mp3-192', { headers: { range: 'bytes=0-1' } });
+				assert.ok(Date.now() - started >= 350, 'answered before the read was done');
+				assert.equal(response.status, 206);
+				assert.equal(response.headers.get('content-range'), 'bytes 0-1/1000');
+				assert.equal(response.headers.get('content-length'), '2');
+				assert.equal(response.headers.get('accept-ranges'), 'bytes');
+				assert.deepEqual(Buffer.from(await response.arrayBuffer()), body.subarray(0, 2));
 			} finally {
 				subsonic.state.streamSlowMs = 0;
 			}
@@ -4038,5 +4060,520 @@ describe('plays sent to a Discord channel and to ListenBrainz', () => {
 			body: new URLSearchParams({ kind: 'discord', value: `https://discord.com${OUTSIDE.webhook}` }).toString()
 		});
 		assert.equal((await response.json()).status, 404);
+	});
+});
+
+describe('plays from other apps, through the Navidrome plugin', () => {
+	const TOKEN = 'plugin-token-0123456789abcdef0123456789';
+	let on;
+
+	before(async () => {
+		on = await startApp({
+			subsonicUrl: subsonic.url,
+			jellyfinUrl: jellyfin.url,
+			env: {
+				HEDDOHON_NAVIDROME_PLUGIN_TOKEN: TOKEN,
+				// For the test that holds the music server's answer back.
+				HEDDOHON_UPSTREAM_TIMEOUT_MS: '1000',
+				// Everything the server can write, for the test that looks for the token in it.
+				HEDDOHON_LOG_LEVEL: 'debug'
+			}
+		});
+	});
+
+	after(async () => {
+		await on?.stop();
+	});
+
+	const told = (message) => `${message}\n--- app output ---\n${on.output()}`;
+
+	/** A message as the plugin posts it: its token, the app's own address as `Origin`, version 1. */
+	const plugin = (message, { token = TOKEN, origin = on.url, headers = {} } = {}) =>
+		fetch(`${on.url}/api/plugin/navidrome`, {
+			method: 'POST',
+			headers: {
+				'content-type': 'application/json',
+				...(origin ? { origin } : {}),
+				...(token ? { authorization: `Bearer ${token}` } : {}),
+				...headers
+			},
+			body: JSON.stringify({ v: 1, ...message })
+		});
+	/** Unix seconds, `ago` milliseconds back. */
+	const seconds = (ago = 0) => Math.floor((Date.now() - ago) / 1000);
+	const DAY = 24 * 60 * 60 * 1000;
+	const titles = (html) => [...html.matchAll(/class="title hh-truncate[^"]*">([^<]+)</g)].map((m) => m[1]);
+	const history = async (client) => titles((await client.page('/history')).html);
+
+	/** As `asFreshAccount`, on the app with the plugin's endpoint. */
+	async function asListener(username, run) {
+		subsonic.state.username = username;
+		subsonic.state.password = `${username}pass`;
+		try {
+			const client = new Client(on.url);
+			const signedIn = await client.signIn({ username, password: `${username}pass`, backend: 'subsonic' });
+			assert.equal(signedIn.status, 303, told('the sign-in failed'));
+			subsonic.calls.reset();
+			subsonic.state.scrobbles.length = 0;
+			await run(client);
+		} finally {
+			subsonic.state.username = 'testuser';
+			subsonic.state.password = 'testpass';
+		}
+	}
+
+	/** What a form action answered, out of devalue's flat form. */
+	async function action(client, name) {
+		const response = await client.request(`/settings?/${name}`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json', 'x-sveltekit-action': 'true' },
+			body: ''
+		});
+		const result = await response.json();
+		const flat = JSON.parse(result.data);
+		const revive = (at) => {
+			const value = flat[at];
+			if (Array.isArray(value)) return value.map(revive);
+			if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, to]) => [key, revive(to)]));
+			return value;
+		};
+		return { type: result.type, status: result.status, data: revive(0) };
+	}
+
+	/** Polls as the plugin does until the account's history is wanted, and returns what is asked of it. */
+	async function untilWanted(username) {
+		for (let tries = 0; tries < 100; tries++) {
+			const { wanted } = await (await plugin({ type: 'poll' })).json();
+			const mine = wanted.find((want) => want.username === username);
+			if (mine) return mine;
+			await new Promise((done) => setTimeout(done, 20));
+		}
+		assert.fail(told(`the history of ${username} was never asked for`));
+	}
+
+	test('the endpoint takes the plugin\'s token and nothing in its place', async () => {
+		const poll = { type: 'poll' };
+		for (const token of [null, 'x', TOKEN.slice(0, -1), `${TOKEN}x`, TOKEN.toUpperCase()]) {
+			const response = await plugin(poll, { token });
+			assert.equal(response.status, 401, `token ${token}`);
+			assert.deepEqual(await response.json(), { error: 'not_authenticated' });
+		}
+		// A signed-in browser is not the plugin.
+		const session = [...user.cookies].map(([name, value]) => `${name}=${value}`).join('; ');
+		assert.equal((await plugin(poll, { token: null, headers: { cookie: session } })).status, 401);
+		// The token does not stand in for the origin check.
+		for (const origin of [null, 'https://evil.example']) {
+			const response = await plugin(poll, { origin });
+			assert.equal(response.status, 403, `origin ${origin}`);
+			assert.deepEqual(await response.json(), { error: 'cross_origin_forbidden' });
+		}
+
+		const taken = await plugin(poll);
+		assert.equal(taken.status, 200, told('the poll was refused'));
+		assert.deepEqual(await taken.json(), { wanted: [] });
+		assert.match(taken.headers.get('cache-control') ?? '', /no-store/);
+
+		// The app of the other tests has no token set.
+		const off = await fetch(`${app.url}/api/plugin/navidrome`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json', origin: app.url, authorization: `Bearer ${TOKEN}` },
+			body: JSON.stringify({ v: 1, ...poll })
+		});
+		assert.equal(off.status, 404);
+	});
+
+	test('a message that is not one the plugin sends is refused whole', async () => {
+		const play = { username: 'testuser', songId: 's3a', at: seconds() };
+		const refused = [
+			[{ v: 2, type: 'poll' }, 'unsupported_version'],
+			[{ type: 'nope' }, 'invalid_message'],
+			[{ type: 'plays' }, 'invalid_message'],
+			[{ type: 'plays', plays: [play, { ...play, at: String(play.at) }] }, 'invalid_message'],
+			[{ type: 'plays', plays: [{ ...play, at: play.at + 0.5 }] }, 'invalid_message'],
+			[{ type: 'plays', plays: [{ ...play, at: -1 }] }, 'invalid_message'],
+			// An hour ahead of this server's clock.
+			[{ type: 'plays', plays: [{ ...play, at: play.at + 3600 }] }, 'invalid_message'],
+			[{ type: 'plays', plays: [{ ...play, songId: 'x'.repeat(256) }] }, 'invalid_message'],
+			[{ type: 'plays', plays: [{ ...play, username: '' }] }, 'invalid_message'],
+			[{ type: 'plays', plays: [null] }, 'invalid_message'],
+			[{ type: 'plays', plays: Array.from({ length: 101 }, () => play) }, 'invalid_message'],
+			[{ type: 'history', plays: [] }, 'invalid_message'],
+			[{ type: 'history', username: 'testuser', plays: Array.from({ length: 2001 }, () => ({ songId: 's3a', at: play.at })) }, 'invalid_message']
+		];
+		for (const [message, error] of refused) {
+			const response = await plugin(message);
+			assert.equal(response.status, 400, told(JSON.stringify(message).slice(0, 120)));
+			assert.deepEqual(await response.json(), { error });
+		}
+		const notJson = await fetch(`${on.url}/api/plugin/navidrome`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json', origin: on.url, authorization: `Bearer ${TOKEN}` },
+			body: 'v=1'
+		});
+		assert.equal(notJson.status, 400);
+		assert.deepEqual(await history(user), [], 'a refused message left a play behind');
+	});
+
+	test('a play in another app is noted for the account its user name signs in to, once', async () => {
+		await asListener('roamer', async (client) => {
+			// Navidrome matches a user name in any case, and so does this.
+			const play = { username: 'Roamer', songId: 's3a', at: seconds(60_000) };
+			const taken = await plugin({ type: 'plays', plays: [play] });
+			assert.equal(taken.status, 200, told('the play was refused'));
+			assert.deepEqual(await history(client), ['Song 3a']);
+			// The track as the music server describes it, which the stats are made of.
+			assert.match((await client.page('/stats?period=all')).html, /Artist 0003/);
+			assert.equal(subsonic.calls.get('scrobble'), 0, 'a play Navidrome reported was reported back to it');
+
+			// Sent again, as after an answer the plugin did not get.
+			await plugin({ type: 'plays', plays: [play] });
+			assert.deepEqual(await history(client), ['Song 3a']);
+
+			// A user who has never signed in here has no history to go into.
+			assert.equal((await plugin({ type: 'plays', plays: [{ ...play, username: 'stranger', songId: 's4a' }] })).status, 200);
+			assert.deepEqual(await history(client), ['Song 3a']);
+
+			// Several in one message, each to its own account.
+			await plugin({ type: 'plays', plays: [{ ...play, songId: 's4a', at: seconds(30_000) }, { ...play, username: 'stranger' }] });
+			assert.deepEqual(await history(client), ['Song 4a', 'Song 3a']);
+
+			// One play in two requests at once: the look for it and its insert are
+			// not split by the other request's.
+			const twice = { type: 'plays', plays: [{ username: 'roamer', songId: 's5a', at: seconds(90_000) }] };
+			await Promise.all([plugin(twice), plugin(twice), plugin(twice)]);
+			assert.deepEqual(await history(client), ['Song 4a', 'Song 3a', 'Song 5a']);
+		});
+	});
+
+	test('an account turns plays from other apps off, and its own plays are still noted', async () => {
+		await asListener('homebody', async (client) => {
+			const settings = (await client.page('/settings?tab=history')).html;
+			assert.match(settings, /Plays from other apps/);
+			assert.equal((await (await client.json('/api/settings', 'PATCH', {})).json()).historyOtherApps, true, 'on unless turned off');
+			await client.json('/api/settings', 'PATCH', { historyOtherApps: false });
+			assert.equal((await plugin({ type: 'plays', plays: [{ username: 'homebody', songId: 's3a', at: seconds(60_000) }] })).status, 200);
+			assert.deepEqual(await history(client), []);
+			await client.json('/api/playback', 'POST', { songId: 's4a', event: 'stop', position: 100, completed: true });
+			assert.deepEqual(await history(client), ['Song 4a']);
+		});
+		// Where the plugin's endpoint is off, the page does not offer the switch.
+		assert.doesNotMatch((await user.page('/settings?tab=history')).html, /Plays from other apps/);
+	});
+
+	test('a play made here is scrobbled with its time, and is not noted again when Navidrome reports it', async () => {
+		await asListener('athome', async (client) => {
+			await client.json('/api/playback', 'POST', { songId: 's4a', event: 'start', position: 0, completed: false });
+			const before = Date.now();
+			await client.json('/api/playback', 'POST', { songId: 's4a', event: 'stop', position: 100, completed: true });
+			const [started, played] = subsonic.state.scrobbles;
+			assert.deepEqual(started, { id: 's4a', submission: 'false', time: null });
+			assert.equal(played.submission, 'true');
+			const time = Number(played.time);
+			assert.ok(time >= before && time <= Date.now(), `scrobbled with time ${played.time}`);
+
+			// Navidrome hands the plugin that time, in seconds.
+			await plugin({ type: 'plays', plays: [{ username: 'athome', songId: 's4a', at: Math.floor(time / 1000) }] });
+			assert.deepEqual(await history(client), ['Song 4a']);
+			// From before the time was sent, Navidrome dated the scrobble a moment after the play.
+			await plugin({ type: 'plays', plays: [{ username: 'athome', songId: 's4a', at: Math.floor(time / 1000) + 20 }] });
+			assert.deepEqual(await history(client), ['Song 4a']);
+			// The same song a minute earlier is another play.
+			await plugin({ type: 'plays', plays: [{ username: 'athome', songId: 's4a', at: Math.floor(time / 1000) - 60 }] });
+			assert.deepEqual(await history(client), ['Song 4a', 'Song 4a']);
+		});
+	});
+
+	test('a play is dropped for a song the account cannot read or a credential that no longer signs in, and kept back while the music server is silent', async () => {
+		await asListener('guarded', async (client) => {
+			const play = (songId, ago = 60_000) => plugin({ type: 'plays', plays: [{ username: 'guarded', songId, at: seconds(ago) }] });
+
+			subsonic.state.hidden.set('guarded', new Set(['s5a']));
+			try {
+				assert.equal((await play('s5a')).status, 200);
+				assert.equal((await play('nothing-by-this-id')).status, 200);
+				assert.deepEqual(await history(client), []);
+			} finally {
+				subsonic.state.hidden.delete('guarded');
+			}
+
+			// The password changed on the music server: what is stored here is no
+			// longer that user's, and nothing is noted on its word.
+			subsonic.state.password = 'changed-upstream';
+			try {
+				assert.equal((await play('s3a')).status, 200, told('a rejected credential failed the request'));
+			} finally {
+				subsonic.state.password = 'guardedpass';
+			}
+			assert.equal((await client.request('/api/settings')).status, 200, 'the plugin signed the account out');
+			assert.deepEqual(await history(client), []);
+
+			// No answer from the music server: the plugin is told to send the play again.
+			subsonic.state.stalled.add('getSong');
+			try {
+				const held = await play('s3a');
+				assert.equal(held.status, 503, told('a play whose song could not be read was taken'));
+				assert.deepEqual(await held.json(), { error: 'upstream_unavailable' });
+			} finally {
+				subsonic.state.stalled.delete('getSong');
+			}
+			assert.equal((await play('s3a')).status, 200);
+			assert.deepEqual(await history(client), ['Song 3a']);
+		});
+	});
+
+	test('an import brings in every play Navidrome kept, a page at a time, for the account that asked', async () => {
+		await asListener('collector', async (client) => {
+			await client.json('/api/playback', 'POST', { songId: 's3a', event: 'stop', position: 100, completed: true });
+			const here = Math.floor(Number(subsonic.state.scrobbles.at(-1).time) / 1000);
+			// The songs come from the library's played tracks, as for the import without the plugin.
+			for (const id of ['s3a', 's4b', 's5a']) subsonic.state.played.set(id, new Date().toISOString());
+			try {
+				await plugin({ type: 'poll' });
+				assert.match((await client.page('/settings?tab=history')).html, /Navidrome keeps every play in its scrobble history/);
+				const asked = action(client, 'importHistory');
+				assert.deepEqual(await untilWanted('collector'), { username: 'collector', from: 0 });
+
+				// A page for a user who asked for nothing is not taken.
+				await plugin({ type: 'history', username: 'testuser', plays: [{ songId: 's6a', at: seconds(DAY) }], more: false });
+
+				const second = seconds(10 * DAY);
+				const first = await plugin({
+					type: 'history',
+					username: 'collector',
+					plays: [
+						{ songId: 's4b', at: seconds(30 * DAY) },
+						// Two plays of one song, which the last-play import has one of.
+						{ songId: 's5a', at: seconds(20 * DAY) },
+						{ songId: 's5a', at: second }
+					],
+					more: true
+				});
+				// The next page is asked for from the last second of this one.
+				assert.deepEqual((await first.json()).wanted, [{ username: 'collector', from: second }]);
+				const last = await plugin({
+					type: 'history',
+					username: 'collector',
+					plays: [
+						// That second again, a track no longer in the library, and the play made here.
+						{ songId: 's5a', at: second },
+						{ songId: 'deleted-since', at: seconds(9 * DAY) },
+						{ songId: 's3a', at: here }
+					],
+					more: false
+				});
+				assert.deepEqual((await last.json()).wanted, []);
+
+				const result = await asked;
+				assert.equal(result.type, 'success', told('the import failed'));
+				assert.deepEqual(result.data, { historyImported: { found: 5, imported: 3 }, historyImportFull: true });
+				assert.deepEqual(await history(client), ['Song 3a', 'Song 5a', 'Song 5a', 'Song 4b']);
+				assert.deepEqual(await history(user), [], 'a page went into the history of an account that had not asked');
+
+				// A page after the last is for no import, and adds nothing.
+				await plugin({ type: 'history', username: 'collector', plays: [{ songId: 's4b', at: seconds(5 * DAY) }], more: false });
+				assert.deepEqual(await history(client), ['Song 3a', 'Song 5a', 'Song 5a', 'Song 4b']);
+			} finally {
+				subsonic.state.played.clear();
+			}
+		});
+	});
+
+	test('an import asks only for what the account keeps, and says so when Navidrome will not send it', async () => {
+		await asListener('keeper', async (client) => {
+			await client.json('/api/settings', 'PATCH', { historyDays: 90 });
+			await plugin({ type: 'poll' });
+			const asked = action(client, 'importHistory');
+			const want = await untilWanted('keeper');
+			assert.ok(Math.abs(want.from - seconds(90 * DAY)) <= 5, `asked from ${want.from}`);
+			// A second click while it runs.
+			const again = await action(client, 'importHistory');
+			assert.deepEqual([again.type, again.status], ['failure', 409]);
+
+			await plugin({ type: 'history', username: 'keeper', failed: true });
+			const result = await asked;
+			assert.deepEqual([result.type, result.status], ['failure', 502]);
+			assert.match(result.data.historyImportError, /has to be allowed your user/);
+			assert.deepEqual((await (await plugin({ type: 'poll' })).json()).wanted, []);
+		});
+	});
+
+	test('until the plugin is heard from, the import is the last play of each song', async () => {
+		const quiet = await startApp({ subsonicUrl: subsonic.url, jellyfinUrl: jellyfin.url, env: { HEDDOHON_NAVIDROME_PLUGIN_TOKEN: TOKEN } });
+		subsonic.state.played.set('s3a', new Date(Date.now() - DAY).toISOString());
+		try {
+			const client = new Client(quiet.url);
+			await client.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' });
+			const settings = (await client.page('/settings?tab=history')).html;
+			assert.match(settings, /has not been heard from in the last minute/);
+			assert.match(settings, /keeps the date each track was last\s+played/);
+			const result = await action(client, 'importHistory');
+			assert.deepEqual(result.data, { historyImported: { found: 1, imported: 1 } });
+		} finally {
+			subsonic.state.played.clear();
+			await quiet.stop();
+		}
+	});
+
+	/** What Navidrome reports an app doing, as the plugin passes it on. */
+	const playback = (username, state, more = {}) =>
+		plugin({ type: 'playback', username, songId: 's3a', state, positionMs: 0, player: 'player-1', playerName: 'Symfonium', ...more });
+	const signedInAs = async (username, password) => {
+		const client = new Client(on.url);
+		assert.equal((await client.signIn({ username, password, backend: 'subsonic' })).status, 303);
+		return client;
+	};
+
+	test('what another app plays is shown to the account\'s own browsers, with whether the app says where it is', async () => {
+		const client = await signedInAs('testuser', 'testpass');
+		const other = await signedInAs('seconduser', 'secondpass');
+		const mine = await listen(client);
+		const theirs = await listen(other);
+		try {
+			assert.deepEqual((await mine.next('peers')).apps, []);
+			await theirs.next('peers');
+
+			// A client that only says a track started: playing, at 0.
+			assert.equal((await playback('testuser', 'playing')).status, 200, told('the report was refused'));
+			const [app] = (await mine.next('peers')).apps;
+			const { at, ...state } = app.state;
+			assert.equal(typeof at, 'number');
+			// The track as the music server describes it to the account, and of
+			// the request only the app's name.
+			assert.deepEqual(state, {
+				songId: 's3a',
+				title: 'Song 3a',
+				artist: 'Artist 0003',
+				coverArt: 'al-3',
+				album: 'Album 3',
+				albumId: 'al3',
+				position: 0,
+				duration: 180,
+				playing: true,
+				volume: 1
+			});
+			assert.equal(app.name, 'Symfonium');
+			assert.equal(app.exact, false);
+			// Navidrome's id for the player stays on the server.
+			assert.match(app.id, /^[0-9a-f]{16}$/);
+			// One account's app is told to no other account's browsers.
+			await assert.rejects(theirs.next('peers', 300), /no peers event/);
+
+			// One that says where it is, and that it paused.
+			await playback('testuser', 'playing', { positionMs: 42_000 });
+			const moved = (await mine.next('peers')).apps[0];
+			assert.deepEqual([moved.state.position, moved.exact, moved.id], [42, true, app.id]);
+			await playback('testuser', 'paused', { positionMs: 50_000 });
+			const paused = (await mine.next('peers')).apps[0];
+			assert.deepEqual([paused.state.position, paused.state.playing, paused.exact], [50, false, true]);
+
+			// A second app beside it, the most recently heard first, under a name
+			// cut to 32 characters with what would turn the text around removed.
+			await playback('testuser', 'starting', { player: 'player-2', songId: 's4a', playerName: `Evil\u202e\u0007 ${'x'.repeat(100)}` });
+			const both = (await mine.next('peers')).apps;
+			assert.deepEqual(both.map((one) => one.state.title), ['Song 4a', 'Song 3a']);
+			assert.equal(both[0].name, `Evil ${'x'.repeat(27)}`);
+			assert.equal(both[0].exact, true);
+
+			// Stopped, and a session Navidrome gave up on, each take their app out.
+			await playback('testuser', 'stopped', { player: 'player-2', songId: 's4a' });
+			assert.equal((await mine.next('peers')).apps.length, 1);
+			await playback('testuser', 'expired');
+			assert.deepEqual((await mine.next('peers')).apps, []);
+
+			// This server's own plays come back from Navidrome too, under the name
+			// it gives as a client, and its browsers have already said them.
+			await playback('testuser', 'playing', { playerName: 'Heddohon' });
+			// A song the account cannot read, and a user with no account here.
+			subsonic.state.hidden.set('testuser', new Set(['s5a']));
+			await playback('testuser', 'playing', { songId: 's5a' });
+			subsonic.state.hidden.delete('testuser');
+			assert.equal((await playback('stranger', 'playing')).status, 200);
+			await assert.rejects(mine.next('peers', 300), /no peers event/);
+
+			for (const wrong of [{ state: 'dancing' }, { positionMs: -1 }, { positionMs: '5' }, { player: '' }, { songId: 'x'.repeat(256) }, { playerName: 7 }]) {
+				const response = await playback('testuser', wrong.state ?? 'playing', wrong);
+				assert.equal(response.status, 400, JSON.stringify(wrong));
+			}
+		} finally {
+			mine.cancel();
+			theirs.cancel();
+			await playback('testuser', 'stopped');
+			await playback('testuser', 'stopped', { player: 'player-2', songId: 's4a' });
+		}
+	});
+
+	test('what an account plays in another app is shown to the others only once it has said so, and with no browser of its own open', async () => {
+		const first = await signedInAs('testuser', 'testpass');
+		const second = await signedInAs('seconduser', 'secondpass');
+		const a = await listen(first);
+		const b = await listen(second);
+		const shown = async () => (await b.next('listeners')).listeners.map((listener) => [listener.name, listener.title]);
+		try {
+			assert.equal((await (await first.request('/api/settings')).json()).listeningOtherApps, false, 'off until the account turns it on');
+			assert.match((await first.page('/settings?tab=account')).html, /Include what I play in other apps/);
+			await b.next('listeners');
+			await a.next('peers');
+			await first.json('/api/profile', 'PATCH', { shown: true });
+			assert.deepEqual(await shown(), []);
+
+			// Shown, and playing in another app: its own browsers see it, the others do not.
+			await playback('testuser', 'playing');
+			assert.equal((await a.next('peers')).apps.length, 1);
+			await assert.rejects(b.next('listeners', 300), /no listeners event/);
+
+			// Turned on, the app playing now is shown at once, under the track the
+			// music server describes.
+			assert.equal((await first.json('/api/settings', 'PATCH', { listeningOtherApps: true })).status, 200);
+			assert.deepEqual(await shown(), [['testuser', 'Song 3a']]);
+
+			// With every browser of the account closed it is still listening.
+			a.cancel();
+			await assert.rejects(b.next('listeners', 300), /no listeners event/);
+			const late = await listen(await signedInAs('seconduser', 'secondpass'));
+			assert.equal((await late.next('listeners')).listeners.length, 1, 'gone from the list with its browser');
+			late.cancel();
+
+			// A pause takes it out and playing puts it back, as in a browser.
+			await playback('testuser', 'paused', { positionMs: 10_000 });
+			assert.deepEqual(await shown(), []);
+			await playback('testuser', 'playing', { positionMs: 10_000 });
+			assert.deepEqual(await shown(), [['testuser', 'Song 3a']]);
+			// The next track.
+			await playback('testuser', 'playing', { songId: 's4a' });
+			assert.deepEqual(await shown(), [['testuser', 'Song 4a']]);
+
+			// Turned off while it plays, either switch takes it out at once.
+			await first.json('/api/settings', 'PATCH', { listeningOtherApps: false });
+			assert.deepEqual(await shown(), []);
+			await first.json('/api/settings', 'PATCH', { listeningOtherApps: true });
+			assert.deepEqual(await shown(), [['testuser', 'Song 4a']]);
+			await first.json('/api/profile', 'PATCH', { shown: false });
+			assert.deepEqual(await shown(), []);
+			await first.json('/api/profile', 'PATCH', { shown: true });
+			assert.deepEqual(await shown(), [['testuser', 'Song 4a']]);
+
+			await playback('testuser', 'stopped', { songId: 's4a' });
+			assert.deepEqual(await shown(), []);
+		} finally {
+			a.cancel();
+			b.cancel();
+			await playback('testuser', 'stopped');
+			await first.json('/api/profile', 'PATCH', { shown: false });
+			await first.json('/api/settings', 'PATCH', { listeningOtherApps: false });
+		}
+	});
+
+	test('the token is in no answer, no line of the log and no file', async () => {
+		const page = (await user.page('/settings?tab=history')).html;
+		assert.ok(!page.includes(TOKEN));
+		assert.ok(!on.output().includes(TOKEN), 'the token is in the log');
+		// The log was written at debug, so the lines that could have carried it are there.
+		assert.match(on.output(), /debug request .*path=\/api\/plugin\/navidrome/);
+		assert.match(on.output(), /plugin-refused/);
+		const files = readdirSync(on.dataDir, { recursive: true })
+			.map((name) => join(on.dataDir, String(name)))
+			.filter((file) => statSync(file).isFile());
+		assert.ok(files.some((file) => file.endsWith('.db')), `files: ${files}`);
+		for (const file of files) assert.ok(!readFileSync(file).includes(TOKEN), `the token is in ${file}`);
 	});
 });

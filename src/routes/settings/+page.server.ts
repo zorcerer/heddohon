@@ -19,6 +19,14 @@ import { log, reason } from '$lib/server/log';
 import { describeShares, revokeAllShares, revokeShare } from '$lib/server/shares';
 import { clearHistory, importPlays, recentPlays } from '$lib/server/history';
 import { getProfile } from '$lib/server/listening';
+import { pluginHeard, pluginOffered, requestImport } from '$lib/server/plugin';
+
+/**
+ * How long the import action waits for the Navidrome plugin to send the whole
+ * scrobble history before it answers that the import is still arriving. The
+ * plugin starts within 15 seconds and sends 1000 plays a request.
+ */
+const IMPORT_WAIT_MS = 45_000;
 
 /**
  * A ListenBrainz user token as issued: a UUID, 36 characters. Up to 128 of the
@@ -120,6 +128,12 @@ export const load: PageServerLoad = async ({ locals }) => {
 			viaMusicServer
 		},
 		historyCount: history.total,
+		/*
+		 * Where the Navidrome plugin's endpoint is on for this account: whether
+		 * the plugin has been heard from in the last minute. Null where it is
+		 * off, and the page says nothing of it.
+		 */
+		plugin: pluginOffered(session.account.backend) ? { heard: pluginHeard() } : null,
 		// As the `listeners` event carries it, which replaces it once the stream is open.
 		profile: profile && { id: profile.handle, name: profile.name, shown: profile.shown, avatar: profile.avatarAt }
 	};
@@ -365,9 +379,35 @@ export const actions: Actions = {
 		if (!session) return fail(401, { error: 'Not signed in' });
 		const backend = backendFor(session.account.backend);
 		const { historyDays } = await getSettings(session.account.id);
+		const read = () => backend.getPlayedSongs(session.credential);
 		let result;
 		try {
-			result = await importPlays(session.account.id, () => backend.getPlayedSongs(session.credential), historyDays);
+			/*
+			 * With the Navidrome plugin running, every play Navidrome kept and
+			 * not only the last of each song. The plugin is asked at its next
+			 * poll, up to 15 seconds away, and this waits for the last page.
+			 */
+			if (pluginOffered(session.account.backend) && pluginHeard()) {
+				const asked = await requestImport(session.account, read, historyDays);
+				if (asked === 'busy') {
+					return fail(503, { historyImportError: 'Other accounts are importing. Try again in a few minutes.' });
+				}
+				if (asked === null) return fail(409, { historyImportError: 'An import is already running for this account.' });
+				const outcome = await Promise.race([
+					asked,
+					new Promise<null>((resolve) => setTimeout(() => resolve(null), IMPORT_WAIT_MS).unref())
+				]);
+				// Still arriving: it goes on without this request.
+				if (outcome === null) return { historyImportPending: true };
+				if (outcome === 'failed') {
+					return fail(502, {
+						historyImportError:
+							'Navidrome did not send the history. Its Heddohon plugin has to be allowed your user, under Plugins in Navidrome.'
+					});
+				}
+				return { historyImported: outcome, historyImportFull: true };
+			}
+			result = await importPlays(session.account.id, read, historyDays);
 		} catch (err) {
 			if (err instanceof UpstreamError && err.kind === 'auth') {
 				await destroyAllSessions(session.account.id);

@@ -2503,6 +2503,73 @@ describe('the aurora', () => {
 	});
 });
 
+describe('the player panel on a wide screen', () => {
+	/*
+	 * The column's width used to be what animated, with the panel riding its
+	 * edge: a layout of the page on every frame of the slide (29 in Chromium
+	 * for one close), reported from an iPad Pro in landscape as a few frames a
+	 * second. The panel moves by `translate` now, and the column changes
+	 * width in one step: at once to open, and once the panel has left to
+	 * close. Read from the transitions the press starts, not from a clock.
+	 */
+	test('slides by translate, and the page is laid out once', async () => {
+		const { page, problems } = await watchedPage();
+		/** The transitions on an element just after a press, as `property duration+delay`. */
+		const started = (selector) =>
+			page.evaluate(
+				(selector) =>
+					new Promise((done) =>
+						requestAnimationFrame(() =>
+							done(
+								document
+									.querySelector(selector)
+									.getAnimations()
+									.filter((a) => a.transitionProperty)
+									.map((a) => {
+										const timing = a.effect.getComputedTiming();
+										return `${a.transitionProperty} ${timing.duration}+${timing.delay}`;
+									})
+							)
+						)
+					),
+				selector
+			);
+		const edges = () =>
+			page.evaluate(() => {
+				const box = (selector) => document.querySelector(selector).getBoundingClientRect();
+				return {
+					content: Math.round(box('main.content').right),
+					panel: Math.round(box('aside.panel').left),
+					grip: Math.round(box('#player-grip').left)
+				};
+			});
+		try {
+			await page.goto(app.url + '/albums', { waitUntil: 'networkidle' });
+			const open = await edges();
+
+			await page.getByRole('button', { name: 'Hide the player' }).click();
+			assert.deepEqual(await started('.dock'), ['translate 480+0'], 'the panel is not what moves');
+			assert.deepEqual(await started('.app'), ['grid-template-columns 0+480'], 'the column does not wait for the panel to leave');
+			await page.waitForFunction((was) => document.querySelector('main.content').getBoundingClientRect().right > was, open.content);
+			await page.waitForFunction(() => document.querySelector('.dock').getAnimations().length === 0);
+			const closed = await edges();
+			// The sliver is 2rem wide, at the right-hand edge, 12px in from it.
+			assert.equal(closed.grip, 1440 - 12 - 32);
+			assert.equal(closed.panel, closed.grip, 'the hidden panel does not start at the sliver');
+			assert.equal(closed.content - open.content, closed.panel - open.panel, 'the page did not take the width the panel gave up');
+
+			await page.getByRole('button', { name: 'Show the player' }).click();
+			assert.deepEqual(await started('.dock'), ['translate 480+0']);
+			assert.deepEqual(await started('.app'), [], 'the column waits, or animates, on the way in');
+			await page.waitForFunction(() => document.querySelector('.dock').getAnimations().length === 0);
+			assert.deepEqual(await edges(), open);
+		} finally {
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+});
+
 describe('the heart in the player', () => {
 	/*
 	 * The player keeps one heart and hands it each new song. When it kept the
@@ -2552,9 +2619,15 @@ describe('playback on another browser', () => {
 	 */
 	let remoteApp;
 	const browsers = [];
+	/** For the test that plays the part of the Navidrome plugin. */
+	const PLUGIN_TOKEN = 'plugin-token-0123456789abcdef0123456789';
 
 	before(async () => {
-		remoteApp = await startApp({ subsonicUrl: subsonic.url, jellyfinUrl: jellyfin.url });
+		remoteApp = await startApp({
+			subsonicUrl: subsonic.url,
+			jellyfinUrl: jellyfin.url,
+			env: { HEDDOHON_NAVIDROME_PLUGIN_TOKEN: PLUGIN_TOKEN }
+		});
 	});
 
 	after(async () => {
@@ -2616,6 +2689,56 @@ describe('playback on another browser', () => {
 			subsonic.state.audio = null;
 		}
 		assert.deepEqual([...desktopProblems, ...phoneProblems], []);
+	});
+
+	test('another app shows under Devices with where it is, or would be, and "Continue here" plays its track from there', async () => {
+		const { page, problems } = await signedInPage();
+		/** What Navidrome reports the app doing, as its plugin posts it. */
+		const report = (state, positionMs) =>
+			fetch(`${remoteApp.url}/api/plugin/navidrome`, {
+				method: 'POST',
+				headers: { 'content-type': 'application/json', origin: remoteApp.url, authorization: `Bearer ${PLUGIN_TOKEN}` },
+				body: JSON.stringify({ v: 1, type: 'playback', username: 'testuser', songId: 's7a', state, positionMs, player: 'phone-1', playerName: 'Symfonium' })
+			});
+		subsonic.state.audio = { type: 'audio/wav', body: silentWav(30) };
+		try {
+			await page.goto(remoteApp.url + '/', { waitUntil: 'load' });
+
+			// An app that says a track started and nothing more. The browsers of
+			// the tests before this one are still open, and listed below it.
+			assert.equal((await report('playing', 0)).status, 200);
+			const devices = page.getByRole('button', { name: /^Devices/ });
+			await devices.waitFor({ timeout: 5000 });
+			await devices.click();
+			const app = page.locator('dialog.devices li.peer').filter({ hasText: 'another app' });
+			await app.getByText('Symfonium', { exact: true }).waitFor({ timeout: 5000 });
+			assert.equal(await page.locator('dialog.devices li.peer').first().getByText('Symfonium', { exact: true }).count(), 1, 'the app is not first in the list');
+			await app.getByText('Song 7a').waitFor();
+			await app.getByText(/^at about 0:0\d$/).waitFor();
+			await app.getByText(/few report their position so far/).waitFor();
+
+			// One that says where it is: the time is its own, and the notice goes.
+			await report('playing', 12_000);
+			await app.getByText(/^at 0:1\d$/).waitFor({ timeout: 5000 });
+			await app.getByText(/Continues from where Symfonium is/).waitFor();
+			assert.equal(await app.getByText(/few report their position/).count(), 0);
+
+			await app.getByRole('button', { name: 'Continue here' }).click();
+			await titleIs(page, 'Song 7a');
+			await page.waitForFunction(
+				() => [...document.querySelectorAll('audio')].some((a) => !a.paused && a.currentTime >= 12 && a.currentTime < 25),
+				null,
+				{ timeout: 5000 }
+			);
+
+			// The app stopping takes it out of the list, and the button with it.
+			await report('stopped', 14_000);
+			await app.waitFor({ state: 'detached', timeout: 5000 });
+		} finally {
+			subsonic.state.audio = null;
+			await report('stopped', 0);
+		}
+		assert.deepEqual(problems, []);
 	});
 
 	test('"Play this queue there" moves the queue to the other browser and pauses this one', async () => {
@@ -2680,7 +2803,7 @@ describe('playback on another browser', () => {
 			});
 			await section.locator('input[type=file]').setInputFiles({ name: 'me.png', mimeType: 'image/png', buffer: Buffer.from(png) });
 			await section.locator('.avatar img').waitFor({ timeout: 5000 });
-			await section.getByRole('checkbox').check();
+			await section.getByRole('checkbox', { name: /Show others what I play/ }).check();
 			await section.getByText('You are shown as Mira.').waitFor({ timeout: 5000 });
 
 			await pill.waitFor({ timeout: 5000 });

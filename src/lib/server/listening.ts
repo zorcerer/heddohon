@@ -13,6 +13,12 @@
  * process's memory: a restart empties it, and the browsers fill it again as
  * they reconnect.
  *
+ * One thing is added where the Navidrome plugin is installed (`plugin.ts`):
+ * what the account plays in another app, which Navidrome reports. It is shown
+ * only for an account that is shown and has also turned on "Include what I
+ * play in other apps" (`listeningOtherApps` in its settings, off until it
+ * does). Such an account can be in the list with no browser open here.
+ *
  * An account is known to the others by its profile's handle, a random value
  * made with the row, and never by its account id.
  */
@@ -20,7 +26,7 @@ import { randomBytes } from 'node:crypto';
 import type { BackendKind } from '$lib/types';
 import type { Account } from './auth';
 import { now, store } from './db';
-import { playingOn, present, tell, tellEveryone, watch } from './remote';
+import { hasApps, playingInApps, playingOn, present, tell, tellEveryone, watch } from './remote';
 
 /** Characters in a display name, counted as a reader would (code points). */
 export const MAX_NAME = 32;
@@ -267,8 +273,9 @@ export function jpegSize(bytes: Uint8Array): { width: number; height: number } |
 /* ── Who is listening ─────────────────────────────────────────────────────── */
 
 /**
- * The profile of each account with a stream open, read once as its first
- * stream opens and replaced as it is saved, so a report costs no query.
+ * The profile of each account with a stream open, or with an app playing
+ * (`appChanged`), read once as the first of them arrives and replaced as it
+ * is saved, so a report costs no query.
  */
 const known = new Map<string, { account: Account; profile: Profile }>();
 
@@ -278,7 +285,7 @@ const playing = new Map<string, { peer: string; key: string; listener: Listener 
 /** After a write: the saved profile, held if the account is connected, and the list sent again. */
 async function changed(account: Account): Promise<Profile> {
 	const profile = await getProfile(account.id);
-	if (present(account.id)) known.set(account.id, { account, profile });
+	if (present(account.id) || hasApps(account.id)) known.set(account.id, { account, profile });
 	refresh(account.id);
 	// Whether or not the list changed: the account's own browsers show its profile.
 	publish();
@@ -294,7 +301,8 @@ function refresh(accountId: string): boolean {
 	const before = playing.get(accountId);
 	const handle = held?.profile.handle;
 
-	const reports = held?.profile.shown && handle ? playingOn(accountId) : [];
+	// The account's browsers, and its other apps where it lets those be shown.
+	const reports = held?.profile.shown && handle ? [...playingOn(accountId), ...playingInApps(accountId)] : [];
 	// Two browsers of one account playing at once: the one already shown stays,
 	// so the list does not flip between them with each one's progress report.
 	const chosen =
@@ -386,7 +394,22 @@ export async function arrived(account: Account, peer: string): Promise<void> {
 	tell(account.id, peer, 'listeners', eventFor(account.id));
 }
 
+/**
+ * An app of the account has started, moved on or stopped (`reportApp` in
+ * `remote.ts`). The account may have no browser open, so its profile is read
+ * here if it is not held, and the list is brought up to date with it.
+ */
+export async function appChanged(account: Account): Promise<void> {
+	if (!known.has(account.id) && hasApps(account.id)) {
+		const profile = await getProfile(account.id);
+		// The app may have stopped while that was read, and a save in the
+		// meantime has put a newer profile here than the one read.
+		if (hasApps(account.id) && !known.has(account.id)) known.set(account.id, { account, profile });
+	}
+	if (refresh(account.id)) publish();
+}
+
 watch((accountId) => {
-	if (!present(accountId)) known.delete(accountId);
+	if (!present(accountId) && !hasApps(accountId)) known.delete(accountId);
 	if (refresh(accountId)) publish();
 });

@@ -22,8 +22,22 @@ import { keepCoversFilled } from '$lib/server/coverfill';
  *
  * Every route under `/share` resolves the token itself, serves the one song
  * the link names and accepts no write. See `lib/server/shares.ts`.
+ *
+ * `/api/plugin/navidrome` is where the Navidrome plugin posts. It takes the
+ * plugin's token in place of a session, and answers 404 where none is
+ * configured. See `lib/server/plugin.ts`. The one route is named, not
+ * `/api/plugin`, so a route added beside it is behind the gate.
  */
-const PUBLIC_ROUTES = ['/login', '/healthz', '/share', '/cast', '/together', '/manifest.webmanifest', '/.well-known/assetlinks.json'];
+const PUBLIC_ROUTES = [
+	'/login',
+	'/healthz',
+	'/share',
+	'/cast',
+	'/together',
+	'/manifest.webmanifest',
+	'/.well-known/assetlinks.json',
+	'/api/plugin/navidrome'
+];
 
 const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
@@ -98,6 +112,7 @@ function announce(): void {
 			sharing: cfg.sharing ? 'on' : 'off',
 			remoteControl: cfg.remoteControl ? 'on' : 'off',
 			listeners: cfg.listeners && cfg.remoteControl ? 'on' : 'off',
+			navidromePlugin: cfg.navidromePluginToken === null ? 'off' : 'on',
 			database: cfg.database.kind === 'postgres' ? `postgres=${cfg.database.label}` : 'sqlite',
 			sessionHours: cfg.sessionMaxHours,
 			cookieSecure: String(cfg.cookieSecure),

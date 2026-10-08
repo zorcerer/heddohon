@@ -31,6 +31,8 @@ still lands on it. Each one opens that section in the wiki.
 
 ### [ListenBrainz](https://github.com/zorcerer/heddohon/wiki/Configuration#listenbrainz)
 
+## [The Navidrome plugin](https://github.com/zorcerer/heddohon/wiki/Configuration#the-navidrome-plugin)
+
 ## [Logging](https://github.com/zorcerer/heddohon/wiki/Configuration#logging)
 
 ### [Working out why something is slow](https://github.com/zorcerer/heddohon/wiki/Configuration#working-out-why-something-is-slow)

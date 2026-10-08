@@ -101,6 +101,31 @@ function usernameMatch(kind: 'sqlite' | 'postgres'): string {
 		: 'lower(username) = lower(?)';
 }
 
+/**
+ * The account a user of the music server signs in to here, with its
+ * credential opened, for a play the Navidrome plugin reports (`plugin.ts`).
+ * No request of the account is behind it, as with a shared link's owner in
+ * `shares.ts`. Null for a user who has never signed in here, and when the
+ * credential no longer opens, as after `HEDDOHON_SECRET` changes.
+ */
+export async function accountOfUser(
+	kind: BackendKind,
+	username: string
+): Promise<{ account: Account; credential: StoredCredential } | null> {
+	const database = await store();
+	const row = await database.get<AccountRow>(
+		`SELECT * FROM accounts WHERE backend = ? AND ${usernameMatch(database.kind)} ORDER BY created_at LIMIT 1`,
+		kind,
+		username
+	);
+	if (!row) return null;
+	try {
+		return { account: toAccount(row), credential: openJson<StoredCredential>(row.credential) };
+	} catch {
+		return null;
+	}
+}
+
 /** Signs in upstream and stores the account with a freshly sealed credential. */
 export async function signIn(
 	kind: BackendKind,
