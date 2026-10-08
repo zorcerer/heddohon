@@ -106,7 +106,7 @@
 						<h2 id="resume-title" class="hh-eyebrow">Jump back in</h2>
 						<Icon name="chevron-right" size={14} />
 					</a>
-					<div class="tiles hh-stagger">
+					<div class="tiles hh-stagger" data-glide>
 						{#each resume as album (album.id)}
 							<AlbumTile {album} />
 						{/each}

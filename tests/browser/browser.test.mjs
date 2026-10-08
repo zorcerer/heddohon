@@ -2599,6 +2599,168 @@ describe('the aurora', () => {
 	});
 });
 
+describe('the player panel on a wide screen', () => {
+	/*
+	 * Showing and hiding the panel changes the width of the page beside it.
+	 * Animating that width laid the page out on every frame, a few frames a
+	 * second on an iPad Pro. Changing it in one step, with only the panel
+	 * moving (0.6.1), made a grid of albums jump to a new column count, which
+	 * was reported as the interface snapping. Now the layout changes once and
+	 * what is on the page is carried from where it was (`client/glide.ts`).
+	 *
+	 * The frame the page is laid out in is a long one, so nothing moves in
+	 * it: a move started there is part-way through when it is first seen, and
+	 * the panel, on a curve that covers half its distance in the first 100ms,
+	 * was seen to snap. The moving starts in the frame after.
+	 *
+	 * Read as the page is laid out, then with every animation held at its
+	 * first frame, and again with them finished.
+	 */
+	/**
+	 * Presses a button of the panel. Returns what is drawn where once the page
+	 * has its new layout and before anything has moved (`laidOut`), and then
+	 * holds what the press started at its start and counts it.
+	 */
+	const pressAndHold = async (page, label) => {
+		const early = await page.evaluate((label) => {
+			[...document.querySelectorAll('button')].find((b) => b.getAttribute('aria-label') === label).click();
+			// After the click's own work, and before the next frame: what is
+			// already moving then started in the frame the page is laid out in.
+			return new Promise((done) =>
+				setTimeout(() =>
+					done(
+						document.querySelector('.dock').getAnimations().length +
+							document.getAnimations().filter((a) => a.id === 'glide' && a.playState === 'running').length
+					)
+				)
+			);
+		}, label);
+		const laidOut = { ...(await places(page)), early };
+		const moving = await page.evaluate(
+			() =>
+				new Promise((done) => {
+					let frames = 0;
+					const look = () => {
+						const dock = document.querySelector('.dock').getAnimations();
+						// Nothing starts for a listener who asked for less motion.
+						if (dock.length === 0 && ++frames < 10) return requestAnimationFrame(look);
+						const held = document.getAnimations().filter((a) => Number.isFinite(a.effect.getComputedTiming().endTime));
+						for (const animation of held) {
+							animation.pause();
+							animation.currentTime = 0;
+						}
+						window.__held = held;
+						done({
+							glide: held.filter((a) => a.id === 'glide').length,
+							dock: dock.map((a) => a.transitionProperty),
+							app: document.querySelector('.app').getAnimations().map((a) => a.transitionProperty)
+						});
+					};
+					requestAnimationFrame(look);
+				})
+		);
+		return { ...moving, laidOut };
+	};
+	const letGo = async (page) => {
+		await page.evaluate(() => window.__held.forEach((animation) => animation.finish()));
+		// Past the moment the column takes its width back on the way in.
+		await page.waitForFunction(() => !document.querySelector('.app').classList.contains('panel-arriving'), null, { timeout: 3000 });
+	};
+	/** Where the cards and the sort buttons are drawn, to the pixel. */
+	const places = (page) =>
+		page.evaluate(() => {
+			const box = (element) => {
+				const { left, top, width, height } = element.getBoundingClientRect();
+				return [left, top, width, height].map(Math.round).join(' ');
+			};
+			return {
+				cards: [...document.querySelectorAll('main.content [data-glide] > *')].slice(0, 12).map(box),
+				sort: box(document.querySelector('main.content nav.sorts')),
+				content: Math.round(document.querySelector('main.content').getBoundingClientRect().right),
+				panel: Math.round(document.querySelector('aside.panel').getBoundingClientRect().left),
+				grip: Math.round(document.querySelector('#player-grip').getBoundingClientRect().left)
+			};
+		});
+
+	test('lays the page out once, and carries the cards and the buttons to their new places', async () => {
+		const { page, problems } = await watchedPage();
+		try {
+			await page.goto(app.url + '/albums', { waitUntil: 'networkidle' });
+			const open = await places(page);
+
+			// Hiding it. The first frame is the page as it was, and no part of the
+			// layout is what animates: the panel moves, and the cards with it.
+			const hiding = await pressAndHold(page, 'Hide the player');
+			// Laid out, and drawn as it was: the page has its new width, and the
+			// cards, the buttons and the panel are where they were.
+			assert.ok(hiding.laidOut.content > open.content, 'the page was not laid out at once');
+			assert.equal(hiding.laidOut.early, 0, 'the panel or a card started moving in the frame the page was laid out in');
+			assert.deepEqual(
+				[hiding.laidOut.cards, hiding.laidOut.sort, hiding.laidOut.panel],
+				[open.cards, open.sort, open.panel],
+				'something had moved in the frame the page was laid out in'
+			);
+			assert.deepEqual(hiding.dock, ['translate'], 'the panel is not what moves');
+			assert.deepEqual(hiding.app, [], 'the columns animate, which lays the page out on every frame');
+			assert.ok(hiding.glide >= 8, `only ${hiding.glide} things are carried`);
+			const hidingFrom = await places(page);
+			assert.deepEqual(hidingFrom.cards, open.cards, 'the cards do not start from where they were');
+			assert.equal(hidingFrom.sort, open.sort, 'the sort buttons do not start from where they were');
+			assert.ok(hidingFrom.content > open.content, 'the page has not taken its new width in the first frame');
+			await letGo(page);
+			const closed = await places(page);
+			assert.notDeepEqual(closed.cards, open.cards, 'hiding the panel left the grid as it was');
+			// The sliver is 2rem wide, at the right-hand edge, 12px in from it.
+			assert.equal(closed.grip, 1440 - 12 - 32);
+			assert.equal(closed.panel, closed.grip, 'the hidden panel does not start at the sliver');
+			assert.equal(closed.content - open.content, closed.panel - open.panel, 'the page did not take the width the panel gave up');
+
+			// Showing it. The page is laid out for its new width at once, and its
+			// box stays as wide as it was until the panel has arrived, so a card on
+			// its way out from under the panel is not cut off.
+			const showing = await pressAndHold(page, 'Show the player');
+			assert.equal(showing.laidOut.early, 0, 'the panel or a card started moving in the frame the page was laid out in');
+			assert.deepEqual(
+				[showing.laidOut.cards, showing.laidOut.sort, showing.laidOut.panel],
+				[closed.cards, closed.sort, closed.panel],
+				'something had moved in the frame the page was laid out in'
+			);
+			assert.deepEqual(showing.dock, ['translate']);
+			assert.deepEqual(showing.app, []);
+			assert.ok(showing.glide >= 8, `only ${showing.glide} things are carried`);
+			const showingFrom = await places(page);
+			assert.deepEqual(showingFrom.cards, closed.cards, 'the cards do not start from where they were');
+			assert.equal(showingFrom.content, closed.content, 'the page\'s box was narrowed before the panel arrived');
+			assert.ok(await page.evaluate(() => document.querySelector('.app').classList.contains('panel-arriving')));
+			await page.evaluate(() => window.__held.forEach((animation) => animation.finish()));
+			// Arrived, with the column still to take its width: nothing moves when it does.
+			const arrivedAt = await places(page);
+			await letGo(page);
+			const reopened = await places(page);
+			assert.deepEqual(reopened.cards, arrivedAt.cards, 'the cards moved when the column took its width');
+			assert.deepEqual(reopened, open, 'shown again, the page is not as it was');
+		} finally {
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+
+	test('carries nothing for a listener who asked for less motion', async () => {
+		const reduced = await browser.newContext({ viewport: { width: 1440, height: 900 }, reducedMotion: 'reduce', storageState: await context.storageState() });
+		const page = await reduced.newPage();
+		try {
+			await page.goto(app.url + '/albums', { waitUntil: 'networkidle' });
+			const before = await places(page);
+			const hiding = await pressAndHold(page, 'Hide the player');
+			assert.equal(hiding.glide, 0);
+			assert.deepEqual(hiding.dock, []);
+			assert.notDeepEqual((await places(page)).cards, before.cards, 'the page did not take its new layout at once');
+		} finally {
+			await reduced.close();
+		}
+	});
+});
+
 describe('the heart in the player', () => {
 	/*
 	 * The player keeps one heart and hands it each new song. When it kept the

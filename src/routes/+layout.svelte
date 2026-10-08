@@ -1,6 +1,6 @@
 <script lang="ts">
 	import '$lib/styles/app.css';
-	import { untrack } from 'svelte';
+	import { tick, untrack } from 'svelte';
 	import { afterNavigate, beforeNavigate, onNavigate, preloadCode, pushState } from '$app/navigation';
 	import { navigating, page, updated } from '$app/state';
 	import { player } from '$lib/client/player.svelte';
@@ -18,6 +18,8 @@
 		supportsViewTransitions
 	} from '$lib/client/sleeve-transition.svelte';
 	import { handOff } from '$lib/client/handoff';
+	import { glideFrom } from '$lib/client/glide';
+	import { DUR } from '$lib/client/motion';
 	import { sheetDrag } from '$lib/client/sheet.svelte';
 	import { morphSheet, sheetMorph } from '$lib/client/sheet-morph.svelte';
 	import { installPress } from '$lib/client/press';
@@ -568,6 +570,69 @@
 	 */
 	let content = $state<HTMLElement | null>(null);
 
+	/*
+	 * Showing and hiding the player on a wide screen. The page is laid out for
+	 * its new width once, and what is on it is carried there (`glide.ts`),
+	 * while the panel slides by itself; the styles under `.app` have the
+	 * reasons, and what was tried before.
+	 *
+	 * This runs before the class on `.app` changes, which is when the places
+	 * things are in can still be read, and starts the animations once it has.
+	 *
+	 * `panelArriving` holds the column at the sliver's width while the panel comes
+	 * in, with the page padded by what the column will take. Dropped when the
+	 * panel has arrived, it changes nothing on the page.
+	 *
+	 * `panelIn` is where the panel is drawn, and follows `player.panelOpen` a
+	 * frame late. The frame the page is laid out in is a long one, and a
+	 * transition started with it has run for that long before anything of it
+	 * is seen: on the curve the slide uses, 100ms in is past half the distance,
+	 * so the panel was first seen most of the way across (reported from an
+	 * iPad as the player having "a sort of snap to it"). The page is laid out
+	 * with everything held where it was, that frame is drawn, and the panel
+	 * and the page start moving in the next.
+	 */
+	let panelArriving = $state(false);
+	let panelArrived: ReturnType<typeof setTimeout> | undefined;
+	let panelIn = $state(untrack(() => player.panelOpen));
+	let panelWas: boolean | null = null;
+	let panelMove = 0;
+	/** Past the end of the slide, so the layout the column's width costs does not land on its last frames. */
+	const ARRIVED_AFTER_MS = 120;
+	$effect.pre(() => {
+		const open = player.panelOpen;
+		untrack(() => {
+			const was = panelWas;
+			panelWas = open;
+			if (was === open) return;
+			clearTimeout(panelArrived);
+			const move = ++panelMove;
+			// The first run, the sheet of a narrow screen, which has its own way of
+			// moving, and a listener who asked for less motion: the new layout and
+			// the panel's place at once.
+			if (was === null || !content || player.sheetLayout || !player.viewportKnown || prefersReducedMotion()) {
+				panelArriving = false;
+				panelIn = open;
+				return;
+			}
+			const carry = glideFrom(content);
+			panelArriving = open;
+			void tick().then(() => {
+				const start = carry();
+				// The second of the two is the first frame after the one the page
+				// was laid out in.
+				requestAnimationFrame(() =>
+					requestAnimationFrame(() => {
+						if (move !== panelMove) return;
+						panelIn = open;
+						start();
+						if (open) panelArrived = setTimeout(() => (panelArriving = false), DUR.travel + ARRIVED_AFTER_MS);
+					})
+				);
+			});
+		});
+	});
+
 	afterNavigate(({ type, from, to }) => {
 		if (type === 'enter' || type === 'popstate') return;
 		if (from?.url.pathname === to?.url.pathname) return;
@@ -715,6 +780,8 @@
 	<div
 		class="app"
 		class:player-open={player.panelOpen}
+		class:panel-arriving={panelArriving}
+		class:panel-in={panelIn}
 		class:viewport-known={player.viewportKnown}
 		class:has-song={Boolean(player.current)}
 	>
@@ -1018,23 +1085,50 @@
 		 * dialog and the ambient wash in a box the height of the grid.
 		 */
 		overflow-x: clip;
-		transition: grid-template-columns var(--slide);
 	}
 
 	/*
-	 * Closed, the column narrows to the sliver. The panel keeps its width, so
-	 * narrowing the column slides it off the right-hand edge while the content
-	 * takes the space back. One animated property drives both, without a
-	 * transform.
+	 * Showing and hiding the panel lays the page out once, and everything that
+	 * moves, moves by a transform: the panel by `translate` (see `.dock`),
+	 * and what is on the page from where it was to where it now is
+	 * (`client/glide.ts`, called from the script above).
 	 *
-	 * It animates layout: on the album grid with 69 cards in a headless
-	 * container, frames went from 13-20ms to 25-46ms for the 160ms of the
-	 * slide. The alternative, snapping the column and sliding the panel with a
-	 * transform, costs one reflow instead of ten and makes the library jump to
-	 * a new column count in one frame.
+	 * Three ways were tried, in this order:
+	 *
+	 *  - The column's width animated, with the panel riding its edge: a layout
+	 *    and a repaint of the page on every frame. On an iPad Pro in landscape
+	 *    the slide was reported as a few frames a second, and headless WebKit
+	 *    at 1366x1024 and twice the pixels drew 4 to 5 frames in the 800ms
+	 *    around a press on the album grid.
+	 *  - The panel alone moved and the column changed width in one step
+	 *    (0.6.1). The page beside it took its new width in one frame, and a
+	 *    grid of albums jumped to a new column count: reported as the
+	 *    interface snapping, and reverted.
+	 *  - This one: one step for the layout, as in the second, with the cards
+	 *    carried across it.
+	 *
+	 * Closed, the column is the sliver, at once. The page is its new width
+	 * from the first frame, under the panel as it leaves.
 	 */
 	.app:not(.player-open) {
 		grid-template-columns: var(--rail-width) minmax(0, 1fr) minmax(0, var(--player-sliver));
+	}
+
+	/*
+	 * Opening, the column stays the sliver until the panel has arrived
+	 * (`panelArriving` in the script), and the page is narrowed from the inside
+	 * instead, by padding the width the column will take. The page is laid out
+	 * as it will be, and its box still reaches under the panel: narrowed at
+	 * once, the box would cut off the cards on their way out of that strip,
+	 * and the strip would stand empty until the panel covered it. When the
+	 * column takes its width and the padding goes, nothing on the page moves.
+	 */
+	.app.player-open.panel-arriving {
+		grid-template-columns: var(--rail-width) minmax(0, 1fr) minmax(0, var(--player-sliver));
+	}
+
+	.app.panel-arriving .content {
+		padding-inline-end: calc(var(--space-5) + var(--player-width) - var(--player-sliver));
 	}
 
 	.content {
@@ -1074,12 +1168,25 @@
 		z-index: 2;
 	}
 
-	/* Pinned to the left edge of the column and holding the panel's full width,
-	   whatever the column is doing. This is the part that overhangs. */
+	/*
+	 * Pinned to the right-hand edge of the column, which does not move, and
+	 * holding the panel's full width whatever the column is doing. Closed, it
+	 * is moved right by the width the column gave up, so its left edge sits on
+	 * the sliver and the rest overhangs the screen. Open and closed differ in
+	 * `translate` alone, which the compositor runs without a layout, and a
+	 * press during the slide turns it round from where it is. While it slides
+	 * it is over the page, which is already laid out for where it will rest.
+	 */
 	.dock {
 		position: absolute;
-		inset: 0 auto 0 0;
+		inset: 0 0 0 auto;
 		width: var(--player-width);
+		translate: none;
+		transition: translate var(--slide);
+	}
+
+	.app:not(.panel-in) .dock {
+		translate: calc(var(--player-width) - var(--player-sliver)) 0;
 	}
 
 	.body {
@@ -1097,7 +1204,7 @@
 	 * lost its blur and its darkening and showed the page through it, then
 	 * snapped back, on every close.
 	 */
-	.app:not(.player-open) .body {
+	.app:not(.panel-in) .body {
 		visibility: hidden;
 		transition: visibility 0s linear var(--slide-duration);
 	}
@@ -1134,7 +1241,7 @@
 
 	/* Closing: it arrives over the second half of the slide, as the panel's
 	   edge reaches the place it takes over from. */
-	.app:not(.player-open) .grip {
+	.app:not(.panel-in) .grip {
 		opacity: 1;
 		transition:
 			opacity var(--dur-hover) var(--ease-out) calc(var(--slide-duration) - var(--dur-hover)),
@@ -1217,6 +1324,7 @@
 			height: auto;
 			min-height: 100svh;
 			padding-bottom: var(--dock-space);
+			transition: none;
 		}
 
 		.content {
@@ -1366,10 +1474,13 @@
 			transition: none;
 		}
 
-		.dock {
+		.dock,
+		.app:not(.panel-in) .dock {
 			position: static;
 			width: auto;
 			height: 100%;
+			translate: none;
+			transition: none;
 		}
 
 		/* A sheet over the library has no right-hand edge for a sliver. Closed
@@ -1392,12 +1503,13 @@
 	/* Without the slide, the column snaps to its new width and the sliver
 	   appears in place. */
 	@media (prefers-reduced-motion: reduce) {
-		.app,
 		.app:not(.player-open),
+		.dock,
+		.app:not(.panel-in) .dock,
 		.body,
-		.app:not(.player-open) .body,
+		.app:not(.panel-in) .body,
 		.grip,
-		.app:not(.player-open) .grip,
+		.app:not(.panel-in) .grip,
 		.player,
 		.app:not(.player-open) .player {
 			transition: none;
