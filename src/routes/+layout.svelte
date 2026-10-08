@@ -18,7 +18,7 @@
 		supportsViewTransitions
 	} from '$lib/client/sleeve-transition.svelte';
 	import { handOff } from '$lib/client/handoff';
-	import { glideFrom } from '$lib/client/glide';
+	import { glideEnd, glideFrom } from '$lib/client/glide';
 	import { DUR } from '$lib/client/motion';
 	import { sheetDrag } from '$lib/client/sheet.svelte';
 	import { morphSheet, sheetMorph } from '$lib/client/sheet-morph.svelte';
@@ -613,6 +613,9 @@
 			if (was === null || !content || player.sheetLayout || !player.viewportKnown || prefersReducedMotion()) {
 				panelArriving = false;
 				panelIn = open;
+				// Whatever a slide still had held or moving, when the screen
+				// turned narrow or less motion was asked for part-way through it.
+				if (was !== null) glideEnd();
 				return;
 			}
 			const carry = glideFrom(content);

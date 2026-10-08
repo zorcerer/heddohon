@@ -79,6 +79,19 @@ function resting(element: HTMLElement): [number, number] | null {
 }
 
 /**
+ * What is held where it was for the frame the page is laid out in, each as
+ * the way to let it go, and which glide holds them.
+ */
+let holds: (() => void)[] = [];
+
+/** Ends whatever a glide has in hand: its animations, and anything it still holds in place. */
+export function glideEnd(): void {
+	for (const animation of document.getAnimations()) if (animation.id === ID) animation.cancel();
+	for (const release of holds) release();
+	holds = [];
+}
+
+/**
  * Notes where everything under `root` is, to be called before the layout
  * changes. The function returned is called once it has: it puts everything
  * back where it was, held there, and returns the function that lets it go.
@@ -86,6 +99,16 @@ function resting(element: HTMLElement): [number, number] | null {
  * long one, is drawn with nothing moved, and the moving starts in the next:
  * started in the long frame, a move is part-way through when it is first
  * seen.
+ *
+ * Held by a `translate` and a `scale` written on the element, and let go by
+ * taking them off and starting the animation from the same place. An
+ * animation made paused and played a frame later did the same in Chromium
+ * and in headless WebKit, by every box read from them, and on an iPad the
+ * page was drawn at its new place from the first frame while the panel slid
+ * ("the rest of the ui snaps but the panel is smooth now"): iOS runs these
+ * animations in its compositor, which showed nothing of a paused one. An
+ * animation started and left to run is what the first version did, and what
+ * was seen to work there.
  *
  * A glide still running is taken from where its elements are drawn, since a
  * box is measured with its transform. A second press during the slide turns
@@ -100,7 +123,7 @@ export function glideFrom(root: HTMLElement): () => () => void {
 
 	return () => {
 		// Ended before the new places are read: a box is measured with its transform.
-		for (const animation of document.getAnimations()) if (animation.id === ID) animation.cancel();
+		glideEnd();
 
 		/*
 		 * Read first, written after. Starting an animation leaves the page's
@@ -139,7 +162,7 @@ export function glideFrom(root: HTMLElement): () => () => void {
 		// `translate` and `scale`, not `transform`, which an element may have
 		// one of that is to stay as it is. They apply before it.
 		const rests = plan.map(({ element }) => resting(element) ?? [0, 0]);
-		const held = plan.map(({ element, x, y, sx, sy }, i) => {
+		const moves = plan.map(({ element, x, y, sx, sy }, i) => {
 			const rest = rests[i];
 			const start: Keyframe = { translate: `${rest[0] + x}px ${rest[1] + y}px` };
 			const end: Keyframe = { translate: `${rest[0]}px ${rest[1]}px` };
@@ -148,14 +171,30 @@ export function glideFrom(root: HTMLElement): () => () => void {
 				end.scale = '1 1';
 				start.transformOrigin = end.transformOrigin = 'top left';
 			}
-			const animation = element.animate([start, end], { id: ID, duration: DUR.travel, easing: EASE_OUT_CSS });
-			// Held on its first frame, which is the element where it was.
-			animation.pause();
-			return animation;
+			return { element, start, end };
 		});
+		// Held where it was, by what the animation will start from.
+		const mine = moves.map(({ element, start }) => {
+			const style = element.style;
+			const was = [style.translate, style.scale, style.transformOrigin];
+			style.translate = String(start.translate);
+			if (start.scale) {
+				style.scale = String(start.scale);
+				style.transformOrigin = 'top left';
+			}
+			return () => {
+				[style.translate, style.scale, style.transformOrigin] = was;
+			};
+		});
+		holds = mine;
 		return () => {
-			// One ended since by a later glide is left ended.
-			for (const animation of held) if (animation.playState === 'paused') animation.play();
+			// A later glide has let these go, and taken everything from where it was drawn.
+			if (holds !== mine) return;
+			for (const release of mine) release();
+			holds = [];
+			for (const { element, start, end } of moves) {
+				element.animate([start, end], { id: ID, duration: DUR.travel, easing: EASE_OUT_CSS });
+			}
 		};
 	};
 }
