@@ -958,13 +958,6 @@
 		animation: nav-sweep 1.1s var(--ease-colour) infinite;
 	}
 
-	/* Held while the line is hidden. Running, it kept every page drawing
-	   frames with nothing on screen moving: 60 style passes a second in
-	   Chromium on an idle page. */
-	.nav-progress:not(.waiting) span {
-		animation-play-state: paused;
-	}
-
 	@keyframes nav-sweep {
 		from {
 			translate: -100% 0;
@@ -1025,28 +1018,23 @@
 		 * dialog and the ambient wash in a box the height of the grid.
 		 */
 		overflow-x: clip;
+		transition: grid-template-columns var(--slide);
 	}
 
 	/*
-	 * Closed, the column narrows to the sliver in one step, once the panel has
-	 * left (the delay below), and the content takes the space back in one
-	 * layout. Opening, it widens at once and the panel arrives in the empty
-	 * column. The panel does the moving, by `translate` (see `.dock`), and
-	 * only ever over the room: glass sliding over the page would blur a new
-	 * backdrop on every frame.
+	 * Closed, the column narrows to the sliver. The panel keeps its width, so
+	 * narrowing the column slides it off the right-hand edge while the content
+	 * takes the space back. One animated property drives both, without a
+	 * transform.
 	 *
-	 * Until 2026-10-08 the column's width was what animated, and the panel
-	 * rode its edge: a layout of the page on every frame of the slide. On an
-	 * iPad Pro in landscape the slide was reported as a few frames a second.
-	 * Headless at 1194x834 and twice the pixels, on the album grid with the
-	 * aurora off, in the 700ms around a press: Chromium laid the page out 29
-	 * times closing and 22 opening (21ms and 20ms), now 6 to 9 and 4 (2ms and
-	 * 1ms). WebKit drew 8 frames opening and 7 to 8 closing, now 25 to 26 and
-	 * 11 to 12.
+	 * It animates layout: on the album grid with 69 cards in a headless
+	 * container, frames went from 13-20ms to 25-46ms for the 160ms of the
+	 * slide. The alternative, snapping the column and sliding the panel with a
+	 * transform, costs one reflow instead of ten and makes the library jump to
+	 * a new column count in one frame.
 	 */
 	.app:not(.player-open) {
 		grid-template-columns: var(--rail-width) minmax(0, 1fr) minmax(0, var(--player-sliver));
-		transition: grid-template-columns 0s linear var(--slide-duration);
 	}
 
 	.content {
@@ -1086,24 +1074,12 @@
 		z-index: 2;
 	}
 
-	/*
-	 * Pinned to the right-hand edge of the column, which does not move, and
-	 * holding the panel's full width whatever the column is doing. Closed, it
-	 * is moved right by the width the column gave up, so its left edge sits on
-	 * the sliver and the rest overhangs the screen. Open and closed differ in
-	 * `translate` alone, which the compositor runs without a layout, and a
-	 * press during the slide turns it round from where it is.
-	 */
+	/* Pinned to the left edge of the column and holding the panel's full width,
+	   whatever the column is doing. This is the part that overhangs. */
 	.dock {
 		position: absolute;
-		inset: 0 0 0 auto;
+		inset: 0 auto 0 0;
 		width: var(--player-width);
-		translate: none;
-		transition: translate var(--slide);
-	}
-
-	.app:not(.player-open) .dock {
-		translate: calc(var(--player-width) - var(--player-sliver)) 0;
 	}
 
 	.body {
@@ -1241,7 +1217,6 @@
 			height: auto;
 			min-height: 100svh;
 			padding-bottom: var(--dock-space);
-			transition: none;
 		}
 
 		.content {
@@ -1391,13 +1366,10 @@
 			transition: none;
 		}
 
-		.dock,
-		.app:not(.player-open) .dock {
+		.dock {
 			position: static;
 			width: auto;
 			height: 100%;
-			translate: none;
-			transition: none;
 		}
 
 		/* A sheet over the library has no right-hand edge for a sliver. Closed
@@ -1420,9 +1392,8 @@
 	/* Without the slide, the column snaps to its new width and the sliver
 	   appears in place. */
 	@media (prefers-reduced-motion: reduce) {
+		.app,
 		.app:not(.player-open),
-		.dock,
-		.app:not(.player-open) .dock,
 		.body,
 		.app:not(.player-open) .body,
 		.grip,
