@@ -341,10 +341,33 @@ class Player {
 		this.volume = settings.volume;
 		this.#bind(primary);
 		this.#applyVolume();
+		this.#declarePlayback();
 		this.#startProgressReporting();
 		this.#watchVisibility();
 		this.#adoptViewport();
 		this.#watchCast(primary, secondary);
+	}
+
+	/**
+	 * Tells the system this page plays music, where it can be told (the Audio
+	 * Session API, which Safari has from 16.4).
+	 *
+	 * Left to work it out, iOS takes sound from a Web Audio graph for ambient
+	 * sound, as a game's is, and suspends the graph when the page is no longer
+	 * in front: with "Process audio in this browser" on, playback fell silent
+	 * as soon as the installed app lost the screen or the phone locked. An
+	 * audio element alone is taken for playback either way. Declared, the graph
+	 * runs on in the background from iOS 17.5 (WebKit bug 261554 was that it
+	 * was suspended all the same until then).
+	 */
+	#declarePlayback() {
+		const session = (navigator as Navigator & { audioSession?: { type: string } }).audioSession;
+		if (!session) return;
+		try {
+			session.type = 'playback';
+		} catch {
+			// A type this browser does not take leaves it working the type out.
+		}
 	}
 
 	// ── Casting ────────────────────────────────────────────────────────────
@@ -1690,6 +1713,10 @@ class Player {
 		if (!browser) return;
 		const resume = () => {
 			if (!this.engaged || document.hidden) return;
+			// A graph the system stopped while the page was away (a call, or iOS
+			// before 17.5 with the app in the background) starts again here. The
+			// element went on without it, so there was a position and no sound.
+			this.#chain?.resume();
 			const element = this.#primary;
 			if (element && element.src && element.paused) {
 				void element.play().catch(() => undefined);
