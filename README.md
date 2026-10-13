@@ -93,6 +93,12 @@ docker compose up -d
 Open `http://localhost:3000` and sign in with your music server account. To
 expose it publicly, set `ORIGIN` and read [SECURITY.md](SECURITY.md).
 
+Started without the two `echo` lines, Heddohon prints a setup code to its log
+(`docker compose logs heddohon`) and serves a setup page at the same address.
+The page takes the code and the address of the music server, and makes the
+secret. [SECURITY.md](SECURITY.md#first-run-setup) says what that page can do
+and where the secret is then kept.
+
 Images are `ghcr.io/zorcerer/heddohon` and `zorcererd/heddohon`, for
 `linux/amd64` and `linux/arm64` (a Raspberry Pi 4 or 5 on a 64-bit OS, an ARM
 NAS, an Ampere server); 32-bit ARM is not built. Without Docker, on Node 22

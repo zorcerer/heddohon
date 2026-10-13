@@ -382,6 +382,68 @@ request from Navidrome to Heddohon. Heddohon makes no request to the plugin.
 (`md5(password + salt)`), so the sealed value is the password itself.
 Jellyfin issues a token at sign-in and Heddohon discards the password.
 
+## First-run setup
+
+A deployment started without `HEDDOHON_SECRET`, or without the address of any
+music server, serves one page, `/setup`, and its endpoint, `/api/setup`. Every
+other page redirects to it and every other request is answered 503. A
+deployment that is set up serves neither: both are behind the session gate
+like any other route, and `/setup` sends a signed-in account to the home page.
+`HEDDOHON_SETUP=false` switches the page off, and a start without the two
+values is then the error it was before 0.7.0.
+
+- **The code.** At start, a deployment that is not set up makes a code of 20
+  characters from a 32-character alphabet (100 bits, from the system's random
+  source) and prints it to standard output, which is the container's log. It is
+  held in memory, is not written to the log files in the data directory, and is
+  replaced at every start. Every call to the endpoint carries it and is refused
+  with 401 without it. It is compared as SHA-256 digests in constant time.
+- **Wrong codes are not counted.** A count that dropped the code after some
+  number of wrong ones would let anyone who can reach the page lock the operator
+  out until a restart. At 100 bits the code is not found by guessing, and a wrong
+  one costs the server one hash. A request body over 16 KB is refused.
+- **What the code allows.** Asking one address whether a music server answers
+  there, and saving nine values: the secret, the address and name of each music
+  server, the default theme, and whether shared links, downloads and lyrics from
+  LRCLIB are on. The list is `SETUP_NAMES` in `config.ts`. The database, the
+  third-party addresses, `HEDDOHON_RADIO_PRIVATE` and the plugin's token are
+  read from the environment alone.
+- **The probe.** It sends one unauthenticated request (`ping` for Subsonic,
+  `/System/Info/Public` for Jellyfin) to an http or https address, does not
+  follow a redirect, reads at most 64 KB and waits at most 5 seconds. It answers
+  yes or no, and on yes the server's kind and version reduced to letters, digits
+  and `. + -`. Nothing else of what the address sent is returned, so it does not
+  read a host on the server's network. It does tell whoever has the code whether
+  something answers at an address and port.
+- **Cross-origin.** The endpoint is not held to the `Origin` check under
+  **Cross-origin writes**: that check needs `ORIGIN`, which a deployment being
+  set up behind a proxy has not been given. It accepts `application/json` alone,
+  which a page on another origin cannot send without a preflight that is not
+  answered, it reads no cookie, and the code is in every call.
+- **Saving.** The values are written to `setup.json` in the data directory, mode
+  0600, by a rename over the old file. The secret is 48 random bytes, made by the
+  server and shown once on the page. The setup then ends: the code is discarded
+  and the page and its endpoint are gone. An address is saved only where the
+  environment names no music server.
+- **Precedence.** A variable in the environment takes precedence over a saved
+  value. A `setup.json` that cannot be read or parsed is a configuration error
+  and not an empty file, so the setup is not offered again over a deployment
+  that has accounts. Deleting the file offers it again, behind a new code.
+- **The health probe** answers 200 with `"status": "setup"` while the setup is
+  waiting. A failing probe would have an orchestrator restart the container,
+  and each start makes a new code.
+
+**The secret saved by the setup is in the data directory, beside the database
+it protects.** Anyone who can read that directory, or a backup of the whole
+directory, can decrypt the stored music-server credentials. The last step of
+the setup says so, and gives the line to move the secret to the environment
+(`HEDDOHON_SECRET=...`), after which it can be removed from `setup.json`. The
+ZIP made under **Database backup** does not contain `setup.json`.
+
+The code and the saved addresses cross the network as the sign-in password
+does: in the clear on a deployment reached over plain http. Do the setup on the
+local network or behind TLS.
+
 ## Database backup
 
 An account the music server lists as an administrator can download the
@@ -1279,6 +1341,13 @@ session token and any `u`, `t`, `s` or `p` query parameter.
     Settings holds every account's listening history and sealed credentials.
     It restores only with the `HEDDOHON_SECRET` it was made under, which is
     not in it.
+11. **After a first-run setup, move the secret to the environment.** The
+    setup saves it in `setup.json` in the data directory, where a copy of that
+    directory is enough to read the stored credentials. Set
+    `HEDDOHON_SECRET` to the value the last step shows, remove it from the
+    file, and restart. Where every value is set in the environment,
+    `HEDDOHON_SETUP=false` keeps the setup page from being served if one is
+    ever left out.
 
 ## Audit history
 
@@ -1496,3 +1565,21 @@ The other three have a check that failed before the fix.
 | Low | The upstream timeout stopped when headers arrived, so a JSON answer that stalled or never ended was read with no deadline and no size limit | JSON bodies are read under a second `HEDDOHON_UPSTREAM_TIMEOUT_MS` and refused past 64 MB; streams keep no limit after their headers |
 | Low | The sign-in address counter was keyed on the full IPv6 address: 300 attempts from one /64 with a new address each were all allowed | IPv6 addresses are counted by their /64, for sign-in and Quick Connect |
 | Info | The error page SvelteKit builds when an endpoint fails went out without a Content-Security-Policy; its text is fixed and it has no script | HTML without a policy is given `default-src 'none'` with inline styles only |
+
+### 13 October 2026
+
+Review of the first-run setup (`setup.ts`, `/setup`, `/api/setup`, the saved
+values in `config.ts`) before it was merged. Each finding has a check in
+`tests/e2e/setup.test.mjs`.
+
+| Severity | Finding | Fix |
+| --- | --- | --- |
+| Low | Ten wrong codes dropped the code until a restart, so anyone who could reach the page could lock the operator out of the setup | Wrong codes are not counted; the code is 100 bits |
+| Low | The probe read the whole answer and then cut it to 64 KB, so an address that never stopped sending was read until the 5-second timeout, at whatever rate it sent | Reading stops at 64 KB |
+| Info | The page's data said which of the secret and the music server was missing, before the code | Told with the first right code |
+| Info | A music-server address was saved where the environment already named one, and would have taken effect if that variable were later removed | Saved only where the environment names none |
+
+Looked at and left as it is: the probe tells whoever has the code whether
+something answers at an address and port, which is what entering a music
+server's address is; and the secret the setup makes is kept in the data
+directory, which **First-run setup** and the last step of the setup state.

@@ -3369,6 +3369,83 @@ describe('your listening', () => {
 	});
 });
 
+describe('your listening, day by day', () => {
+	/*
+	 * Plays today, three days ago and ten days ago, the two older ones brought
+	 * in from the music server with their dates.
+	 */
+	test('draws the days as a line and a calendar, the hours against the weekdays, and the parts of the day', async () => {
+		const daysAgo = (days) => new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+		subsonic.state.played.set('s18a', daysAgo(3));
+		subsonic.state.played.set('s19a', daysAgo(10));
+		const { page, problems } = await watchedPage();
+		try {
+			for (const songId of ['s17a', 's17a']) {
+				await context.request.post(`${app.url}/api/playback`, { data: { songId, event: 'stop', position: 100, completed: true }, headers: { origin: app.url } });
+			}
+			const imported = await context.request.post(`${app.url}/settings?/importHistory`, {
+				headers: { origin: app.url, 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json', 'x-sveltekit-action': 'true' },
+				data: ''
+			});
+			assert.equal((await imported.json()).type, 'success');
+			await page.goto(app.url + '/stats', { waitUntil: 'networkidle' });
+
+			// The line: one stop for the keyboard, a point for each of the 31 days.
+			const line = page.getByRole('slider', { name: /^Plays by day/ });
+			assert.equal(await line.getAttribute('aria-valuemax'), '30');
+			assert.equal(await line.getAttribute('aria-valuetext'), 'No day chosen');
+			await line.focus();
+			await page.keyboard.press('End');
+			const today = await line.getAttribute('aria-valuetext');
+			assert.match(today, /: \d+ plays?$/);
+			assert.ok(Number(/: (\d+) play/.exec(today)[1]) >= 2, `today reads "${today}"`);
+			await page.keyboard.press('ArrowLeft');
+			assert.notEqual(await line.getAttribute('aria-valuetext'), today);
+			assert.equal(await line.getAttribute('aria-valuenow'), '29');
+			assert.match(await page.locator('.trend .readout').textContent(), /plays?/);
+			await page.keyboard.press('Escape');
+			assert.equal(await line.getAttribute('aria-valuetext'), 'No day chosen');
+
+			// The calendar: whole weeks, the three days lit, and a line of text under the pointer.
+			const calendar = page.locator('.calendar .weeks');
+			const cells = await calendar.locator('.cell').count();
+			assert.equal(cells % 7 === 0 || cells >= 31, true);
+			assert.equal(await calendar.locator('.cell:not(.blank)').count(), 31);
+			assert.ok((await calendar.locator('.cell:not([data-level="0"]):not(.blank)').count()) >= 3, 'the days played on are not lit');
+			await calendar.locator('.cell[data-level="4"]').first().hover();
+			const tip = page.locator('.tip[aria-hidden="true"]').last();
+			await tip.waitFor();
+			assert.match(await tip.textContent(), /\d+ plays?/);
+			// Inside the window, and off when the pointer leaves the charts.
+			const box = await tip.boundingBox();
+			assert.ok(box.x >= 0 && box.x + box.width <= 1440, JSON.stringify(box));
+			await page.locator('h1').hover();
+			assert.equal(await page.locator('.maps ~ .tip, .tip.hh-numeric[style*="left"]').count(), 0, 'the line of text stayed');
+
+			// The hours against the weekdays: 7 rows of 24, with as many plays as the page counts.
+			assert.equal(await page.locator('.punch .row').count(), 7);
+			assert.equal(await page.locator('.punch .row .cell').count(), 168);
+			const total = Number((await page.locator('.figure.hero .number').textContent()).replace(/\D/g, ''));
+			const inRows = await page.locator('.punch .row').evaluateAll((rows) => rows.reduce((sum, row) => sum + Number(/: ([\d,.]+) play/.exec(row.getAttribute('aria-label'))[1].replace(/\D/g, '')), 0));
+			assert.equal(inRows, total);
+
+			// The parts of the day are shares of the same plays.
+			const shares = await page.locator('.parts .count').allTextContents();
+			assert.equal(shares.length, 4);
+			const percent = shares.reduce((sum, text) => sum + Number(/^(\d+)%/.exec(text.trim())[1]), 0);
+			assert.ok(percent >= 98 && percent <= 102, `the parts add to ${percent}%`);
+
+			// Each chart has its values as a table.
+			assert.equal(await page.locator('.trend details.table tbody tr').count(), 31);
+			assert.equal(await page.locator('.maps details.table').nth(1).locator('tbody tr').count(), 24);
+		} finally {
+			subsonic.state.played.clear();
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+});
+
 describe('the living-room screen', () => {
 	test('shows what plays with its lyrics, keeps playing on the way in, and takes a remote\'s keys', async () => {
 		const { page, problems } = await watchedPage();
@@ -5959,7 +6036,16 @@ describe('the menu on a right click', () => {
 			assert.equal(await page.locator('aside.panel h2.title').getAttribute('data-text'), `Song ${id}a`);
 
 			await page.evaluate(() => (window.__sameDocument = true));
+			// The first track opens the player, the page beside it is laid out
+			// again and its column scrolls to keep its place. A menu opened in
+			// the middle of that is closed by the scroll, as it is meant to be
+			// (CI, 2026-10-13), so the page is left to settle first.
+			await page.waitForFunction(() => document.querySelector('.app')?.classList.contains('panel-in'));
+			await page.waitForTimeout(900);
+			await card.scrollIntoViewIfNeeded();
+			await page.waitForTimeout(400);
 			await card.click({ button: 'right' });
+			await menu(page).waitFor();
 			await item(page, 'Go to album').click();
 			await page.waitForURL(`${app.url}/albums/al${id}`);
 			assert.equal(await menu(page).count(), 0, 'the menu followed the page');
@@ -5999,6 +6085,69 @@ describe('the menu on a right click', () => {
 			subsonic.state.audio = null;
 			subsonic.state.lyrics.clear();
 			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+});
+
+describe('the first-run setup page', () => {
+	/*
+	 * An app of its own, started without its secret or its music server. The
+	 * page is walked as an operator would: the code from the log, an address
+	 * tested and saved, and what the last step says about the key.
+	 */
+	test('takes the code from the log, tests and saves a music server, and says whose the key is to keep', async () => {
+		const fresh = await startApp({ env: { HEDDOHON_SECRET: '', HEDDOHON_SUBSONIC_URL: '', HEDDOHON_JELLYFIN_URL: '', HEDDOHON_DEFAULT_THEME: '' } });
+		const visitor = await browser.newContext({ viewport: { width: 1100, height: 900 } });
+		const page = await visitor.newPage();
+		const problems = [];
+		// A refused code is a 401, which the browser reports as a failed resource.
+		page.on('console', (message) => {
+			if (message.type() === 'error' && !/401/.test(message.text())) problems.push(message.text());
+		});
+		page.on('pageerror', (err) => problems.push(err.message));
+		try {
+			const code = fresh.output().match(/\b([0-9A-Z]{5}(?:-[0-9A-Z]{5}){3})\b/)?.[1];
+			assert.ok(code, fresh.output());
+			await page.goto(fresh.url + '/', { waitUntil: 'networkidle' });
+			assert.equal(new URL(page.url()).pathname, '/setup');
+			assert.equal(await page.locator('html').getAttribute('data-theme'), 'terminal');
+
+			await page.getByLabel('Setup code').fill('AAAAA-AAAAA-AAAAA-AAAAA');
+			await page.getByRole('button', { name: 'Continue' }).click();
+			await page.getByRole('alert').waitFor();
+			assert.match(await page.getByRole('alert').textContent(), /not the code/);
+			assert.equal(await page.getByRole('group', { name: 'Navidrome or Subsonic' }).count(), 0, 'a wrong code went on to the form');
+
+			await page.getByLabel('Setup code').fill(code.toLowerCase());
+			await page.getByRole('button', { name: 'Continue' }).click();
+			const server = page.getByRole('group', { name: 'Navidrome or Subsonic' });
+			await server.getByLabel('Address').fill('http://127.0.0.1:9');
+			await server.getByRole('button', { name: 'Test the address' }).click();
+			await server.locator('.result.no').waitFor();
+			await server.getByLabel('Address').fill(subsonic.url);
+			assert.equal(await server.locator('.result').textContent().then((text) => text.trim()), '', 'the last answer stayed beside a changed address');
+			await server.getByRole('button', { name: 'Test the address' }).click();
+			await server.locator('.result.ok').waitFor();
+			await server.getByLabel('Name on the sign-in page').fill('Home');
+
+			await page.getByRole('button', { name: 'Save and finish' }).click();
+			const notice = page.getByRole('region', { name: 'The key is yours to keep' });
+			await notice.waitFor();
+			assert.match(await notice.textContent(), /Keeping that directory and its backups private is your responsibility/);
+			const line = await notice.getByLabel('The line for the environment').inputValue();
+			assert.match(line, /^HEDDOHON_SECRET=.{64,}$/);
+			// The harness gives the app the address the browser uses, so nothing is said of ORIGIN.
+			assert.equal(await page.getByRole('heading', { name: 'Set ORIGIN before signing in' }).count(), 0);
+
+			await page.getByRole('link', { name: 'Go to sign in' }).click();
+			await page.waitForURL(fresh.url + '/login');
+			await page.getByText('to Home').waitFor();
+			await page.goto(fresh.url + '/setup', { waitUntil: 'networkidle' });
+			assert.equal(new URL(page.url()).pathname, '/login', 'the setup page is still there');
+		} finally {
+			await visitor.close();
+			await fresh.stop();
 		}
 		assert.deepEqual(problems, []);
 	});

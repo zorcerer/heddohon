@@ -1,8 +1,9 @@
-import { isRedirect, redirect, type Handle, type HandleServerError, type RequestEvent } from '@sveltejs/kit';
-import { version } from '$app/environment';
+import { isRedirect, redirect, type Handle, type HandleServerError, type RequestEvent, type ServerInit } from '@sveltejs/kit';
+import { building, version } from '$app/environment';
 import { resolveSession } from '$lib/server/auth';
 import { getSettings, defaultSettings, groundOf } from '$lib/server/settings';
-import { ConfigError, config } from '$lib/server/config';
+import { ConfigError, SetupRequired, config } from '$lib/server/config';
+import { announceSetup } from '$lib/server/setup';
 import { FALLBACK_HTML_CSP, SECURITY_HEADERS } from '$lib/headers';
 import {
 	isEnabled,
@@ -121,8 +122,83 @@ function announce(): void {
 			upstreams: cfg.upstreams.map((up) => `${up.kind}=${new URL(up.url).host}`).join(',') || 'none'
 		});
 	} catch (err) {
+		if (err instanceof SetupRequired) {
+			// Not a fault. The line above is owed once the setup has been saved.
+			announced = false;
+			return;
+		}
 		log.error('started-misconfigured', { detail: reason(err) });
 	}
+}
+
+/**
+ * A deployment started without its secret or its music server prints the
+ * code for its setup page as it starts, so the code is in the container's log
+ * before anyone opens the page. See `lib/server/setup.ts`.
+ */
+export const init: ServerInit = () => {
+	if (building) return;
+	try {
+		announceSetup();
+	} catch {
+		// A misconfiguration. The first request reports it.
+	}
+};
+
+/** The paths of the setup. Everything else waits for it. */
+const SETUP_PAGE = '/setup';
+const SETUP_API = '/api/setup';
+
+/**
+ * A request to a deployment that is not set up. The setup page, its one
+ * endpoint and the health probe are served; every other page goes to the
+ * setup page, and every other request is told why it was not served.
+ *
+ * The endpoint is not held to the origin check below. That check compares
+ * `Origin` with the address this server believes it is served on, which comes
+ * from `ORIGIN`, and a deployment being set up behind a proxy has not been
+ * given one yet. The endpoint takes JSON alone, which no page on another
+ * origin can send without a preflight this server does not answer, it reads no
+ * cookie, and every call carries the code from this server's own log.
+ */
+async function setupRequest(event: RequestEvent, resolve: Parameters<Handle>[0]['resolve']): Promise<Response> {
+	announceSetup();
+	const path = event.url.pathname;
+	const method = event.request.method;
+
+	if (path === '/healthz' || (path === SETUP_PAGE && (method === 'GET' || method === 'HEAD'))) {
+		const response = await resolve(event, {
+			// Terminal, the theme a deployment starts in: there is no account, and
+			// no configuration to ask for another default.
+			transformPageChunk: ({ html }) =>
+				html
+					.replace('data-theme="dark"', 'data-theme="terminal"')
+					.replace('name="theme-color" content="#0b0c0f"', 'name="theme-color" content="#08090a"')
+					// The manifest is made from the configuration, which is what is
+					// missing. The setup page is not one to install.
+					.replace('<link rel="manifest" href="/manifest.webmanifest" />', '')
+		});
+		harden(response.headers);
+		return response;
+	}
+
+	if (path === SETUP_API && method === 'POST') {
+		if (!event.request.headers.get('content-type')?.toLowerCase().startsWith('application/json')) {
+			return sealed(JSON.stringify({ error: 'json_required' }), 415, 'application/json');
+		}
+		const response = await resolve(event);
+		harden(response.headers);
+		return response;
+	}
+
+	const wantsPage =
+		(method === 'GET' || method === 'HEAD') &&
+		!path.startsWith('/api/') &&
+		!event.request.headers.get('accept')?.includes('application/json');
+	if (wantsPage) return sealedRedirect(event, SETUP_PAGE);
+	const response = sealed(JSON.stringify({ error: 'setup_required' }), 503, 'application/json');
+	waiting.add(response);
+	return response;
 }
 
 /**
@@ -134,6 +210,13 @@ const slowMs = (() => {
 	const raw = Number(process.env.HEDDOHON_LOG_SLOW_MS);
 	return Number.isFinite(raw) && raw >= 0 ? raw : 2000;
 })();
+
+/**
+ * Responses that say the deployment is waiting for its setup. A 503, and not
+ * a fault: left out of the error log, which a browser tab left open on the app
+ * would otherwise fill while the setup is done.
+ */
+const waiting = new WeakSet<Response>();
 
 /**
  * The per-request line is written at debug only.
@@ -155,7 +238,7 @@ export const handle: Handle = async (input) => {
 		let failure: string | undefined;
 		try {
 			const response = await handleRequest(input);
-			status = response.status;
+			status = waiting.has(response) ? 200 : response.status;
 			return response;
 		} catch (err) {
 			if (isRedirect(err)) status = err.status;
@@ -193,6 +276,9 @@ const handleRequest: Handle = async ({ event, resolve }) => {
 	} catch (err) {
 		// Fail closed on anything that is not a ConfigError.
 		if (!(err instanceof ConfigError)) throw err;
+
+		// Not set up yet, with nothing else wrong: the setup page.
+		if (err instanceof SetupRequired) return setupRequest(event, resolve);
 
 		if (event.url.pathname === '/healthz') {
 			// The probe must work on a broken deployment: it reports

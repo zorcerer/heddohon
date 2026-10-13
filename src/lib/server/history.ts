@@ -374,6 +374,23 @@ export function periodStart(period: StatsPeriod, now = Date.now()): number {
 	return 0;
 }
 
+/**
+ * The span a period is measured against: the 30 or 90 days before it, or
+ * the same part of the year before (1 January to this day and hour, a year
+ * back). Everything kept has nothing before it.
+ */
+export function periodBefore(period: StatsPeriod, now = Date.now()): { from: number; to: number } | null {
+	if (period === 'month') return { from: now - 60 * DAY_MS, to: now - 30 * DAY_MS };
+	if (period === 'quarter') return { from: now - 180 * DAY_MS, to: now - 90 * DAY_MS };
+	if (period === 'year') {
+		const today = new Date(now);
+		const lastYear = new Date(now);
+		lastYear.setUTCFullYear(today.getUTCFullYear() - 1);
+		return { from: Date.UTC(today.getUTCFullYear() - 1, 0, 1), to: lastYear.getTime() };
+	}
+	return null;
+}
+
 interface RankedArtist {
 	id: string | null;
 	name: string;
@@ -410,23 +427,34 @@ export interface ListeningStats {
 	/** Artists whose first kept play falls in the period, most played first. */
 	newArtists: RankedArtist[];
 	/**
-	 * Plays by the hour they started in, as `[hours since the epoch, plays]`.
-	 * The hour of the day and the day of the week are the listener's local
-	 * ones, which only the browser knows. A year is at most 8,784 entries.
+	 * Plays by the hour they started in, as `[hours since the epoch, plays,
+	 * seconds]`. The hour of the day, the day of the week and the calendar day
+	 * are the listener's local ones, which only the browser knows, so every
+	 * chart of when is made there from these. A year is at most 8,784 entries.
 	 */
-	hours: [number, number][];
+	hours: [number, number, number][];
+	/**
+	 * The same four totals over the span before the period (`periodBefore`),
+	 * or null where there is none or nothing was kept in it: against nothing,
+	 * every figure would read as a rise.
+	 */
+	before: { plays: number; seconds: number; tracks: number; artists: number } | null;
 }
 
 const TOP = 10;
 const HOUR_MS = 60 * 60 * 1000;
 
 /** An account's listening from `from` on, from the history table alone. */
-export async function listeningStats(accountId: string, from: number): Promise<ListeningStats> {
+export async function listeningStats(
+	accountId: string,
+	from: number,
+	earlier: { from: number; to: number } | null = null
+): Promise<ListeningStats> {
 	const database = await store();
 	const scope = 'account_id = ? AND played_at >= ?';
 	// Grouped by id where the server gave one, by name otherwise.
 	const artistKey = 'COALESCE(artist_id, artist)';
-	const [totals, topArtists, topAlbums, topTracks, newArtists, hours] = await Promise.all([
+	const [totals, topArtists, topAlbums, topTracks, newArtists, hours, before] = await Promise.all([
 		database.get<{ plays: number; seconds: number | null; tracks: number; artists: number }>(
 			`SELECT COUNT(*) AS plays, SUM(duration) AS seconds, COUNT(DISTINCT song_id) AS tracks,
 			        COUNT(DISTINCT ${artistKey}) AS artists
@@ -465,12 +493,22 @@ export async function listeningStats(accountId: string, from: number): Promise<L
 			// Everything kept is new against nothing, so the whole history names none.
 			from > 0 ? from : Number.MAX_SAFE_INTEGER
 		),
-		database.all<{ hour: number; plays: number }>(
-			`SELECT played_at / ${HOUR_MS} AS hour, COUNT(*) AS plays FROM plays WHERE ${scope}
+		database.all<{ hour: number; plays: number; seconds: number | null }>(
+			`SELECT played_at / ${HOUR_MS} AS hour, COUNT(*) AS plays, SUM(duration) AS seconds FROM plays WHERE ${scope}
 			 GROUP BY played_at / ${HOUR_MS} ORDER BY hour`,
 			accountId,
 			from
-		)
+		),
+		earlier
+			? database.get<{ plays: number; seconds: number | null; tracks: number; artists: number }>(
+					`SELECT COUNT(*) AS plays, SUM(duration) AS seconds, COUNT(DISTINCT song_id) AS tracks,
+					        COUNT(DISTINCT ${artistKey}) AS artists
+					 FROM plays WHERE account_id = ? AND played_at >= ? AND played_at < ?`,
+					accountId,
+					earlier.from,
+					earlier.to
+				)
+			: Promise.resolve(undefined)
 	]);
 	const artist = (row: { id: string | null; name: string; plays: number; cover: string | null }): RankedArtist => ({
 		id: row.id,
@@ -500,7 +538,16 @@ export async function listeningStats(accountId: string, from: number): Promise<L
 			coverArt: row.cover
 		})),
 		newArtists: newArtists.map(artist),
-		hours: hours.map((row) => [Math.floor(Number(row.hour)), Number(row.plays)])
+		hours: hours.map((row) => [Math.floor(Number(row.hour)), Number(row.plays), Number(row.seconds ?? 0)]),
+		before:
+			before && Number(before.plays) > 0
+				? {
+						plays: Number(before.plays),
+						seconds: Number(before.seconds ?? 0),
+						tracks: Number(before.tracks),
+						artists: Number(before.artists)
+					}
+				: null
 	};
 }
 

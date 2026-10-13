@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import Cover from '$lib/components/Cover.svelte';
+	import ListeningCharts from '$lib/components/ListeningCharts.svelte';
 	import ListeningTabs from '$lib/components/ListeningTabs.svelte';
 	import MediaCard from '$lib/components/MediaCard.svelte';
 	import MediaGrid from '$lib/components/MediaGrid.svelte';
@@ -38,7 +39,7 @@
 		// Monday first.
 		const dayOfWeek = Array<number>(7).fill(0);
 		const days = new Set<number>();
-		if (!local) return { hourOfDay, dayOfWeek, streak: 0 };
+		if (!local) return { hourOfDay, dayOfWeek, streak: 0, running: 0 };
 		for (const [hour, plays] of stats.hours) {
 			const at = new Date(hour * HOUR_MS);
 			hourOfDay[at.getHours()] += plays;
@@ -56,7 +57,12 @@
 			run = previous && previous.getTime() === sorted[i] ? run + 1 : 1;
 			streak = Math.max(streak, run);
 		}
-		return { hourOfDay, dayOfWeek, streak };
+		// The run still going: the last one, if it reaches today or yesterday.
+		// A day that has only begun does not end a run.
+		const today = new Date(data.to);
+		const yesterday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1).getTime();
+		const running = sorted.length > 0 && sorted[sorted.length - 1] >= yesterday ? run : 0;
+		return { hourOfDay, dayOfWeek, streak, running };
 	});
 
 	const weekdayNames = $derived(
@@ -76,6 +82,25 @@
 		data.from > 0 ? new Date(data.from).toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' }) : null
 	);
 	const topArtistPlays = $derived(stats.topArtists[0]?.plays ?? 1);
+
+	/*
+	 * Each figure against the span before the period: the 30 or 90 days
+	 * before, or the same part of last year. Written as a signed percentage in
+	 * the muted tone. More is not better here and less is not a fault, so
+	 * neither is given a colour.
+	 */
+	const BEFORE: Record<string, string> = {
+		month: 'the 30 days before',
+		quarter: 'the 90 days before',
+		year: 'this point last year'
+	};
+	function against(now: number, then: number | undefined): string | null {
+		if (!stats.before || then === undefined || then <= 0) return null;
+		const change = Math.round(((now - then) / then) * 100);
+		const than = BEFORE[data.period] ?? 'the span before';
+		if (change === 0) return `The same as ${than}`;
+		return `${change > 0 ? '+' : '−'}${Math.abs(change).toLocaleString()}% on ${than}`;
+	}
 </script>
 
 <svelte:head>
@@ -146,23 +171,28 @@
 				<span class="label">Plays</span>
 				<span class="number hh-numeric">{stats.plays.toLocaleString()}</span>
 				{#if since}<span class="hh-muted sub">since {since}</span>{/if}
+				{#if against(stats.plays, stats.before?.plays)}<span class="hh-muted sub change">{against(stats.plays, stats.before?.plays)}</span>{/if}
 			</div>
 			<div class="figure">
 				<span class="label">Hours listened</span>
 				<span class="number hh-numeric">{hoursListened < 10 ? hoursListened.toFixed(1) : Math.round(hoursListened).toLocaleString()}</span>
+				{#if against(stats.seconds, stats.before?.seconds)}<span class="hh-muted sub change">{against(stats.seconds, stats.before?.seconds)}</span>{/if}
 			</div>
 			<div class="figure">
 				<span class="label">Artists</span>
 				<span class="number hh-numeric">{stats.artists.toLocaleString()}</span>
+				{#if against(stats.artists, stats.before?.artists)}<span class="hh-muted sub change">{against(stats.artists, stats.before?.artists)}</span>{/if}
 			</div>
 			<div class="figure">
 				<span class="label">Tracks</span>
 				<span class="number hh-numeric">{stats.tracks.toLocaleString()}</span>
+				{#if against(stats.tracks, stats.before?.tracks)}<span class="hh-muted sub change">{against(stats.tracks, stats.before?.tracks)}</span>{/if}
 			</div>
 			<div class="figure">
 				<span class="label">Longest run</span>
 				<span class="number hh-numeric">{local ? byLocalTime.streak : '·'}</span>
 				<span class="hh-muted sub">days in a row</span>
+				{#if local && byLocalTime.running > 0}<span class="hh-muted sub change">{byLocalTime.running} and counting</span>{/if}
 			</div>
 		</section>
 
@@ -182,6 +212,8 @@
 					{@render columns(byLocalTime.dayOfWeek, weekdayNames, 'Day of the week', (d) => weekdayNames[d].slice(0, 3))}
 				</div>
 			</section>
+
+			<ListeningCharts hours={stats.hours} from={data.from} to={data.to} />
 		{/if}
 
 		{#if stats.topArtists.length > 0}

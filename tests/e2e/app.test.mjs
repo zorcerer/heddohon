@@ -1937,6 +1937,42 @@ describe('your listening', () => {
 		});
 	});
 
+	test('each figure is set against the span before the period, where something was kept in it', async () => {
+		await asFreshAccount('compared', async (client) => {
+			await client.json('/api/settings', 'PATCH', { reportPlayback: false });
+			const daysAgo = (days) => new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+			// Two plays in the 30 days before the last 30, by two artists.
+			subsonic.state.played.set('s3a', daysAgo(40));
+			subsonic.state.played.set('s4a', daysAgo(45));
+			try {
+				// Nothing kept before: no figure is compared.
+				for (const id of ['s1a', 's1a', 's2a', 's2b']) await play(client, id);
+				assert.doesNotMatch((await client.page('/stats')).html, /the 30 days before/);
+
+				const imported = await client.request('/settings?/importHistory', {
+					method: 'POST',
+					headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json', 'x-sveltekit-action': 'true' },
+					body: ''
+				});
+				assert.equal((await imported.json()).type, 'success', explain('the import failed'));
+
+				const { html } = await client.page('/stats');
+				const compared = (label) => new RegExp(`class="label[^"]*">${label}</span>[\\s\\S]*?class="[^"]*change[^"]*">([^<]+)<`).exec(html)?.[1];
+				// Four plays against two, three tracks against two, two artists against two.
+				assert.equal(figure(html, 'Plays'), '4');
+				assert.equal(compared('Plays'), '+100% on the 30 days before');
+				assert.equal(compared('Tracks'), '+50% on the 30 days before');
+				assert.equal(compared('Artists'), 'The same as the 30 days before');
+				// Everything kept has nothing before it.
+				const all = (await client.page('/stats?period=all')).html;
+				assert.equal(figure(all, 'Plays'), '6');
+				assert.doesNotMatch(all, /class="[^"]*change[^"]*">[^<]*(before|last year)/);
+			} finally {
+				subsonic.state.played.clear();
+			}
+		});
+	});
+
 	test('another account sees none of it, and an unknown period is the last 30 days', async () => {
 		await asFreshAccount('elsewhere', async (client) => {
 			const { html } = await client.page('/stats?period=decade');

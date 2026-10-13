@@ -1,11 +1,14 @@
 /**
  * Administrator-supplied configuration.
  *
- * Every value comes from the process environment and none can be influenced by
- * a request: the operator decides which upstream servers exist, and a user
- * supplies only a username and a password.
+ * Every value comes from the process environment, or from what the first-run
+ * setup saved (`setup.json` in the data directory; see `setup.ts`) for the
+ * few values it may hold. The environment wins. No request can influence a
+ * value once the deployment is set up: the operator decides which upstream
+ * servers exist, and a user supplies only a username and a password.
  */
-import { accessSync, constants, mkdirSync, readFileSync } from 'node:fs';
+import { accessSync, chmodSync, constants, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { building } from '$app/environment';
 
 export type BackendKind = 'subsonic' | 'jellyfin';
@@ -92,6 +95,115 @@ export interface AppConfig {
 export class ConfigError extends Error {}
 
 /**
+ * The deployment has not been told its secret or its music server, and
+ * nothing else is wrong with it. The request gate answers with the setup
+ * page (`hooks.server.ts`), where every other ConfigError is a 500.
+ */
+export class SetupRequired extends ConfigError {
+	constructor(readonly missing: { secret: boolean; upstream: boolean }) {
+		super(
+			'Heddohon is not set up: ' +
+				[missing.secret ? 'HEDDOHON_SECRET' : null, missing.upstream ? 'a music server' : null]
+					.filter(Boolean)
+					.join(' and ') +
+				' is missing. The setup page takes them, or set them in the environment.'
+		);
+	}
+}
+
+/**
+ * What the setup may save, by the variable each stands in for. A short list:
+ * the two values a deployment cannot start without, and the choices a first
+ * run is asked about. Everything that names another host (the database, the
+ * third-party addresses), everything that widens what the server will fetch
+ * (`HEDDOHON_RADIO_PRIVATE`) and the plugin's token stay with the environment,
+ * where only the operator's own hands reach.
+ */
+export const SETUP_NAMES = [
+	'HEDDOHON_SECRET',
+	'HEDDOHON_SUBSONIC_URL',
+	'HEDDOHON_SUBSONIC_LABEL',
+	'HEDDOHON_JELLYFIN_URL',
+	'HEDDOHON_JELLYFIN_LABEL',
+	'HEDDOHON_DEFAULT_THEME',
+	'HEDDOHON_SHARING',
+	'HEDDOHON_DOWNLOADS',
+	'HEDDOHON_LYRICS_LRCLIB'
+] as const;
+export type SetupName = (typeof SETUP_NAMES)[number];
+
+const SETUP_FILE = 'setup.json';
+
+/** The data directory as the environment names it. The saved values are found through it, so it cannot be one of them. */
+function dataDirName(): string {
+	return process.env.HEDDOHON_DATA_DIR?.trim() || '/data';
+}
+
+let saved: Partial<Record<SetupName, string>> | null = null;
+
+/**
+ * The saved values, read once. No file is no values. A file that cannot be
+ * read, or is not what the setup writes, is an error and not an empty one: an
+ * empty one would offer the setup again, over a deployment that has accounts.
+ */
+function savedValues(): Partial<Record<SetupName, string>> {
+	if (saved) return saved;
+	const path = join(dataDirName(), SETUP_FILE);
+	let text: string;
+	try {
+		text = readFileSync(path, 'utf8');
+	} catch (err) {
+		const code = (err as NodeJS.ErrnoException).code;
+		// A data directory that is not there yet has no file either; `dataDirectory` reports on the directory.
+		if (code === 'ENOENT' || code === 'ENOTDIR') return (saved = {});
+		throw new ConfigError(`${path} could not be read (${code ?? 'error'}). It holds what the setup page saved.`);
+	}
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(text);
+	} catch {
+		throw new ConfigError(`${path} is not valid JSON. It holds what the setup page saved; delete it to run the setup again.`);
+	}
+	if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+		throw new ConfigError(`${path} is not an object of saved values.`);
+	}
+	const values: Partial<Record<SetupName, string>> = {};
+	for (const name of SETUP_NAMES) {
+		// Own properties only, and strings only: the file is data.
+		const value = Object.prototype.hasOwnProperty.call(parsed, name) ? (parsed as Record<string, unknown>)[name] : undefined;
+		if (typeof value === 'string') values[name] = value;
+	}
+	return (saved = values);
+}
+
+/**
+ * Adds to the saved values and has the configuration read again. Written
+ * beside the file and renamed over it, so a crash leaves the old file or the
+ * new one. Readable by this user alone: it can hold the secret.
+ */
+export function saveSetup(values: Partial<Record<SetupName, string>>): void {
+	const path = join(dataDirectory(), SETUP_FILE);
+	const next: Partial<Record<SetupName, string>> = { ...savedValues() };
+	for (const name of SETUP_NAMES) {
+		const value = values[name];
+		if (typeof value === 'string' && value.trim() !== '') next[name] = value.trim();
+	}
+	const scratch = `${path}.${process.pid}.tmp`;
+	writeFileSync(scratch, JSON.stringify(next, null, '\t') + '\n', { mode: 0o600 });
+	// The mode above is masked by the umask, and does nothing to a file that
+	// was already there.
+	chmodSync(scratch, 0o600);
+	renameSync(scratch, path);
+	resetConfig();
+}
+
+/** Has the next `config()` read the environment and the saved values again. */
+export function resetConfig(): void {
+	cached = null;
+	saved = null;
+}
+
+/**
  * The SHA-256 of the certificate the released Android app is signed with, as
  * `keytool` and `apksigner` print it. The key is in the repository's secrets.
  */
@@ -122,11 +234,15 @@ function androidFingerprints(): string[] {
 	return [...new Set([ANDROID_RELEASE_KEY, ...extra])];
 }
 
+/** A variable as the environment has it, or as the setup saved it where the environment has none. */
 function env(name: string): string | undefined {
-	const raw = process.env[name];
-	if (raw === undefined) return undefined;
-	const trimmed = raw.trim();
-	return trimmed === '' ? undefined : trimmed;
+	const given = process.env[name]?.trim();
+	if (given) return given;
+	if ((SETUP_NAMES as readonly string[]).includes(name)) {
+		const kept = savedValues()[name as SetupName]?.trim();
+		if (kept) return kept;
+	}
+	return undefined;
 }
 
 function normaliseUrl(name: string, raw: string): string {
@@ -243,7 +359,7 @@ function identity(): string {
  * reports `misconfigured`, which fails the container's HEALTHCHECK.
  */
 function dataDirectory(): string {
-	const dir = env('HEDDOHON_DATA_DIR') ?? '/data';
+	const dir = dataDirName();
 
 	try {
 		mkdirSync(dir, { recursive: true });
@@ -271,8 +387,35 @@ function dataDirectory(): string {
 	return dir;
 }
 
+/**
+ * `HEDDOHON_SETUP`, on unless set to false. Off, a deployment missing its
+ * secret or its music server answers 500 as every other misconfiguration
+ * does, and there is no setup page to find.
+ */
+export function setupOffered(): boolean {
+	return flagEnv('HEDDOHON_SETUP', true);
+}
+
+/**
+ * A music server's address as the configuration keeps it, or a ConfigError
+ * that says what is wrong with it. For the setup page, which checks an
+ * address by the rules the environment's are held to.
+ */
+export function upstreamAddress(raw: string): string {
+	return normaliseUrl('The address', raw);
+}
+
 function build(): AppConfig {
+	// First: the saved values are in it, and an unwritable one is a fault the
+	// setup page could not get past.
+	const dataDir = dataDirectory();
 	const secret = env('HEDDOHON_SECRET');
+	const anyUpstream = Boolean(
+		env('HEDDOHON_SUBSONIC_URL') ?? env('HEDDOHON_NAVIDROME_URL') ?? env('HEDDOHON_JELLYFIN_URL')
+	);
+	if ((!secret || !anyUpstream) && setupOffered()) {
+		throw new SetupRequired({ secret: !secret, upstream: !anyUpstream });
+	}
 	if (!secret) {
 		throw new ConfigError(
 			'HEDDOHON_SECRET is required. Generate one with: openssl rand -base64 48'
@@ -314,7 +457,7 @@ function build(): AppConfig {
 
 	return {
 		secret,
-		dataDir: dataDirectory(),
+		dataDir,
 		sessionMaxHours: intEnv('HEDDOHON_SESSION_HOURS', DEFAULT_SESSION_HOURS, 1, MAX_SESSION_HOURS),
 		cookieSecure: boolEnv('HEDDOHON_COOKIE_SECURE', 'auto'),
 		upstreamTimeoutMs: intEnv('HEDDOHON_UPSTREAM_TIMEOUT_MS', 20_000, 1_000, 120_000),
