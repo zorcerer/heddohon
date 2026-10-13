@@ -35,6 +35,7 @@
 		skipGlyph,
 		turnGlyph
 	} from '$lib/client/motion';
+	import { scramble } from '$lib/client/scramble';
 	import { flip } from 'svelte/animate';
 	import Cover from './Cover.svelte';
 	import FavouriteButton from './FavouriteButton.svelte';
@@ -93,6 +94,13 @@
 			const direction = untrack(() => player.direction);
 			arrivedFor = key;
 			if (first || !changed || prefersReducedMotion()) return;
+			// Terminal has its own: the title resolves in place, and nothing slides.
+			// Only in the theme's mono face; see `scramble.ts`.
+			const root = document.documentElement.dataset;
+			if (root.theme === 'terminal') {
+				const title = node.querySelector<HTMLElement>('.title');
+				return title && root.font === 'manrope' ? scramble(title, DUR.state) : undefined;
+			}
 			const animation = node.animate(
 				[
 					{ opacity: 0, translate: `${direction * 1.25}rem 0`, filter: 'blur(3px)' },
@@ -393,7 +401,7 @@
 		<div class="head">
 			<div class="text" {@attach arrive(song?.id ?? null)}>
 				{#if song}
-					<h2 class="title hh-clamp-2">{song.title}</h2>
+					<h2 class="title hh-clamp-2" data-text={song.title}>{song.title}</h2>
 					<p class="artist hh-truncate">
 						{#if song.artistId}
 							<a href="/artists/{song.artistId}">{song.artist ?? 'Unknown artist'}</a>
@@ -1702,5 +1710,166 @@
 		.below {
 			display: grid;
 		}
+	}
+
+	/* ── Terminal ────────────────────────────────────────────────────────────── */
+
+	/*
+	 * The artwork dissolves into the dot grid on its way into the panel. The
+	 * layer that carries the grain in the other themes is a sheet of the pane's
+	 * colour with a hole every 7px, faded in over the last third of its height, so
+	 * the picture is whole at the top, then seen through the holes, then gone
+	 * where the mask on `.art` ends it. The colours of the cover are untouched.
+	 */
+	:global([data-theme='terminal']) .art::after {
+		background: radial-gradient(circle, transparent 2px, var(--bg-surface) 2.7px) 0 0 / 7px 7px;
+		-webkit-mask-image: linear-gradient(to bottom, transparent 64%, #000 96%);
+		mask-image: linear-gradient(to bottom, transparent 64%, #000 96%);
+	}
+
+	/*
+	 * The track as three labelled lines. The labels are drawn by the stylesheet
+	 * beside text that already says what it is to a screen reader (a heading, and
+	 * links to the artist and the album). Only for a track of the library:
+	 * `.rounds` is there for one and not for a station or an empty player.
+	 */
+	:global([data-theme='terminal']) .head:has(.rounds) .title,
+	:global([data-theme='terminal']) .head:has(.rounds) .artist,
+	:global([data-theme='terminal']) .head:has(.rounds) .album {
+		position: relative;
+		padding-left: 3.5rem;
+	}
+
+	:global([data-theme='terminal']) .head:has(.rounds) .title::before,
+	:global([data-theme='terminal']) .head:has(.rounds) .artist::before,
+	:global([data-theme='terminal']) .head:has(.rounds) .album::before {
+		position: absolute;
+		left: 0;
+		color: var(--text-muted);
+		font-size: 0.8125rem;
+		font-weight: 400;
+		letter-spacing: 0;
+	}
+
+	/* Each with an empty alternative text, so it is drawn and not read into the
+	   heading's or the link's line; the plain declaration is for Safari before
+	   17.4. */
+	:global([data-theme='terminal']) .head:has(.rounds) .title::before {
+		content: 'title';
+		content: 'title' / '';
+		top: 0.2rem;
+	}
+
+	:global([data-theme='terminal']) .head:has(.rounds) .artist::before {
+		content: 'artist';
+		content: 'artist' / '';
+	}
+
+	:global([data-theme='terminal']) .head:has(.rounds) .album::before {
+		content: 'album';
+		content: 'album' / '';
+	}
+
+	:global([data-theme='terminal']) .title {
+		font-size: 1.0625rem;
+		line-height: 1.35;
+		letter-spacing: -0.01em;
+	}
+
+	:global([data-theme='terminal']) .artist,
+	:global([data-theme='terminal']) .album {
+		font-size: 0.8125rem;
+	}
+
+	:global([data-theme='terminal']) .artist a {
+		color: var(--accent);
+	}
+
+	:global([data-theme='terminal']) .album {
+		-webkit-line-clamp: 1;
+		line-clamp: 1;
+	}
+
+	/* The two actions beside the title, as square keys with a hairline. */
+	:global([data-theme='terminal']) .round,
+	:global([data-theme='terminal']) .round :global(button) {
+		width: 2.5rem;
+		height: 2.5rem;
+		border-radius: var(--r-sm);
+		background: none;
+		color: var(--text-strong);
+	}
+
+	:global([data-theme='terminal']) .times > :first-child {
+		color: var(--text-strong);
+	}
+
+	/*
+	 * The transport as one row of five keys that share their edges, the middle
+	 * one filled. A press changes the key's ground; nothing scales.
+	 */
+	:global([data-theme='terminal']) .transport {
+		display: grid;
+		grid-template-columns: repeat(5, minmax(0, 1fr));
+		gap: 0;
+		padding: 0;
+		border: 1px solid var(--border-strong);
+		border-radius: var(--r-md);
+		overflow: hidden;
+	}
+
+	:global([data-theme='terminal']) .edge,
+	:global([data-theme='terminal']) .step,
+	:global([data-theme='terminal']) .play {
+		height: 2.75rem;
+		padding: 0;
+		border-radius: 0;
+		scale: none;
+	}
+
+	:global([data-theme='terminal']) .transport > :global(button + button) {
+		border-left: 1px solid var(--border-strong);
+	}
+
+	:global([data-theme='terminal']) .step :global(svg),
+	:global([data-theme='terminal']) .play :global(svg) {
+		width: 1.25rem;
+		height: 1.25rem;
+	}
+
+	:global([data-theme='terminal']) .edge:active:not(:disabled),
+	:global([data-theme='terminal']) .step:active:not(:disabled),
+	:global([data-theme='terminal']) .tool:active:not(:disabled) {
+		scale: none;
+		background: var(--bg-hover);
+	}
+
+	:global([data-theme='terminal']) .play,
+	:global([data-theme='terminal']) .play:hover {
+		background: var(--accent);
+		color: var(--accent-contrast);
+	}
+
+	:global([data-theme='terminal']) .play:hover,
+	:global([data-theme='terminal']) .play:active:not(:disabled) {
+		scale: none;
+		background: var(--accent-strong);
+	}
+
+	/* The count on the queue button, squared like everything else here. */
+	:global([data-theme='terminal']) .count {
+		border-radius: var(--r-pill);
+		animation: none;
+	}
+
+	:global([data-theme='terminal']) .queue-list > li.dragged {
+		box-shadow: inset 0 0 0 1px var(--accent);
+	}
+
+	/* The track that is playing, in the queue: the accent, where the other
+	   themes light it. */
+	:global([data-theme='terminal']) .row.current .row-title {
+		color: var(--accent);
+		font-weight: 700;
 	}
 </style>

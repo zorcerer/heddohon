@@ -1,5 +1,6 @@
 <script lang="ts">
 	import '$lib/styles/app.css';
+	import '$lib/styles/terminal.css';
 	import { tick, untrack } from 'svelte';
 	import { afterNavigate, beforeNavigate, onNavigate, preloadCode, pushState } from '$app/navigation';
 	import { navigating, page, updated } from '$app/state';
@@ -34,6 +35,7 @@
 	import TogetherDialog from '$lib/components/TogetherDialog.svelte';
 	import PlaylistPicker from '$lib/components/PlaylistPicker.svelte';
 	import ShareDialog from '$lib/components/ShareDialog.svelte';
+	import PathStrip from '$lib/components/PathStrip.svelte';
 	import Sidebar from '$lib/components/Sidebar.svelte';
 	import type { LayoutData, Snapshot } from './$types';
 	import type { Song } from '$lib/types';
@@ -226,6 +228,12 @@
 	// The font as well, for the same reason.
 	$effect(() => {
 		document.documentElement.dataset.font = data.settings.font;
+	});
+
+	// And Terminal's accent and dot grid.
+	$effect(() => {
+		document.documentElement.dataset.accent = data.settings.accent;
+		document.documentElement.dataset.dots = data.settings.dots;
 	});
 
 	/*
@@ -807,6 +815,7 @@
 		-->
 		<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 		<main class="content" class:rising tabindex="0" bind:this={content}>
+			<PathStrip />
 			{@render children()}
 		</main>
 
@@ -1526,5 +1535,36 @@
 			opacity: 0.6;
 			animation: none;
 		}
+	}
+
+	/* ── Terminal ────────────────────────────────────────────────────────────── */
+
+	/*
+	 * The page is a third pane, between the rail and the player, with the path
+	 * strip (`PathStrip.svelte`) along its top. It stays see-through to the dot
+	 * grid: nothing is behind it but the room. The layers that cover it during a
+	 * navigation take its corners.
+	 */
+	@media (min-width: 60.0625rem) {
+		:global([data-theme='terminal']) .content {
+			border: 1px solid var(--border-strong);
+			border-radius: var(--r-xl);
+		}
+
+		:global([data-theme='terminal']) .app .page-veil,
+		:global([data-theme='terminal']) .app .wait-veil {
+			border-radius: var(--r-xl);
+		}
+	}
+
+	/* The line that sweeps while a page loads, without its glow. */
+	:global([data-theme='terminal']) .nav-progress span {
+		box-shadow: none;
+	}
+
+	/* The page arrives without the rise: the rows of its lists print in instead
+	   (`terminal.css`). */
+	:global([data-theme='terminal']) .content.rising > :global(*) {
+		animation: none;
 	}
 </style>

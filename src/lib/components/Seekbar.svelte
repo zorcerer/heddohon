@@ -223,4 +223,40 @@
 	.seek:focus-visible .thumb {
 		transform: translateY(-50%) scale(1);
 	}
+
+	/* ── Terminal ────────────────────────────────────────────────────────────── */
+
+	/*
+	 * A row of segments, 6px with 2px between, at one height: the played ones in
+	 * the accent over the buffered ones over the rest. The three share an origin,
+	 * so their segments coincide. The thumb is not drawn; the last lit segment
+	 * marks the place.
+	 */
+	:global([data-theme='terminal']) .rail,
+	:global([data-theme='terminal']) .seek:hover .rail,
+	:global([data-theme='terminal']) .seek.dragging .rail,
+	:global([data-theme='terminal']) .seek:focus-visible .rail {
+		height: 0.5rem;
+		border-radius: 0;
+		background: repeating-linear-gradient(to right, var(--bg-active) 0 6px, transparent 6px 8px);
+	}
+
+	:global([data-theme='terminal']) .buffered,
+	:global([data-theme='terminal']) .played {
+		border-radius: 0;
+		background: none;
+		background-size: 100vw 100%;
+	}
+
+	:global([data-theme='terminal']) .buffered {
+		background-image: repeating-linear-gradient(to right, var(--border-strong) 0 6px, transparent 6px 8px);
+	}
+
+	:global([data-theme='terminal']) .played {
+		background-image: repeating-linear-gradient(to right, var(--accent) 0 6px, transparent 6px 8px);
+	}
+
+	:global([data-theme='terminal']) .thumb {
+		display: none;
+	}
 </style>

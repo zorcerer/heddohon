@@ -331,6 +331,114 @@ describe('settings', () => {
 		await user.json('/api/settings', 'PATCH', { theme: 'dark' });
 	});
 
+	test('Terminal\'s accent and dot grid are each one of those offered, and are in the first byte of the page', async () => {
+		const fresh = await (await user.json('/api/settings', 'PATCH', {})).json();
+		assert.deepEqual([fresh.accent, fresh.dots], ['artwork', 'faint']);
+		try {
+			const saved = await (await user.json('/api/settings', 'PATCH', { theme: 'terminal', accent: 'green', dots: 'off' })).json();
+			assert.deepEqual([saved.theme, saved.accent, saved.dots], ['terminal', 'green', 'off']);
+			const { html } = await user.page('/albums');
+			assert.match(html, /<html[^>]* data-theme="terminal" data-accent="green" data-dots="off"/);
+
+			const bogus = await (await user.json('/api/settings', 'PATCH', { accent: '"><script>alert(1)</script>', dots: '#fff' })).json();
+			assert.deepEqual([bogus.accent, bogus.dots], ['green', 'off'], 'a value that is not offered keeps the one stored');
+			assert.ok(!(await user.page('/albums')).html.includes('<script>alert(1)'));
+		} finally {
+			await user.json('/api/settings', 'PATCH', { theme: 'dark', accent: 'artwork', dots: 'faint' });
+		}
+	});
+
+	test('an account starts in the deployment\'s theme, Terminal unless it is set, and the sign-in page is drawn in it', async () => {
+		const colours = async (base, query) => {
+			const manifest = await (await fetch(`${base}/manifest.webmanifest${query}`)).json();
+			return [manifest.theme_color, manifest.background_color];
+		};
+		// Without the variable, which the harness otherwise sets.
+		const terminal = await startApp({ subsonicUrl: subsonic.url, jellyfinUrl: jellyfin.url, env: { HEDDOHON_DEFAULT_THEME: '' } });
+		try {
+			assert.match((await new Client(terminal.url).page('/login')).html, /data-theme="terminal"/);
+			const client = new Client(terminal.url);
+			await client.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' });
+			assert.equal((await (await client.json('/api/settings', 'PATCH', {})).json()).theme, 'terminal');
+			const head = async () => (await client.page('/albums')).html.split('</head>')[0];
+			assert.match(await head(), /data-theme="terminal"/);
+			assert.match(await head(), /name="theme-color" content="#08090a"/);
+			assert.match(await head(), /rel="manifest" href="\/manifest\.webmanifest"/);
+			assert.deepEqual(await colours(terminal.url, ''), ['#08090a', '#08090a']);
+
+			// Another theme is asked for by name, since the manifest is fetched without a cookie.
+			await client.json('/api/settings', 'PATCH', { theme: 'dark' });
+			assert.match(await head(), /rel="manifest" href="\/manifest\.webmanifest\?theme=dark"/);
+			assert.deepEqual(await colours(terminal.url, '?theme=dark'), ['#0b0c0f', '#0b0c0f']);
+			assert.deepEqual(await colours(terminal.url, '?theme=%22%3E'), ['#08090a', '#08090a'], 'anything else is the default theme\'s');
+		} finally {
+			await terminal.stop();
+		}
+
+		const paper = await startApp({ subsonicUrl: subsonic.url, jellyfinUrl: jellyfin.url, env: { HEDDOHON_DEFAULT_THEME: 'Paper' } });
+		try {
+			assert.match((await new Client(paper.url).page('/login')).html, /data-theme="light"/);
+			assert.deepEqual(await colours(paper.url, ''), ['#f0e7d5', '#f0e7d5']);
+			assert.deepEqual(await colours(paper.url, '?theme=terminal'), ['#08090a', '#08090a']);
+		} finally {
+			await paper.stop();
+		}
+	});
+
+	test('settings saved before Terminal existed move to the default theme once, and a choice made since is kept', async () => {
+		const { default: Database } = await import('better-sqlite3');
+		const dataDir = mkdtempSync(join(tmpdir(), 'heddohon-e2e-themes-'));
+		const start = (theme) =>
+			startApp({ subsonicUrl: subsonic.url, jellyfinUrl: jellyfin.url, dataDir, env: { HEDDOHON_DEFAULT_THEME: theme } });
+		/** The stored settings as a release before Terminal wrote them: no `dots`, no `accent`, and a theme. */
+		const storeOld = (theme) => {
+			const db = new Database(join(dataDir, 'heddohon.db'));
+			const row = db.prepare('SELECT account_id, data FROM settings').get();
+			const { dots: _dots, accent: _accent, ...old } = JSON.parse(row.data);
+			db.prepare('UPDATE settings SET data = ? WHERE account_id = ?').run(JSON.stringify({ ...old, theme }), row.account_id);
+			db.close();
+		};
+		const client = new Client('');
+		const theme = async (app) => {
+			client.base = app.url;
+			return (await (await client.json('/api/settings', 'GET')).json()).theme;
+		};
+
+		let app = await start('terminal');
+		try {
+			client.base = app.url;
+			await client.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' });
+			await client.json('/api/settings', 'PATCH', { volume: 0.5 });
+			await app.stop({ keepData: true });
+
+			// `dark` was the one dark theme and was written with every save, so it is not a choice of Liquid.
+			storeOld('dark');
+			app = await start('terminal');
+			assert.equal(await theme(app), 'terminal');
+			assert.equal((await (await client.json('/api/settings', 'GET')).json()).volume, 0.5, 'the rest of the settings are as stored');
+			// Chosen now, and stored with `dots`: it stays.
+			await client.json('/api/settings', 'PATCH', { theme: 'dark' });
+			assert.equal(await theme(app), 'dark');
+			await app.stop({ keepData: true });
+			app = await start('terminal');
+			assert.equal(await theme(app), 'dark', 'Liquid chosen since is kept across a restart');
+			await app.stop({ keepData: true });
+
+			// Paper was chosen over the default, and is left alone.
+			storeOld('light');
+			app = await start('terminal');
+			assert.equal(await theme(app), 'light');
+			await app.stop({ keepData: true });
+
+			// A deployment that starts accounts in Liquid moves nobody.
+			storeOld('dark');
+			app = await start('liquid');
+			assert.equal(await theme(app), 'dark');
+		} finally {
+			await app.stop();
+		}
+	});
+
 	test('the font is one of the six offered, and is in the first byte of the page', async () => {
 		const geist = await (await user.json('/api/settings', 'PATCH', { font: 'geist' })).json();
 		assert.equal(geist.font, 'geist');

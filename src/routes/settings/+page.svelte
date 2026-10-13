@@ -477,14 +477,52 @@
 				<span class="label">
 					Theme
 					<span class="hint hh-muted">
-						Liquid is dark glass lit by the artwork. Paper is parchment and ink, tinted by it.
+						Terminal is flat panes on hairlines, set in a mono face. Liquid is dark glass lit by the
+						artwork. Paper is parchment and ink, tinted by it.
 					</span>
 				</span>
 				<select class="hh-input control" name="theme" bind:value={settings.theme}>
+					<option value="terminal">Terminal</option>
 					<option value="dark">Liquid</option>
 					<option value="light">Paper</option>
 				</select>
 			</label>
+
+			<!-- Terminal's own two. Liquid and Paper take every colour from the
+			     artwork and have no grid. -->
+			{#if settings.theme === 'terminal'}
+				<label class="row">
+					<span class="label">
+						Accent
+						<span class="hint hh-muted">
+							The colour of the primary controls and the playing row: the cover of what is
+							playing, or one colour that stays.
+						</span>
+					</span>
+					<select class="hh-input control" name="accent" bind:value={settings.accent}>
+						<option value="artwork">From the artwork</option>
+						<option value="green">Green</option>
+						<option value="amber">Amber</option>
+						<option value="cyan">Cyan</option>
+						<option value="violet">Violet</option>
+						<option value="rose">Rose</option>
+						<option value="white">White</option>
+					</select>
+				</label>
+
+				<label class="row">
+					<span class="label">
+						Background dots
+						<span class="hint hh-muted">The dot grid behind the page.</span>
+					</span>
+					<select class="hh-input control" name="dots" bind:value={settings.dots}>
+						<option value="off">Off</option>
+						<option value="faint">Faint</option>
+						<option value="medium">Medium</option>
+						<option value="strong">Strong</option>
+					</select>
+				</label>
+			{/if}
 
 			<label class="row">
 				<span class="label">
@@ -507,7 +545,8 @@
 				<span class="label">
 					Font
 					<span class="hint hh-muted">
-						The typeface across the interface. Figures and labels stay in the mono face.
+						The typeface across the interface. Figures and labels stay in the mono face. The first
+						is the theme's own.
 					</span>
 					<!-- In the face chosen, before it is saved; see `[data-font]` in app.css. -->
 					<span class="font-sample" data-font={settings.font} aria-hidden="true">
@@ -515,7 +554,7 @@
 					</span>
 				</span>
 				<select class="hh-input control" name="font" bind:value={settings.font}>
-					<option value="manrope">Manrope</option>
+					<option value="manrope">{settings.theme === 'terminal' ? 'JetBrains Mono' : 'Manrope'}</option>
 					<option value="inter">Inter</option>
 					<option value="geist">Geist</option>
 					<option value="plex">IBM Plex Sans</option>
@@ -562,21 +601,24 @@
 				<input type="checkbox" name="showQualityBadge" bind:checked={settings.showQualityBadge} />
 			</label>
 
-			<label class="row">
-				<span class="label">
-					Aurora
-					<span class="hint hh-muted">
-						A glow in the artwork's colours behind the glass. Moving, it drifts slowly, and the glass
-						redraws its blur as it does; still or off costs nothing, for older or low-powered
-						hardware and for battery.
+			<!-- Terminal has no glass and no room behind it for a glow. -->
+			{#if settings.theme !== 'terminal'}
+				<label class="row">
+					<span class="label">
+						Aurora
+						<span class="hint hh-muted">
+							A glow in the artwork's colours behind the glass. Moving, it drifts slowly, and the glass
+							redraws its blur as it does; still or off costs nothing, for older or low-powered
+							hardware and for battery.
+						</span>
 					</span>
-				</span>
-				<select class="hh-input control" name="aurora" bind:value={settings.aurora}>
-					<option value="moving">Moving</option>
-					<option value="still">Still</option>
-					<option value="off">Off</option>
-				</select>
-			</label>
+					<select class="hh-input control" name="aurora" bind:value={settings.aurora}>
+						<option value="moving">Moving</option>
+						<option value="still">Still</option>
+						<option value="off">Off</option>
+					</select>
+				</label>
+			{/if}
 		</section>
 
 		<section class="hh-card hh-glass group" hidden={shown !== 'playback'}>
@@ -2279,5 +2321,15 @@
 		.row.switch {
 			grid-template-columns: minmax(0, 1fr) auto;
 		}
+	}
+
+	/* ── Terminal ────────────────────────────────────────────────────────────── */
+
+	/* The tab that is open: the accent, on a rule of it. The other themes light
+	   the label, and this one has no glow to do it with. */
+	:global([data-theme='terminal']) .tab.active {
+		border-radius: 0;
+		color: var(--accent);
+		box-shadow: inset 0 -2px 0 var(--accent);
 	}
 </style>

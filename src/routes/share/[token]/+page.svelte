@@ -1142,4 +1142,11 @@
 			padding: var(--space-5);
 		}
 	}
+
+	/* ── Terminal ────────────────────────────────────────────────────────────── */
+
+	/* The entry that is playing, in the accent. */
+	:global([data-theme='terminal']) .entry.current {
+		color: var(--accent);
+	}
 </style>

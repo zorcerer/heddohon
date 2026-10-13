@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-	<!-- The dark theme's ground, which the web manifest also names as its background and theme colour. -->
-	<color name="ground">#0B0C0F</color>
-	<color name="panel">#14171C</color>
-	<color name="edge">#2A2F38</color>
-	<color name="text">#E8EAEE</color>
-	<color name="muted">#9AA3B0</color>
+	<!-- The ground, pane, hairline and text tones of Terminal, the app's default theme. The web manifest names the ground as its background and theme colour too. -->
+	<color name="ground">#08090A</color>
+	<color name="panel">#0D0E10</color>
+	<color name="edge">#2A2E33</color>
+	<color name="text">#E6E8EA</color>
+	<color name="muted">#8A9097</color>
 	<color name="accent">#9FC6D3</color>
-	<color name="danger">#E5796F</color>
+	<color name="danger">#FF8B8B</color>
 </resources>

@@ -321,7 +321,7 @@ function createWindow() {
 		y: bounds.y,
 		minWidth: 360,
 		minHeight: 480,
-		backgroundColor: '#0b0c0f',
+		backgroundColor: '#08090a',
 		autoHideMenuBar: true,
 		title: 'Heddohon',
 		icon: path.join(__dirname, 'build', 'icon.png'),
@@ -550,7 +550,7 @@ function askCredentials(host, realm) {
 			minimizable: false,
 			maximizable: false,
 			autoHideMenuBar: true,
-			backgroundColor: '#0b0c0f',
+			backgroundColor: '#08090a',
 			title: 'Sign in',
 			webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, sandbox: true, nodeIntegration: false }
 		});

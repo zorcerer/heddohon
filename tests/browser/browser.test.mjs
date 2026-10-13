@@ -5298,3 +5298,307 @@ describe('Paper, the light theme', () => {
 		}
 	});
 });
+
+describe('Terminal, the default theme', () => {
+	/*
+	 * The harness starts accounts in Liquid, which the rest of this file
+	 * measures, so each test here sets the theme and puts Liquid back.
+	 */
+	const settings = (patch) => context.request.patch(`${app.url}/api/settings`, { data: patch, headers: { origin: app.url } });
+	const liquid = () => settings({ theme: 'dark', accent: 'artwork', dots: 'faint' });
+	/** A CSS colour as the browser computes it on an element, as `[r, g, b, a]`. */
+	const computed = (page, colour) =>
+		page.evaluate((colour) => {
+			const canvas = document.createElement('canvas').getContext('2d');
+			const probe = document.createElement('div');
+			probe.style.color = colour;
+			document.body.append(probe);
+			canvas.fillStyle = getComputedStyle(probe).color;
+			probe.remove();
+			canvas.fillRect(0, 0, 1, 1);
+			return [...canvas.getImageData(0, 0, 1, 1).data];
+		}, colour);
+
+	test('no page logs an error in it', async () => {
+		await settings({ theme: 'terminal' });
+		const { page, problems } = await watchedPage();
+		try {
+			for (const path of ['/', '/albums', '/albums/al1', '/artists', '/artists/ar1', '/favourites', '/genres', '/radio', '/library', '/playlists', '/folders', '/folders/d-al1', '/history', '/screen', '/stats', '/search?q=song', '/settings']) {
+				const response = await page.goto(app.url + path, { waitUntil: 'networkidle' });
+				assert.equal(response?.status(), 200, path);
+				assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), 'terminal', path);
+			}
+		} finally {
+			await liquid();
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+
+	/*
+	 * What makes it Terminal and not Liquid in other colours: a pane is opaque
+	 * and blurs nothing, the tint layers Liquid cross-fades are not painted, and
+	 * the canvas stays the ground while a red cover plays, where Liquid's takes
+	 * the cover's colour (the test of `theme-color` above).
+	 */
+	test('is opaque panes in a mono face over the ground alone, whatever plays', async () => {
+		await settings({ theme: 'terminal' });
+		subsonic.state.audio = { type: 'audio/wav', body: silentWav(30) };
+		subsonic.state.coverColors.set('al-37', [220, 60, 30]);
+		const { page, problems } = await watchedPage();
+		try {
+			await page.goto(app.url + '/albums/al37', { waitUntil: 'networkidle' });
+			await page.getByRole('button', { name: 'Play Song 37a', exact: true }).click();
+			await page.waitForFunction(() => [...document.querySelectorAll('audio')].some((a) => !a.paused && a.currentTime > 0));
+			// As long as Liquid's canvas takes to reach the cover's colour.
+			await page.waitForTimeout(2200);
+			const seen = await page.evaluate(() => {
+				const rail = document.querySelector('nav.rail');
+				const panel = document.querySelector('aside.panel');
+				const style = getComputedStyle(rail);
+				return {
+					blur: [style.backdropFilter, getComputedStyle(panel).backdropFilter],
+					ground: style.backgroundColor,
+					tint: [getComputedStyle(rail, '::before').display, getComputedStyle(rail, '::after').display],
+					radius: style.borderTopLeftRadius,
+					shadow: style.boxShadow,
+					canvas: getComputedStyle(document.documentElement).backgroundColor,
+					bar: document.querySelector('meta[name="theme-color"]').getAttribute('content'),
+					face: getComputedStyle(document.body).fontFamily.split(',')[0].replaceAll('"', '').trim()
+				};
+			});
+			assert.deepEqual(seen.blur, ['none', 'none']);
+			assert.match(seen.ground, /^rgb\(/, `the rail's ground is see-through: ${seen.ground}`);
+			assert.deepEqual(seen.tint, ['none', 'none'], 'a tint layer is painted');
+			assert.equal(seen.radius, '6px');
+			assert.equal(seen.shadow, 'none');
+			assert.equal(seen.canvas, 'rgb(8, 9, 10)', 'the canvas took the cover\'s colour');
+			assert.equal(seen.bar, '#08090a');
+			assert.equal(seen.face, 'Heddohon Terminal');
+		} finally {
+			await liquid();
+			subsonic.state.audio = null;
+			subsonic.state.coverColors.delete('al-37');
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+
+	test('the accent is the colour chosen, and the dot grid is as strong as chosen or not drawn', async () => {
+		await settings({ theme: 'terminal', accent: 'green', dots: 'faint' });
+		const { page, problems } = await watchedPage();
+		const dots = () =>
+			page.evaluate(() => {
+				const image = getComputedStyle(document.querySelector('.app > .hh-ambience')).backgroundImage;
+				// The dot's colour is the text colour at the share chosen: its alpha, or null with no grid.
+				return image.includes('radial-gradient') ? Number(/srgb [\d.]+ [\d.]+ [\d.]+ \/ ([\d.]+)\)|rgba\([^)]*, ([\d.]+)\)/.exec(image)?.slice(1).find(Boolean)) : null;
+			});
+		try {
+			await page.goto(app.url + '/albums', { waitUntil: 'networkidle' });
+			assert.deepEqual(await computed(page, 'var(--accent)'), [143, 240, 164, 255]);
+			const faint = await dots();
+			assert.ok(faint > 0.05 && faint < 0.09, `faint is 7 percent: ${faint}`);
+
+			// Changed in Settings, it is on the page at once, without a load.
+			await page.goto(app.url + '/settings', { waitUntil: 'networkidle' });
+			await page.locator('select[name="dots"]').selectOption('strong');
+			await page.locator('select[name="accent"]').selectOption('amber');
+			await page.getByRole('button', { name: 'Save settings' }).click();
+			await page.getByText('Settings saved.').waitFor();
+			await page.waitForFunction(() => document.documentElement.dataset.dots === 'strong');
+			const strong = await dots();
+			assert.ok(strong > 0.18 && strong < 0.22, `strong is 20 percent: ${strong}`);
+			assert.deepEqual(await computed(page, 'var(--accent)'), [255, 180, 84, 255]);
+
+			await settings({ dots: 'off' });
+			await page.goto(app.url + '/albums', { waitUntil: 'networkidle' });
+			assert.equal(await dots(), null, 'the grid is drawn with the dots off');
+		} finally {
+			await liquid();
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+
+	test('the line along the top of the page says where it is, in Terminal alone and not on a phone', async () => {
+		await settings({ theme: 'terminal' });
+		const { page, problems } = await watchedPage();
+		const strip = page.locator('main.content > nav.strip');
+		try {
+			await page.goto(app.url + '/albums/al1', { waitUntil: 'networkidle' });
+			const name = await page.locator('main.content h1').first().textContent();
+			const slug = name.trim().toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-|-$/g, '');
+			assert.ok(await strip.isVisible());
+			assert.equal((await strip.locator('.path').textContent()).replace(/\s+/g, ''), `~/albums/${slug}`);
+			assert.match(await strip.locator('.whose').textContent(), /^testuser@/);
+			// It stays at the top of the pane while the page scrolls under it.
+			const top = async () => (await strip.boundingBox()).y;
+			const before = await top();
+			await page.locator('main.content').evaluate((el) => el.scrollTo({ top: 400, behavior: 'instant' }));
+			assert.equal(await top(), before);
+			// The section is a link to it.
+			await strip.getByRole('link', { name: 'albums' }).click();
+			await page.waitForURL(app.url + '/albums');
+			// The page is put in after the address changes.
+			await page.waitForFunction(() => document.querySelector('main.content > nav.strip .path').textContent.replace(/\s+/g, '') === '~/albums');
+			// The page it is on is text: a link to it would load nothing.
+			assert.equal(await strip.getByRole('link').count(), 1);
+
+			await page.setViewportSize({ width: 393, height: 852 });
+			assert.equal(await strip.isVisible(), false, 'the line is shown on a phone');
+			await page.setViewportSize({ width: 1440, height: 900 });
+			await settings({ theme: 'dark' });
+			await page.goto(app.url + '/albums/al1', { waitUntil: 'networkidle' });
+			assert.equal(await strip.isVisible(), false, 'the line is shown in Liquid');
+		} finally {
+			await liquid();
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+
+	/** WCAG contrast of two `[r, g, b]` colours. */
+	const contrast = (one, two) => {
+		const luminance = ([r, g, b]) =>
+			[r, g, b].reduce((sum, c, at) => {
+				const v = c / 255;
+				return sum + (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4) * [0.2126, 0.7152, 0.0722][at];
+			}, 0);
+		const [hi, lo] = [luminance(one), luminance(two)].sort((a, b) => b - a);
+		return (hi + 0.05) / (lo + 0.05);
+	};
+
+	test('the playing track is an inverted row that reads at 4.5:1, and the player\'s title ends as the title after a skip', async () => {
+		await settings({ theme: 'terminal' });
+		subsonic.state.audio = { type: 'audio/wav', body: silentWav(30) };
+		const { page, problems } = await watchedPage();
+		try {
+			await page.goto(app.url + '/albums/al1', { waitUntil: 'networkidle' });
+			await page.getByRole('button', { name: /^(Play|Pause) Song 1a$/ }).click();
+			await page.waitForFunction(() => [...document.querySelectorAll('audio')].some((a) => !a.paused && a.currentTime > 0));
+			await page.waitForTimeout(400);
+			const row = await page.evaluate(() => {
+				const rgb = (colour) => {
+					const canvas = document.createElement('canvas').getContext('2d');
+					canvas.fillStyle = colour;
+					canvas.fillRect(0, 0, 1, 1);
+					return [...canvas.getImageData(0, 0, 1, 1).data].slice(0, 3);
+				};
+				const current = document.querySelector('.track.current');
+				const colour = (selector) => rgb(getComputedStyle(current.querySelector(selector)).color);
+				return {
+					ground: rgb(getComputedStyle(current).backgroundColor),
+					title: colour('.title'),
+					artist: colour('.sub'),
+					time: colour('.duration'),
+					other: rgb(getComputedStyle(document.querySelector('.track:not(.current)')).backgroundColor)
+				};
+			});
+			assert.deepEqual(row.ground, (await computed(page, 'var(--accent)')).slice(0, 3), 'the playing row is not the accent');
+			for (const part of ['title', 'artist', 'time']) {
+				const ratio = contrast(row[part], row.ground);
+				assert.ok(ratio >= 4.5, `the ${part} on the playing row: ${ratio.toFixed(1)} to 1`);
+			}
+
+			// The title resolves out of other glyphs, in place, and is the title when it is done.
+			const title = page.locator('aside.panel h2.title');
+			const frames = await page.evaluate(async () => {
+				const heading = document.querySelector('aside.panel h2.title');
+				const seen = [];
+				document.querySelector('aside.panel button[aria-label="Next track"]').click();
+				const until = performance.now() + 2500;
+				let settled = 0;
+				while (performance.now() < until && settled < 20) {
+					await new Promise((done) => requestAnimationFrame(done));
+					seen.push(heading.textContent);
+					settled = heading.textContent === 'Song 1b' ? settled + 1 : 0;
+				}
+				return seen;
+			});
+			assert.equal(frames.at(-1), 'Song 1b');
+			assert.ok(frames.some((text) => text !== 'Song 1a' && text !== 'Song 1b'), 'the title changed in one step');
+			assert.ok(frames.every((text) => text === 'Song 1a' || text.length === 'Song 1b'.length), 'a frame of it was a different length');
+			await page.waitForTimeout(500);
+			assert.equal(await title.textContent(), 'Song 1b');
+			assert.equal(await title.getAttribute('data-text'), 'Song 1b');
+		} finally {
+			await liquid();
+			subsonic.state.audio = null;
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+
+	/*
+	 * Terminal's own arrival: the rows of a list 16ms apart, and the page under
+	 * them still. Liquid's, 24ms apart under a page that rises, has its test
+	 * under "motion".
+	 */
+	test('a list prints in after a navigation, 16ms a row, and the page does not rise', async () => {
+		await settings({ theme: 'terminal' });
+		const { page, problems } = await watchedPage();
+		try {
+			await page.goto(app.url + '/playlists', { waitUntil: 'networkidle' });
+			const onFirstPaint = await page.evaluate(() =>
+				document.getAnimations().map((a) => a.animationName).filter((name) => /rise/.test(name ?? ''))
+			);
+			assert.deepEqual(onFirstPaint, [], 'a server-rendered page must not animate in');
+
+			await page.evaluate(() => {
+				window.__rise = null;
+				const look = () => {
+					const names = document.getAnimations().map((a) => a.animationName);
+					if (names.includes('terminal-list-rise')) {
+						const cards = [...document.querySelectorAll('.content .hh-stagger > *')].slice(0, 4);
+						window.__rise = {
+							names: names.filter((name) => /rise/.test(name ?? '')),
+							delays: cards.map((card) => getComputedStyle(card).animationDelay)
+						};
+						return;
+					}
+					requestAnimationFrame(look);
+				};
+				requestAnimationFrame(look);
+			});
+			await page.locator('nav.rail').getByRole('link', { name: 'Albums', exact: true }).click();
+			await page.waitForFunction(() => window.__rise !== null, null, { timeout: 5000 });
+			const rise = await page.evaluate(() => window.__rise);
+			assert.deepEqual([...new Set(rise.names)], ['terminal-list-rise'], 'something else rose with the rows');
+			assert.deepEqual(rise.delays, ['0s', '0.016s', '0.032s', '0.048s']);
+		} finally {
+			await liquid();
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+
+	test('Settings offers Terminal its accent and its dots, and the other two the aurora', async () => {
+		await settings({ theme: 'terminal' });
+		const { page, problems } = await watchedPage();
+		const rows = async () => ({
+			accent: await page.locator('select[name="accent"]').count(),
+			dots: await page.locator('select[name="dots"]').count(),
+			aurora: await page.locator('select[name="aurora"]').count(),
+			face: (await page.locator('select[name="font"] option[value="manrope"]').textContent()).trim()
+		});
+		try {
+			await page.goto(app.url + '/settings', { waitUntil: 'networkidle' });
+			assert.equal(await page.locator('select[name="theme"]').inputValue(), 'terminal');
+			assert.equal(await page.locator('select[name="theme"] option[value="terminal"]').textContent(), 'Terminal');
+			assert.deepEqual(await rows(), { accent: 1, dots: 1, aurora: 0, face: 'JetBrains Mono' });
+			// Before it is saved: the rows follow the theme picked.
+			await page.locator('select[name="theme"]').selectOption('dark');
+			assert.deepEqual(await rows(), { accent: 0, dots: 0, aurora: 1, face: 'Manrope' });
+			// Saved without them on the form, the two keep their stored values.
+			await settings({ accent: 'cyan', dots: 'medium' });
+			await page.getByRole('button', { name: 'Save settings' }).click();
+			await page.getByText('Settings saved.').waitFor();
+			const saved = await (await context.request.get(`${app.url}/api/settings`)).json();
+			assert.deepEqual([saved.theme, saved.accent, saved.dots], ['dark', 'cyan', 'medium']);
+		} finally {
+			await liquid();
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+});

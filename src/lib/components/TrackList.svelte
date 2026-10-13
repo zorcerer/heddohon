@@ -833,4 +833,92 @@
 			grid-column: -2;
 		}
 	}
+
+	/* ── Terminal ────────────────────────────────────────────────────────────── */
+
+	/*
+	 * Rows as lines of a listing. Hover is a flat step of the ground, with
+	 * nothing in the row moving. The playing row is inverted: the accent as its
+	 * ground and every tone in it the dark one, which the row gets by setting the
+	 * colour tokens for its own contents. `--row-accent` holds the accent for the
+	 * ground, since the row redefines `--accent` for what is inside it.
+	 */
+	:global([data-theme='terminal']) .tracks {
+		--row-accent: var(--accent);
+	}
+
+	:global([data-theme='terminal']) .track::before {
+		background: var(--bg-hover);
+		scale: none;
+		transition: opacity var(--dur-hover) var(--ease-out);
+	}
+
+	:global([data-theme='terminal']) .track:hover .meta {
+		translate: none;
+	}
+
+	:global([data-theme='terminal']) .track:hover .thumb,
+	:global([data-theme='terminal']) .lead:has(.play-overlay:focus-visible) .thumb {
+		scale: none;
+	}
+
+	:global([data-theme='terminal']) .thumb::before {
+		display: none;
+	}
+
+	:global([data-theme='terminal']) .track:hover .index .resting,
+	:global([data-theme='terminal']) .index:focus-visible .resting {
+		text-shadow: none;
+		scale: none;
+	}
+
+	:global([data-theme='terminal']) .track:hover .index .bars,
+	:global([data-theme='terminal']) .index:focus-visible .bars {
+		filter: none;
+	}
+
+	:global([data-theme='terminal']) .track.current {
+		--accent: var(--accent-contrast);
+		--accent-strong: var(--accent-contrast);
+		--text-strong: var(--accent-contrast);
+		--text-default: var(--accent-contrast);
+		--text-muted: color-mix(in srgb, var(--accent-contrast) 80%, var(--row-accent));
+		--text-faint: color-mix(in srgb, var(--accent-contrast) 80%, var(--row-accent));
+		--glow-color: var(--accent-contrast);
+		--highres: var(--accent-contrast);
+		--border-strong: color-mix(in srgb, var(--accent-contrast) 45%, var(--row-accent));
+		background: var(--row-accent);
+		border-top-color: transparent;
+		border-radius: var(--r-sm);
+		color: var(--accent-contrast);
+	}
+
+	:global([data-theme='terminal']) .track.current::before {
+		display: none;
+	}
+
+	:global([data-theme='terminal']) .track.current .title {
+		font-weight: 700;
+	}
+
+	/* The row under the playing one has no rule above it: the block ends there. */
+	:global([data-theme='terminal']) li:has(.track.current) + li .track {
+		border-top-color: transparent;
+	}
+
+	:global([data-theme='terminal']) .actions > :global(*) {
+		translate: none;
+		transition: opacity var(--dur-hover) var(--ease-out);
+		transition-delay: 0s !important;
+	}
+
+	:global([data-theme='terminal']) .tracks.reorderable > li.dragged .track {
+		box-shadow: inset 0 0 0 1px var(--row-accent);
+	}
+
+	/* The bars move in three hard steps. */
+	:global([data-theme='terminal']) .bars i {
+		border-radius: 0;
+		animation-timing-function: steps(3, jump-none);
+	}
 </style>

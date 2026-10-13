@@ -125,4 +125,25 @@
 			flex: 0 1 auto;
 		}
 	}
+
+	/* ── Terminal ────────────────────────────────────────────────────────────── */
+
+	:global([data-theme='terminal']) .index {
+		font-size: 0.75rem;
+		letter-spacing: 0;
+		padding-top: 0;
+	}
+
+	:global([data-theme='terminal']) .titles :global(h2) {
+		font-size: 0.9375rem;
+		letter-spacing: 0;
+	}
+
+	:global([data-theme='terminal']) .rule {
+		background: var(--border-strong);
+	}
+
+	:global([data-theme='terminal']) .link:hover :global(svg) {
+		transform: none;
+	}
 </style>

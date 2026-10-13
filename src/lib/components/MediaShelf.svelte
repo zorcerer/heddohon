@@ -215,4 +215,18 @@
 			--card: 108px;
 		}
 	}
+
+	/* ── Terminal ────────────────────────────────────────────────────────────── */
+
+	/* The two arrows are glyphs alone: square keys, without the brackets a
+	   labelled button takes. */
+	:global([data-theme='terminal']) .step {
+		border-radius: var(--r-sm);
+		color: var(--text-muted);
+	}
+
+	:global([data-theme='terminal']) .step::before,
+	:global([data-theme='terminal']) .step::after {
+		content: none;
+	}
 </style>

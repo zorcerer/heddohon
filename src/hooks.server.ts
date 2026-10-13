@@ -1,7 +1,7 @@
 import { isRedirect, redirect, type Handle, type HandleServerError, type RequestEvent } from '@sveltejs/kit';
 import { version } from '$app/environment';
 import { resolveSession } from '$lib/server/auth';
-import { getSettings, DEFAULT_SETTINGS, THEME_GROUND } from '$lib/server/settings';
+import { getSettings, defaultSettings, THEME_GROUND } from '$lib/server/settings';
 import { ConfigError, config } from '$lib/server/config';
 import { FALLBACK_HTML_CSP, SECURITY_HEADERS } from '$lib/headers';
 import {
@@ -282,7 +282,10 @@ const handleRequest: Handle = async ({ event, resolve }) => {
 		return sealedRedirect(event, '/');
 	}
 
-	const theme = event.locals.settings?.theme ?? DEFAULT_SETTINGS.theme;
+	// Without an account (sign-in, a shared link) the page is drawn from the
+	// deployment's defaults.
+	const shown = event.locals.settings ?? defaultSettings();
+	const theme = shown.theme;
 	const response = await resolve(event, {
 		// The theme is known on the server, so the first byte of HTML carries the
 		// right palette.
@@ -298,14 +301,18 @@ const handleRequest: Handle = async ({ event, resolve }) => {
 				)
 				.replace(
 					'href="/manifest.webmanifest"',
-					theme === 'light'
-						? 'href="/manifest.webmanifest?theme=light"'
-						: 'href="/manifest.webmanifest"'
+					theme === defaultSettings().theme
+						? 'href="/manifest.webmanifest"'
+						: `href="/manifest.webmanifest?theme=${theme}"`
 				)
+				// Terminal's accent and its dot grid, which the stylesheet reads
+				// from the root like the theme.
+				.replace('data-accent="artwork"', `data-accent="${shown.accent}"`)
+				.replace('data-dots="faint"', `data-dots="${shown.dots}"`)
 				// The scale and the font likewise: applied after hydration, they
 				// would resize the page in front of the reader.
-				.replace('data-scale="100"', `data-scale="${event.locals.settings?.uiScale ?? DEFAULT_SETTINGS.uiScale}"`)
-				.replace('data-font="manrope"', `data-font="${event.locals.settings?.font ?? DEFAULT_SETTINGS.font}"`)
+				.replace('data-scale="100"', `data-scale="${shown.uiScale}"`)
+				.replace('data-font="manrope"', `data-font="${shown.font}"`)
 	});
 
 	harden(response.headers);

@@ -49,4 +49,11 @@
 			min(var(--title-max, 3.9rem), 10cqw)
 		);
 	}
+
+	/* ── Terminal ────────────────────────────────────────────────────────────── */
+
+	/* The same fit to the title's length, to a ceiling a mono face holds: 36px. */
+	:global(:root[data-theme='terminal']) h1 {
+		font-size: clamp(1.4rem, calc(300cqw / var(--title-len, 20)), min(2.25rem, 8cqw));
+	}
 </style>

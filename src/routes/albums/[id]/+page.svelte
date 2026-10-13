@@ -489,4 +489,55 @@
 			height: 1.25rem !important;
 		}
 	}
+
+	/* ── Terminal ────────────────────────────────────────────────────────────── */
+
+	/* The cover lies flat: no tilt under the pointer, and no light or shadow
+	   following it. */
+	:global([data-theme='terminal']) .holder,
+	:global([data-theme='terminal']) .holder.tilting {
+		transform: none;
+	}
+
+	:global([data-theme='terminal']) .holder::before,
+	:global([data-theme='terminal']) .sheen {
+		display: none;
+	}
+
+	:global([data-theme='terminal']) .actions {
+		gap: var(--space-1) var(--space-4);
+	}
+
+	:global([data-theme='terminal']) .actions .hh-button {
+		padding: 0.5rem 0.125rem;
+	}
+
+	:global([data-theme='terminal']) .actions .hh-button--primary {
+		padding: 0.5rem 1rem;
+		margin-inline-end: var(--space-1);
+	}
+
+	/* On a phone the actions are glyphs alone, where brackets around each would
+	   be seven pairs in a row. */
+	@media (max-width: 36rem) {
+		:global([data-theme='terminal']) .actions {
+			gap: var(--space-2);
+		}
+
+		:global([data-theme='terminal']) .actions :global(.hh-button) {
+			padding: 0;
+			border: 1px solid var(--border-strong);
+		}
+
+		:global([data-theme='terminal']) .actions :global(.hh-button)::before,
+		:global([data-theme='terminal']) .actions :global(.hh-button)::after {
+			content: none;
+		}
+
+		:global([data-theme='terminal']) .actions .hh-button--primary {
+			margin-inline-end: 0;
+			border-color: transparent;
+			border-radius: var(--r-md);
+		}
+	}
 </style>
