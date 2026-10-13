@@ -19,6 +19,24 @@ export type ThemeName = 'terminal' | 'dark' | 'light';
  */
 const ACCENTS = ['artwork', 'green', 'amber', 'cyan', 'violet', 'rose', 'white'] as const;
 
+/**
+ * Terminal's colour schemes: its own, and nine editor themes whose grounds,
+ * text tones and six accents are in `terminal-schemes.css`. A fixed list for
+ * the reason the accents are one: the name is written into the HTML.
+ */
+const SCHEMES = [
+	'heddohon',
+	'nord',
+	'dracula',
+	'gruvbox',
+	'catppuccin',
+	'tokyo-night',
+	'solarized',
+	'one-dark',
+	'monokai',
+	'everforest'
+] as const;
+
 /** How strongly Terminal draws the dot grid behind the page. */
 const DOTS = ['off', 'faint', 'medium', 'strong'] as const;
 
@@ -51,6 +69,12 @@ export interface UserSettings {
 	 * app.css.
 	 */
 	accent: (typeof ACCENTS)[number];
+	/**
+	 * Terminal's colours: the theme's own (`heddohon`) or a named scheme, which
+	 * changes the grounds, the text and what each fixed accent is. The accent
+	 * from the artwork is the same in all of them.
+	 */
+	scheme: (typeof SCHEMES)[number];
 	/** The dot grid behind the page in Terminal. See `[data-dots]` in terminal.css. */
 	dots: (typeof DOTS)[number];
 	/**
@@ -139,8 +163,28 @@ export interface UserSettings {
  */
 export const THEME_GROUND: Record<ThemeName, string> = { terminal: '#08090a', dark: '#0b0c0f', light: '#f0e7d5' };
 
+/** The same for Terminal under a colour scheme: `--bg-base` of each in `terminal-schemes.css`. */
+const SCHEME_GROUND: Record<UserSettings['scheme'], string> = {
+	heddohon: THEME_GROUND.terminal,
+	nord: '#2e3440',
+	dracula: '#282a36',
+	gruvbox: '#282828',
+	catppuccin: '#1e1e2e',
+	'tokyo-night': '#1a1b26',
+	solarized: '#002b36',
+	'one-dark': '#282c34',
+	monokai: '#272822',
+	everforest: '#2d353b'
+};
+
+/** The ground the page is drawn on, for `theme-color`: the scheme's in Terminal, the theme's otherwise. */
+export function groundOf(settings: Pick<UserSettings, 'theme' | 'scheme'>): string {
+	return settings.theme === 'terminal' ? SCHEME_GROUND[settings.scheme] : THEME_GROUND[settings.theme];
+}
+
 const DEFAULT_SETTINGS: UserSettings = {
 	theme: 'terminal',
+	scheme: 'heddohon',
 	accent: 'artwork',
 	dots: 'faint',
 	playerArt: 'dither',
@@ -231,7 +275,8 @@ function sanitizeSettings(input: unknown, base: UserSettings = defaultSettings()
 				? LEGACY_THEMES[String(raw.theme)]
 				: base.theme
 		),
-		// All three allowlisted like the theme: interpolated into the served HTML.
+		// All four allowlisted like the theme: interpolated into the served HTML.
+		scheme: pick('scheme', SCHEMES, base.scheme),
 		accent: pick('accent', ACCENTS, base.accent),
 		dots: pick('dots', DOTS, base.dots),
 		playerArt: pick('playerArt', PLAYER_ART, base.playerArt),

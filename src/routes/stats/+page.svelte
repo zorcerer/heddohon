@@ -213,6 +213,7 @@
 							title={album.name}
 							subtitle={[album.artist, plural(album.plays, 'play')].filter(Boolean).join(' · ')}
 							coverArt={album.coverArt}
+							album={album}
 							onplay={() => playContainer('album', album.id)}
 						/>
 					{/each}

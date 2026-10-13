@@ -1,6 +1,7 @@
 <script lang="ts">
 	import '$lib/styles/app.css';
 	import '$lib/styles/terminal.css';
+	import '$lib/styles/terminal-schemes.css';
 	import { tick, untrack } from 'svelte';
 	import { afterNavigate, beforeNavigate, onNavigate, preloadCode, pushState } from '$app/navigation';
 	import { navigating, page, updated } from '$app/state';
@@ -33,6 +34,7 @@
 	import ListeningNow from '$lib/components/ListeningNow.svelte';
 	import Reactions from '$lib/components/Reactions.svelte';
 	import TogetherDialog from '$lib/components/TogetherDialog.svelte';
+	import ContextMenu from '$lib/components/ContextMenu.svelte';
 	import PlaylistPicker from '$lib/components/PlaylistPicker.svelte';
 	import ShareDialog from '$lib/components/ShareDialog.svelte';
 	import PathStrip from '$lib/components/PathStrip.svelte';
@@ -230,8 +232,9 @@
 		document.documentElement.dataset.font = data.settings.font;
 	});
 
-	// And Terminal's accent, dot grid and artwork.
+	// And Terminal's colour scheme, accent, dot grid and artwork.
 	$effect(() => {
+		document.documentElement.dataset.scheme = data.settings.scheme;
 		document.documentElement.dataset.accent = data.settings.accent;
 		document.documentElement.dataset.dots = data.settings.dots;
 		document.documentElement.dataset.art = data.settings.playerArt;
@@ -862,6 +865,7 @@
 			</div>
 		</div>
 
+		<ContextMenu />
 		<PlaylistPicker />
 		<DevicesDialog />
 		{#if data.together}

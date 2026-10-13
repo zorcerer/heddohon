@@ -103,7 +103,7 @@
 					Play all
 				</button>
 				<MixButton of="artist" id={artist.id} />
-				<FavouriteButton id={artist.id} kind="artist" starred={artist.starred} size={20} />
+				<FavouriteButton id={artist.id} kind="artist" starred={artist.starred} size={20} labelled />
 			</div>
 		</div>
 	</header>
@@ -135,6 +135,7 @@
 						subtitle={album.year ? String(album.year) : null}
 						coverArt={album.coverArt}
 						transitionId={album.id}
+						album={album}
 						onplay={() => playContainer('album', album.id)}
 					/>
 				{/each}
@@ -315,5 +316,18 @@
 		.actions {
 			justify-content: center;
 		}
+	}
+
+	/* ── Terminal ────────────────────────────────────────────────────────────── */
+
+	/* The spacing of the album page's actions: words between brackets want more
+	   room between them than buttons with a face. */
+	:global([data-theme='terminal']) .actions {
+		gap: var(--space-1) var(--space-4);
+		flex-wrap: wrap;
+	}
+
+	:global([data-theme='terminal']) .actions .hh-button--primary {
+		margin-inline-end: var(--space-1);
 	}
 </style>

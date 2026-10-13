@@ -7,6 +7,7 @@
 	import { LAUNCH_MS, sleeveToken, sleeveTransition } from '$lib/client/sleeve-transition.svelte';
 	import { ambience } from '$lib/client/ambience.svelte';
 	import { warmAlbumCover } from '$lib/client/format';
+	import { contextMenu, type MenuAlbum } from '$lib/client/context-menu.svelte';
 
 	let {
 		href,
@@ -17,6 +18,7 @@
 		rounded = false,
 		transitionId = null,
 		onplay = null,
+		album = null,
 		detail
 	}: {
 		href: string;
@@ -30,6 +32,8 @@
 		transitionId?: string | null;
 		/** May return a promise; the button shows it is busy until it settles. */
 		onplay?: (() => unknown) | null;
+		/** The album the card is of, for the menu a right click opens on it. */
+		album?: MenuAlbum | null;
 	} = $props();
 
 	let launching = $state(false);
@@ -114,6 +118,7 @@
 	onpointerdown={warm}
 	onpointermove={tilt}
 	onpointerleave={untilt}
+	oncontextmenu={album ? (event) => contextMenu.open(event, { kind: 'album', album }) : undefined}
 >
 	<div class="art" bind:this={art}>
 		{#if rounded}

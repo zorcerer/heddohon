@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { contextMenu } from '$lib/client/context-menu.svelte';
 	/**
 	 * One release given a panel of its own: its artwork fills the panel, cropped
 	 * and zoomed in past its edges, with the details over the darker lower
@@ -22,7 +23,9 @@
 <!-- Measured by the space it is given: the home page may set it beside a
      column instead of across the page. -->
 <div class="frame">
-	<section class="featured">
+	<!-- The menu is a second way to what the panel's own link and button do. -->
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<section class="featured" oncontextmenu={(event) => contextMenu.open(event, { kind: 'album', album })}>
 		<!-- 640px at twice the density: the panel is up to about 900px wide, and
 		     the zoom crops a fifth of the picture away. -->
 		<div class="art" aria-hidden="true">

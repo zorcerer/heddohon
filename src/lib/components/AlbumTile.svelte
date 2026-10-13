@@ -3,6 +3,7 @@
 	import Cover from './Cover.svelte';
 	import { ambience } from '$lib/client/ambience.svelte';
 	import { warmAlbumCover } from '$lib/client/format';
+	import { contextMenu } from '$lib/client/context-menu.svelte';
 
 	/**
 	 * An album at list size: a small cover beside its title and artist, for a
@@ -24,6 +25,7 @@
 	onclick={open}
 	onpointerenter={() => warmAlbumCover(album.coverArt)}
 	onfocusin={() => warmAlbumCover(album.coverArt)}
+	oncontextmenu={(event) => contextMenu.open(event, { kind: 'album', album })}
 >
 	<span class="thumb"><Cover coverArt={album.coverArt} size={96} alt="" radius="var(--r-sm)" /></span>
 	<span class="text">
@@ -132,5 +134,23 @@
 		.thumb {
 			transition: none;
 		}
+	}
+
+	/* ── Terminal ────────────────────────────────────────────────────────────── */
+
+	/* A line of a listing, as a track row is in this theme: hover is a flat step
+	   of the ground, and the cover stays where it is and casts nothing. */
+	:global([data-theme='terminal']) .tile::before {
+		background: var(--bg-hover);
+		scale: none;
+		transition: opacity var(--dur-hover) var(--ease-out);
+	}
+
+	:global([data-theme='terminal']) .tile:hover .thumb {
+		translate: none;
+	}
+
+	:global([data-theme='terminal']) .thumb::before {
+		display: none;
 	}
 </style>

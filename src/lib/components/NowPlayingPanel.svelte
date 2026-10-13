@@ -17,6 +17,8 @@
 	import { SLEEP_MINUTES, player } from '$lib/client/player.svelte';
 	import { audioOutputs } from '$lib/client/output.svelte';
 	import { handOff } from '$lib/client/handoff';
+	import { artworkColor } from '$lib/client/artwork';
+	import { contextMenu } from '$lib/client/context-menu.svelte';
 	import { formatBytes, formatDuration } from '$lib/client/format';
 	import { lyricsWindow } from '$lib/client/lyrics.svelte';
 	import { playlistPicker } from '$lib/client/playlists.svelte';
@@ -73,6 +75,29 @@
 	}
 
 	const song = $derived(player.current);
+
+	/*
+	 * Duotone's second tone (Terminal, `data-art="duotone"`): the colour of the
+	 * cover in the player, whatever the accent is and whatever page is open.
+	 * The room's tint is held to 18 to 38 percent saturation so the interface
+	 * reads over it. Laid over a picture in grey that range gave every album
+	 * nearly one tan, so it is spread over 40 to 75 percent here. A cover with
+	 * no hue of its own gets a light grey, and stays a picture in grey.
+	 */
+	let duotone = $state<string | null>(null);
+	$effect(() => {
+		const coverArt = song?.coverArt ?? null;
+		let current = true;
+		void artworkColor(coverArt).then((color) => {
+			if (!current) return;
+			duotone = color
+				? `hsl(${color.hue.toFixed(1)} ${(40 + (color.saturation - 18) * 1.75).toFixed(1)}% 64%)`
+				: 'hsl(0 0% 78%)';
+		});
+		return () => {
+			current = false;
+		};
+	});
 
 	/*
 	 * The title, artist and album slide in from the side the queue moved to
@@ -321,7 +346,17 @@
 							class:dragged={drag?.from === index}
 							style:translate={rowShift(index)}
 						>
-							<div class="row" class:current={index === player.index} class:past={index < player.index}>
+							<!-- The menu is a second way to what the row's buttons do. -->
+							<!-- svelte-ignore a11y_no_static_element_interactions -->
+							<div class="row" class:current={index === player.index} class:past={index < player.index}
+								oncontextmenu={(event) =>
+									contextMenu.open(event, {
+										kind: 'song',
+										song: track,
+										play: () => void player.jumpTo(index),
+										remove: { label: 'Remove from the queue', run: () => player.removeAt(index) }
+									})}
+							>
 								<!-- Dragged by pointer or finger, or moved one place at a time
 								     with the arrow keys while it has focus. -->
 								<button
@@ -371,6 +406,7 @@
 		{:else}
 			<a
 				class="art layer"
+				style:--duotone={duotone}
 				{...pullHandlers}
 				draggable="false"
 				ondragstart={(event) => event.preventDefault()}
@@ -1749,16 +1785,20 @@
 	}
 
 	/*
-	 * Duotone: the picture in grey, multiplied by the accent, so its lights are
-	 * the accent and its darks stay black. The filter is on the cover's own box,
-	 * under the layer, and the mask on `.art` keeps the blend inside it.
+	 * Duotone: the picture in grey, multiplied by the cover's own colour
+	 * (`--duotone`, set on `.art` by the script), so its lights are that colour
+	 * and its darks stay black. Until the cover is read the layer is clear and
+	 * the picture is in grey alone; the colour then fades in over it.
+	 * The filter is on the cover's own box, under the layer, and the mask on
+	 * `.art` keeps the blend inside it.
 	 */
 	:global([data-theme='terminal'][data-art='duotone']) .art :global(.cover) {
 		filter: grayscale(1) contrast(1.08);
 	}
 
 	:global([data-theme='terminal'][data-art='duotone']) .art::after {
-		background: var(--accent);
+		background: var(--duotone, transparent);
+		transition: background-color var(--dur-colour) var(--ease-colour);
 		mix-blend-mode: multiply;
 		-webkit-mask-image: none;
 		mask-image: none;
