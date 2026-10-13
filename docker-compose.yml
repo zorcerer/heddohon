@@ -11,7 +11,19 @@ services:
       - '3000:3000'
     volumes:
       - heddohon-data:/data
-    env_file: .env
+    # Optional. Without one, Heddohon prints a setup code to its log
+    # (`docker compose logs`) and its setup page takes the rest. A variable set
+    # here takes precedence over what that page saves. `required: false` needs
+    # Docker Compose 2.24 or later; with an older one, `touch .env` first.
+    env_file:
+      - path: .env
+        required: false
+    # The server runs as the owner of its data, which is `node` (1000:1000) in
+    # a new volume. To run as another user, such as the one a bind-mounted
+    # folder belongs to:
+    # environment:
+    #   PUID: 1000
+    #   PGID: 1000
 
 volumes:
   heddohon-data:

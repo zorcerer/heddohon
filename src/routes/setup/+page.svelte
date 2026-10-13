@@ -39,6 +39,9 @@
 	/** The key made for the deployment, shown once on the last step. */
 	let secret = $state<string | null>(null);
 	let copied = $state(false);
+	/** What lets this page take the key out of the saved file, once. */
+	let forgetToken = $state<string | null>(null);
+	let forgetting = $state<'idle' | 'busy' | 'done' | 'failed'>('idle');
 	/** The address in the browser's bar, where it is not the one the server believes it has. */
 	let otherOrigin = $state<string | null>(null);
 	/** The saved addresses the sign-in cookie is sent on without Secure. */
@@ -149,6 +152,7 @@
 				return;
 			}
 			secret = typeof body.secret === 'string' ? body.secret : null;
+			forgetToken = typeof body.forgetToken === 'string' ? body.forgetToken : null;
 			withoutSecure = Array.isArray(body.withoutSecure) ? body.withoutSecure.map(String) : [];
 			// Only where the environment gives the address: one saved here is the
 			// browser's own, or the operator's choice to make it another.
@@ -160,6 +164,27 @@
 			message = 'The server did not answer.';
 		} finally {
 			busy = false;
+		}
+	}
+
+	/**
+	 * Takes the key out of `setup.json`. The server keeps it in memory until
+	 * it restarts, so nothing stops working; from then on it has to come from
+	 * the environment.
+	 */
+	async function forgetKey() {
+		if (!forgetToken || forgetting === 'busy') return;
+		forgetting = 'busy';
+		try {
+			const response = await fetch('/api/setup', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json', accept: 'application/json' },
+				body: JSON.stringify({ action: 'forget', token: forgetToken })
+			});
+			forgetting = response.ok ? 'done' : 'failed';
+			if (response.ok) forgetToken = null;
+		} catch {
+			forgetting = 'failed';
 		}
 	}
 
@@ -358,9 +383,19 @@
 					<h2 id="key-title">The key is yours to keep</h2>
 					<p>
 						A key was made for this server and saved in <code>setup.json</code>. It protects the music-server
-						passwords Heddohon stores, and it now sits beside the database that holds them. Anyone who can
-						read the data directory, or a backup of it, can read those passwords.
+						sign-ins Heddohon stores, and it now sits beside the database that holds them. Anyone who can
+						read the data directory, or a backup of it, can read them:
 					</p>
+					<ul>
+						<li>
+							<strong>Navidrome and Subsonic:</strong> the password of every account that has signed in, in
+							full. The protocol needs it with each request, so it is what is stored.
+						</li>
+						<li>
+							<strong>Jellyfin:</strong> an access token for each account, and not its password, which is
+							not kept. The token opens that account on the Jellyfin server until it is revoked there.
+						</li>
+					</ul>
 					<p>
 						<strong>Keeping that directory and its backups private is your responsibility.</strong> Heddohon
 						cannot do it for you.
@@ -380,10 +415,35 @@
 						</button>
 					</div>
 					<p class="hh-muted small">
-						The environment takes precedence. Once it is set there, remove the <code>HEDDOHON_SECRET</code> line
-						from <code>setup.json</code>. If the key is changed or lost, the stored passwords cannot be read
-						and every account signs in again.
+						The environment takes precedence. If the key is changed or lost, the stored sign-ins cannot be
+						read and every account signs in again.
 					</p>
+					{#if forgetting === 'done'}
+						<p role="status">
+							<strong>The key is out of <code>setup.json</code>.</strong> This server keeps it in memory until
+							it restarts. Set the line above in its environment before then: started without it, Heddohon
+							asks for this setup again and makes a new key.
+						</p>
+					{:else if forgetToken}
+						<p>
+							Once the line above is copied somewhere safe, the key can be taken out of
+							<code>setup.json</code>, so that it is no longer beside the database:
+						</p>
+						<div class="env">
+							<button class="hh-button" type="button" onclick={forgetKey} disabled={forgetting === 'busy'}>
+								<Icon name="trash" size={15} />
+								{forgetting === 'busy' ? 'Removing…' : 'I have copied it: remove it from setup.json'}
+							</button>
+						</div>
+						<p class="hh-muted small">
+							The server keeps the key in memory until it restarts, so nothing stops working now. Started
+							again without <code>HEDDOHON_SECRET</code> in its environment, it asks for this setup again and
+							makes a new key, and every account signs in again.
+						</p>
+						{#if forgetting === 'failed'}
+							<p class="alert" role="alert">That did not work. Remove the <code>HEDDOHON_SECRET</code> line from <code>setup.json</code> by hand.</p>
+						{/if}
+					{/if}
 				</section>
 			{/if}
 
@@ -584,6 +644,13 @@
 		background: var(--bg-sunken);
 		font-size: 0.875rem;
 		line-height: 1.55;
+	}
+
+	.notice ul {
+		margin: 0;
+		padding-left: 1.1rem;
+		display: grid;
+		gap: var(--space-2);
 	}
 
 	.env {

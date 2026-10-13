@@ -74,6 +74,10 @@ jobs:
       # 4533 and 8096.
       - run: tests/e2e/run.sh
 
+      # The image's entrypoint, in the image's base: who the server ends up
+      # running as, and that it can write its data directory.
+      - run: tests/docker/entrypoint.sh
+
       # The version installed is the one package-lock.json pins.
       - run: npx playwright install --with-deps chromium
 

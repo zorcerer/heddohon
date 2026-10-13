@@ -19,6 +19,7 @@ import {
 	ConfigError,
 	SetupRequired,
 	config,
+	forgetSavedSecret,
 	fromEnvironment,
 	parseOrigins,
 	saveSetup,
@@ -41,6 +42,35 @@ const MAX_ANSWER = 64 * 1024;
 
 let code: string | null = null;
 let printed = false;
+
+/**
+ * What lets the page that finished the setup take the secret out of the
+ * saved file: a token made with the secret, given to that page alone, good
+ * once and for half an hour. The setup's code is spent by then, and there is
+ * no account yet to ask.
+ */
+let forget: { token: string; until: number } | null = null;
+const FORGET_FOR_MS = 30 * 60 * 1000;
+
+/** Whether a page may still take the secret out of the file. The request gate serves the endpoint only then. */
+export function forgetPending(): boolean {
+	if (forget && Date.now() > forget.until) forget = null;
+	return forget !== null;
+}
+
+/**
+ * Takes the secret out of `setup.json` for the page that holds the token.
+ * The token is spent by a right answer and not by a wrong one.
+ */
+export function forgetSecret(given: unknown): boolean {
+	if (!forgetPending() || !forget) return false;
+	const digest = (value: string) => createHash('sha256').update(value).digest();
+	if (typeof given !== 'string' || given.length > 128 || !timingSafeEqual(digest(given), digest(forget.token))) return false;
+	forget = null;
+	const removed = forgetSavedSecret();
+	if (removed) log.warn('setup-secret-forgotten', { detail: 'taken out of setup.json; set HEDDOHON_SECRET before the next start' });
+	return removed;
+}
 
 /** What is missing, or null when the deployment is set up. Any other fault is thrown. */
 export function setupPending(): { secret: boolean; upstream: boolean } | null {
@@ -244,7 +274,7 @@ export function serverValues(
 }
 
 export type SetupOutcome =
-	| { ok: true; secret: string | null; withoutSecure: string[] }
+	| { ok: true; secret: string | null; forgetToken: string | null; withoutSecure: string[] }
 	| { ok: false; field: 'subsonicUrl' | 'jellyfinUrl' | 'server' | 'origin' | 'coverCacheMb'; message: string };
 
 const text = (value: unknown, max: number): string =>
@@ -315,10 +345,12 @@ export function finishSetup(input: SetupInput): SetupOutcome {
 		return { ok: false, field: 'server', message: 'The setup was saved, but the configuration is not valid. See the server log.' };
 	}
 	code = null;
+	// Only for a secret made here: one from the environment is not in the file.
+	forget = secret ? { token: randomBytes(24).toString('base64url'), until: Date.now() + FORGET_FOR_MS } : null;
 	log.warn('setup-finished', {
 		subsonic: values.HEDDOHON_SUBSONIC_URL ? 'saved' : 'unchanged',
 		jellyfin: values.HEDDOHON_JELLYFIN_URL ? 'saved' : 'unchanged',
 		secret: secret ? 'generated' : 'environment'
 	});
-	return { ok: true, secret, withoutSecure };
+	return { ok: true, secret, forgetToken: forget?.token ?? null, withoutSecure };
 }

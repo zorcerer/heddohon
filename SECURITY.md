@@ -436,10 +436,30 @@ values is then the error it was before 0.7.0.
 
 **The secret saved by the setup is in the data directory, beside the database
 it protects.** Anyone who can read that directory, or a backup of the whole
-directory, can decrypt the stored music-server credentials. The last step of
-the setup says so, and gives the line to move the secret to the environment
-(`HEDDOHON_SECRET=...`), after which it can be removed from `setup.json`. The
-ZIP made under **Database backup** does not contain `setup.json`.
+directory, can decrypt the stored music-server credentials (**Credentials at
+rest**):
+
+| Music server | What is read with the secret and the database |
+| --- | --- |
+| Navidrome, Subsonic | The password of every account that has signed in, in full. The protocol needs it with each request, so the password is what is sealed. |
+| Jellyfin | An access token for each account, and not its password, which is discarded at sign-in. The token opens that account on the Jellyfin server until it is revoked there. |
+
+The same holds for a secret set in the environment once someone has both it
+and the database; the setup's secret differs in that one directory holds both.
+The last step of the setup says all of this, and gives the line to move the
+secret to the environment (`HEDDOHON_SECRET=...`). The ZIP made under
+**Database backup** does not contain `setup.json`.
+
+**Taking the secret out of the file.** The same step has a button that
+removes the secret from `setup.json`, for an operator who has copied it. It
+calls the setup's endpoint with a token of 192 bits that the server made with
+the secret and gave to that page alone. The token is good once and for 30
+minutes, and for those minutes the endpoint answers that call and no other;
+outside them it is behind the session gate. The server keeps the secret in
+memory until it stops, so nobody is signed out. Started again without
+`HEDDOHON_SECRET` in its environment, it asks for the setup again and makes a
+new secret, and the credentials sealed under the old one cannot be read:
+every account signs in again.
 
 The code and the saved addresses cross the network as the sign-in password
 does: in the clear on a deployment reached over plain http. Do the setup on the
@@ -1236,8 +1256,23 @@ Media responses carry their own stricter policy; see
 
 ## Container
 
-The image runs as the unprivileged `node` user and is multi-stage, keeping the
-build toolchain out of the runtime layer. Secrets are supplied at run time, and
+The server runs as an unprivileged user, and the image is multi-stage, keeping
+the build toolchain out of the runtime layer.
+
+The container starts as root for its entrypoint alone (`docker-entrypoint.sh`),
+which gives the data directory to the user the server will run as and drops to
+that user before Node starts: `PUID` and `PGID` where set, otherwise the
+directory's owner, otherwise `node` (1000:1000). Docker creates a missing
+bind-mount source owned by root, and an image that started unprivileged could
+not write it until someone ran `chown` on the host. The server is started
+through `setpriv` with its supplementary groups cleared, no inheritable
+capabilities and `no_new_privs` set, so it has no capability and cannot gain
+one through a set-uid file. The tree is given only when the directory itself
+is another user's. Root is used for the server only where `PUID=0` asks for it
+by number. Started with `--user` or `user:`, the entrypoint has no root: it
+runs the server as that user and changes nothing, as the image did before
+0.7.0, and the directory is then the operator's to give.
+`tests/docker/entrypoint.sh` checks each of these in the image's base. Secrets are supplied at run time, and
 `.dockerignore` excludes `.env`, `.git` and `node_modules`.
 
 ## Logging

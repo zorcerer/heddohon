@@ -1,6 +1,15 @@
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { checkCode, decidedByEnvironment, finishSetup, probe, setupPending, type SetupInput } from '$lib/server/setup';
+import {
+	checkCode,
+	decidedByEnvironment,
+	finishSetup,
+	forgetPending,
+	forgetSecret,
+	probe,
+	setupPending,
+	type SetupInput
+} from '$lib/server/setup';
 
 /** The body is a code, an address or two and a few choices. */
 const MAX_BODY = 16 * 1024;
@@ -14,11 +23,15 @@ const MAX_BODY = 16 * 1024;
  *   environment already decides.
  * - `probe`: whether a music server answers at an address.
  * - `save`: saves the setup and ends it.
+ *
+ * One call comes after the setup, from the page that finished it and with
+ * the token that page was given: `forget`, which takes the secret out of the
+ * saved file. `hooks.server.ts` serves it only while that token is good.
  */
 export const POST: RequestHandler = async ({ request }) => {
 	const missing = setupPending();
-	// Set up: there is no such endpoint.
-	if (missing === null) error(404, 'Not found');
+	// Set up, and no page is owed the one call that comes after: there is no such endpoint.
+	if (missing === null && !forgetPending()) error(404, 'Not found');
 
 	let body: Record<string, unknown>;
 	try {
@@ -30,6 +43,12 @@ export const POST: RequestHandler = async ({ request }) => {
 	} catch {
 		return json({ error: 'bad_request' }, { status: 400 });
 	}
+
+	if (body.action === 'forget') {
+		if (!forgetSecret(body.token)) return json({ error: 'wrong_token' }, { status: 401 });
+		return json({ ok: true });
+	}
+	if (missing === null) error(404, 'Not found');
 
 	if (!checkCode(body.code)) return json({ error: 'wrong_code' }, { status: 401 });
 

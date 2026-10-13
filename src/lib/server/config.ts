@@ -213,6 +213,29 @@ export function saveSetup(values: Partial<Record<SetupName, string>>): void {
 	resetConfig();
 }
 
+/**
+ * The secret, where it was taken out of the saved file while this process
+ * runs (`forgetSavedSecret`). It is nowhere but here then, until the operator
+ * has set it in the environment and restarted.
+ */
+let heldSecret: string | null = null;
+
+/**
+ * Takes the secret out of `setup.json`, for an operator who has copied it to
+ * set in the environment. This process goes on with it in memory, so nobody is
+ * signed out; the next start reads it from the environment. Started again
+ * without it there, the deployment asks for its setup once more and makes a
+ * new one, and the credentials sealed under the old one cannot be read.
+ * False where the file holds none.
+ */
+export function forgetSavedSecret(): boolean {
+	const kept = savedValues().HEDDOHON_SECRET;
+	if (!kept) return false;
+	if (!fromEnvironment('HEDDOHON_SECRET')) heldSecret = kept;
+	saveSetup({ HEDDOHON_SECRET: '' });
+	return true;
+}
+
 /** Has the next `config()` read the environment and the saved values again. */
 export function resetConfig(): void {
 	cached = null;
@@ -258,6 +281,7 @@ function env(name: string): string | undefined {
 		const kept = savedValues()[name as SetupName]?.trim();
 		if (kept) return kept;
 	}
+	if (name === 'HEDDOHON_SECRET' && heldSecret) return heldSecret;
 	return undefined;
 }
 
@@ -395,7 +419,10 @@ function dataDirectory(): string {
 		throw new ConfigError(
 			`HEDDOHON_DATA_DIR ${dir} is not writable by ${identity()}. ` +
 				'It holds the database and the cover cache, so nothing works without it. ' +
-				'Give that user the host directory mounted there, for example ' +
+				'The image gives the directory to the user it runs as when the container starts, ' +
+				'unless the container is started as a user (`--user`, `user:` in a compose file, ' +
+				'`--user 99:100` under Extra Parameters on Unraid). Remove that and set PUID and PGID ' +
+				'to choose the user, or give that user the host directory mounted there, for example ' +
 				'`chown -R 99:100 /mnt/user/appdata/heddohon` on Unraid.'
 		);
 	}

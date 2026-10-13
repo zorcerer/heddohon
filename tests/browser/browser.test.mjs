@@ -6144,6 +6144,15 @@ describe('the first-run setup page', () => {
 			assert.match(await notice.textContent(), /Keeping that directory and its backups private is your responsibility/);
 			const line = await notice.getByLabel('The line for the environment').inputValue();
 			assert.match(line, /^HEDDOHON_SECRET=.{64,}$/);
+			// What the key opens is said for each kind of server.
+			assert.match(await notice.textContent(), /Navidrome and Subsonic:\s*the password of every account/);
+			assert.match(await notice.textContent(), /Jellyfin:\s*an access token for each account, and not its password/);
+			// Copied, it can be taken out of the file from here, and the page says what is owed then.
+			await notice.getByRole('button', { name: 'I have copied it: remove it from setup.json' }).click();
+			await notice.getByText('The key is out of setup.json.').waitFor();
+			assert.equal(await notice.getByRole('button', { name: /remove it from setup\.json/ }).count(), 0);
+			const { readFileSync } = await import('node:fs');
+			assert.ok(!('HEDDOHON_SECRET' in JSON.parse(readFileSync(`${fresh.dataDir}/setup.json`, 'utf8'))), 'the key is still in the file');
 			// It is on plain http on the local network, and the page says what that means for sign-in.
 			const plain = page.getByRole('region', { name: 'Sign-in on plain http' });
 			assert.match(await plain.textContent(), new RegExp(`On ${fresh.url.replace(/[.]/g, '\\.')} the sign-in cookie is sent without Secure`));
