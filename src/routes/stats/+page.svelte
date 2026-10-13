@@ -559,4 +559,20 @@
 			display: none;
 		}
 	}
+
+	/* ── Terminal ────────────────────────────────────────────────────────────── */
+
+	/* The share of plays beside each name, in the segments the seek bar is
+	   drawn in: 6px with 2px between, at one height. */
+	:global([data-theme='terminal']) .meter {
+		height: 0.5rem;
+		border-radius: 0;
+		background: repeating-linear-gradient(to right, var(--bg-active) 0 6px, transparent 6px 8px);
+	}
+
+	:global([data-theme='terminal']) .meter span {
+		border-radius: 0;
+		background: repeating-linear-gradient(to right, var(--accent) 0 6px, transparent 6px 8px);
+		background-size: 100vw 100%;
+	}
 </style>
