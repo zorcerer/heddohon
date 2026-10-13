@@ -329,7 +329,8 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 		};
 
 		const password = p.get('u') === state.username ? state.password : state.others.get(p.get('u'));
-		const expected = createHash('md5').update(password + p.get('s')).digest('hex');
+		// As text: with no user and no salt the sum is a number, which the hash refuses.
+		const expected = createHash('md5').update(`${password}${p.get('s')}`).digest('hex');
 		if (password === undefined || p.get('t') !== expected) return send(failed(40, 'Wrong username or password'));
 
 		switch (method) {

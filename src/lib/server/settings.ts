@@ -216,6 +216,14 @@ const DEFAULT_SETTINGS: UserSettings = {
  * theme the deployment starts accounts in (`HEDDOHON_DEFAULT_THEME`). Pages
  * without an account are drawn from it too.
  */
+/**
+ * The settings as shipped, with no deployment behind them: for the setup
+ * page, which is drawn before there is a configuration to ask for a theme.
+ */
+export function shippedSettings(): UserSettings {
+	return { ...DEFAULT_SETTINGS };
+}
+
 export function defaultSettings(): UserSettings {
 	return { ...DEFAULT_SETTINGS, theme: config().defaultTheme };
 }
