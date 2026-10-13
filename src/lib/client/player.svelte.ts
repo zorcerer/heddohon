@@ -629,6 +629,26 @@ class Player {
 	}
 
 	/**
+	 * Puts tracks straight after the one playing, ahead of the rest of the
+	 * queue, and behind any listen-together additions already waiting there,
+	 * which were promised that place. Playback is left as it is. With nothing
+	 * queued they are played, as `addToQueue` does.
+	 */
+	playNext(songs: Song[]) {
+		if (songs.length === 0) return;
+		if (this.queue.length === 0) {
+			void this.playNow(songs);
+			return;
+		}
+		let at = this.index + 1;
+		while (this.queue[at]?.addedBy) at += 1;
+		this.queue = [...this.queue.slice(0, at), ...songs, ...this.queue.slice(at)];
+		// What was to follow the current track has changed.
+		if (at === this.index + 1) this.#invalidatePreload();
+		this.#persist();
+	}
+
+	/**
 	 * Queues a track a listen-together member added: after the current track
 	 * and the additions already waiting behind it, so additions play in the
 	 * order made, ahead of what the host had queued. Playback is left as it is.

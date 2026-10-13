@@ -186,7 +186,10 @@
 	.line {
 		display: block;
 		width: 100%;
-		text-align: left;
+		/* Centred in the column, and a line that wraps is broken into parts of
+		   about one length, where the browser can (`balance`). */
+		text-align: center;
+		text-wrap: balance;
 		padding: 0.25rem 0.4rem;
 		border-radius: var(--r-sm);
 		/* A column this narrow wants shorter lines than the old sheet's did. */

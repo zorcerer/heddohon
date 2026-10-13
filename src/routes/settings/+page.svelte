@@ -488,9 +488,32 @@
 				</select>
 			</label>
 
-			<!-- Terminal's own three. Liquid and Paper take every colour from the
+			<!-- Terminal's own four. Liquid and Paper take every colour from the
 			     artwork, have no grid, and fade the player's artwork one way. -->
 			{#if settings.theme === 'terminal'}
+				<label class="row">
+					<span class="label">
+						Colour scheme
+						<span class="hint hh-muted">
+							The grounds and the text: Terminal's own, or those of an editor theme. Each
+							scheme has its own green, amber, cyan, violet, rose and white for the accent
+							below.
+						</span>
+					</span>
+					<select class="hh-input control" name="scheme" bind:value={settings.scheme}>
+						<option value="heddohon">Heddohon</option>
+						<option value="nord">Nord</option>
+						<option value="dracula">Dracula</option>
+						<option value="gruvbox">Gruvbox</option>
+						<option value="catppuccin">Catppuccin</option>
+						<option value="tokyo-night">Tokyo Night</option>
+						<option value="solarized">Solarized</option>
+						<option value="one-dark">One Dark</option>
+						<option value="monokai">Monokai</option>
+						<option value="everforest">Everforest</option>
+					</select>
+				</label>
+
 				<label class="row">
 					<span class="label">
 						Accent
@@ -528,7 +551,7 @@
 						Player artwork
 						<span class="hint hh-muted">
 							How the cover meets the panel under it: dissolved into dots at its foot, faded
-							plainly, crossed by scanlines, or drawn in two tones, the accent and black.
+							plainly, crossed by scanlines, or drawn in two tones, the cover's colour and black.
 						</span>
 					</span>
 					<select class="hh-input control" name="playerArt" bind:value={settings.playerArt}>

@@ -2,6 +2,7 @@
 	import type { Song } from '$lib/types';
 	import { player } from '$lib/client/player.svelte';
 	import { formatDuration } from '$lib/client/format';
+	import { contextMenu } from '$lib/client/context-menu.svelte';
 	import { addSongsToPlaylist } from '$lib/client/playlists.svelte';
 	import { shareComposer } from '$lib/client/share.svelte';
 	import { together } from '$lib/client/together.svelte';
@@ -212,6 +213,13 @@
 					activate(index);
 				}}
 				onkeydown={(event) => onKey(event, index)}
+				oncontextmenu={(event) =>
+					contextMenu.open(event, {
+						kind: 'song',
+						song,
+						play: () => activate(index),
+						remove: onremove ? { label: 'Remove from this playlist', run: () => onremove?.(index) } : null
+					})}
 				aria-current={isCurrent ? 'true' : undefined}
 			>
 				{#if onmove}
@@ -434,7 +442,10 @@
 			scale var(--dur-state) var(--ease-out);
 	}
 
+	/* And while the menu a right click opened on it is up; see
+	   `context-menu.svelte.ts`. */
 	.track:hover::before,
+	.track:global([data-menu-open])::before,
 	.track:focus-visible::before {
 		opacity: 1;
 		scale: 1;

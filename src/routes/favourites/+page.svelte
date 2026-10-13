@@ -129,6 +129,7 @@
 						subtitle={album.artist}
 						coverArt={album.coverArt}
 						transitionId={album.id}
+						album={album}
 						onplay={() => playContainer('album', album.id)}
 					/>
 				{/each}

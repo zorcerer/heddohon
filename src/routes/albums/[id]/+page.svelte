@@ -197,7 +197,7 @@
 						<span class="label">Share</span>
 					</button>
 				{/if}
-				<FavouriteButton id={album.id} kind="album" starred={album.starred} size={20} />
+				<FavouriteButton id={album.id} kind="album" starred={album.starred} size={20} labelled />
 			</div>
 		</div>
 	</header>
@@ -226,6 +226,7 @@
 							subtitle={other.year ? String(other.year) : null}
 							coverArt={other.coverArt}
 							transitionId={other.id}
+							album={other}
 							onplay={() => playContainer('album', other.id)}
 						/>
 					{/each}
@@ -253,6 +254,7 @@
 							subtitle={suggestion.artist}
 							coverArt={suggestion.coverArt}
 							transitionId={suggestion.id}
+							album={suggestion}
 							onplay={() => playContainer('album', suggestion.id)}
 						/>
 					{/each}

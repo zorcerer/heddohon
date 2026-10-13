@@ -1,7 +1,7 @@
 import { isRedirect, redirect, type Handle, type HandleServerError, type RequestEvent } from '@sveltejs/kit';
 import { version } from '$app/environment';
 import { resolveSession } from '$lib/server/auth';
-import { getSettings, defaultSettings, THEME_GROUND } from '$lib/server/settings';
+import { getSettings, defaultSettings, groundOf } from '$lib/server/settings';
 import { ConfigError, config } from '$lib/server/config';
 import { FALLBACK_HTML_CSP, SECURITY_HEADERS } from '$lib/headers';
 import {
@@ -292,21 +292,21 @@ const handleRequest: Handle = async ({ event, resolve }) => {
 		transformPageChunk: ({ html }) =>
 			html
 				.replace('data-theme="dark"', `data-theme="${theme}"`)
-				// The bars a phone paints around the page take the theme's ground
-				// too. The manifest is fetched without a cookie, so it is asked for
-				// by theme.
-				.replace(
-					'name="theme-color" content="#0b0c0f"',
-					`name="theme-color" content="${THEME_GROUND[theme]}"`
-				)
+				// The bars a phone paints around the page take the ground too: the
+				// theme's, or in Terminal the colour scheme's. The manifest is fetched
+				// without a cookie, so it is asked for by theme, and an installed app
+				// opens on the theme's own ground whatever the scheme.
+				.replace('name="theme-color" content="#0b0c0f"', `name="theme-color" content="${groundOf(shown)}"`)
 				.replace(
 					'href="/manifest.webmanifest"',
 					theme === defaultSettings().theme
 						? 'href="/manifest.webmanifest"'
 						: `href="/manifest.webmanifest?theme=${theme}"`
 				)
-				// Terminal's accent, its dot grid and how it draws the player's
-				// artwork, which the stylesheet reads from the root like the theme.
+				// Terminal's colour scheme, accent, dot grid and how it draws the
+				// player's artwork, which the stylesheet reads from the root like the
+				// theme.
+				.replace('data-scheme="heddohon"', `data-scheme="${shown.scheme}"`)
 				.replace('data-accent="artwork"', `data-accent="${shown.accent}"`)
 				.replace('data-dots="faint"', `data-dots="${shown.dots}"`)
 				.replace('data-art="dither"', `data-art="${shown.playerArt}"`)

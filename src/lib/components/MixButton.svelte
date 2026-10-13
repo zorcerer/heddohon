@@ -104,6 +104,16 @@
 		}
 	}
 
+	/* Terminal draws it between brackets, as it does the actions beside it, and
+	   those have no face to pad: with the padding above, its brackets stood 17px
+	   inside its box and the row did not line up. Above the phone's width, where
+	   it is a glyph in a key. */
+	@media (min-width: 36.0625rem) {
+		:global([data-theme='terminal']) .hh-button.mix {
+			padding: 0.5rem 0.125rem;
+		}
+	}
+
 	.mix[aria-busy='true'] {
 		cursor: progress;
 	}

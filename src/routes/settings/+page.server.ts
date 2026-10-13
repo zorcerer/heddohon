@@ -149,8 +149,9 @@ export const actions: Actions = {
 
 		const settings = await saveSettings(session.account.id, {
 			theme: form.get('theme'),
-			// These three are on the form only in Terminal, and aurora only
+			// These four are on the form only in Terminal, and aurora only
 			// outside it. One left off the form keeps its stored value.
+			scheme: form.get('scheme'),
 			accent: form.get('accent'),
 			dots: form.get('dots'),
 			playerArt: form.get('playerArt'),

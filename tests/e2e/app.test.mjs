@@ -331,24 +331,29 @@ describe('settings', () => {
 		await user.json('/api/settings', 'PATCH', { theme: 'dark' });
 	});
 
-	test('Terminal\'s accent, dot grid and player artwork are each one of those offered, and are in the first byte of the page', async () => {
+	test('Terminal\'s scheme, accent, dot grid and player artwork are each one of those offered, and are in the first byte of the page', async () => {
 		const fresh = await (await user.json('/api/settings', 'PATCH', {})).json();
-		assert.deepEqual([fresh.accent, fresh.dots, fresh.playerArt], ['artwork', 'faint', 'dither']);
+		assert.deepEqual([fresh.scheme, fresh.accent, fresh.dots, fresh.playerArt], ['heddohon', 'artwork', 'faint', 'dither']);
 		try {
 			const saved = await (
-				await user.json('/api/settings', 'PATCH', { theme: 'terminal', accent: 'green', dots: 'off', playerArt: 'duotone' })
+				await user.json('/api/settings', 'PATCH', { theme: 'terminal', scheme: 'tokyo-night', accent: 'green', dots: 'off', playerArt: 'duotone' })
 			).json();
-			assert.deepEqual([saved.theme, saved.accent, saved.dots, saved.playerArt], ['terminal', 'green', 'off', 'duotone']);
+			assert.deepEqual([saved.theme, saved.scheme, saved.accent, saved.dots, saved.playerArt], ['terminal', 'tokyo-night', 'green', 'off', 'duotone']);
 			const { html } = await user.page('/albums');
-			assert.match(html, /<html[^>]* data-theme="terminal" data-accent="green" data-dots="off" data-art="duotone"/);
+			assert.match(html, /<html[^>]* data-theme="terminal" data-scheme="tokyo-night" data-accent="green" data-dots="off" data-art="duotone"/);
+			// The bar a phone draws around the page is the scheme's ground.
+			assert.match(html, /name="theme-color" content="#1a1b26"/);
 
 			const bogus = await (
-				await user.json('/api/settings', 'PATCH', { accent: '"><script>alert(1)</script>', dots: '#fff', playerArt: '"><script>alert(2)</script>' })
+				await user.json('/api/settings', 'PATCH', { scheme: '"><script>alert(3)</script>', accent: '"><script>alert(1)</script>', dots: '#fff', playerArt: '"><script>alert(2)</script>' })
 			).json();
-			assert.deepEqual([bogus.accent, bogus.dots, bogus.playerArt], ['green', 'off', 'duotone'], 'a value that is not offered keeps the one stored');
+			assert.deepEqual([bogus.scheme, bogus.accent, bogus.dots, bogus.playerArt], ['tokyo-night', 'green', 'off', 'duotone'], 'a value that is not offered keeps the one stored');
 			assert.ok(!(await user.page('/albums')).html.includes('<script>alert('));
+			// Outside Terminal the scheme is kept and the ground is the theme's.
+			await user.json('/api/settings', 'PATCH', { theme: 'dark' });
+			assert.match((await user.page('/albums')).html, /name="theme-color" content="#0b0c0f"/);
 		} finally {
-			await user.json('/api/settings', 'PATCH', { theme: 'dark', accent: 'artwork', dots: 'faint', playerArt: 'dither' });
+			await user.json('/api/settings', 'PATCH', { theme: 'dark', scheme: 'heddohon', accent: 'artwork', dots: 'faint', playerArt: 'dither' });
 		}
 	});
 
