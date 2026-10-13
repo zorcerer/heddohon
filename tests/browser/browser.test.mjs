@@ -4398,6 +4398,12 @@ describe('on a phone', () => {
 				await page.goto(app.url + '/albums', { waitUntil: 'networkidle' });
 				await tap(page, page.getByRole('navigation', { name: 'Primary' }).getByRole('link', { name: 'Favourites' }));
 				await page.waitForURL(/\/favourites$/);
+				// The address changes before the page is put in, and a sheet opened in
+				// between is closed when the page arrives (a navigation closes the
+				// sheet). Measured: a tap on the mini player up to 80ms after the tap
+				// on the tab opened it and shut it, and from 150ms it stayed. In CI
+				// the tap below landed inside that once, and the sheet never opened.
+				await page.locator('main').getByRole('heading', { name: 'Favourites' }).waitFor();
 				await page.waitForSelector('#dock-open');
 				await tap(page, page.locator('#dock-open'));
 				await page.waitForFunction(() => document.querySelector('.app').classList.contains('player-open'));
