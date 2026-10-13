@@ -5311,7 +5311,7 @@ describe('Terminal, the default theme', () => {
 	 * measures, so each test here sets the theme and puts Liquid back.
 	 */
 	const settings = (patch) => context.request.patch(`${app.url}/api/settings`, { data: patch, headers: { origin: app.url } });
-	const liquid = () => settings({ theme: 'dark', accent: 'artwork', dots: 'faint' });
+	const liquid = () => settings({ theme: 'dark', accent: 'artwork', dots: 'faint', playerArt: 'dither' });
 	/** A CSS colour as the browser computes it on an element, as `[r, g, b, a]`. */
 	const computed = (page, colour) =>
 		page.evaluate((colour) => {
@@ -5536,6 +5536,60 @@ describe('Terminal, the default theme', () => {
 	});
 
 	/*
+	 * The four ways the artwork meets the panel, each drawn by the layer over
+	 * it. Chosen in Settings, the one on the page changes without a load.
+	 */
+	test('the player\'s artwork is dissolved into dots, faded plainly, crossed by scanlines or in two tones, as chosen', async () => {
+		await settings({ theme: 'terminal', playerArt: 'dither' });
+		subsonic.state.audio = { type: 'audio/wav', body: silentWav(30) };
+		const { page, problems } = await watchedPage();
+		const drawn = () =>
+			page.evaluate(() => {
+				const art = document.querySelector('aside.panel .art');
+				const layer = getComputedStyle(art, '::after');
+				return {
+					layer: /^(radial-gradient|repeating-linear-gradient)/.exec(layer.backgroundImage)?.[1] ?? layer.backgroundImage,
+					fill: layer.backgroundColor,
+					blend: layer.mixBlendMode,
+					masked: layer.maskImage !== 'none',
+					picture: getComputedStyle(art.querySelector('.cover')).filter
+				};
+			});
+		try {
+			await page.goto(app.url + '/albums/al1', { waitUntil: 'networkidle' });
+			await page.getByRole('button', { name: /^(Play|Pause) Song 1a$/ }).click();
+			await page.waitForFunction(() => [...document.querySelectorAll('audio')].some((a) => !a.paused && a.currentTime > 0));
+			assert.deepEqual(await drawn(), { layer: 'radial-gradient', fill: 'rgba(0, 0, 0, 0)', blend: 'normal', masked: true, picture: 'none' });
+
+			// By the rail, so the page is not loaded again and the track goes on.
+			await page.locator('nav.rail a[href="/settings"]').click();
+			await page.waitForURL(app.url + '/settings');
+			const choose = async (value) => {
+				await page.locator('select[name="playerArt"]').selectOption(value);
+				await page.getByRole('button', { name: 'Save settings' }).click();
+				await page.waitForFunction((value) => document.documentElement.dataset.art === value, value);
+				// The form reads the settings once more after that, and a choice made
+				// before it answers is put back to the one just saved.
+				await page.getByRole('button', { name: 'Save settings' }).waitFor();
+				return drawn();
+			};
+			assert.deepEqual(await choose('plain'), { layer: 'none', fill: 'rgba(0, 0, 0, 0)', blend: 'normal', masked: true, picture: 'none' });
+			assert.deepEqual(await choose('scanlines'), { layer: 'repeating-linear-gradient', fill: 'rgba(0, 0, 0, 0)', blend: 'normal', masked: false, picture: 'none' });
+			const duotone = await choose('duotone');
+			assert.equal(duotone.blend, 'multiply');
+			assert.match(duotone.picture, /grayscale\(1\)/);
+			assert.notEqual(duotone.fill, 'rgba(0, 0, 0, 0)', 'the accent is not laid over the picture');
+			// The track went on playing through the three saves.
+			assert.ok(await page.evaluate(() => [...document.querySelectorAll('audio')].some((a) => !a.paused)));
+		} finally {
+			await liquid();
+			subsonic.state.audio = null;
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+
+	/*
 	 * Terminal's own arrival: the rows of a list 16ms apart, and the page under
 	 * them still. Liquid's, 24ms apart under a page that rises, has its test
 	 * under "motion".
@@ -5584,6 +5638,7 @@ describe('Terminal, the default theme', () => {
 		const rows = async () => ({
 			accent: await page.locator('select[name="accent"]').count(),
 			dots: await page.locator('select[name="dots"]').count(),
+			art: await page.locator('select[name="playerArt"]').count(),
 			aurora: await page.locator('select[name="aurora"]').count(),
 			face: (await page.locator('select[name="font"] option[value="manrope"]').textContent()).trim()
 		});
@@ -5591,10 +5646,10 @@ describe('Terminal, the default theme', () => {
 			await page.goto(app.url + '/settings', { waitUntil: 'networkidle' });
 			assert.equal(await page.locator('select[name="theme"]').inputValue(), 'terminal');
 			assert.equal(await page.locator('select[name="theme"] option[value="terminal"]').textContent(), 'Terminal');
-			assert.deepEqual(await rows(), { accent: 1, dots: 1, aurora: 0, face: 'JetBrains Mono' });
+			assert.deepEqual(await rows(), { accent: 1, dots: 1, art: 1, aurora: 0, face: 'JetBrains Mono' });
 			// Before it is saved: the rows follow the theme picked.
 			await page.locator('select[name="theme"]').selectOption('dark');
-			assert.deepEqual(await rows(), { accent: 0, dots: 0, aurora: 1, face: 'Manrope' });
+			assert.deepEqual(await rows(), { accent: 0, dots: 0, art: 0, aurora: 1, face: 'Manrope' });
 			// Saved without them on the form, the two keep their stored values.
 			await settings({ accent: 'cyan', dots: 'medium' });
 			await page.getByRole('button', { name: 'Save settings' }).click();

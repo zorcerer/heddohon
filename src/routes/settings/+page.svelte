@@ -488,8 +488,8 @@
 				</select>
 			</label>
 
-			<!-- Terminal's own two. Liquid and Paper take every colour from the
-			     artwork and have no grid. -->
+			<!-- Terminal's own three. Liquid and Paper take every colour from the
+			     artwork, have no grid, and fade the player's artwork one way. -->
 			{#if settings.theme === 'terminal'}
 				<label class="row">
 					<span class="label">
@@ -520,6 +520,22 @@
 						<option value="faint">Faint</option>
 						<option value="medium">Medium</option>
 						<option value="strong">Strong</option>
+					</select>
+				</label>
+
+				<label class="row">
+					<span class="label">
+						Player artwork
+						<span class="hint hh-muted">
+							How the cover meets the panel under it: dissolved into dots at its foot, faded
+							plainly, crossed by scanlines, or drawn in two tones, the accent and black.
+						</span>
+					</span>
+					<select class="hh-input control" name="playerArt" bind:value={settings.playerArt}>
+						<option value="dither">Dots</option>
+						<option value="plain">Plain</option>
+						<option value="scanlines">Scanlines</option>
+						<option value="duotone">Duotone</option>
 					</select>
 				</label>
 			{/if}

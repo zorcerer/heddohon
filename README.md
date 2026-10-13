@@ -24,7 +24,7 @@ The website, with screenshots and the install steps, is
 ## Features
 
 - **Original files** up to FLAC 24/192, with optional transcoding to MP3, Opus or AAC.
-- **Coloured by the artwork**, in two themes: Liquid and Paper.
+- **Three themes:** Terminal, Liquid and Paper, each coloured by the artwork.
 - **Library:** albums, artists, genres, playlists, favourites and folders, with synced lyrics and recommendations.
 - **Instant mix** from a track, an album or an artist.
 - **Internet radio** from the stations Navidrome lists.
@@ -48,7 +48,7 @@ The website, with screenshots and the install steps, is
     <td align="center">More from the artist</td>
   </tr>
   <tr>
-    <td colspan="2"><img src="docs/assets/listening.jpg" alt="Your listening over the last 30 days: 581 plays, 36 hours, a chart of plays by the hour of the day and one by the day of the week, and the top artists and albums"></td>
+    <td colspan="2"><img src="docs/assets/listening.jpg" alt="Your listening over the last 30 days: 577 plays, 35 hours, a chart of plays by the hour of the day and one by the day of the week, and the top artists and albums"></td>
   </tr>
   <tr>
     <td colspan="2" align="center">Your listening: the history summed up, by 30 days, 90 days, the year or everything kept</td>

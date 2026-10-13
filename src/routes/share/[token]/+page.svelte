@@ -1149,4 +1149,11 @@
 	:global([data-theme='terminal']) .entry.current {
 		color: var(--accent);
 	}
+
+	/* The play button as a square key, as the player's is, and without the glow
+	   under it: nothing is round or casts a shadow in this theme. */
+	:global([data-theme='terminal']) .play {
+		border-radius: var(--r-md);
+		box-shadow: none;
+	}
 </style>

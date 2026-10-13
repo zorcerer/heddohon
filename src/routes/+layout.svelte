@@ -230,10 +230,11 @@
 		document.documentElement.dataset.font = data.settings.font;
 	});
 
-	// And Terminal's accent and dot grid.
+	// And Terminal's accent, dot grid and artwork.
 	$effect(() => {
 		document.documentElement.dataset.accent = data.settings.accent;
 		document.documentElement.dataset.dots = data.settings.dots;
+		document.documentElement.dataset.art = data.settings.playerArt;
 	});
 
 	/*

@@ -305,10 +305,11 @@ const handleRequest: Handle = async ({ event, resolve }) => {
 						? 'href="/manifest.webmanifest"'
 						: `href="/manifest.webmanifest?theme=${theme}"`
 				)
-				// Terminal's accent and its dot grid, which the stylesheet reads
-				// from the root like the theme.
+				// Terminal's accent, its dot grid and how it draws the player's
+				// artwork, which the stylesheet reads from the root like the theme.
 				.replace('data-accent="artwork"', `data-accent="${shown.accent}"`)
 				.replace('data-dots="faint"', `data-dots="${shown.dots}"`)
+				.replace('data-art="dither"', `data-art="${shown.playerArt}"`)
 				// The scale and the font likewise: applied after hydration, they
 				// would resize the page in front of the reader.
 				.replace('data-scale="100"', `data-scale="${shown.uiScale}"`)
