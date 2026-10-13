@@ -83,10 +83,15 @@
 	 * reads over it. Laid over a picture in grey that range gave every album
 	 * nearly one tan, so it is spread over 40 to 75 percent here. A cover with
 	 * no hue of its own gets a light grey, and stays a picture in grey.
+	 *
+	 * Read only where it is drawn. Read in every theme, it fetched the cover of
+	 * the track the queue was restored with on every page, for nothing.
 	 */
 	let duotone = $state<string | null>(null);
 	$effect(() => {
 		const coverArt = song?.coverArt ?? null;
+		const drawn = page.data.settings?.theme === 'terminal' && page.data.settings?.playerArt === 'duotone';
+		if (!drawn) return;
 		let current = true;
 		void artworkColor(coverArt).then((color) => {
 			if (!current) return;
