@@ -135,4 +135,22 @@
 			transition: none;
 		}
 	}
+
+	/* ── Terminal ────────────────────────────────────────────────────────────── */
+
+	/* A line of a listing, as a track row is in this theme: hover is a flat step
+	   of the ground, and the cover stays where it is and casts nothing. */
+	:global([data-theme='terminal']) .tile::before {
+		background: var(--bg-hover);
+		scale: none;
+		transition: opacity var(--dur-hover) var(--ease-out);
+	}
+
+	:global([data-theme='terminal']) .tile:hover .thumb {
+		translate: none;
+	}
+
+	:global([data-theme='terminal']) .thumb::before {
+		display: none;
+	}
 </style>

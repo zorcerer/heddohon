@@ -5542,7 +5542,8 @@ describe('Terminal, the default theme', () => {
 	test('the player\'s artwork is dissolved into dots, faded plainly, crossed by scanlines or in two tones, as chosen', async () => {
 		// A blue cover under a green accent, so the two can be told apart.
 		await settings({ theme: 'terminal', playerArt: 'dither', accent: 'green' });
-		subsonic.state.coverColors.set('al-1', [40, 60, 210]);
+		// On an album no other test plays: the browser keeps a cover it has fetched.
+		subsonic.state.coverColors.set('al-38', [40, 60, 210]);
 		subsonic.state.audio = { type: 'audio/wav', body: silentWav(30) };
 		const { page, problems } = await watchedPage();
 		const drawn = () =>
@@ -5558,8 +5559,8 @@ describe('Terminal, the default theme', () => {
 				};
 			});
 		try {
-			await page.goto(app.url + '/albums/al1', { waitUntil: 'networkidle' });
-			await page.getByRole('button', { name: /^(Play|Pause) Song 1a$/ }).click();
+			await page.goto(app.url + '/albums/al38', { waitUntil: 'networkidle' });
+			await page.getByRole('button', { name: /^(Play|Pause) Song 38a$/ }).click();
 			await page.waitForFunction(() => [...document.querySelectorAll('audio')].some((a) => !a.paused && a.currentTime > 0));
 			assert.deepEqual(await drawn(), { layer: 'radial-gradient', fill: 'rgba(0, 0, 0, 0)', blend: 'normal', masked: true, picture: 'none' });
 
@@ -5592,7 +5593,7 @@ describe('Terminal, the default theme', () => {
 		} finally {
 			await liquid();
 			subsonic.state.audio = null;
-			subsonic.state.coverColors.delete('al-1');
+			subsonic.state.coverColors.delete('al-38');
 			await page.close();
 		}
 		assert.deepEqual(problems, []);
@@ -5802,6 +5803,43 @@ describe('Terminal, the default theme', () => {
 			assert.notDeepEqual((await computed(page, 'var(--bg-base)')).slice(0, 3), [0x2e, 0x34, 0x40]);
 		} finally {
 			await settings({ scheme: 'heddohon' });
+			await liquid();
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+
+	/*
+	 * Two lists that kept Liquid's hover: a wash of the accent that opens from
+	 * the left, with the cover lifting over a glow or the name stepping right.
+	 */
+	test('the tiles under Jump back in and the playlists in the picker hover as flat rows', async () => {
+		await settings({ theme: 'terminal' });
+		const { page, problems } = await watchedPage();
+		const hover = (selector, moved) =>
+			page.evaluate(
+				([selector, moved]) => {
+					const row = document.querySelector(selector);
+					const wash = getComputedStyle(row, '::before');
+					return { wash: wash.backgroundImage, moved: getComputedStyle(row.querySelector(moved)).translate };
+				},
+				[selector, moved]
+			);
+		try {
+			await page.goto(app.url + '/', { waitUntil: 'networkidle' });
+			const tile = page.locator('section.resume a.tile').first();
+			await tile.hover();
+			await page.waitForTimeout(400);
+			assert.deepEqual(await hover('section.resume a.tile:hover', '.thumb'), { wash: 'none', moved: 'none' });
+			assert.equal(await tile.locator('.thumb').evaluate((el) => getComputedStyle(el, '::before').display), 'none', 'the cover still casts a glow');
+
+			await page.goto(app.url + '/albums/al1', { waitUntil: 'networkidle' });
+			await page.locator('.track').first().getByRole('button', { name: 'Add Song 1a to a playlist' }).click();
+			const row = page.locator('dialog.picker .row').first();
+			await row.hover();
+			await page.waitForTimeout(400);
+			assert.deepEqual(await hover('dialog.picker .row:hover', '.name'), { wash: 'none', moved: 'none' });
+		} finally {
 			await liquid();
 			await page.close();
 		}
