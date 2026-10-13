@@ -8,7 +8,7 @@
  */
 import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { createServer } from 'node:http';
+import { createServer, request as httpRequest } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, describe, test } from 'node:test';
@@ -98,7 +98,7 @@ describe('a deployment that is not set up', () => {
 			for (let i = 0; i < 30; i++) await call(client, { action: 'check', code: `WRONG-WRONG-WRONG-${String(i).padStart(5, '0')}` });
 			const right = await call(client, { action: 'check', code });
 			assert.equal(right.status, 200);
-			assert.deepEqual(await right.json(), { ok: true, missing: { secret: true, upstream: true } });
+			assert.deepEqual(await right.json(), { ok: true, missing: { secret: true, upstream: true }, environment: { origin: true, coverCache: false } });
 			// As typed: lower case, without the hyphens.
 			assert.equal((await call(client, { action: 'check', code: code.toLowerCase().replace(/-/g, ' ') })).status, 200);
 
@@ -261,7 +261,7 @@ describe('a deployment that is not set up', () => {
 		try {
 			const code = codeOf(app);
 			const client = new Client(app.url);
-			assert.deepEqual(await (await call(client, { action: 'check', code })).json(), { ok: true, missing: { secret: true, upstream: false } });
+			assert.deepEqual((await (await call(client, { action: 'check', code })).json()).missing, { secret: true, upstream: false });
 			const saved = await call(client, { action: 'save', code, values: { subsonicUrl: 'http://127.0.0.1:9', jellyfinUrl: 'http://127.0.0.1:9' } });
 			assert.equal(saved.status, 200);
 			const kept = JSON.parse(readFileSync(join(dataDir, 'setup.json'), 'utf8'));
@@ -356,3 +356,211 @@ async function startAppUnhealthy(env, dataDir = null) {
 		}
 	};
 }
+
+/**
+ * A request with headers `fetch` will not send as given (`Host`), and the
+ * `Set-Cookie` lines as they came.
+ */
+function raw(base, path, { method = 'GET', headers = {}, body } = {}) {
+	return new Promise((done, fail) => {
+		const url = new URL(path, base);
+		const request = httpRequest(
+			{ host: url.hostname, port: url.port, path: url.pathname + url.search, method, headers: { ...headers, ...(body ? { 'content-length': Buffer.byteLength(body) } : {}) } },
+			(response) => {
+				let text = '';
+				response.on('data', (chunk) => (text += chunk));
+				response.on('end', () => done({ status: response.statusCode, headers: response.headers, cookies: response.headers['set-cookie'] ?? [], text }));
+			}
+		);
+		request.on('error', fail);
+		request.end(body);
+	});
+}
+
+describe('the addresses a deployment is opened at', () => {
+	/**
+	 * As the image runs: production, no ORIGIN, and the cookie rule left to
+	 * work it out. `undefined` leaves the variable out of the child's
+	 * environment; the adapter refuses an empty ORIGIN.
+	 */
+	const AS_THE_IMAGE = { ...NOT_SET_UP, ORIGIN: undefined, NODE_ENV: 'production', HEDDOHON_COOKIE_SECURE: '', HEDDOHON_DEFAULT_THEME: '' };
+	const form = (fields) => new URLSearchParams(fields).toString();
+	const signIn = (base, { host, origin }) =>
+		raw(base, '/login', {
+			method: 'POST',
+			headers: { host, origin, 'content-type': 'application/x-www-form-urlencoded', accept: 'text/html' },
+			body: form({ username: 'testuser', password: 'testpass', backend: 'subsonic', next: '/' })
+		});
+
+	test('a setup done on a plain http address on the local network can be signed in to there, and nowhere else is let in by it', async () => {
+		const dataDir = mkdtempSync(join(tmpdir(), 'heddohon-setup-'));
+		const app = await unconfigured(AS_THE_IMAGE, dataDir);
+		try {
+			const here = app.url; // http://127.0.0.1:port
+			const host = new URL(here).host;
+			const client = new Client(here);
+			const code = codeOf(app);
+			assert.deepEqual((await (await call(client, { action: 'check', code })).json()).environment, { origin: false, coverCache: false });
+
+			for (const origin of ['https://a.example/path', 'ftp://a.example', 'https://user:pw@a.example', 'not an address']) {
+				const bad = await call(client, { action: 'save', code, values: { subsonicUrl: subsonic.url, origin } });
+				assert.equal(bad.status, 400, origin);
+				assert.equal((await bad.json()).field, 'origin', origin);
+			}
+			const size = await call(client, { action: 'save', code, values: { subsonicUrl: subsonic.url, coverCacheMb: 70_000 } });
+			assert.equal((await size.json()).field, 'coverCacheMb');
+
+			const saved = await call(client, { action: 'save', code, values: { subsonicUrl: subsonic.url, origin: `${here}  http://music.example.com`, coverCacheMb: 64 } });
+			assert.equal(saved.status, 200, app.output());
+			// The operator is told which saved address gets a cookie without Secure:
+			// the one on the local network, and not the one on a public name.
+			assert.deepEqual((await saved.json()).withoutSecure, [here]);
+			const kept = JSON.parse(readFileSync(join(dataDir, 'setup.json'), 'utf8'));
+			assert.equal(kept.ORIGIN, `${here} http://music.example.com`);
+			assert.equal(kept.HEDDOHON_COVER_CACHE_MB, '64');
+
+			// Signed in to on the saved address, with a cookie the browser will send back over http.
+			const local = await signIn(here, { host, origin: here });
+			assert.equal(local.status, 303, local.text);
+			const session = local.cookies.find((line) => /session/i.test(line));
+			assert.ok(session, local.cookies.join('\n'));
+			assert.ok(!/;\s*secure/i.test(session) && !session.startsWith('__Host-'), `a Secure cookie on plain http: ${session}`);
+			assert.match(session, /httponly/i);
+			const cookie = session.split(';')[0];
+
+			// Another site is refused as before: its Origin is not the address the request arrived on.
+			const settings = (headers) => raw(here, '/api/settings', { method: 'PATCH', headers: { host, cookie, 'content-type': 'application/json', ...headers }, body: '{}' });
+			assert.equal((await settings({ origin: here })).status, 200);
+			assert.equal((await settings({ origin: 'http://evil.example' })).status, 403);
+			assert.equal((await settings({ origin: `https://${host}` })).status, 403, 'the https form of a saved http address');
+			assert.equal((await settings({})).status, 403, 'a write with no Origin');
+			// Nor by naming the address in the headers the server keeps for itself.
+			const forged = await settings({ origin: 'http://evil.example', 'x-heddohon-protocol': 'http', 'x-heddohon-host': 'evil.example' });
+			assert.equal(forged.status, 403, 'a client set the address the request is served on');
+			// Nor by the headers a proxy uses, which this server reads from nobody:
+			// it has no list of addresses that are let through, and saying to
+			// come from 127.0.0.1 changes nothing.
+			const asLocal = await settings({
+				origin: 'http://evil.example',
+				'x-forwarded-for': '127.0.0.1',
+				'x-forwarded-host': host,
+				'x-forwarded-proto': 'http',
+				'x-real-ip': '127.0.0.1',
+				forwarded: `for=127.0.0.1;host=${host};proto=http`
+			});
+			assert.equal(asLocal.status, 403, 'forwarded headers let another site write');
+			const noSession = await raw(here, '/api/settings', { headers: { host, accept: 'application/json', 'x-forwarded-for': '127.0.0.1', 'x-real-ip': '127.0.0.1', forwarded: 'for=127.0.0.1' } });
+			assert.equal(noSession.status, 401, 'a request that says it is from 127.0.0.1 was let in without a session');
+			// Nor by a form, which SvelteKit's own check still refuses.
+			const crossForm = await signIn(here, { host, origin: 'http://evil.example' });
+			assert.equal(crossForm.status, 403);
+
+			// A saved http address on a public name is served as http, and its cookie stays Secure.
+			const named = await signIn(here, { host: 'music.example.com', origin: 'http://music.example.com' });
+			assert.equal(named.status, 303, named.text);
+			assert.match(named.cookies.find((line) => /session/i.test(line)) ?? '', /;\s*secure/i);
+
+			// A host nothing was saved for is taken to be https, as it always was.
+			const proxied = await signIn(here, { host: 'other.example.com', origin: 'https://other.example.com' });
+			assert.equal(proxied.status, 303, proxied.text);
+			assert.match(proxied.cookies.find((line) => /session/i.test(line)) ?? '', /;\s*secure/i);
+			assert.equal((await signIn(here, { host: 'other.example.com', origin: 'http://other.example.com' })).status, 403);
+
+			// The cover cache is the size asked for, and the administrator's form names the address too.
+			const page = await raw(here, '/settings/__data.json', { headers: { host, cookie } });
+			assert.equal(page.status, 200);
+			assert.match(page.text, /"withoutSecure"/);
+			assert.ok(page.text.includes(String(64 * 1024 * 1024)), 'the cover cache is not 64 MB');
+		} finally {
+			await app.stop();
+		}
+	});
+
+	test('without a saved address a plain http deployment still refuses sign-in, as before', async () => {
+		const app = await unconfigured(AS_THE_IMAGE);
+		try {
+			const code = codeOf(app);
+			assert.equal((await call(new Client(app.url), { action: 'save', code, values: { subsonicUrl: subsonic.url, origin: '' } })).status, 200);
+			const host = new URL(app.url).host;
+			assert.equal((await signIn(app.url, { host, origin: app.url })).status, 403);
+		} finally {
+			await app.stop();
+		}
+	});
+
+	test('an administrator changes the addresses and the cover cache from Settings, and cannot leave out the address they are on', async () => {
+		const dataDir = mkdtempSync(join(tmpdir(), 'heddohon-setup-'));
+		const app = await unconfigured(AS_THE_IMAGE, dataDir);
+		try {
+			const here = app.url;
+			const host = new URL(here).host;
+			const code = codeOf(app);
+			await call(new Client(here), { action: 'save', code, values: { subsonicUrl: subsonic.url, origin: here } });
+			const cookie = (await signIn(here, { host, origin: here })).cookies.find((line) => /session/i.test(line)).split(';')[0];
+			const save = (fields, origin = here) =>
+				raw(here, '/settings?/saveServer', {
+					method: 'POST',
+					headers: { host, cookie, origin, 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json', 'x-sveltekit-action': 'true' },
+					body: form(fields)
+				});
+			const kept = () => JSON.parse(readFileSync(join(dataDir, 'setup.json'), 'utf8'));
+
+			// Without the address this is sent from, every later change would be refused.
+			const without = await save({ origins: 'https://music.example.com', coverCacheMb: '32' });
+			assert.match(without.text, /has to stay in the list/);
+			assert.equal(kept().ORIGIN, here);
+			assert.match((await save({ origins: `${here}\nhttps://music.example.com/x`, coverCacheMb: '32' })).text, /nothing after the host/);
+			assert.match((await save({ origins: here, coverCacheMb: '-1' })).text, /whole number of megabytes/);
+
+			const both = await save({ origins: `${here}\nhttps://music.example.com`, coverCacheMb: '32' });
+			assert.match(both.text, /"type":"success"/, both.text);
+			assert.equal(kept().ORIGIN, `${here} https://music.example.com`);
+			assert.equal(kept().HEDDOHON_COVER_CACHE_MB, '32');
+			assert.equal(statSync(join(dataDir, 'setup.json')).mode & 0o777, 0o600);
+			// At once, without a restart: the new address signs in, and the cache is 32 MB.
+			assert.equal((await signIn(here, { host: 'music.example.com', origin: 'https://music.example.com' })).status, 303);
+			assert.ok((await raw(here, '/settings/__data.json', { headers: { host, cookie } })).text.includes(String(32 * 1024 * 1024)));
+
+			// An account the music server does not list as an administrator is refused.
+			subsonic.state.admin = false;
+			try {
+				const refused = await save({ origins: here, coverCacheMb: '8' });
+				assert.match(refused.text, /Only an administrator/);
+				assert.equal(kept().HEDDOHON_COVER_CACHE_MB, '32');
+				assert.ok(!(await raw(here, '/settings/__data.json', { headers: { host, cookie } })).text.includes('maxCoverCacheMb'), 'the form is offered to an account that is not an administrator');
+			} finally {
+				subsonic.state.admin = true;
+			}
+		} finally {
+			await app.stop();
+		}
+	});
+
+	test('what the environment gives is not changed from Settings', async () => {
+		const dataDir = mkdtempSync(join(tmpdir(), 'heddohon-setup-'));
+		const app = await startApp({ subsonicUrl: subsonic.url, env: { HEDDOHON_JELLYFIN_URL: '', HEDDOHON_COVER_CACHE_MB: '16' }, dataDir });
+		try {
+			const client = new Client(app.url);
+			assert.equal((await client.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' })).status, 303);
+			const answer = await client.request('/settings?/saveServer', {
+				method: 'POST',
+				headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json', 'x-sveltekit-action': 'true' },
+				body: form({ origins: 'https://elsewhere.example', coverCacheMb: '999' })
+			});
+			assert.match(await answer.text(), /"type":"success"/);
+			// Nothing of either was saved, and both are as the environment has them.
+			let kept = {};
+			try {
+				kept = JSON.parse(readFileSync(join(dataDir, 'setup.json'), 'utf8'));
+			} catch {
+				// No file: nothing was saved.
+			}
+			assert.deepEqual([kept.ORIGIN, kept.HEDDOHON_COVER_CACHE_MB], [undefined, undefined]);
+			const data = await (await client.request('/settings/__data.json')).text();
+			assert.ok(data.includes(String(16 * 1024 * 1024)));
+			assert.equal((await client.json('/api/settings', 'PATCH', {}, { origin: 'https://elsewhere.example' })).status, 403);
+		} finally {
+			await app.stop();
+		}
+	});
+});

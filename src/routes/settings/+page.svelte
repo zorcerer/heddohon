@@ -1722,6 +1722,104 @@
 		</section>
 	{/if}
 
+	<!--
+		The two values of the deployment an administrator can change from here.
+		Everything else about it is in its environment.
+	-->
+	{#if data.server}
+		{@const server = data.server}
+		<section class="hh-card hh-glass group" id="server" hidden={shown !== 'storage'}>
+			<div class="group-head">
+				<h2>This server</h2>
+			</div>
+
+			<p class="hh-muted note">
+				Shown to an administrator of {data.serverLabel || 'the music server'}. Both take effect at once,
+				for every account, and are saved in <code>setup.json</code> in the data directory. A value set in
+				the server's environment is shown and cannot be changed here.
+			</p>
+
+			<form
+				method="POST"
+				action="?/saveServer"
+				use:enhance={() =>
+					async ({ update }) => {
+						await update({ reset: false });
+					}}
+			>
+				<label class="row">
+					<span class="label">
+						Addresses
+						<span class="hint hh-muted">
+							Where this server is opened, one to a line: <code>http://192.168.1.10:3000</code>,
+							<code>https://music.example.com</code>. Sign-in and every change are accepted from these
+							and refused from any other site. An <code>https://</code> address reached through a proxy
+							that passes the host on works without being listed.
+						</span>
+					</span>
+					{#if server.fromEnvironment.origin}
+						<span class="hh-muted control">Set by ORIGIN in the environment.</span>
+					{:else}
+						<textarea
+							class="hh-input control addresses"
+							name="origins"
+							rows={Math.max(2, server.origins.length + 1)}
+							spellcheck="false"
+							autocomplete="off"
+							placeholder="http://192.168.1.10:3000">{server.origins.join('\n')}</textarea>
+					{/if}
+				</label>
+
+				{#if server.withoutSecure.length > 0}
+					<div class="plain-http" role="note">
+						<strong>Sign-in on plain http.</strong>
+						On {server.withoutSecure.join(' and ')} the sign-in cookie is sent without
+						<code>Secure</code>, since a browser does not send a <code>Secure</code> cookie back over
+						<code>http://</code>. Anyone who can read that network's traffic can read the cookie, and the
+						password as it is typed. Use an <code>https://</code> address where there is one. Setting
+						<code>HEDDOHON_COOKIE_SECURE=true</code> in the environment ends this, and sign-in on
+						{server.withoutSecure.length === 1 ? 'that address' : 'those addresses'} with it.
+					</div>
+				{/if}
+
+				<label class="row">
+					<span class="label">
+						Cover cache size
+						<span class="hint hh-muted">
+							In megabytes. Covers past it are removed, the least recently used first. 0 switches the
+							cache off.
+						</span>
+					</span>
+					{#if server.fromEnvironment.coverCache}
+						<span class="hh-muted control">
+							{server.coverCacheMb.toLocaleString()} MB, set by HEDDOHON_COVER_CACHE_MB in the environment.
+						</span>
+					{:else}
+						<input
+							class="hh-input control"
+							name="coverCacheMb"
+							type="number"
+							min="0"
+							max={server.maxCoverCacheMb}
+							step="1"
+							inputmode="numeric"
+							value={server.coverCacheMb}
+						/>
+					{/if}
+				</label>
+
+				{#if form && 'serverError' in form && form.serverError}
+					<p class="hh-muted note-inline" role="alert">{form.serverError}</p>
+				{:else if form && 'serverSaved' in form && form.serverSaved}
+					<p class="hh-muted note-inline" role="status">Saved.</p>
+				{/if}
+				{#if !(server.fromEnvironment.origin && server.fromEnvironment.coverCache)}
+					<button class="hh-button" type="submit">Save</button>
+				{/if}
+			</form>
+		</section>
+	{/if}
+
 	<section class="hh-card hh-glass group" hidden={shown !== 'history'}>
 		<div class="group-head">
 			<h2>Listening history</h2>
@@ -2225,6 +2323,30 @@
 	.note-inline {
 		margin: 0;
 		font-size: 0.875rem;
+	}
+
+	/* What an administrator has to know of a saved http address: set off by an
+	   edge in the accent, and said in words, not by a colour. */
+	.plain-http {
+		margin: var(--space-3) 0;
+		padding: var(--space-3) var(--space-4);
+		border: 1px solid var(--border-strong);
+		border-left: 3px solid var(--accent);
+		border-radius: var(--r-sm);
+		background: var(--bg-sunken);
+		color: var(--text-default);
+		font-size: 0.875rem;
+		line-height: 1.55;
+	}
+
+	.plain-http strong {
+		color: var(--text-strong);
+	}
+
+	.addresses {
+		font-family: var(--font-mono);
+		font-size: 0.8125rem;
+		resize: vertical;
 	}
 
 	.shares {

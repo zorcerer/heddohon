@@ -10,6 +10,7 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import type { Cookies } from '@sveltejs/kit';
 import type { BackendKind } from '$lib/types';
 import { config } from './config';
+import { isLocalHost } from './origin';
 import {
 	constantTimeEquals,
 	deviceDigest,
@@ -357,6 +358,12 @@ async function capSessions(accountId: string): Promise<void> {
 export function cookieSecure(url: URL): boolean {
 	const setting = config().cookieSecure;
 	if (setting !== 'auto') return setting;
+	// The one case `auto` leaves a cookie without Secure in production: the
+	// request arrived on an `http://` address the operator saved, and that
+	// address is on the local network. A Secure cookie is never sent back over
+	// plain http, so nobody could sign in there, which is where a first run
+	// happens. An address on a public name stays Secure whatever is saved.
+	if (url.protocol === 'http:' && config().origins.includes(url.origin) && isLocalHost(url.hostname)) return false;
 	if (url.protocol === 'https:') return true;
 	if (process.env.NODE_ENV === 'production') return true;
 

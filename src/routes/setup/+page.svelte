@@ -30,12 +30,19 @@
 	let sharing = $state(true);
 	let downloads = $state(true);
 	let lrclib = $state(false);
+	/** Where the deployment is opened: the address in the bar now, until it is changed. */
+	let origin = $state('');
+	let coverCacheMb = $state(512);
+	/** What the environment already decides, and so is not asked for. */
+	let decided = $state({ origin: false, coverCache: false });
 
 	/** The key made for the deployment, shown once on the last step. */
 	let secret = $state<string | null>(null);
 	let copied = $state(false);
 	/** The address in the browser's bar, where it is not the one the server believes it has. */
 	let otherOrigin = $state<string | null>(null);
+	/** The saved addresses the sign-in cookie is sent on without Secure. */
+	let withoutSecure = $state<string[]>([]);
 
 	const SERVERS: { kind: Kind; title: string; example: string; name: string }[] = [
 		{ kind: 'subsonic', title: 'Navidrome or Subsonic', example: 'http://10.0.0.10:4533', name: 'Navidrome' },
@@ -86,6 +93,8 @@
 				return;
 			}
 			missing = body.missing as typeof missing;
+			decided = (body.environment as typeof decided | undefined) ?? decided;
+			origin ||= location.origin;
 			step = 'form';
 		} catch {
 			message = 'The server did not answer.';
@@ -129,7 +138,9 @@
 					theme,
 					sharing,
 					downloads,
-					lrclib
+					lrclib,
+					origin,
+					coverCacheMb
 				}
 			});
 			if (refused(status)) return;
@@ -138,7 +149,10 @@
 				return;
 			}
 			secret = typeof body.secret === 'string' ? body.secret : null;
-			otherOrigin = location.origin !== data.serverOrigin ? location.origin : null;
+			withoutSecure = Array.isArray(body.withoutSecure) ? body.withoutSecure.map(String) : [];
+			// Only where the environment gives the address: one saved here is the
+			// browser's own, or the operator's choice to make it another.
+			otherOrigin = decided.origin && location.origin !== data.serverOrigin ? location.origin : null;
 			// The code is spent, and the page has no more use for it.
 			code = '';
 			step = 'done';
@@ -258,6 +272,32 @@
 					<p class="lede">The music server is set in the environment. What is left is below.</p>
 				{/if}
 
+				{#if !decided.origin}
+					<fieldset>
+						<legend>Address</legend>
+						<label class="field">
+							<span class="label">Where Heddohon is opened</span>
+							<input
+								class="hh-input"
+								bind:value={origin}
+								name="origin"
+								placeholder="http://192.168.1.10:3000"
+								autocomplete="off"
+								spellcheck="false"
+								maxlength="1024"
+							/>
+						</label>
+						<p class="how hh-muted">
+							The address in this browser's bar, filled in. Sign-in and every change are accepted from it
+							and refused from any other site. Add a second one after a space, such as the public
+							<code>https://</code> address it will have behind a proxy; an administrator can change the list
+							later under Settings, Storage. On a plain <code>http://</code> address on the local network the
+							sign-in cookie is sent without <code>Secure</code>, since the browser would not send it back
+							otherwise.
+						</p>
+					</fieldset>
+				{/if}
+
 				<fieldset>
 					<legend>Choices</legend>
 					<label class="field">
@@ -268,6 +308,13 @@
 							<option value="paper">Paper</option>
 						</select>
 					</label>
+					{#if !decided.coverCache}
+						<label class="field">
+							<span class="label">Cover cache, in megabytes</span>
+							<input class="hh-input" bind:value={coverCacheMb} name="coverCacheMb" type="number" min="0" max="65536" step="1" inputmode="numeric" />
+							<span class="hint hh-muted">Covers kept on this server's disk, in the data directory. 0 switches the cache off.</span>
+						</label>
+					{/if}
 					<label class="check">
 						<input type="checkbox" bind:checked={sharing} name="sharing" />
 						<span>
@@ -336,6 +383,23 @@
 						The environment takes precedence. Once it is set there, remove the <code>HEDDOHON_SECRET</code> line
 						from <code>setup.json</code>. If the key is changed or lost, the stored passwords cannot be read
 						and every account signs in again.
+					</p>
+				</section>
+			{/if}
+
+			{#if withoutSecure.length > 0}
+				<section class="notice" aria-labelledby="http-title">
+					<h2 id="http-title">Sign-in on plain http</h2>
+					<p>
+						On {withoutSecure.join(' and ')} the sign-in cookie is sent without <code>Secure</code>, since a
+						browser does not send a <code>Secure</code> cookie back over <code>http://</code>. Anyone who can
+						read that network's traffic can read the cookie, and the password as it is typed.
+					</p>
+					<p>
+						<strong>That is yours to accept for a local network.</strong> Put Heddohon behind
+						<code>https://</code> before it is reached from anywhere else, and add that address under
+						Settings, Storage. Setting <code>HEDDOHON_COOKIE_SECURE=true</code> in the environment ends
+						this, and sign-in on a plain <code>http://</code> address with it.
 					</p>
 				</section>
 			{/if}
