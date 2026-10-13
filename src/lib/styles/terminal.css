@@ -1,0 +1,502 @@
+/*
+ * Terminal, the default theme.
+ *
+ * Flat panes on hairlines over a near-black ground, set in JetBrains Mono,
+ * with a dot grid behind the page. It has no glass: every pane is opaque and
+ * blurs nothing behind it, so the rules in `app.css` about animating around
+ * `backdrop-filter` have nothing to guard on a pane in this theme. Liquid and Paper
+ * are unchanged by this file; every rule in it is under
+ * `[data-theme='terminal']`.
+ *
+ * The accent is the artwork's hue, as in Liquid, or one of six fixed colours
+ * (`[data-accent]`, from Settings). The artwork otherwise shows only where it
+ * is drawn: the covers and the player's art.
+ *
+ * Tokens are set on `:root[data-theme='terminal']`, two selectors deep, so
+ * they win over `:root` in `app.css` whichever file is read first. A component
+ * that needs more than the tokens carries its own rule under
+ * `:global([data-theme='terminal'])`, as the Paper rules do.
+ */
+
+/*
+ * JetBrains Mono at 92 percent of its size, under a name of its own.
+ *
+ * A mono face is about a fifth wider than Manrope at the same size, and every
+ * size in the interface is a rem figure chosen for Manrope. `size-adjust`
+ * scales the glyphs and their metrics inside the face, so 14px text is drawn
+ * at 12.9px and no size elsewhere changes. The files are the ones
+ * `@fontsource-variable/jetbrains-mono` ships, with its unicode ranges, so a
+ * browser downloads each once for both names. Safari before 17 ignores
+ * `size-adjust` and draws the face at full size.
+ */
+@font-face {
+	font-family: 'Heddohon Terminal';
+	font-style: normal;
+	font-display: swap;
+	font-weight: 100 800;
+	size-adjust: 92%;
+	src: url('../../../node_modules/@fontsource-variable/jetbrains-mono/files/jetbrains-mono-latin-wght-normal.woff2')
+		format('woff2-variations');
+	unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+		U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+	font-family: 'Heddohon Terminal';
+	font-style: normal;
+	font-display: swap;
+	font-weight: 100 800;
+	size-adjust: 92%;
+	src: url('../../../node_modules/@fontsource-variable/jetbrains-mono/files/jetbrains-mono-latin-ext-wght-normal.woff2')
+		format('woff2-variations');
+	unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
+		U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+@font-face {
+	font-family: 'Heddohon Terminal';
+	font-style: normal;
+	font-display: swap;
+	font-weight: 100 800;
+	size-adjust: 92%;
+	src: url('../../../node_modules/@fontsource-variable/jetbrains-mono/files/jetbrains-mono-cyrillic-wght-normal.woff2')
+		format('woff2-variations');
+	unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+
+@font-face {
+	font-family: 'Heddohon Terminal';
+	font-style: normal;
+	font-display: swap;
+	font-weight: 100 800;
+	size-adjust: 92%;
+	src: url('../../../node_modules/@fontsource-variable/jetbrains-mono/files/jetbrains-mono-cyrillic-ext-wght-normal.woff2')
+		format('woff2-variations');
+	unicode-range: U+0460-052F, U+1C80-1C8A, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F;
+}
+
+@font-face {
+	font-family: 'Heddohon Terminal';
+	font-style: normal;
+	font-display: swap;
+	font-weight: 100 800;
+	size-adjust: 92%;
+	src: url('../../../node_modules/@fontsource-variable/jetbrains-mono/files/jetbrains-mono-greek-wght-normal.woff2')
+		format('woff2-variations');
+	unicode-range: U+0370-0377, U+037A-037F, U+0384-038A, U+038C, U+038E-03A1, U+03A3-03FF;
+}
+
+@font-face {
+	font-family: 'Heddohon Terminal';
+	font-style: normal;
+	font-display: swap;
+	font-weight: 100 800;
+	size-adjust: 92%;
+	src: url('../../../node_modules/@fontsource-variable/jetbrains-mono/files/jetbrains-mono-vietnamese-wght-normal.woff2')
+		format('woff2-variations');
+	unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301,
+		U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+}
+
+/* ── Tokens ──────────────────────────────────────────────────────────────── */
+
+:root[data-theme='terminal'] {
+	/*
+	 * A ground a step darker than Liquid's, and panes one step above it: with
+	 * no blur and no wash, a pane is told from the page by its hairline and by
+	 * that one step.
+	 */
+	--bg-base: #08090a;
+	--bg-sunken: #060708;
+	--bg-surface: #0d0e10;
+	--bg-raised: #14161a;
+	--bg-hover: #1b1e22;
+	--bg-active: #23272c;
+
+	/* Three text tones. The faint one holds 4.6:1 on a pane. */
+	--text-strong: #e6e8ea;
+	--text-default: #b9bdc2;
+	--text-muted: #8a9097;
+	--text-faint: #7c828a;
+
+	--border-hairline: #1d2024;
+	--border-strong: #2a2e33;
+
+	/* The artwork's hue, by the formula and the limits Liquid uses; see the
+	   note on a derived accent in `app.css`. `[data-accent]` below replaces it. */
+	--accent: hsl(var(--art-h) min(calc(var(--art-s) + 14%), 52%) 70%);
+	--accent-strong: hsl(var(--art-h) min(calc(var(--art-s) + 18%), 56%) 80%);
+	--accent-quiet: hsl(var(--art-h) min(calc(var(--art-s) + 6%), 44%) 30%);
+	--accent-contrast: #0a0b0c;
+
+	--positive: #8ff0a4;
+	--danger: #ff8b8b;
+	--highres: var(--accent-strong);
+
+	/* A pane is level with the page, so nothing casts a shadow. Written as a
+	   shadow of no size, since the tokens are used inside shadow lists. */
+	--shadow-mid: 0 0 0 0 transparent;
+	--shadow-high: 0 0 0 0 transparent;
+	--float-shadow: 0 0 0 0 transparent;
+
+	/* The glass tokens, set to what an opaque pane is. */
+	--glass-base: 100%;
+	--glass-tint: 0%;
+	--glass-blur: none;
+	--glass-blur-deep: none;
+	--glass-base-deep: 100%;
+	--glass-edge: var(--border-strong);
+	--glass-sheen: transparent;
+	--control-face: transparent;
+	--control-blur: none;
+	--field-face: var(--bg-sunken);
+	--field-face-focus: var(--bg-raised);
+	--field-blur: none;
+	--field-edge: var(--border-strong);
+	/* On an opaque pane the secondary tones are the ordinary ones. */
+	--text-muted-through: var(--text-muted);
+	--text-faint-through: var(--text-faint);
+
+	/* Hover and selection change the colour of the text and nothing around it. */
+	--text-shade: none;
+	--glow-color: var(--text-strong);
+	--glow-text: none;
+	--glow-icon: none;
+	--ambience-strength: 0%;
+
+	--display-weight: 700;
+	--display-tracking: -0.02em;
+
+	/* One radius for panes, cards and covers, and a smaller one for what sits
+	   inside them. Nothing is a pill. */
+	--r-xl: 0.375rem;
+	--r-lg: 0.375rem;
+	--r-md: 0.375rem;
+	--r-sm: 0.25rem;
+	--r-pill: 0.1875rem;
+
+	/*
+	 * Motion. Hover answers in 90ms: with no glow to fade up, a slow change of
+	 * colour reads as lag. Nothing overshoots, so the spring is the settling
+	 * curve.
+	 */
+	--dur-hover: 90ms;
+	--ease-spring: var(--ease-out);
+
+	/*
+	 * The dot grid: a 1px dot every 14px, in the text colour at the share
+	 * `[data-dots]` sets. 7 percent over the ground is #181a1c.
+	 */
+	--dots-alpha: 7%;
+	--dots: radial-gradient(
+		circle,
+		color-mix(in srgb, var(--text-strong) var(--dots-alpha), transparent) 1px,
+		transparent 1.6px
+	);
+	--dots-size: 14px 14px;
+
+	color-scheme: dark;
+}
+
+:root[data-theme='terminal'][data-dots='off'] {
+	--dots: none;
+}
+
+:root[data-theme='terminal'][data-dots='medium'] {
+	--dots-alpha: 12%;
+}
+
+:root[data-theme='terminal'][data-dots='strong'] {
+	--dots-alpha: 20%;
+}
+
+/*
+ * The fixed accents. Each sets the three accent tokens outright, at more
+ * chroma than the artwork formula allows: the formula has to stay legible for
+ * any cover, and these six are known. The lowest contrast under the dark
+ * label is rose at 9.9:1.
+ *
+ * `--art-*` follow, for whatever else reads the room's hue. `artwork.ts`
+ * writes them on the root as inline styles, which only `!important` in a
+ * stylesheet outranks.
+ */
+:root[data-theme='terminal'][data-accent='green'] {
+	--accent: #8ff0a4;
+	--accent-strong: #b9f7c6;
+	--accent-quiet: #1f4a2b;
+	--art-h: 133 !important;
+	--art-s: 40% !important;
+	--art-l: 52% !important;
+}
+
+:root[data-theme='terminal'][data-accent='amber'] {
+	--accent: #ffb454;
+	--accent-strong: #ffcb87;
+	--accent-quiet: #5a3a10;
+	--art-h: 34 !important;
+	--art-s: 40% !important;
+	--art-l: 52% !important;
+}
+
+:root[data-theme='terminal'][data-accent='cyan'] {
+	--accent: #7ad7ff;
+	--accent-strong: #aee6ff;
+	--accent-quiet: #164458;
+	--art-h: 198 !important;
+	--art-s: 40% !important;
+	--art-l: 52% !important;
+}
+
+:root[data-theme='terminal'][data-accent='violet'] {
+	--accent: #c0a8ff;
+	--accent-strong: #d9caff;
+	--accent-quiet: #3a2c66;
+	--art-h: 256 !important;
+	--art-s: 40% !important;
+	--art-l: 52% !important;
+}
+
+:root[data-theme='terminal'][data-accent='rose'] {
+	--accent: #ff9db5;
+	--accent-strong: #ffc0ce;
+	--accent-quiet: #5c2434;
+	--art-h: 345 !important;
+	--art-s: 40% !important;
+	--art-l: 52% !important;
+}
+
+:root[data-theme='terminal'][data-accent='white'] {
+	--accent: #e6e8ea;
+	--accent-strong: #ffffff;
+	--accent-quiet: #3a3e44;
+	--art-h: 210 !important;
+	--art-s: 0% !important;
+	--art-l: 60% !important;
+}
+
+/*
+ * The theme's own face stands where Manrope is the choice, on the root and
+ * on the sample in Settings. Any other choice of font is kept.
+ */
+[data-theme='terminal'][data-font='manrope'],
+[data-theme='terminal'] [data-font='manrope'] {
+	--font-display: 'Heddohon Terminal', 'JetBrains Mono Variable', ui-monospace, 'SFMono-Regular', monospace;
+	--font-ui: 'Heddohon Terminal', 'JetBrains Mono Variable', ui-monospace, 'SFMono-Regular', monospace;
+}
+
+/* ── The page ────────────────────────────────────────────────────────────── */
+
+/* The canvas is the ground alone: no room colour reaches the edges. */
+[data-theme='terminal'] {
+	background-color: var(--bg-base);
+}
+
+[data-theme='terminal'] body {
+	line-height: 1.5;
+}
+
+/*
+ * Headlines at a size a mono face holds: at the 52px Manrope takes, a long
+ * album title in a fixed-width face ran to five lines.
+ */
+:root[data-theme='terminal'] h1 {
+	font-size: clamp(1.5rem, 1.15rem + 1.2vw, 2.125rem);
+	line-height: 1.2;
+}
+
+[data-theme='terminal'] .hh-display {
+	line-height: 1.2;
+}
+
+[data-theme='terminal'] ::selection {
+	background: var(--accent);
+	color: var(--accent-contrast);
+}
+
+/* The room: the ground and the dot grid. The artwork's pools are not drawn. */
+[data-theme='terminal'] .hh-ambience {
+	background:
+		var(--dots) 0 0 / var(--dots-size),
+		linear-gradient(var(--bg-base), var(--bg-base));
+}
+
+[data-theme='terminal'] .aurora {
+	display: none;
+}
+
+/* ── Panes ───────────────────────────────────────────────────────────────── */
+
+/*
+ * A pane: opaque, one step above the ground. `.hh-glass` keeps its name, and
+ * in this theme it is not glass.
+ */
+[data-theme='terminal'] .hh-glass {
+	background-color: var(--bg-surface);
+	background-image: none;
+	-webkit-backdrop-filter: none;
+	backdrop-filter: none;
+}
+
+/*
+ * The rail and the player carry the grid too, so it reads as one field behind
+ * all three columns. Their two tint layers are not painted: the wash they
+ * cross-fade is Liquid's.
+ */
+[data-theme='terminal'] .hh-tint-morph {
+	background-image: var(--dots);
+	background-size: var(--dots-size);
+	transition: none;
+}
+
+[data-theme='terminal'] .hh-tint-morph::before,
+[data-theme='terminal'] .hh-tint-morph::after {
+	display: none;
+}
+
+[data-theme='terminal'] .hh-float,
+[data-theme='terminal'] .hh-card {
+	box-shadow: none;
+}
+
+/* ── Controls ────────────────────────────────────────────────────────────── */
+
+/*
+ * A button is its label between brackets, in the text colour, with no face
+ * and no edge. The closing bracket is the `::after` that draws the press
+ * ripple in the other themes; here a press changes the ground under the
+ * label, on the frame it lands.
+ */
+[data-theme='terminal'] .hh-button {
+	gap: 0.4rem;
+	padding: 0.5rem 0.125rem;
+	border: 0;
+	background: none;
+	-webkit-backdrop-filter: none;
+	backdrop-filter: none;
+	color: var(--text-strong);
+	font-weight: 400;
+	text-transform: lowercase;
+	box-shadow: none;
+}
+
+[data-theme='terminal'] .hh-button::before,
+[data-theme='terminal'] .hh-button::after {
+	position: static;
+	inset: auto;
+	background: none;
+	color: var(--text-faint);
+	transition: color var(--transition);
+}
+
+/*
+ * With an empty alternative text, so the brackets are drawn and not read: as
+ * plain generated content they were part of the button's name, "[Install]"
+ * to a screen reader. The first declaration is for a browser without the
+ * syntax (Safari before 17.4), which draws them and reads them.
+ */
+[data-theme='terminal'] .hh-button::before {
+	content: '[';
+	content: '[' / '';
+}
+
+[data-theme='terminal'] .hh-button::after {
+	content: ']';
+	content: ']' / '';
+}
+
+[data-theme='terminal'] .hh-button:hover,
+[data-theme='terminal'] .hh-button:focus-visible {
+	color: var(--accent);
+	box-shadow: none;
+}
+
+[data-theme='terminal'] .hh-button:hover::before,
+[data-theme='terminal'] .hh-button:hover::after {
+	color: var(--accent);
+}
+
+[data-theme='terminal'] .hh-button:active {
+	background: var(--bg-hover);
+}
+
+[data-theme='terminal'] .hh-button.pressed {
+	animation: none;
+}
+
+[data-theme='terminal'] .hh-button > *,
+[data-theme='terminal'] .hh-button:active:not(:disabled) > * {
+	scale: none;
+	transition: none;
+}
+
+/* The one filled key on a page: the accent, with the label in the dark tone. */
+[data-theme='terminal'] .hh-button--primary {
+	padding: 0.5rem 1rem;
+	background: var(--accent);
+	color: var(--accent-contrast);
+	font-weight: 700;
+}
+
+[data-theme='terminal'] .hh-button--primary::before,
+[data-theme='terminal'] .hh-button--primary::after {
+	content: none;
+}
+
+[data-theme='terminal'] .hh-button--primary:hover,
+[data-theme='terminal'] .hh-button--primary:focus-visible,
+[data-theme='terminal'] .hh-button--primary:active {
+	background: var(--accent-strong);
+	color: var(--accent-contrast);
+}
+
+[data-theme='terminal'] .hh-eyebrow {
+	letter-spacing: 0;
+	text-transform: lowercase;
+	font-size: 0.75rem;
+	color: var(--text-muted);
+}
+
+/* ── Motion ──────────────────────────────────────────────────────────────── */
+
+/*
+ * A list arriving prints: its rows come 16ms apart with a 4px rise, where the
+ * other themes take 24ms and 8px.
+ */
+[data-theme='terminal'] .content.rising .hh-stagger > * {
+	animation-name: terminal-list-rise;
+	animation-duration: var(--dur-hover);
+	animation-delay: calc(var(--stagger, 12) * 16ms);
+}
+
+@keyframes terminal-list-rise {
+	from {
+		opacity: 0;
+		translate: 0 0.25rem;
+	}
+}
+
+/*
+ * A dialog fades in in the hover length, and its content does not rise into
+ * it. Opacity alone: growing it from 97 percent was tried, and the popup of
+ * who is listening, which places itself against its pill as it opens, measured
+ * itself small and sat 2px off the pill's corner.
+ */
+[data-theme='terminal'] dialog[open] {
+	animation-duration: var(--dur-hover);
+}
+
+[data-theme='terminal'] dialog[open] > * {
+	animation: none;
+}
+
+/* The page behind a dialog is dimmed and left sharp. */
+:root[data-theme='terminal'] dialog::backdrop {
+	-webkit-backdrop-filter: none;
+	backdrop-filter: none;
+	background: rgb(0 0 0 / 0.62);
+}
+
+/* The cover flying to the dock on a phone casts no shadow on the way. */
+[data-theme='terminal'] .hh-cover-ghost {
+	box-shadow: none;
+}

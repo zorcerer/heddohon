@@ -149,6 +149,10 @@ export const actions: Actions = {
 
 		const settings = await saveSettings(session.account.id, {
 			theme: form.get('theme'),
+			// These two are on the form only in Terminal, and aurora only outside
+			// it. One left off the form keeps its stored value.
+			accent: form.get('accent'),
+			dots: form.get('dots'),
 			transition: form.get('transition'),
 			crossfadeSeconds: Number(form.get('crossfadeSeconds')),
 			crossfadeWithinAlbum: bool('crossfadeWithinAlbum'),

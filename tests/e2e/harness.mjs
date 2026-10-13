@@ -45,6 +45,12 @@ export async function startApp({ subsonicUrl, jellyfinUrl, env = {}, dataDir: gi
 			HEDDOHON_DATA_DIR: dataDir,
 			HEDDOHON_COOKIE_SECURE: 'false',
 			HEDDOHON_LOG_LEVEL: 'warn',
+			// The suites were written against Liquid, and most of what they measure
+			// is Liquid's: the tint on the rail, the glass, the room's colour at
+			// the edges. So accounts here start in it, and a test of Terminal, the
+			// default, starts its own app or sets the theme. `HH_SUITE_THEME` runs
+			// everything in another theme, to see what else a theme changes.
+			HEDDOHON_DEFAULT_THEME: process.env.HH_SUITE_THEME ?? 'liquid',
 			...env
 		},
 		stdio: ['ignore', 'pipe', 'pipe']

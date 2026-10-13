@@ -67,6 +67,11 @@ export interface AppConfig {
 	listenbrainzUrl: string | null;
 	/** Whether the library can be browsed by its folders on disk: the Folders page and playing a folder. */
 	folders: boolean;
+	/**
+	 * The theme an account starts in, and the one pages without an account
+	 * (sign-in, a shared link) are drawn in. A value of `data-theme`.
+	 */
+	defaultTheme: 'terminal' | 'dark' | 'light';
 	/** Whether the music server's internet radio stations are offered and played through this server; see `radio.ts`. */
 	radio: boolean;
 	/** Whether a station may be on a private address. Off unless asked for. */
@@ -169,6 +174,21 @@ function flagEnv(name: string, fallback: boolean): boolean {
 	if (['1', 'true', 'yes', 'on'].includes(raw)) return true;
 	if (['0', 'false', 'no', 'off'].includes(raw)) return false;
 	throw new ConfigError(`${name} must be true or false`);
+}
+
+/**
+ * `HEDDOHON_DEFAULT_THEME`, by the names Settings shows. The stored values
+ * are older than those names: Liquid is `dark` and Paper is `light`.
+ */
+const THEMES_BY_NAME = { terminal: 'terminal', liquid: 'dark', paper: 'light' } as const;
+
+function themeEnv(name: string): AppConfig['defaultTheme'] {
+	const raw = env(name)?.toLowerCase();
+	if (raw === undefined) return 'terminal';
+	if (Object.prototype.hasOwnProperty.call(THEMES_BY_NAME, raw)) {
+		return THEMES_BY_NAME[raw as keyof typeof THEMES_BY_NAME];
+	}
+	throw new ConfigError(`${name} must be terminal, liquid or paper`);
 }
 
 /**
@@ -336,6 +356,7 @@ function build(): AppConfig {
 		// Off for a library whose layout on disk is not for its listeners: the
 		// page shows folder names as the music server stores them.
 		folders: flagEnv('HEDDOHON_FOLDERS', true),
+		defaultTheme: themeEnv('HEDDOHON_DEFAULT_THEME'),
 		// The stations are the music server administrator's list, and a stream
 		// is fetched only when a listener plays one. A station on a private
 		// address is refused unless `radioPrivate` is set.
@@ -427,6 +448,7 @@ export function config(): AppConfig {
 			discordUrl: null,
 			listenbrainzUrl: null,
 			folders: true,
+			defaultTheme: 'terminal',
 			radio: true,
 			radioPrivate: false,
 			navidromePluginToken: null,

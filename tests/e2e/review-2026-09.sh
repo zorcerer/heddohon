@@ -48,7 +48,7 @@ status="$(http "$P" GET /api/playlists)"
 expect_eq "F2 first bob's session is ended" "$status" 401
 expect_lacks "F2 first bob cannot read second bob's playlists" "$(body)" 'second bob only'
 expect_eq "F2 first bob's link does not play as second bob" "$(http "$ANON" GET "$bob_share/stream")" 404
-expect_eq "F2 second bob does not inherit first bob's settings" "$(http "$Q" GET /api/settings; body | jq -r .theme)" 200dark
+expect_eq "F2 second bob does not inherit first bob's settings" "$(http "$Q" GET /api/settings; body | jq -r .theme)" 200terminal
 # The same user signing in again from another browser keeps everything.
 json "$Q" PATCH /api/settings '{"theme":"light"}' >/dev/null
 : >"$TMP/f2-third.jar"

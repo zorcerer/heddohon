@@ -421,4 +421,40 @@
 			display: none;
 		}
 	}
+
+	/* ── Terminal ────────────────────────────────────────────────────────────── */
+
+	/*
+	 * A card under the pointer is outlined in the accent. The cover stays flat
+	 * and in place: the lift, the tilt, the glow under it and the light crossing
+	 * it are not drawn.
+	 */
+	:global([data-theme='terminal']) .art::before,
+	:global([data-theme='terminal']) .art :global(.cover::after) {
+		display: none;
+	}
+
+	:global([data-theme='terminal']) .card:hover .art,
+	:global([data-theme='terminal']) .card:active:not(.launching) .art {
+		transform: none;
+		scale: none;
+	}
+
+	:global([data-theme='terminal']) .card:hover .art :global(.cover),
+	:global([data-theme='terminal']) .card:focus-visible .art :global(.cover) {
+		box-shadow: 0 0 0 1px var(--accent);
+	}
+
+	:global([data-theme='terminal']) .play {
+		border-radius: var(--r-sm);
+		background: var(--accent);
+		color: var(--accent-contrast);
+		padding-left: 0;
+		transform: none;
+	}
+
+	:global([data-theme='terminal']) .title {
+		font-weight: 500;
+		letter-spacing: 0;
+	}
 </style>
