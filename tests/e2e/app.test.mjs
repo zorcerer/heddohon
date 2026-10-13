@@ -331,20 +331,24 @@ describe('settings', () => {
 		await user.json('/api/settings', 'PATCH', { theme: 'dark' });
 	});
 
-	test('Terminal\'s accent and dot grid are each one of those offered, and are in the first byte of the page', async () => {
+	test('Terminal\'s accent, dot grid and player artwork are each one of those offered, and are in the first byte of the page', async () => {
 		const fresh = await (await user.json('/api/settings', 'PATCH', {})).json();
-		assert.deepEqual([fresh.accent, fresh.dots], ['artwork', 'faint']);
+		assert.deepEqual([fresh.accent, fresh.dots, fresh.playerArt], ['artwork', 'faint', 'dither']);
 		try {
-			const saved = await (await user.json('/api/settings', 'PATCH', { theme: 'terminal', accent: 'green', dots: 'off' })).json();
-			assert.deepEqual([saved.theme, saved.accent, saved.dots], ['terminal', 'green', 'off']);
+			const saved = await (
+				await user.json('/api/settings', 'PATCH', { theme: 'terminal', accent: 'green', dots: 'off', playerArt: 'duotone' })
+			).json();
+			assert.deepEqual([saved.theme, saved.accent, saved.dots, saved.playerArt], ['terminal', 'green', 'off', 'duotone']);
 			const { html } = await user.page('/albums');
-			assert.match(html, /<html[^>]* data-theme="terminal" data-accent="green" data-dots="off"/);
+			assert.match(html, /<html[^>]* data-theme="terminal" data-accent="green" data-dots="off" data-art="duotone"/);
 
-			const bogus = await (await user.json('/api/settings', 'PATCH', { accent: '"><script>alert(1)</script>', dots: '#fff' })).json();
-			assert.deepEqual([bogus.accent, bogus.dots], ['green', 'off'], 'a value that is not offered keeps the one stored');
-			assert.ok(!(await user.page('/albums')).html.includes('<script>alert(1)'));
+			const bogus = await (
+				await user.json('/api/settings', 'PATCH', { accent: '"><script>alert(1)</script>', dots: '#fff', playerArt: '"><script>alert(2)</script>' })
+			).json();
+			assert.deepEqual([bogus.accent, bogus.dots, bogus.playerArt], ['green', 'off', 'duotone'], 'a value that is not offered keeps the one stored');
+			assert.ok(!(await user.page('/albums')).html.includes('<script>alert('));
 		} finally {
-			await user.json('/api/settings', 'PATCH', { theme: 'dark', accent: 'artwork', dots: 'faint' });
+			await user.json('/api/settings', 'PATCH', { theme: 'dark', accent: 'artwork', dots: 'faint', playerArt: 'dither' });
 		}
 	});
 

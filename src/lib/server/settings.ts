@@ -22,6 +22,9 @@ const ACCENTS = ['artwork', 'green', 'amber', 'cyan', 'violet', 'rose', 'white']
 /** How strongly Terminal draws the dot grid behind the page. */
 const DOTS = ['off', 'faint', 'medium', 'strong'] as const;
 
+/** How Terminal draws the player's artwork where it meets the panel under it. */
+const PLAYER_ART = ['dither', 'plain', 'scanlines', 'duotone'] as const;
+
 /**
  * Themes were once named after the Nord palette. Accounts from before the
  * rename hold the old value, which would otherwise be sanitised to the
@@ -48,8 +51,15 @@ export interface UserSettings {
 	 * app.css.
 	 */
 	accent: (typeof ACCENTS)[number];
-	/** The dot grid behind the page in Terminal. See `[data-dots]` in app.css. */
+	/** The dot grid behind the page in Terminal. See `[data-dots]` in terminal.css. */
 	dots: (typeof DOTS)[number];
+	/**
+	 * The player's artwork in Terminal: dissolved into the dot grid at its foot
+	 * (`dither`), faded as Liquid fades it (`plain`), crossed by scanlines, or
+	 * in two tones, the accent and black. See `[data-art]` in
+	 * `NowPlayingPanel.svelte`.
+	 */
+	playerArt: (typeof PLAYER_ART)[number];
 	/** 0…1, applied to the audio element. */
 	volume: number;
 	/**
@@ -133,6 +143,7 @@ const DEFAULT_SETTINGS: UserSettings = {
 	theme: 'terminal',
 	accent: 'artwork',
 	dots: 'faint',
+	playerArt: 'dither',
 	volume: 0.85,
 	transition: 'gapless',
 	crossfadeSeconds: 4,
@@ -220,9 +231,10 @@ function sanitizeSettings(input: unknown, base: UserSettings = defaultSettings()
 				? LEGACY_THEMES[String(raw.theme)]
 				: base.theme
 		),
-		// Both allowlisted like the theme: interpolated into the served HTML.
+		// All three allowlisted like the theme: interpolated into the served HTML.
 		accent: pick('accent', ACCENTS, base.accent),
 		dots: pick('dots', DOTS, base.dots),
+		playerArt: pick('playerArt', PLAYER_ART, base.playerArt),
 		volume: clamp(Number(raw.volume ?? base.volume), 0, 1, base.volume),
 		transition: pick('transition', ['off', 'gapless', 'crossfade'] as const, base.transition),
 		crossfadeSeconds: clamp(Number(raw.crossfadeSeconds ?? base.crossfadeSeconds), 1, 12, base.crossfadeSeconds),

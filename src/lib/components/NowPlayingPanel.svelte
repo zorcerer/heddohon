@@ -1715,16 +1715,53 @@
 	/* ── Terminal ────────────────────────────────────────────────────────────── */
 
 	/*
-	 * The artwork dissolves into the dot grid on its way into the panel. The
-	 * layer that carries the grain in the other themes is a sheet of the pane's
-	 * colour with a hole every 7px, faded in over the last third of its height, so
-	 * the picture is whole at the top, then seen through the holes, then gone
-	 * where the mask on `.art` ends it. The colours of the cover are untouched.
+	 * How the artwork meets the panel, by the account's choice (`playerArt` in
+	 * Settings, on the root as `data-art`). Each is drawn by the layer that
+	 * carries the grain in the other themes, inside the mask on `.art` that ends
+	 * the picture.
+	 *
+	 * Dots, the default: the artwork dissolves into the dot grid. The layer is a
+	 * sheet of the pane's colour with a hole every 7px, faded in over the last
+	 * third of its height, so the picture is whole at the top, then seen through
+	 * the holes, then gone. The colours of the cover are untouched.
 	 */
 	:global([data-theme='terminal']) .art::after {
 		background: radial-gradient(circle, transparent 2px, var(--bg-surface) 2.7px) 0 0 / 7px 7px;
 		-webkit-mask-image: linear-gradient(to bottom, transparent 64%, #000 96%);
 		mask-image: linear-gradient(to bottom, transparent 64%, #000 96%);
+	}
+
+	/* Plain: the fade alone, as Liquid has it, without the grain. */
+	:global([data-theme='terminal'][data-art='plain']) .art::after {
+		background: none;
+	}
+
+	/* Scanlines: a line of the pane's colour at 62 percent on every third row,
+	   over the whole picture. */
+	:global([data-theme='terminal'][data-art='scanlines']) .art::after {
+		background: repeating-linear-gradient(
+			to bottom,
+			transparent 0 2px,
+			color-mix(in srgb, var(--bg-surface) 62%, transparent) 2px 3px
+		);
+		-webkit-mask-image: none;
+		mask-image: none;
+	}
+
+	/*
+	 * Duotone: the picture in grey, multiplied by the accent, so its lights are
+	 * the accent and its darks stay black. The filter is on the cover's own box,
+	 * under the layer, and the mask on `.art` keeps the blend inside it.
+	 */
+	:global([data-theme='terminal'][data-art='duotone']) .art :global(.cover) {
+		filter: grayscale(1) contrast(1.08);
+	}
+
+	:global([data-theme='terminal'][data-art='duotone']) .art::after {
+		background: var(--accent);
+		mix-blend-mode: multiply;
+		-webkit-mask-image: none;
+		mask-image: none;
 	}
 
 	/*
