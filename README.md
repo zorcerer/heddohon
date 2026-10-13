@@ -84,20 +84,29 @@ Your listening counts are generated for the screenshot.</sub>
 
 ```bash
 git clone https://github.com/zorcerer/heddohon.git && cd heddohon
+docker compose up -d
+docker compose logs heddohon
+```
+
+The log shows a setup code. Open `http://localhost:3000`, enter it, and give
+the address of your Navidrome, Subsonic or Jellyfin server. The page makes the
+secret, saves the address Heddohon is opened at, and sign-in works from there.
+[SECURITY.md](SECURITY.md#first-run-setup) says what that page can do and where
+the secret is then kept.
+
+To configure it by environment variables instead, and never see the setup page:
+
+```bash
 cp .env.example .env
 echo "HEDDOHON_SECRET=$(openssl rand -base64 48)" >> .env
 echo "HEDDOHON_SUBSONIC_URL=http://10.0.0.10:4533" >> .env
 docker compose up -d
 ```
 
-Open `http://localhost:3000` and sign in with your music server account. To
-expose it publicly, set `ORIGIN` and read [SECURITY.md](SECURITY.md).
-
-Started without the two `echo` lines, Heddohon prints a setup code to its log
-(`docker compose logs heddohon`) and serves a setup page at the same address.
-The page takes the code and the address of the music server, and makes the
-secret. [SECURITY.md](SECURITY.md#first-run-setup) says what that page can do
-and where the secret is then kept.
+To expose it publicly, put it behind TLS and read [SECURITY.md](SECURITY.md).
+The data directory is given to the user the server runs as when the container
+starts (`PUID` and `PGID`, or its owner), so a folder Docker created needs no
+`chown`.
 
 Images are `ghcr.io/zorcerer/heddohon` and `zorcererd/heddohon`, for
 `linux/amd64` and `linux/arm64` (a Raspberry Pi 4 or 5 on a 64-bit OS, an ARM

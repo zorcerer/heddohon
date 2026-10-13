@@ -224,9 +224,12 @@ describe('a deployment that is not set up', () => {
 			// The key is on the page once, and in no log.
 			assert.ok(!app.output().includes(body.secret));
 
-			// Set up: the code is spent and the routes answer as any other.
-			assert.equal((await call(client, { action: 'check', code })).status, 401);
-			assert.deepEqual(await (await call(client, { action: 'check', code })).json(), { error: 'not_authenticated' });
+			// Set up: the code is spent. For the half hour the page may still take
+			// the key out of the file, the endpoint answers that call alone, and
+			// says of every other that there is no such thing.
+			for (const action of ['check', 'probe', 'save']) {
+				assert.equal((await call(client, { action, code, kind: 'subsonic', url: subsonic.url, values: {} })).status, 404, action);
+			}
 			assert.equal((await client.page('/setup')).response.headers.get('location'), '/login?next=%2Fsetup');
 			assert.equal((await (await fetch(`${app.url}/healthz`)).json()).status, 'ok');
 
@@ -249,6 +252,62 @@ describe('a deployment that is not set up', () => {
 			const again = new Client(app.url);
 			again.cookies = client.cookies;
 			assert.equal((await again.request('/api/settings', { headers: { accept: 'application/json' } })).status, 200);
+		} finally {
+			await app.stop();
+		}
+	});
+
+	test('the page that finished the setup can take the key out of the file, once, and the server goes on with it until it restarts', async () => {
+		const dataDir = mkdtempSync(join(tmpdir(), 'heddohon-setup-'));
+		const file = join(dataDir, 'setup.json');
+		let app = await unconfigured({}, dataDir);
+		try {
+			const client = new Client(app.url);
+			const saved = await (await call(client, { action: 'save', code: codeOf(app), values: { subsonicUrl: subsonic.url } })).json();
+			assert.ok(saved.secret && saved.forgetToken, 'the page was given no way to remove the key');
+			assert.ok(!app.output().includes(saved.forgetToken));
+			assert.equal((await client.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' })).status, 303);
+
+			// Not without the token, not with the setup's code, and not with the key itself.
+			for (const token of [undefined, '', 'x'.repeat(32), codeOf(app), saved.secret]) {
+				const refused = await call(new Client(app.url), { action: 'forget', token });
+				assert.equal(refused.status, 401, String(token).slice(0, 12));
+			}
+			assert.equal(JSON.parse(readFileSync(file, 'utf8')).HEDDOHON_SECRET, saved.secret);
+			// The setup's other calls are gone, as they were.
+			assert.equal((await call(new Client(app.url), { action: 'save', code: codeOf(app), values: {} })).status, 404);
+
+			const removed = await call(new Client(app.url), { action: 'forget', token: saved.forgetToken });
+			assert.equal(removed.status, 200);
+			const kept = JSON.parse(readFileSync(file, 'utf8'));
+			assert.ok(!('HEDDOHON_SECRET' in kept), 'the key is still in the file');
+			assert.equal(kept.HEDDOHON_SUBSONIC_URL, subsonic.url, 'the rest of the setup went with it');
+			assert.equal(statSync(file).mode & 0o777, 0o600);
+			// Once: the token is spent, and the endpoint is behind the session gate again.
+			const again = await call(new Client(app.url), { action: 'forget', token: saved.forgetToken });
+			assert.equal(again.status, 401);
+			assert.deepEqual(await again.json(), { error: 'not_authenticated' });
+
+			// The server goes on: the session opens, a new one can be made, and a
+			// change an administrator saves does not lose the key either.
+			assert.equal((await client.request('/api/settings', { headers: { accept: 'application/json' } })).status, 200);
+			assert.equal((await new Client(app.url).signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' })).status, 303);
+			assert.equal((await (await fetch(`${app.url}/healthz`)).json()).status, 'ok');
+
+			// Started again with the key in the environment, the session made under it still opens.
+			await app.stop({ keepData: true });
+			app = await unconfigured({ HEDDOHON_SECRET: saved.secret }, dataDir);
+			assert.equal(codeOf(app), null);
+			const later = new Client(app.url);
+			later.cookies = client.cookies;
+			assert.equal((await later.request('/api/settings', { headers: { accept: 'application/json' } })).status, 200);
+
+			// Started again without it anywhere, the setup is asked for once more, for the key alone.
+			await app.stop({ keepData: true });
+			app = await unconfigured({}, dataDir);
+			const code = codeOf(app);
+			assert.ok(code, 'a deployment with no key anywhere did not ask for its setup');
+			assert.deepEqual((await (await call(new Client(app.url), { action: 'check', code })).json()).missing, { secret: true, upstream: false });
 		} finally {
 			await app.stop();
 		}

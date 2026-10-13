@@ -3,7 +3,7 @@ import { building, version } from '$app/environment';
 import { resolveSession } from '$lib/server/auth';
 import { getSettings, defaultSettings, groundOf } from '$lib/server/settings';
 import { ConfigError, SetupRequired, config } from '$lib/server/config';
-import { announceSetup } from '$lib/server/setup';
+import { announceSetup, forgetPending } from '$lib/server/setup';
 import { FALLBACK_HTML_CSP, SECURITY_HEADERS } from '$lib/headers';
 import {
 	isEnabled,
@@ -301,6 +301,23 @@ const handleRequest: Handle = async ({ event, resolve }) => {
 			500,
 			'text/plain; charset=utf-8'
 		);
+	}
+
+	/*
+	 * The one call that comes after the setup, from the page that finished it:
+	 * taking the secret out of the saved file (`forget` in `/api/setup`).
+	 * Served for the half hour its token is good and as the setup's endpoint
+	 * is served: JSON alone, with the token as its authority, and ahead of the
+	 * check of `Origin`, which a deployment given a wrong `ORIGIN` fails for
+	 * every write. At any other time the path is behind the session gate.
+	 */
+	if (event.url.pathname === SETUP_API && event.request.method === 'POST' && forgetPending()) {
+		if (!event.request.headers.get('content-type')?.toLowerCase().startsWith('application/json')) {
+			return sealed(JSON.stringify({ error: 'json_required' }), 415, 'application/json');
+		}
+		const response = await resolve(event);
+		harden(response.headers);
+		return response;
 	}
 
 	/*
