@@ -403,9 +403,10 @@ values is then the error it was before 0.7.0.
   out until a restart. At 100 bits the code is not found by guessing, and a wrong
   one costs the server one hash. A request body over 16 KB is refused.
 - **What the code allows.** Asking one address whether a music server answers
-  there, and saving nine values: the secret, the address and name of each music
-  server, the default theme, and whether shared links, downloads and lyrics from
-  LRCLIB are on. The list is `SETUP_NAMES` in `config.ts`. The database, the
+  there, and saving eleven values: the secret, the address and name of each music
+  server, the default theme, whether shared links, downloads and lyrics from
+  LRCLIB are on, the size of the cover cache, and the addresses the deployment
+  is opened at (**Cross-origin writes**). The list is `SETUP_NAMES` in `config.ts`. The database, the
   third-party addresses, `HEDDOHON_RADIO_PRIVATE` and the plugin's token are
   read from the environment alone.
 - **The probe.** It sends one unauthenticated request (`ping` for Subsonic,
@@ -515,7 +516,16 @@ logged. Links, settings and the queue are kept; see [Known gaps](#known-gaps).
 **`Secure` flag.** `HEDDOHON_COOKIE_SECURE=auto` (the default) turns it on for
 `https` requests, when `NODE_ENV=production`, or when the host is not loopback.
 The shipped image sets `NODE_ENV=production`, so a deployment reached over plain
-http needs `HEDDOHON_COOKIE_SECURE=false`.
+http needs `HEDDOHON_COOKIE_SECURE=false`, with one exception. A request that
+arrives on a saved `http://` address (**Cross-origin writes**) whose host is
+on the local network gets its cookie without `Secure`: a browser does not send
+a `Secure` cookie back over plain http, so nobody could sign in there. The
+local network is a private, loopback, link-local or carrier-grade NAT address,
+`localhost`, a name with no dot, and names ending `.local`, `.lan`,
+`.internal` or `.home.arpa`. A saved `http://` address on any other name
+keeps `Secure`, and `HEDDOHON_COOKIE_SECURE=true` keeps it everywhere. A
+session cookie without `Secure` crosses that network in the clear, as the
+password does when it is typed.
 
 **Settings lists the account's sessions** that have not expired, most recently
 used first: when each signed in and was last used (to the minute), and a label
@@ -907,6 +917,41 @@ call in Heddohon is JSON. An explicit origin check covers them:
   plugin sends it too; its route is checked like the rest.
 
 `SameSite=Lax` is a second layer underneath.
+
+**The address a request is served on.** Both checks compare `Origin` with the
+address the server takes itself to be at. That is `ORIGIN` where the
+environment sets it. Otherwise it is `https://` and the request's `Host`,
+which is wrong for a deployment opened over plain http on a local network,
+and every write there is refused. So an address can be saved, by the
+first-run setup or by an administrator under Settings, Storage:
+
+- A request whose `Host` is the host of a saved address is served as from
+  that address, scheme included. The built server tells the adapter so in two
+  headers of its own (`x-heddohon-protocol`, `x-heddohon-host`), the way a
+  reverse proxy would, and removes whatever a client sent under those names.
+  Where the operator sets `ORIGIN`, `PROTOCOL_HEADER` or `HOST_HEADER`, the
+  saved list is not used.
+- No check is relaxed. SvelteKit's and this one both run as before, against
+  that address. A saved address is matched against `Host`, which names the
+  server the request was sent to, so a page on another site is refused
+  whatever is saved: it sends the deployment's `Host` and its own `Origin`.
+- The list is changed only by an account the music server lists as an
+  administrator, and a change that leaves out the address it was sent from is
+  refused, since every later write from there would be.
+- The setup's last step and the administrator's form name each saved address
+  on which the sign-in cookie goes out without `Secure` (**Sessions**).
+
+**Forwarded headers.** `X-Forwarded-For`, `X-Forwarded-Host`,
+`X-Forwarded-Proto`, `X-Real-IP` and `Forwarded` are read from no request.
+Nothing in Heddohon is allowed or refused by where a request says it comes
+from: it has no list of addresses that are let through, and a request that
+claims to be from `127.0.0.1` is treated as any other. The local network in
+the cookie rule is the host of an address the operator saved, and not the
+client's. The one use of a client address is the sign-in throttle, which
+takes the connection's own unless the operator sets adapter-node's
+`ADDRESS_HEADER`; set where the proxy does not overwrite that header, a
+client can name any address there and avoid the per-address count, and the
+count per username still applies (**Known gaps**).
 
 ## Sign-in throttling
 
@@ -1578,6 +1623,17 @@ values in `config.ts`) before it was merged. Each finding has a check in
 | Low | The probe read the whole answer and then cut it to 64 KB, so an address that never stopped sending was read until the 5-second timeout, at whatever rate it sent | Reading stops at 64 KB |
 | Info | The page's data said which of the secret and the music server was missing, before the code | Told with the first right code |
 | Info | A music-server address was saved where the environment already named one, and would have taken effect if that variable were later removed | Saved only where the environment names none |
+
+The same day, the saved addresses and the cover cache's size were added to
+what the setup and an administrator can save. Checked in
+`tests/e2e/setup.test.mjs`: a write from another site is refused with an
+address saved, with the server's own two headers forged, and as a form; a
+saved `http://` address on a public name keeps `Secure`; a host nothing was
+saved for is taken to be `https` as before; and an account that is not an
+administrator cannot change either. A first version of this change switched
+SvelteKit's own check of `Origin` off and rewrote the request's address in
+the hook. It was not merged: the address is given to the adapter instead, and
+both checks stay.
 
 Looked at and left as it is: the probe tells whoever has the code whether
 something answers at an address and port, which is what entering a music

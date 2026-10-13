@@ -19,12 +19,15 @@ import {
 	ConfigError,
 	SetupRequired,
 	config,
+	fromEnvironment,
+	parseOrigins,
 	saveSetup,
 	upstreamAddress,
 	type BackendKind,
 	type SetupName
 } from './config';
 import { log, reason } from './log';
+import { addressesWithoutSecure } from './origin';
 
 /** Crockford's alphabet: no I, L, O or U, so a code read off a log is not misread. */
 const ALPHABET = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
@@ -195,11 +198,54 @@ export interface SetupInput {
 	sharing?: unknown;
 	downloads?: unknown;
 	lrclib?: unknown;
+	/** The address, or addresses, the deployment is opened at. */
+	origin?: unknown;
+	/** The cover cache's size in megabytes; 0 switches it off. */
+	coverCacheMb?: unknown;
+}
+
+/** The most the cover cache may be set to, in megabytes: what `config.ts` holds the variable to. */
+export const MAX_COVER_CACHE_MB = 65_536;
+
+/**
+ * What of the setup the environment already decides. A value it gives is not
+ * asked for, and would not be read if it were saved.
+ */
+export function decidedByEnvironment(): { origin: boolean; coverCache: boolean } {
+	return { origin: fromEnvironment('ORIGIN'), coverCache: fromEnvironment('HEDDOHON_COVER_CACHE_MB') };
+}
+
+/**
+ * The address and the cover cache's size, checked, as values to save. Shared
+ * by the setup and by the administrator's form under Settings. A value the
+ * environment gives is left alone. An error names the field.
+ */
+export function serverValues(
+	input: Pick<SetupInput, 'origin' | 'coverCacheMb'>
+): { values: Partial<Record<SetupName, string>> } | { field: 'origin' | 'coverCacheMb'; message: string } {
+	const values: Partial<Record<SetupName, string>> = {};
+	const decided = decidedByEnvironment();
+	if (!decided.origin && typeof input.origin === 'string') {
+		try {
+			// Empty saves none: the address is then worked out from the request, as before.
+			values.ORIGIN = parseOrigins(input.origin.slice(0, 4096)).join(' ');
+		} catch (err) {
+			return { field: 'origin', message: err instanceof Error ? err.message : 'That is not an address.' };
+		}
+	}
+	if (!decided.coverCache && input.coverCacheMb !== undefined && input.coverCacheMb !== null && input.coverCacheMb !== '') {
+		const size = Number(input.coverCacheMb);
+		if (!Number.isInteger(size) || size < 0 || size > MAX_COVER_CACHE_MB) {
+			return { field: 'coverCacheMb', message: `The cover cache is a whole number of megabytes from 0 to ${MAX_COVER_CACHE_MB.toLocaleString('en')}.` };
+		}
+		values.HEDDOHON_COVER_CACHE_MB = String(size);
+	}
+	return { values };
 }
 
 export type SetupOutcome =
-	| { ok: true; secret: string | null }
-	| { ok: false; field: 'subsonicUrl' | 'jellyfinUrl' | 'server'; message: string };
+	| { ok: true; secret: string | null; withoutSecure: string[] }
+	| { ok: false; field: 'subsonicUrl' | 'jellyfinUrl' | 'server' | 'origin' | 'coverCacheMb'; message: string };
 
 const text = (value: unknown, max: number): string =>
 	typeof value === 'string' ? value.trim().slice(0, max) : '';
@@ -248,6 +294,10 @@ export function finishSetup(input: SetupInput): SetupOutcome {
 		if (typeof input[field] === 'boolean') values[name] = String(input[field]);
 	}
 
+	const server = serverValues(input);
+	if ('field' in server) return { ok: false, ...server };
+	Object.assign(values, server.values);
+
 	let secret: string | null = null;
 	if (missing.secret) {
 		secret = randomBytes(48).toString('base64');
@@ -255,9 +305,11 @@ export function finishSetup(input: SetupInput): SetupOutcome {
 	}
 
 	saveSetup(values);
+	let withoutSecure: string[];
 	try {
 		// What was saved has to make a deployment that starts.
-		config();
+		const saved = config();
+		withoutSecure = addressesWithoutSecure(saved.origins, saved.cookieSecure);
 	} catch (err) {
 		log.error('setup-save-invalid', { detail: reason(err) });
 		return { ok: false, field: 'server', message: 'The setup was saved, but the configuration is not valid. See the server log.' };
@@ -268,5 +320,5 @@ export function finishSetup(input: SetupInput): SetupOutcome {
 		jellyfin: values.HEDDOHON_JELLYFIN_URL ? 'saved' : 'unchanged',
 		secret: secret ? 'generated' : 'environment'
 	});
-	return { ok: true, secret };
+	return { ok: true, secret, withoutSecure };
 }

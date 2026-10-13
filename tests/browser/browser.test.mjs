@@ -6097,7 +6097,11 @@ describe('the first-run setup page', () => {
 	 * tested and saved, and what the last step says about the key.
 	 */
 	test('takes the code from the log, tests and saves a music server, and says whose the key is to keep', async () => {
-		const fresh = await startApp({ env: { HEDDOHON_SECRET: '', HEDDOHON_SUBSONIC_URL: '', HEDDOHON_JELLYFIN_URL: '', HEDDOHON_DEFAULT_THEME: '' } });
+		// As the image runs on a local network: production, plain http, and no
+		// ORIGIN, which `undefined` leaves out of the app's environment.
+		const fresh = await startApp({
+			env: { HEDDOHON_SECRET: '', HEDDOHON_SUBSONIC_URL: '', HEDDOHON_JELLYFIN_URL: '', HEDDOHON_DEFAULT_THEME: '', ORIGIN: undefined, NODE_ENV: 'production', HEDDOHON_COOKIE_SECURE: '' }
+		});
 		const visitor = await browser.newContext({ viewport: { width: 1100, height: 900 } });
 		const page = await visitor.newPage();
 		const problems = [];
@@ -6130,6 +6134,9 @@ describe('the first-run setup page', () => {
 			await server.getByRole('button', { name: 'Test the address' }).click();
 			await server.locator('.result.ok').waitFor();
 			await server.getByLabel('Name on the sign-in page').fill('Home');
+			// The address is the one in the bar, filled in, and the cache has a size.
+			assert.equal(await page.getByLabel('Where Heddohon is opened').inputValue(), fresh.url);
+			await page.getByLabel('Cover cache, in megabytes').fill('128');
 
 			await page.getByRole('button', { name: 'Save and finish' }).click();
 			const notice = page.getByRole('region', { name: 'The key is yours to keep' });
@@ -6137,14 +6144,28 @@ describe('the first-run setup page', () => {
 			assert.match(await notice.textContent(), /Keeping that directory and its backups private is your responsibility/);
 			const line = await notice.getByLabel('The line for the environment').inputValue();
 			assert.match(line, /^HEDDOHON_SECRET=.{64,}$/);
-			// The harness gives the app the address the browser uses, so nothing is said of ORIGIN.
+			// It is on plain http on the local network, and the page says what that means for sign-in.
+			const plain = page.getByRole('region', { name: 'Sign-in on plain http' });
+			assert.match(await plain.textContent(), new RegExp(`On ${fresh.url.replace(/[.]/g, '\\.')} the sign-in cookie is sent without Secure`));
+			// The address was saved, so there is nothing to set in the environment.
 			assert.equal(await page.getByRole('heading', { name: 'Set ORIGIN before signing in' }).count(), 0);
 
 			await page.getByRole('link', { name: 'Go to sign in' }).click();
 			await page.waitForURL(fresh.url + '/login');
 			await page.getByText('to Home').waitFor();
-			await page.goto(fresh.url + '/setup', { waitUntil: 'networkidle' });
-			assert.equal(new URL(page.url()).pathname, '/login', 'the setup page is still there');
+			// And it can be signed in to there, on plain http, without a variable
+			// set or a restart: the reason the address is asked for.
+			await page.getByLabel('Username').fill('testuser');
+			await page.getByLabel('Password').fill('testpass');
+			await page.getByRole('button', { name: 'Sign in' }).click();
+			await page.waitForURL(fresh.url + '/');
+			await page.goto(fresh.url + '/settings?tab=storage', { waitUntil: 'load' });
+			assert.equal(await page.getByLabel(/^Cover cache size/).inputValue(), '128');
+			assert.equal(await page.getByLabel(/^Addresses/).inputValue(), fresh.url);
+			// The administrator is told the same wherever the address can be changed.
+			assert.match(await page.getByRole('note').filter({ hasText: 'Sign-in on plain http' }).textContent(), /sent without\s+Secure/);
+			await page.goto(fresh.url + '/setup', { waitUntil: 'load' });
+			assert.equal(new URL(page.url()).pathname, '/', 'the setup page is still there');
 		} finally {
 			await visitor.close();
 			await fresh.stop();

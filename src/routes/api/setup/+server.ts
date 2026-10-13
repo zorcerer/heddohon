@@ -1,6 +1,6 @@
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { checkCode, finishSetup, probe, setupPending, type SetupInput } from '$lib/server/setup';
+import { checkCode, decidedByEnvironment, finishSetup, probe, setupPending, type SetupInput } from '$lib/server/setup';
 
 /** The body is a code, an address or two and a few choices. */
 const MAX_BODY = 16 * 1024;
@@ -10,7 +10,8 @@ const MAX_BODY = 16 * 1024;
  * the server's log and is refused without it; `hooks.server.ts` serves it only
  * while the deployment is not set up, and only as JSON.
  *
- * - `check`: whether the code is right, and what is missing.
+ * - `check`: whether the code is right, what is missing, and what the
+ *   environment already decides.
  * - `probe`: whether a music server answers at an address.
  * - `save`: saves the setup and ends it.
  */
@@ -34,7 +35,7 @@ export const POST: RequestHandler = async ({ request }) => {
 
 	switch (body.action) {
 		case 'check':
-			return json({ ok: true, missing });
+			return json({ ok: true, missing, environment: decidedByEnvironment() });
 		case 'probe': {
 			if (body.kind !== 'subsonic' && body.kind !== 'jellyfin') return json({ error: 'bad_request' }, { status: 400 });
 			return json(await probe(body.kind, body.url));

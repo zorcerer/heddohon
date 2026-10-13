@@ -9,6 +9,7 @@
  */
 import { accessSync, chmodSync, constants, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { publishOrigins } from './origin';
 import { building } from '$app/environment';
 
 export type BackendKind = 'subsonic' | 'jellyfin';
@@ -50,6 +51,14 @@ export interface AppConfig {
 	/** Disk budget for the cover cache, in bytes. Zero switches it off. */
 	coverCacheBytes: number;
 	upstreams: UpstreamConfig[];
+	/**
+	 * The addresses this deployment is opened at, as saved by the setup or an
+	 * administrator: `http://192.168.1.10:3000`, `https://music.example.com`.
+	 * A request that arrives on one of them is served as from that address;
+	 * see `origin.ts`. Empty where the environment sets `ORIGIN`, and where
+	 * none was saved.
+	 */
+	origins: string[];
 	appName: string;
 	registrationHint: string | null;
 	/** Whether accounts may make song links, and whether links open. */
@@ -113,8 +122,10 @@ export class SetupRequired extends ConfigError {
 
 /**
  * What the setup may save, by the variable each stands in for. A short list:
- * the two values a deployment cannot start without, and the choices a first
- * run is asked about. Everything that names another host (the database, the
+ * the two values a deployment cannot start without, the choices a first run
+ * is asked about, and the two an administrator can change afterwards under
+ * Settings: the addresses the deployment is opened at (`ORIGIN`) and the size
+ * of the cover cache. Everything that names another host (the database, the
  * third-party addresses), everything that widens what the server will fetch
  * (`HEDDOHON_RADIO_PRIVATE`) and the plugin's token stay with the environment,
  * where only the operator's own hands reach.
@@ -128,7 +139,9 @@ export const SETUP_NAMES = [
 	'HEDDOHON_DEFAULT_THEME',
 	'HEDDOHON_SHARING',
 	'HEDDOHON_DOWNLOADS',
-	'HEDDOHON_LYRICS_LRCLIB'
+	'HEDDOHON_LYRICS_LRCLIB',
+	'HEDDOHON_COVER_CACHE_MB',
+	'ORIGIN'
 ] as const;
 export type SetupName = (typeof SETUP_NAMES)[number];
 
@@ -186,7 +199,10 @@ export function saveSetup(values: Partial<Record<SetupName, string>>): void {
 	const next: Partial<Record<SetupName, string>> = { ...savedValues() };
 	for (const name of SETUP_NAMES) {
 		const value = values[name];
-		if (typeof value === 'string' && value.trim() !== '') next[name] = value.trim();
+		if (typeof value !== 'string') continue;
+		// An empty value takes the saved one away, and the default stands again.
+		if (value.trim() === '') delete next[name];
+		else next[name] = value.trim();
 	}
 	const scratch = `${path}.${process.pid}.tmp`;
 	writeFileSync(scratch, JSON.stringify(next, null, '\t') + '\n', { mode: 0o600 });
@@ -387,6 +403,53 @@ function dataDirectory(): string {
 	return dir;
 }
 
+/** Whether the environment itself gives a variable, which a saved value then does not replace. */
+export function fromEnvironment(name: string): boolean {
+	return Boolean(process.env[name]?.trim());
+}
+
+/**
+ * Addresses as origins: one or several, apart by spaces, commas or lines,
+ * each `http://` or `https://` with a host and at most a port. A ConfigError
+ * says which one is not.
+ */
+export function parseOrigins(raw: string): string[] {
+	const found: string[] = [];
+	for (const part of raw.split(/[\s,]+/).filter(Boolean)) {
+		let url: URL;
+		try {
+			url = new URL(part);
+		} catch {
+			throw new ConfigError(`${JSON.stringify(part)} is not an address`);
+		}
+		if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+			throw new ConfigError(`${JSON.stringify(part)} must start with http:// or https://`);
+		}
+		if (url.pathname !== '/' || url.search || url.hash || url.username || url.password) {
+			throw new ConfigError(`${JSON.stringify(part)} must be an address alone, with nothing after the host and port`);
+		}
+		if (!found.includes(url.origin)) found.push(url.origin);
+	}
+	if (found.length > 8) throw new ConfigError('At most 8 addresses');
+	return found;
+}
+
+/**
+ * The addresses saved for this deployment, where the environment sets no
+ * `ORIGIN`. With `ORIGIN` in the environment the adapter already has the
+ * one address, and a saved list is not read. See `origin.ts`.
+ */
+function savedOrigins(): string[] {
+	if (fromEnvironment('ORIGIN')) return [];
+	const kept = savedValues().ORIGIN;
+	if (!kept) return [];
+	try {
+		return parseOrigins(kept);
+	} catch (err) {
+		throw new ConfigError(`ORIGIN in ${join(dataDirName(), SETUP_FILE)}: ${err instanceof Error ? err.message : 'not valid'}`);
+	}
+}
+
 /**
  * `HEDDOHON_SETUP`, on unless set to false. Off, a deployment missing its
  * secret or its music server answers 500 as every other misconfiguration
@@ -464,6 +527,7 @@ function build(): AppConfig {
 		// Megabytes in, bytes out. 0 switches the cache off.
 		coverCacheBytes: intEnv('HEDDOHON_COVER_CACHE_MB', 512, 0, 65_536) * 1024 * 1024,
 		upstreams,
+		origins: savedOrigins(),
 		appName: env('HEDDOHON_APP_NAME') ?? 'Heddohon',
 		registrationHint: env('HEDDOHON_LOGIN_HINT') ?? null,
 		sharing: flagEnv('HEDDOHON_SHARING', true),
@@ -580,6 +644,7 @@ export function config(): AppConfig {
 			upstreamTimeoutMs: 20_000,
 			coverCacheBytes: 0,
 			upstreams: [],
+			origins: [],
 			appName: 'Heddohon',
 			registrationHint: null,
 			sharing: true,
@@ -599,7 +664,10 @@ export function config(): AppConfig {
 			database: { kind: 'sqlite' }
 		};
 	}
-	if (!cached) cached = build();
+	if (!cached) {
+		cached = build();
+		publishOrigins(cached.origins);
+	}
 	return cached;
 }
 
