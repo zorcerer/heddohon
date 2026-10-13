@@ -5568,6 +5568,9 @@ describe('Terminal, the default theme', () => {
 				await page.locator('select[name="playerArt"]').selectOption(value);
 				await page.getByRole('button', { name: 'Save settings' }).click();
 				await page.waitForFunction((value) => document.documentElement.dataset.art === value, value);
+				// The form reads the settings once more after that, and a choice made
+				// before it answers is put back to the one just saved.
+				await page.getByRole('button', { name: 'Save settings' }).waitFor();
 				return drawn();
 			};
 			assert.deepEqual(await choose('plain'), { layer: 'none', fill: 'rgba(0, 0, 0, 0)', blend: 'normal', masked: true, picture: 'none' });
