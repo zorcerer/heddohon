@@ -23,7 +23,7 @@ import { THEME_GROUND } from '$lib/server/settings';
 export const GET: RequestHandler = ({ url }) => {
 	const { appName, defaultTheme } = config();
 	const asked = url.searchParams.get('theme');
-	const ground = THEME_GROUND[asked === 'terminal' || asked === 'dark' || asked === 'light' ? asked : defaultTheme];
+	const ground = THEME_GROUND[asked === 'terminal' || asked === 'dark' || asked === 'light' || asked === 'phosphor' ? asked : defaultTheme];
 	const manifest = {
 		id: '/',
 		name: appName,

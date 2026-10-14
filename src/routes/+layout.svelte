@@ -2,6 +2,7 @@
 	import '$lib/styles/app.css';
 	import '$lib/styles/terminal.css';
 	import '$lib/styles/terminal-schemes.css';
+	import '$lib/styles/phosphor.css';
 	import { tick, untrack } from 'svelte';
 	import { afterNavigate, beforeNavigate, onNavigate, preloadCode, pushState } from '$app/navigation';
 	import { navigating, page, updated } from '$app/state';
@@ -1571,5 +1572,30 @@
 	   (`terminal.css`). */
 	:global([data-theme='terminal']) .content.rising > :global(*) {
 		animation: none;
+	}
+
+	/* ── Phosphor ────────────────────────────────────────────────────────────── */
+
+	/*
+	 * The page is a pane of the same metal as the rail and the player, with the
+	 * path strip along its top as a display. The layers that cover it during a
+	 * navigation take its corners.
+	 */
+	@media (min-width: 60.0625rem) {
+		:global([data-theme='phosphor']) .content {
+			border: 1px solid var(--border-hairline);
+			border-radius: var(--r-xl);
+			background:
+				linear-gradient(to bottom, rgb(255 255 255 / 0.03), transparent 10rem),
+				var(--bg-surface);
+			box-shadow:
+				inset 0 1px 0 var(--glass-sheen),
+				var(--float-shadow);
+		}
+
+		:global([data-theme='phosphor']) .app .page-veil,
+		:global([data-theme='phosphor']) .app .wait-veil {
+			border-radius: var(--r-xl);
+		}
 	}
 </style>

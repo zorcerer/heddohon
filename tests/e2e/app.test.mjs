@@ -357,6 +357,28 @@ describe('settings', () => {
 		}
 	});
 
+	test('Phosphor is offered, takes the accent, and is in the first byte of the page with its ground', async () => {
+		try {
+			const saved = await (await user.json('/api/settings', 'PATCH', { theme: 'phosphor', accent: 'amber' })).json();
+			assert.deepEqual([saved.theme, saved.accent], ['phosphor', 'amber']);
+			const { html } = await user.page('/albums');
+			assert.match(html, /<html[^>]* data-theme="phosphor"[^>]* data-accent="amber"/);
+			assert.match(html, /name="theme-color" content="#0a0b0c"/);
+			assert.match(html, /rel="manifest" href="\/manifest\.webmanifest\?theme=phosphor"/);
+			const manifest = await (await fetch(`${app.url}/manifest.webmanifest?theme=phosphor`)).json();
+			assert.deepEqual([manifest.theme_color, manifest.background_color], ['#0a0b0c', '#0a0b0c']);
+		} finally {
+			await user.json('/api/settings', 'PATCH', { theme: 'dark', accent: 'artwork' });
+		}
+
+		const phosphor = await startApp({ subsonicUrl: subsonic.url, jellyfinUrl: jellyfin.url, env: { HEDDOHON_DEFAULT_THEME: 'Phosphor' } });
+		try {
+			assert.match((await new Client(phosphor.url).page('/login')).html, /data-theme="phosphor"/);
+		} finally {
+			await phosphor.stop();
+		}
+	});
+
 	test('an account starts in the deployment\'s theme, Terminal unless it is set, and the sign-in page is drawn in it', async () => {
 		const colours = async (base, query) => {
 			const manifest = await (await fetch(`${base}/manifest.webmanifest${query}`)).json();

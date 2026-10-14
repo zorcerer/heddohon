@@ -513,4 +513,48 @@
 			transition: none;
 		}
 	}
+
+	/*
+	 * Phosphor: the title and the artist are a small display, as the panel's
+	 * are, with the control grid over them (`::after`), and the line of how far
+	 * into the track glows in the accent.
+	 */
+	:global([data-theme='phosphor']) .text {
+		position: relative;
+		padding: 0.3rem 0.55rem;
+		border-radius: var(--r-sm);
+		background: var(--vfd-glass);
+		box-shadow: var(--vfd-bezel);
+		overflow: hidden;
+	}
+
+	:global([data-theme='phosphor']) .text::after {
+		content: '';
+		position: absolute;
+		inset: 0;
+		background: var(--vfd-mesh);
+		pointer-events: none;
+	}
+
+	:global([data-theme='phosphor']) .title,
+	:global([data-theme='phosphor']) .artist {
+		font-family: var(--font-readout);
+		font-weight: 400;
+		letter-spacing: 0.04em;
+		text-transform: uppercase;
+	}
+
+	:global([data-theme='phosphor']) .title {
+		color: var(--accent);
+		text-shadow: var(--glow-text);
+	}
+
+	:global([data-theme='phosphor']) .artist {
+		color: var(--led);
+		text-shadow: var(--glow-led);
+	}
+
+	:global([data-theme='phosphor']) .progress {
+		box-shadow: 0 0 6px color-mix(in srgb, var(--accent) 70%, transparent);
+	}
 </style>

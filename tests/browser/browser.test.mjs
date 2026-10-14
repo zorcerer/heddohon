@@ -5924,6 +5924,194 @@ describe('Terminal, the default theme', () => {
 	});
 });
 
+describe('Phosphor', () => {
+	/* As for Terminal: each test sets the theme and puts Liquid back. */
+	const settings = (patch) => context.request.patch(`${app.url}/api/settings`, { data: patch, headers: { origin: app.url } });
+	const liquid = () => settings({ theme: 'dark', accent: 'artwork' });
+
+	test('no page logs an error in it', async () => {
+		await settings({ theme: 'phosphor' });
+		const { page, problems } = await watchedPage();
+		try {
+			for (const path of ['/', '/albums', '/albums/al1', '/artists', '/artists/ar1', '/favourites', '/genres', '/radio', '/library', '/playlists', '/folders', '/history', '/stats', '/search?q=song', '/settings']) {
+				const response = await page.goto(app.url + path, { waitUntil: 'networkidle' });
+				assert.equal(response?.status(), 200, path);
+				assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), 'phosphor', path);
+			}
+		} finally {
+			await liquid();
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+
+	/*
+	 * Opaque panes over the ground alone while a red cover plays, as in
+	 * Terminal, and the player's title drawn as a display: in the dot-matrix
+	 * face, in the accent, glowing, with the lamp under the pause glyph lit.
+	 */
+	test('is opaque metal panes over the ground alone, with the player\'s title lit as a display', async () => {
+		await settings({ theme: 'phosphor' });
+		subsonic.state.audio = { type: 'audio/wav', body: silentWav(30) };
+		subsonic.state.coverColors.set('al-37', [220, 60, 30]);
+		const { page, problems } = await watchedPage();
+		try {
+			await page.goto(app.url + '/albums/al37', { waitUntil: 'networkidle' });
+			await page.getByRole('button', { name: 'Play Song 37a', exact: true }).click();
+			await page.waitForFunction(() => [...document.querySelectorAll('audio')].some((a) => !a.paused && a.currentTime > 0));
+			await page.waitForTimeout(2200);
+			const seen = await page.evaluate(() => {
+				const rail = document.querySelector('nav.rail');
+				const panel = document.querySelector('aside.panel');
+				const title = panel.querySelector('.title');
+				const accent = document.createElement('div');
+				accent.style.color = 'var(--accent)';
+				document.body.append(accent);
+				const drawn = {
+					blur: [getComputedStyle(rail).backdropFilter, getComputedStyle(panel).backdropFilter],
+					tint: [getComputedStyle(rail, '::before').display, getComputedStyle(rail, '::after').display],
+					radius: getComputedStyle(rail).borderTopLeftRadius,
+					canvas: getComputedStyle(document.documentElement).backgroundColor,
+					bar: document.querySelector('meta[name="theme-color"]').getAttribute('content'),
+					face: getComputedStyle(document.body).fontFamily.split(',')[0].replaceAll('"', '').trim(),
+					titleFace: getComputedStyle(title).fontFamily.split(',')[0].replaceAll('"', '').trim(),
+					titleColour: getComputedStyle(title).color === getComputedStyle(accent).color,
+					titleGlow: getComputedStyle(title).textShadow,
+					grid: getComputedStyle(panel.querySelector('.text'), '::after').backgroundImage,
+					lamp: getComputedStyle(panel.querySelector('.play'), '::after').boxShadow
+				};
+				accent.remove();
+				return drawn;
+			});
+			assert.deepEqual(seen.blur, ['none', 'none']);
+			assert.deepEqual(seen.tint, ['none', 'none'], 'a tint layer is painted');
+			assert.equal(seen.radius, '6px');
+			assert.equal(seen.canvas, 'rgb(10, 11, 12)', 'the canvas took the cover\'s colour');
+			assert.equal(seen.bar, '#0a0b0c');
+			assert.equal(seen.face, 'Barlow');
+			assert.equal(seen.titleFace, 'DotGothic16');
+			assert.ok(seen.titleColour, 'the title is not in the accent');
+			assert.notEqual(seen.titleGlow, 'none');
+			assert.match(seen.grid, /repeating-linear-gradient/, 'the display has no control grid');
+			assert.notEqual(seen.lamp, 'none', 'the lamp under the pause glyph is not lit while it plays');
+
+			await page.getByRole('button', { name: 'Pause', exact: true }).first().click();
+			await page.waitForFunction(() => getComputedStyle(document.querySelector('aside.panel .play'), '::after').boxShadow === 'none');
+		} finally {
+			await liquid();
+			subsonic.state.audio = null;
+			subsonic.state.coverColors.delete('al-37');
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+
+	/*
+	 * The accent from the artwork is swept round the hue circle at the lowest
+	 * saturation `artwork.ts` writes and at a high one; each fixed accent is
+	 * measured as set. The accent as text on a pane, the dark label on the
+	 * accent and the lamps' colour on a pane each hold 4.5:1, as do the text
+	 * tones.
+	 */
+	test('every accent, from the artwork or fixed, and its lamps hold 4.5:1', async () => {
+		await settings({ theme: 'phosphor' });
+		const { page, problems } = await watchedPage();
+		try {
+			await page.goto(app.url + '/settings', { waitUntil: 'networkidle' });
+			const measured = await page.evaluate(() => {
+				const root = document.documentElement;
+				root.style.transition = 'none';
+				const probe = document.createElement('div');
+				document.body.append(probe);
+				const canvas = document.createElement('canvas').getContext('2d', { willReadFrequently: true });
+				const rgb = (value) => {
+					probe.style.color = value;
+					canvas.clearRect(0, 0, 1, 1);
+					canvas.fillStyle = getComputedStyle(probe).color;
+					canvas.fillRect(0, 0, 1, 1);
+					return [...canvas.getImageData(0, 0, 1, 1).data].slice(0, 3);
+				};
+				const luminance = (colour) =>
+					colour.reduce((sum, c, at) => {
+						const v = c / 255;
+						return sum + (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4) * [0.2126, 0.7152, 0.0722][at];
+					}, 0);
+				const ratio = (one, two) => {
+					const [hi, lo] = [luminance(rgb(one)), luminance(rgb(two))].sort((a, b) => b - a);
+					return (hi + 0.05) / (lo + 0.05);
+				};
+				const low = [];
+				const check = (name) => {
+					for (const [label, one, two] of [
+						['the accent on the pane', 'var(--accent)', 'var(--bg-surface)'],
+						['the label on the accent', 'var(--accent-contrast)', 'var(--accent)'],
+						['the lamps on the pane', 'var(--led)', 'var(--bg-surface)']
+					]) {
+						const found = ratio(one, two);
+						if (found < 4.5) low.push(`${name}: ${label} at ${found.toFixed(2)}`);
+					}
+				};
+				for (const tone of ['strong', 'default', 'muted', 'faint']) {
+					const found = ratio(`var(--text-${tone})`, 'var(--bg-surface)');
+					if (found < 4.5) low.push(`--text-${tone} at ${found.toFixed(2)}`);
+				}
+				root.dataset.accent = 'artwork';
+				for (let hue = 0; hue < 360; hue += 15) {
+					for (const saturation of ['22%', '70%']) {
+						root.style.setProperty('--art-h', String(hue));
+						root.style.setProperty('--art-s', saturation);
+						check(`hue ${hue} at ${saturation}`);
+					}
+				}
+				const fixed = {};
+				for (const accent of ['green', 'amber', 'cyan', 'violet', 'rose', 'white']) {
+					root.dataset.accent = accent;
+					check(accent);
+					fixed[accent] = [rgb('var(--accent)').join(','), rgb('var(--led)').join(',')];
+				}
+				probe.remove();
+				return { low, fixed };
+			});
+			assert.deepEqual(measured.low, []);
+			const accents = Object.values(measured.fixed).map(([accent]) => accent);
+			assert.equal(new Set(accents).size, 6, 'two fixed accents are the same colour');
+			// The lamps set the accent off: amber beside cyan, cyan beside amber.
+			assert.notEqual(measured.fixed.cyan[1], measured.fixed.amber[1]);
+			assert.equal(measured.fixed.amber[1], measured.fixed.cyan[0]);
+		} finally {
+			await liquid();
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+
+	test('Settings offers it the accent and not Terminal\'s scheme, dots or player artwork', async () => {
+		await settings({ theme: 'phosphor' });
+		const { page, problems } = await watchedPage();
+		try {
+			await page.goto(app.url + '/settings', { waitUntil: 'networkidle' });
+			assert.equal(await page.locator('select[name="theme"]').inputValue(), 'phosphor');
+			assert.equal(await page.locator('select[name="theme"] option[value="phosphor"]').textContent(), 'Phosphor');
+			const rows = {
+				scheme: await page.locator('select[name="scheme"]').count(),
+				accent: await page.locator('select[name="accent"]').count(),
+				dots: await page.locator('select[name="dots"]').count(),
+				art: await page.locator('select[name="playerArt"]').count(),
+				aurora: await page.locator('select[name="aurora"]').count(),
+				face: (await page.locator('select[name="font"] option[value="manrope"]').textContent()).trim()
+			};
+			assert.deepEqual(rows, { scheme: 0, accent: 1, dots: 0, art: 0, aurora: 0, face: 'Barlow' });
+			await page.locator('select[name="accent"]').selectOption('amber');
+			await page.getByRole('button', { name: 'Save settings' }).click();
+			await page.waitForFunction(() => document.documentElement.dataset.accent === 'amber');
+		} finally {
+			await liquid();
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+});
+
 describe('the menu on a right click', () => {
 	const menu = (page) => page.getByRole('menu');
 	const item = (page, name) => menu(page).getByRole('menuitem', { name, exact: true });
