@@ -122,6 +122,21 @@ CREATE TABLE IF NOT EXISTS plays (
 );
 CREATE INDEX IF NOT EXISTS plays_account_idx ON plays(account_id, played_at);
 
+-- Tokens an AI assistant's client reaches the MCP endpoint with. Only the
+-- HMAC digest of a token is kept, as with sessions; see mcp.ts. The id is the
+-- handle the owner withdraws a token by.
+CREATE TABLE IF NOT EXISTS mcp_tokens (
+  id            TEXT PRIMARY KEY,
+  token_digest  TEXT NOT NULL UNIQUE,
+  account_id    TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  name          TEXT NOT NULL,
+  -- 1 where the token may change playlists, favourites and ratings.
+  writes        INTEGER NOT NULL,
+  created_at    INTEGER NOT NULL,
+  last_used_at  INTEGER
+);
+CREATE INDEX IF NOT EXISTS mcp_tokens_account_idx ON mcp_tokens(account_id);
+
 -- What an account has linked outside the music server: a Discord webhook, a
 -- ListenBrainz token. The secret is sealed as a credential is; see
 -- integrations.ts.
@@ -238,7 +253,7 @@ export interface Store {
  * The tables that move between databases, and their columns: read from a
  * SQLite file into PostgreSQL (`importFromSqlite`) and written from
  * PostgreSQL into a SQLite file (`backup`). Accounts first: the others refer
- * to them. `sessions` and `login_attempts` are not in it.
+ * to them. `sessions`, `mcp_tokens` and `login_attempts` are not in it.
  */
 const COPIED_TABLES = {
 	accounts: ['id', 'backend', 'username', 'remote_user_id', 'credential', 'created_at', 'last_login_at', 'device_epoch'],
@@ -315,7 +330,7 @@ class SqliteStore implements Store {
 		await this.handle.backup(file);
 		const copy = new Database(file);
 		try {
-			copy.exec('DELETE FROM sessions; DELETE FROM login_attempts;');
+			copy.exec('DELETE FROM sessions; DELETE FROM mcp_tokens; DELETE FROM login_attempts;');
 			// One file, without a `-wal` beside it, and without the deleted rows.
 			copy.pragma('journal_mode = DELETE');
 			copy.exec('VACUUM');

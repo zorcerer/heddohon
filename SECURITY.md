@@ -46,9 +46,11 @@ AutoEq](#headphone-corrections-from-autoeq), [Plays sent to Discord and
 ListenBrainz](#plays-sent-to-discord-and-listenbrainz) and [Internet
 radio](#internet-radio).
 
-One thing besides a browser sends Heddohon requests, and only where the
-operator sets a token for it: the Heddohon plugin running inside Navidrome. See
-[Plays from the Navidrome plugin](#plays-from-the-navidrome-plugin).
+Two things besides a browser send Heddohon requests, each only where the
+operator turns it on: the Heddohon plugin running inside Navidrome, with a
+token the operator sets (see [Plays from the Navidrome
+plugin](#plays-from-the-navidrome-plugin)), and an AI assistant's client, with
+a token an account makes (see [AI assistants (MCP)](#ai-assistants-mcp)).
 
 ## PostgreSQL
 
@@ -366,13 +368,66 @@ request from Navidrome to Heddohon. Heddohon makes no request to the plugin.
   import completes only when the plugin's requests reach the process that
   opened it.
 
+## AI assistants (MCP)
+
+With `HEDDOHON_MCP=true`, `/api/mcp` answers the Model Context Protocol over
+its Streamable HTTP transport, and Settings, AI, offers each account tokens
+for it. A client given one (Claude Code, for one) can read the account's
+library, favourites, playlists, history and listening statistics, and, if the
+token allows it, make, rename and delete playlists, change their entries, and
+set favourites and ratings. It is off by default: without it the route
+answers 404 and Settings does not offer tokens. Where the environment does not
+set the variable, the first-run setup saves it, and an account the music
+server lists as an administrator turns it on and off under Settings, AI
+(`?/saveMcp`, asked of the music server on each request, as for the saved
+addresses). The change is taken with the next request and logged as
+`mcp-switched` at `warn`. Turned off, tokens already made stay listed to their
+accounts and open nothing.
+
+- **The token is the one authority.** A client sends it as
+  `Authorization: Bearer`. It is `hhmcp_` and 256 random bits, shown once,
+  when it is made; the database keeps its HMAC digest under a key of its own,
+  as for a session. A session cookie does not open the route, and a token does
+  not open any other route.
+- **The route is served ahead of the origin check**, the one write path that
+  is. A client is not a browser and sends no `Origin`. An `Origin` that is
+  sent has to be the server's own, as the protocol asks against DNS
+  rebinding, and is refused with 403 otherwise. The route reads no cookie,
+  and a page on another site cannot send the `Authorization` header or the
+  `application/json` body the route requires without a preflight, which this
+  server does not answer. The exception matches the path exactly as sent:
+  the same route reached as `/api/%6Dcp` goes through the origin check and
+  the session gate like any other request, and then still needs the token.
+- **What a token reaches is its account's**, through that account's stored
+  credential on the music server, as a page
+  does. A token made without "May change the library" is not offered a tool
+  that writes, and a call to one is refused as a tool that does not exist.
+  Nothing plays audio through the route, and it reaches no other account, no
+  setting, no session and no shared link.
+- **Every token ends with the account's sessions**: a sign-in with a changed
+  password, a Jellyfin name given to another user, and a credential the music
+  server rejects, including during a tool call. The account withdraws one, or
+  sees when each was last used (to the minute), under Settings. A token has
+  no expiry of its own.
+- **Answers carry no upstream detail.** A failed call says that the music
+  server has nothing with that id, did not complete it, or no longer accepts
+  the account, in fixed words.
+- **What an assistant reads leaves this server** for whoever runs its model.
+  That is the reason the variable is off by default, and the Settings section
+  says so above the button that makes a token.
+- **Bounds:** 20 tokens an account, a name of 64 characters, and the bounds of
+  the matching pages and API routes for each argument (see [Input
+  bounds](#input-bounds)). One JSON-RPC message a request: a batch is refused.
+- **Left out of a backup** with the sessions, so a token withdrawn after the
+  backup was made does not work again on a server restored from it.
+
 ## Credentials at rest
 
 - Upstream credentials are sealed with **AES-256-GCM** before they reach the database.
 - Keys are derived with **scrypt** (N = 2¹⁵, r = 8, p = 1) from `HEDDOHON_SECRET`.
   Separate keys cover encryption, session digests, share-link digests,
-  known-device cookies, Last.fm link state, cast addresses and the comparison
-  of the Navidrome plugin's token.
+  known-device cookies, Last.fm link state, cast addresses, the comparison
+  of the Navidrome plugin's token and MCP token digests.
 - Each seal uses a fresh 12-byte random IV. The tag is verified on open, and a
   blob with a wrong version, part count, IV length or tag length is rejected.
 - Changing `HEDDOHON_SECRET` makes every stored credential unreadable and signs
@@ -403,9 +458,9 @@ values is then the error it was before 0.7.0.
   out until a restart. At 100 bits the code is not found by guessing, and a wrong
   one costs the server one hash. A request body over 16 KB is refused.
 - **What the code allows.** Asking one address whether a music server answers
-  there, and saving eleven values: the secret, the address and name of each music
-  server, the default theme, whether shared links, downloads and lyrics from
-  LRCLIB are on, the size of the cover cache, and the addresses the deployment
+  there, and saving twelve values: the secret, the address and name of each music
+  server, the default theme, whether shared links, downloads, lyrics from
+  LRCLIB and AI assistants (MCP) are on, the size of the cover cache, and the addresses the deployment
   is opened at (**Cross-origin writes**). The list is `SETUP_NAMES` in `config.ts`. The database, the
   third-party addresses, `HEDDOHON_RADIO_PRIVATE` and the plugin's token are
   read from the environment alone.
@@ -482,9 +537,10 @@ server runs on, a `backup.json` with the row count of each table, and a
   queues, listening history and profiles. Whoever holds the file can read every
   account's user name, settings and listening history.
 - **What it does not hold.** `HEDDOHON_SECRET`, so the file alone opens no
-  credential and forges no link. Sign-ins and the sign-in throttle, so a
-  session ended after the backup was made does not work again on a server
-  restored from it; everyone signs in once. Covers and logs.
+  credential and forges no link. Sign-ins, MCP tokens and the sign-in
+  throttle, so a session or a token ended after the backup was made does not
+  work again on a server restored from it; everyone signs in once. Covers and
+  logs.
 - **A write, by its method.** It is a POST, so the cross-origin check applies
   and a link on another site cannot start one in an administrator's browser.
   The answer is `private, no-store`.
@@ -929,12 +985,15 @@ the user name another account already goes by.
 SvelteKit's CSRF check covers form content types only, and every state-changing
 call in Heddohon is JSON. An explicit origin check covers them:
 
-- **It applies to every mutating request, on every path.** A check scoped to
-  `/api/` was bypassable, because SvelteKit routes on the decoded path:
+- **It applies to every mutating request, on every path but `/api/mcp`**
+  (below). A check scoped to `/api/` was bypassable, because SvelteKit routes
+  on the decoded path:
   `PATCH /%61pi/settings` reached `/api/settings` without matching the prefix.
 - **A missing `Origin` is refused.** Browsers always send it on non-GET/HEAD
   requests. Scripted calls need `-H "origin: <your site>"`. The Navidrome
-  plugin sends it too; its route is checked like the rest.
+  plugin sends it too; its route is checked like the rest. The one exception
+  is the MCP endpoint, whose client sends none and which takes a token in
+  place of a cookie; see [AI assistants (MCP)](#ai-assistants-mcp).
 
 `SameSite=Lax` is a second layer underneath.
 
@@ -1173,6 +1232,9 @@ Covers are cached under `$HEDDOHON_DATA_DIR/covers` (see
 | ListenBrainz token | 1 to 128 of `A-Z a-z 0-9 -` (ListenBrainz issues 36) |
 | Discord webhook address | 300 characters; `https://`, `discord.com` or `discordapp.com` (or their `ptb` and `canary` hosts), an id of 15 to 22 digits and a token of 40 to 100 of `A-Z a-z 0-9 _ -` |
 | Last.fm callback `uid` / `token` / `state` | 2048 / 256 / 64 characters |
+| MCP tokens per account | 20; a name of 64 characters, cut, with control and format characters removed |
+| MCP tool arguments | ids of 1 to 255 characters; a search of 2 to 200 characters and 50 of each kind; 200 albums, 1000 artists, 100 songs or 100 plays a page; 1000 songs or positions a playlist write; a playlist name of 200 characters; a rating from 0 to 5 |
+| MCP request | one JSON-RPC message, within the 512 KB body cap |
 | Navidrome plugin token | at least 32 characters, and not `HEDDOHON_SECRET` |
 | Navidrome plugin message | 100 plays, or a page of 2000 scrobbles; a user name and a song id of 1 to 255 characters; a time in whole seconds, at most 5 minutes ahead |
 | Scrobble history imports open at once | 4; closed after 2 minutes without a page |
@@ -1384,6 +1446,13 @@ session token and any `u`, `t`, `s` or `p` query parameter.
   statistics and shown to nobody else. See [Plays from the Navidrome
   plugin](#plays-from-the-navidrome-plugin). The variable unset, the route
   does not exist.
+- **Whoever holds an MCP token reads the account's library**, until the
+  account withdraws it or its sessions end: there is no expiry. A token that
+  may change the library can also delete the account's playlists. What an
+  assistant reads goes to whoever runs its model, and a client keeps the
+  token in its own configuration, in plain text for Claude Code. Calls are
+  not throttled beyond what the music server takes. See [AI assistants
+  (MCP)](#ai-assistants-mcp). Turned off, the route does not exist.
 - **Concurrent streams per account are uncapped.** Cap them at the proxy for wide exposure.
 - **Authentication is as strong as the upstream account.** There is no second
   factor or sign-in notification. Settings lists the account's sessions and
@@ -1428,6 +1497,13 @@ session token and any `u`, `t`, `s` or `p` query parameter.
     file, and restart. Where every value is set in the environment,
     `HEDDOHON_SETUP=false` keeps the setup page from being served if one is
     ever left out.
+12. **Turn on AI assistants only where the accounts may hand their library
+    to one.** Each account then decides for itself, and what an assistant
+    reads goes to its model's provider. An administrator of the music server
+    can turn it on under Settings, AI, unless `HEDDOHON_MCP` is set in the
+    environment; set it to `false` there to keep it off. Behind a proxy that
+    restricts paths, `/api/mcp` takes `POST`, and `GET` and `DELETE` answer
+    405.
 
 ## Audit history
 

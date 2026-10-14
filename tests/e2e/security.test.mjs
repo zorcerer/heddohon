@@ -26,6 +26,13 @@ const ROUTES = resolve(import.meta.dirname, '../../src/routes');
 const PUBLIC = ['/login', '/healthz', '/share', '/cast', '/together', '/manifest.webmanifest', '/.well-known/assetlinks.json', '/api/plugin/navidrome'];
 const isPublic = (path) => PUBLIC.some((route) => path === route || path.startsWith(`${route}/`));
 
+/**
+ * The one route served ahead of the origin check, to a client that sends no
+ * Origin, with a token of an account in place of a session. Behind the gate
+ * like any other: without the token it answers 401.
+ */
+const MCP_PATH = '/api/mcp';
+
 /** Public documents that say nothing of any account: the same answer for every visitor. */
 const ACCOUNT_FREE = ['/manifest.webmanifest', '/.well-known/assetlinks.json'];
 
@@ -75,7 +82,9 @@ const answers = [];
 before(async () => {
 	subsonic = await startSubsonic();
 	jellyfin = await startJellyfin();
-	app = await startApp({ subsonicUrl: subsonic.url, jellyfinUrl: jellyfin.url });
+	// With the MCP endpoint on, so the sweeps below reach its route rather than
+	// the 404 it is without.
+	app = await startApp({ subsonicUrl: subsonic.url, jellyfinUrl: jellyfin.url, env: { HEDDOHON_MCP: 'true' } });
 	user = new Client(app.url);
 	const signedIn = await user.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' });
 	assert.equal(signedIn.status, 303, app.output());
@@ -167,6 +176,14 @@ describe('every route', () => {
 			for (const origin of ['https://evil.example', null]) {
 				const { response, text } = await ask(user, route, { origin });
 				const label = `${route.method} ${route.path} from ${origin}`;
+				// An MCP client sends no Origin, and the endpoint takes its token
+				// alone; see `mcpRequest` in hooks.server.ts. The cookie this
+				// request carries is not read there.
+				if (route.path === MCP_PATH && origin === null) {
+					assert.equal(response.status, 401, label);
+					assert.deepEqual(JSON.parse(text), { error: 'not_authenticated' }, label);
+					continue;
+				}
 				assert.equal(response.status, 403, label);
 				assert.deepEqual(JSON.parse(text), { error: 'cross_origin_forbidden' }, label);
 			}

@@ -183,6 +183,8 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 		alikeAsked: null,
 		/** The songs in playlist `pl1`, in order; `createPlaylist` with its id replaces them. */
 		playlistEntries: ['s1a', 's2a'],
+		/** Each `updatePlaylist` call's playlist, songs added and positions removed, in order. Answered with success and applied to nothing. */
+		playlistUpdates: [],
 		/** The last Subsonic call, and whether it came as a form POST. */
 		lastRequest: null,
 		/** Who `getPlaylist` names as the owner of `pl1`; null for the signed-in user. */
@@ -513,6 +515,9 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 				state.playlistEntries = p.getAll('songId');
 				return send(ok({}));
 			}
+			case 'updatePlaylist':
+				state.playlistUpdates.push({ id: p.get('playlistId'), add: p.getAll('songIdToAdd'), remove: p.getAll('songIndexToRemove').map(Number) });
+				return send(ok({}));
 			case 'getRandomSongs':
 				if (p.has('genre') || p.has('fromYear')) {
 					state.alikeAsked = { genre: p.get('genre'), fromYear: p.get('fromYear'), toYear: p.get('toYear') };

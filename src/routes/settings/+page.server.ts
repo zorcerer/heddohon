@@ -22,6 +22,7 @@ import { describeShares, revokeAllShares, revokeShare } from '$lib/server/shares
 import { clearHistory, importPlays, recentPlays } from '$lib/server/history';
 import { getProfile } from '$lib/server/listening';
 import { pluginHeard, pluginOffered, requestImport } from '$lib/server/plugin';
+import { createMcpToken, listMcpTokens, MAX_MCP_TOKEN_NAME, MAX_MCP_TOKENS, revokeMcpToken } from '$lib/server/mcp';
 
 /**
  * How long the import action waits for the Navidrome plugin to send the whole
@@ -54,7 +55,7 @@ async function scrobblerFailure(locals: App.Locals, err: unknown, step: string) 
 	return fail(502, { scrobblerError: 'The music server did not complete that. Try again.' });
 }
 
-export const load: PageServerLoad = async ({ locals }) => {
+export const load: PageServerLoad = async ({ locals, url }) => {
 	const session = locals.session!;
 	const cfg = config();
 
@@ -75,7 +76,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 	// Independent reads, started together. Awaited in turn, the page waited for
 	// the sum of a directory scan, two upstream calls and two database reads.
 	const offered = offeredIntegrations();
-	const [coverCache, coverFillKeeper, isAdmin, settings, sessions, shares, history, linked, upstream, profile] = await Promise.all([
+	const [coverCache, coverFillKeeper, isAdmin, settings, sessions, shares, history, linked, upstream, profile, mcpTokens] = await Promise.all([
 		cacheStats(),
 		filledBy(session.account.backend),
 		/*
@@ -95,7 +96,8 @@ export const load: PageServerLoad = async ({ locals }) => {
 		// Waited for only where it decides what the page offers, below.
 		offered.listenbrainz && scrobblers ? scrobblerLinks : null,
 		// What the account shows the others here, where that is offered; see `listening.ts`.
-		cfg.listeners && cfg.remoteControl ? getProfile(session.account.id) : null
+		cfg.listeners && cfg.remoteControl ? getProfile(session.account.id) : null,
+		listMcpTokens(session.account.id)
 	]);
 
 	/*
@@ -155,11 +157,79 @@ export const load: PageServerLoad = async ({ locals }) => {
 					}
 				: null,
 		// As the `listeners` event carries it, which replaces it once the stream is open.
-		profile: profile && { id: profile.handle, name: profile.name, shown: profile.shown, avatar: profile.avatarAt }
+		profile: profile && { id: profile.handle, name: profile.name, shown: profile.shown, avatar: profile.avatarAt },
+		/*
+		 * The AI tab: the account's tokens for an AI assistant and the address
+		 * its client is given, where the endpoint is on, and for an
+		 * administrator of the music server the switch that turns it on.
+		 * Kept while it is off if the account still has tokens, so they can be
+		 * withdrawn before it is turned back on. Null, the tab is not shown.
+		 */
+		mcp:
+			cfg.mcp || mcpTokens.length > 0 || isAdmin === true
+				? {
+						on: cfg.mcp,
+						endpoint: `${url.origin}/api/mcp`,
+						tokens: mcpTokens,
+						max: MAX_MCP_TOKENS,
+						maxName: MAX_MCP_TOKEN_NAME,
+						// Whether this account may switch it, and whether the environment decides it instead.
+						admin: isAdmin === true ? { fromEnvironment: decidedByEnvironment().mcp } : null
+					}
+				: null
 	};
 };
 
 export const actions: Actions = {
+	/**
+	 * Makes a token for an AI assistant's client; see `mcp.ts`. The token is
+	 * in this answer alone and is not kept.
+	 */
+	makeMcpToken: async ({ locals, request }) => {
+		const session = locals.session;
+		if (!session) return fail(401, { error: 'Not signed in' });
+		if (!config().mcp) return fail(404, { mcpError: 'AI assistants are not turned on for this server.' });
+		const form = await request.formData();
+		const name = String(form.get('name') ?? '');
+		if (name.length > 300) return fail(400, { mcpError: `A name is at most ${MAX_MCP_TOKEN_NAME} characters.` });
+		const made = await createMcpToken(session.account.id, name, form.get('writes') === 'on');
+		if (made === 'full') {
+			return fail(409, { mcpError: `An account holds at most ${MAX_MCP_TOKENS} tokens. Withdraw one to make another.` });
+		}
+		return { mcpToken: { token: made.token, id: made.summary.id, name: made.summary.name } };
+	},
+
+	/**
+	 * Turns the MCP endpoint on or off for the deployment, for an
+	 * administrator of the music server, as `saveServer` changes the address.
+	 * Saved in `setup.json` and taken with the next request. Off, the tokens
+	 * stay, each listed to its account, and open nothing until it is on again.
+	 */
+	saveMcp: async ({ locals, request }) => {
+		const session = locals.session;
+		if (!session) return fail(401, { error: 'Not signed in' });
+		if ((await backendFor(session.account.backend).isAdmin(session.credential)) !== true) {
+			return fail(403, { mcpSwitchError: 'Only an administrator of the music server can change this.' });
+		}
+		if (decidedByEnvironment().mcp) return fail(409, { mcpSwitchError: 'HEDDOHON_MCP in the environment decides this.' });
+		const on = (await request.formData()).get('mcp') === 'on';
+		// Off is the default, so it is saved as no value.
+		saveSetup({ HEDDOHON_MCP: on ? 'true' : '' });
+		log.warn('mcp-switched', { by: session.account.username, on });
+		return { mcpSaved: true };
+	},
+
+	/** Withdraws one of the account's tokens, by the id the list shows. */
+	withdrawMcpToken: async ({ locals, request }) => {
+		const session = locals.session;
+		if (!session) return fail(401, { error: 'Not signed in' });
+		const id = (await request.formData()).get('id');
+		if (typeof id !== 'string' || id.length > 64 || !(await revokeMcpToken(session.account.id, id))) {
+			return fail(404, { mcpError: 'That token was already withdrawn.' });
+		}
+		return { mcpWithdrawn: true };
+	},
+
 	/**
 	 * Saves the addresses the deployment is opened at and the size of the
 	 * cover cache, for an administrator of the music server. Both take effect

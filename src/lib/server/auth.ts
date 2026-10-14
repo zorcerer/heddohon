@@ -32,6 +32,7 @@ import { dropIntegrations } from './integrations';
 import { clearAccountState } from './settings';
 import { clearProfile, hideProfile } from './listening';
 import { forgetSharedItems, revokeAllShares } from './shares';
+import { revokeMcpTokens } from './mcp';
 import { foldName } from './names';
 import { endPartiesOf } from './together';
 
@@ -578,6 +579,10 @@ export async function destroyAllSessions(accountId: string): Promise<void> {
 		accountId
 	);
 	const result = await database.run('DELETE FROM sessions WHERE account_id = ?', accountId);
+	// An MCP token signs in as the account does, under the same credential, so
+	// it ends with the sessions: kept, it would hand a reused name's library to
+	// its previous holder's assistant.
+	await revokeMcpTokens(accountId);
 	cutSessionStreams(ending.map((row) => row.token_digest));
 	forgetAccount(accountId);
 	forgetListings(accountId);

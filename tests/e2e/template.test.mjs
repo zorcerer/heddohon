@@ -254,9 +254,12 @@ describe('the Unraid template', () => {
 		for (const [, name, value] of config.matchAll(/env\('(HEDDOHON_[A-Z_]+)'\) \?\? '([^']+)'/g)) defaults.set(name, value);
 		assert.ok(defaults.size >= 15, `only ${defaults.size} defaults found in config.ts`);
 		const settings = new Map(all(template(), 'Config').map((setting) => [setting.attrs.Target, setting.attrs.Default]));
+		// Left empty in the template, so that the setup and Settings decide it: a
+		// value there would be the environment's, which Settings does not change.
+		const savedElsewhere = new Set(['HEDDOHON_MCP']);
 		let compared = 0;
 		for (const [name, value] of defaults) {
-			if (!settings.has(name)) continue;
+			if (!settings.has(name) || savedElsewhere.has(name)) continue;
 			assert.equal(settings.get(name), value, `${name}: the template fills in ${settings.get(name)}, and the server's default is ${value}`);
 			compared++;
 		}

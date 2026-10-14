@@ -98,7 +98,7 @@ describe('a deployment that is not set up', () => {
 			for (let i = 0; i < 30; i++) await call(client, { action: 'check', code: `WRONG-WRONG-WRONG-${String(i).padStart(5, '0')}` });
 			const right = await call(client, { action: 'check', code });
 			assert.equal(right.status, 200);
-			assert.deepEqual(await right.json(), { ok: true, missing: { secret: true, upstream: true }, environment: { origin: true, coverCache: false } });
+			assert.deepEqual(await right.json(), { ok: true, missing: { secret: true, upstream: true }, environment: { origin: true, coverCache: false, mcp: false } });
 			// As typed: lower case, without the hyphens.
 			assert.equal((await call(client, { action: 'check', code: code.toLowerCase().replace(/-/g, ' ') })).status, 200);
 
@@ -198,6 +198,7 @@ describe('a deployment that is not set up', () => {
 					subsonicLabel: '  <b>Home</b>  ',
 					theme: 'paper',
 					sharing: false,
+					mcp: true,
 					downloads: 'yes',
 					// Not what the setup may save.
 					HEDDOHON_DATABASE_URL: 'postgres://evil.example/x',
@@ -219,10 +220,13 @@ describe('a deployment that is not set up', () => {
 				HEDDOHON_SUBSONIC_URL: subsonic.url,
 				HEDDOHON_SUBSONIC_LABEL: '<b>Home</b>',
 				HEDDOHON_DEFAULT_THEME: 'paper',
-				HEDDOHON_SHARING: 'false'
+				HEDDOHON_SHARING: 'false',
+				HEDDOHON_MCP: 'true'
 			});
 			// The key is on the page once, and in no log.
 			assert.ok(!app.output().includes(body.secret));
+			// Saved on, the MCP endpoint is there, and asks for a token.
+			assert.equal((await fetch(`${app.url}/api/mcp`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })).status, 401);
 
 			// Set up: the code is spent. For the half hour the page may still take
 			// the key out of the file, the endpoint answers that call alone, and
@@ -459,7 +463,7 @@ describe('the addresses a deployment is opened at', () => {
 			const host = new URL(here).host;
 			const client = new Client(here);
 			const code = codeOf(app);
-			assert.deepEqual((await (await call(client, { action: 'check', code })).json()).environment, { origin: false, coverCache: false });
+			assert.deepEqual((await (await call(client, { action: 'check', code })).json()).environment, { origin: false, coverCache: false, mcp: false });
 
 			for (const origin of ['https://a.example/path', 'ftp://a.example', 'https://user:pw@a.example', 'not an address']) {
 				const bad = await call(client, { action: 'save', code, values: { subsonicUrl: subsonic.url, origin } });
