@@ -137,3 +137,11 @@ export function castDigest(value: string): string {
 export function pluginDigest(token: string): string {
 	return createHmac('sha256', keyFor('navidrome-plugin')).update(token).digest('base64url');
 }
+
+/**
+ * The digest of an MCP token; see `mcp.ts`. Keyed apart from sessions and
+ * links, so no token digests to a value in another's table.
+ */
+export function mcpDigest(token: string): string {
+	return createHmac('sha256', keyFor('mcp')).update(token).digest('base64url');
+}

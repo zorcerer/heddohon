@@ -228,6 +228,8 @@ export interface SetupInput {
 	sharing?: unknown;
 	downloads?: unknown;
 	lrclib?: unknown;
+	/** Whether accounts may make tokens for an AI assistant; see `mcp.ts`. */
+	mcp?: unknown;
 	/** The address, or addresses, the deployment is opened at. */
 	origin?: unknown;
 	/** The cover cache's size in megabytes; 0 switches it off. */
@@ -241,8 +243,12 @@ export const MAX_COVER_CACHE_MB = 65_536;
  * What of the setup the environment already decides. A value it gives is not
  * asked for, and would not be read if it were saved.
  */
-export function decidedByEnvironment(): { origin: boolean; coverCache: boolean } {
-	return { origin: fromEnvironment('ORIGIN'), coverCache: fromEnvironment('HEDDOHON_COVER_CACHE_MB') };
+export function decidedByEnvironment(): { origin: boolean; coverCache: boolean; mcp: boolean } {
+	return {
+		origin: fromEnvironment('ORIGIN'),
+		coverCache: fromEnvironment('HEDDOHON_COVER_CACHE_MB'),
+		mcp: fromEnvironment('HEDDOHON_MCP')
+	};
 }
 
 /**
@@ -319,7 +325,8 @@ export function finishSetup(input: SetupInput): SetupOutcome {
 	for (const [field, name] of [
 		['sharing', 'HEDDOHON_SHARING'],
 		['downloads', 'HEDDOHON_DOWNLOADS'],
-		['lrclib', 'HEDDOHON_LYRICS_LRCLIB']
+		['lrclib', 'HEDDOHON_LYRICS_LRCLIB'],
+		['mcp', 'HEDDOHON_MCP']
 	] as const) {
 		if (typeof input[field] === 'boolean') values[name] = String(input[field]);
 	}

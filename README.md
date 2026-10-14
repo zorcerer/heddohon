@@ -35,6 +35,7 @@ The website, with screenshots and the install steps, is
 - **Crossfade, a 10-band equaliser** with AutoEq headphone corrections, ReplayGain and a sleep timer.
 - **Scrobbling** to Last.fm and ListenBrainz.
 - **Listening history and statistics**, kept on your own server. With the [plugin for Navidrome](https://github.com/zorcerer/heddohon-navidrome-plugin), they cover the plays made in other apps too.
+- **AI assistants** that speak MCP, such as Claude Code, search the library and edit playlists, favourites and ratings with a token each account makes. Off until the setup, an administrator under Settings or `HEDDOHON_MCP=true` turns it on.
 - **Casting** to Chromecast and AirPlay, and a full-screen view for a TV.
 - **SQLite or PostgreSQL.**
 

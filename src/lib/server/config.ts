@@ -94,6 +94,11 @@ export interface AppConfig {
 	 */
 	navidromePluginToken: string | null;
 	/**
+	 * Whether accounts may make tokens for the MCP endpoint, through which an AI
+	 * assistant browses the library and changes playlists; see `mcp.ts`.
+	 */
+	mcp: boolean;
+	/**
 	 * SHA-256 fingerprints of the certificates an Android app this server
 	 * vouches for is signed with; see `routes/.well-known/assetlinks.json`.
 	 */
@@ -123,10 +128,11 @@ export class SetupRequired extends ConfigError {
 /**
  * What the setup may save, by the variable each stands in for. A short list:
  * the two values a deployment cannot start without, the choices a first run
- * is asked about, and the two an administrator can change afterwards under
- * Settings: the addresses the deployment is opened at (`ORIGIN`) and the size
- * of the cover cache. Everything that names another host (the database, the
- * third-party addresses), everything that widens what the server will fetch
+ * is asked about, and the three an administrator can change afterwards under
+ * Settings: the addresses the deployment is opened at (`ORIGIN`), the size of
+ * the cover cache and the MCP endpoint (`HEDDOHON_MCP`). Everything that
+ * names another host (the database, the third-party addresses), everything
+ * that widens what the server will fetch
  * (`HEDDOHON_RADIO_PRIVATE`) and the plugin's token stay with the environment,
  * where only the operator's own hands reach.
  */
@@ -140,6 +146,7 @@ export const SETUP_NAMES = [
 	'HEDDOHON_SHARING',
 	'HEDDOHON_DOWNLOADS',
 	'HEDDOHON_LYRICS_LRCLIB',
+	'HEDDOHON_MCP',
 	'HEDDOHON_COVER_CACHE_MB',
 	'ORIGIN'
 ] as const;
@@ -597,6 +604,9 @@ function build(): AppConfig {
 		radio: flagEnv('HEDDOHON_RADIO', true),
 		radioPrivate: flagEnv('HEDDOHON_RADIO_PRIVATE', false),
 		navidromePluginToken: navidromePluginToken(secret),
+		// Off unless asked for: what an assistant reads through it reaches the
+		// provider of the assistant's model, which is a third party.
+		mcp: flagEnv('HEDDOHON_MCP', false),
 		androidFingerprints: androidFingerprints(),
 		database: databaseConfig()
 	};
@@ -687,6 +697,7 @@ export function config(): AppConfig {
 			radio: true,
 			radioPrivate: false,
 			navidromePluginToken: null,
+			mcp: false,
 			androidFingerprints: [ANDROID_RELEASE_KEY],
 			database: { kind: 'sqlite' }
 		};

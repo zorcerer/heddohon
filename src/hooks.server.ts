@@ -114,6 +114,7 @@ function announce(): void {
 			remoteControl: cfg.remoteControl ? 'on' : 'off',
 			listeners: cfg.listeners && cfg.remoteControl ? 'on' : 'off',
 			navidromePlugin: cfg.navidromePluginToken === null ? 'off' : 'on',
+			mcp: cfg.mcp ? 'on' : 'off',
 			database: cfg.database.kind === 'postgres' ? `postgres=${cfg.database.label}` : 'sqlite',
 			sessionHours: cfg.sessionMaxHours,
 			cookieSecure: String(cfg.cookieSecure),
@@ -198,6 +199,44 @@ async function setupRequest(event: RequestEvent, resolve: Parameters<Handle>[0][
 	if (wantsPage) return sealedRedirect(event, SETUP_PAGE);
 	const response = sealed(JSON.stringify({ error: 'setup_required' }), 503, 'application/json');
 	waiting.add(response);
+	return response;
+}
+
+/** The MCP endpoint; see `routes/api/mcp`. */
+const MCP_PATH = '/api/mcp';
+
+/**
+ * A request to the MCP endpoint, from an AI assistant's client.
+ *
+ * Served ahead of the origin check and the session gate. A client is not a
+ * browser and sends no `Origin`, and its authority is the token in its
+ * `Authorization` header (`lib/server/mcp.ts`), which the route checks before
+ * anything else. No cookie is read for it: `locals` holds no session. A page
+ * on another origin cannot send that header, or the JSON the route requires,
+ * without a preflight this server does not answer, so a signed-in visitor's
+ * browser cannot be made to call it.
+ *
+ * An `Origin` that is sent is checked as for any write, which is what the
+ * protocol asks of a server against DNS rebinding. Matched on the path as
+ * sent, with no prefix: `/api/%6Dcp` reaches the route through the checks
+ * below like any other request, and the route then reads the token alone.
+ */
+async function mcpRequest(event: RequestEvent, resolve: Parameters<Handle>[0]['resolve']): Promise<Response> {
+	if (!config().mcp) return sealed(JSON.stringify({ error: 'not_found' }), 404, 'application/json');
+	const origin = event.request.headers.get('origin');
+	if (origin !== null && origin !== event.url.origin) {
+		log.warn('cross-origin-blocked', {
+			method: event.request.method,
+			path: MCP_PATH,
+			origin,
+			expected: event.url.origin
+		});
+		return sealed(JSON.stringify({ error: 'cross_origin_forbidden' }), 403, 'application/json');
+	}
+	event.locals.session = null;
+	event.locals.settings = null;
+	const response = await resolve(event);
+	harden(response.headers);
 	return response;
 }
 
@@ -319,6 +358,8 @@ const handleRequest: Handle = async ({ event, resolve }) => {
 		harden(response.headers);
 		return response;
 	}
+
+	if (event.url.pathname === MCP_PATH) return mcpRequest(event, resolve);
 
 	/*
 	 * Cross-origin write protection.

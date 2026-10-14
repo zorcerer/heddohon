@@ -30,6 +30,7 @@
 	let sharing = $state(true);
 	let downloads = $state(true);
 	let lrclib = $state(false);
+	let mcp = $state(false);
 	/** Where the deployment is opened: the address in the bar now, until it is changed. */
 	let origin = $state('');
 	let coverCacheMb = $state(512);
@@ -142,6 +143,7 @@
 					sharing,
 					downloads,
 					lrclib,
+					mcp,
 					origin,
 					coverCacheMb
 				}
@@ -362,6 +364,17 @@
 							<span class="hint hh-muted">
 								For a track the music server has no lyrics for, its artist, title, album and length are sent
 								to lrclib.net.
+							</span>
+						</span>
+					</label>
+					<label class="check">
+						<input type="checkbox" bind:checked={mcp} name="mcp" />
+						<span>
+							AI assistants (MCP)
+							<span class="hint hh-muted">
+								Each account can make a token for an assistant such as Claude Code, which then searches its
+								library and, if the token allows it, changes its playlists. What it reads goes to whoever runs
+								its model.
 							</span>
 						</span>
 					</label>

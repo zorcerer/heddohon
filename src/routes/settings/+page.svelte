@@ -219,13 +219,16 @@
 		{ id: 'playback', label: 'Playback' },
 		{ id: 'history', label: 'Listening history' },
 		{ id: 'account', label: 'Account' },
+		{ id: 'ai', label: 'AI' },
 		{ id: 'sharing', label: 'Shared links' },
 		{ id: 'storage', label: 'Cover cache' }
 	] as const;
 	type Tab = (typeof TABS)[number]['id'];
 
 	const sharingShown = $derived(data.sharing || data.shares.length > 0);
-	const tabs = $derived(TABS.filter((entry) => entry.id !== 'sharing' || sharingShown));
+	const tabs = $derived(
+		TABS.filter((entry) => (entry.id !== 'sharing' || sharingShown) && (entry.id !== 'ai' || data.mcp !== null))
+	);
 
 	function tabFrom(url: URL): Tab {
 		const requested = url.searchParams.get('tab');
@@ -235,8 +238,10 @@
 	}
 
 	let tab = $state<Tab>(untrack(() => tabFrom(page.url)));
-	// A link to the sharing tab where sharing is off and no links remain.
-	const shown = $derived<Tab>(tab === 'sharing' && !sharingShown ? 'appearance' : tab);
+	// A link to a tab that is not offered: sharing off with no links left, or AI with nothing to show.
+	const shown = $derived<Tab>(
+		(tab === 'sharing' && !sharingShown) || (tab === 'ai' && data.mcp === null) ? 'appearance' : tab
+	);
 
 	function selectTab(event: MouseEvent, next: Tab) {
 		// A modified click opens the tab's link as a link would.
@@ -374,6 +379,20 @@
 				await update({ reset: false });
 				await invalidateAll();
 				linking = null;
+			};
+		};
+	}
+
+	/** The MCP token form waiting on the server: `make`, or the id of one being withdrawn. */
+	let mcpBusy = $state<string | null>(null);
+
+	function mcpSubmit(busy: string): SubmitFunction {
+		return () => {
+			mcpBusy = busy;
+			return async ({ update }) => {
+				await update({ reset: true });
+				await invalidateAll();
+				mcpBusy = null;
 			};
 		};
 	}
@@ -1473,6 +1492,171 @@
 		</section>
 	{/if}
 
+	{#if data.mcp}
+		{@const mcp = data.mcp}
+		{@const made = form && 'mcpToken' in form ? form.mcpToken : null}
+		{#if mcp.admin}
+			<section class="hh-card hh-glass group" id="assistants-server" hidden={shown !== 'ai'}>
+				<div class="group-head">
+					<h2>AI assistants on this server</h2>
+					<p class="hh-muted">
+						Shown to administrators of {data.serverLabel || 'the music server'}. On, every account here can
+						make tokens for an AI assistant on this tab. Off, the endpoint answers as one that does not exist,
+						and tokens already made open nothing until it is on again.
+					</p>
+				</div>
+				<form
+					method="POST"
+					action="?/saveMcp"
+					use:enhance={() => {
+						mcpBusy = 'switch';
+						return async ({ update }) => {
+							await update({ reset: false });
+							await invalidateAll();
+							mcpBusy = null;
+						};
+					}}
+				>
+					<label class="row switch">
+						<span class="label">
+							Allow AI assistants (MCP)
+							<span class="hint hh-muted">
+								{mcp.admin.fromEnvironment
+									? 'Set by HEDDOHON_MCP in the environment.'
+									: 'What an assistant reads goes to whoever runs its model. Saved with the setup in setup.json, and taken at once.'}
+							</span>
+						</span>
+						<input type="checkbox" name="mcp" checked={mcp.on} disabled={mcp.admin.fromEnvironment} />
+					</label>
+					{#if form && 'mcpSwitchError' in form && form.mcpSwitchError}
+						<p class="hh-muted note-inline" role="alert">{form.mcpSwitchError}</p>
+					{:else if form && 'mcpSaved' in form && form.mcpSaved}
+						<p class="hh-muted note-inline" role="status">Saved.</p>
+					{/if}
+					{#if !mcp.admin.fromEnvironment}
+						<button class="hh-button" type="submit" disabled={mcpBusy === 'switch'}>
+							{mcpBusy === 'switch' ? 'Saving…' : 'Save'}
+						</button>
+					{/if}
+				</form>
+			</section>
+		{/if}
+
+		{#if mcp.on || mcp.tokens.length > 0}
+			<section class="hh-card hh-glass group" id="assistants" hidden={shown !== 'ai'}>
+				<div class="group-head">
+					<h2>AI assistants</h2>
+					<p class="hh-muted">
+						An assistant that speaks the Model Context Protocol (MCP), such as Claude Code, can search your
+						library and read your favourites, playlists and history here with a token, and, if the token
+						allows it, make and change playlists, favourites and ratings. It acts as your account on
+						{data.serverLabel || 'the music server'}, and what it reads goes to whoever runs its model.
+					</p>
+				</div>
+	
+				{#if !mcp.on}
+					<p class="hh-muted note-inline">
+						AI assistants are turned off on this server, so these tokens open nothing. They work again if it
+						is turned back on, unless you withdraw them.
+					</p>
+				{/if}
+	
+				{#if form && 'mcpError' in form && form.mcpError}
+					<p class="hh-muted note-inline" role="alert">{form.mcpError}</p>
+				{/if}
+	
+				{#if made}
+					<div class="made-token" role="status">
+						<p>The token for “{made.name}”, shown this once:</p>
+						<input
+							class="hh-input secret"
+							readonly
+							value={made.token}
+							aria-label="The new token"
+							onfocus={(event) => event.currentTarget.select()}
+						/>
+						<p class="hh-muted">To add it to Claude Code:</p>
+						<textarea
+							class="hh-input secret"
+							readonly
+							rows="3"
+							aria-label="The command that adds it to Claude Code"
+							onfocus={(event) => event.currentTarget.select()}
+							value={`claude mcp add --transport http heddohon ${mcp.endpoint} --header "Authorization: Bearer ${made.token}"`}
+						></textarea>
+						<p class="hh-muted">
+							Another client takes the address <code>{mcp.endpoint}</code> and the header
+							<code>Authorization: Bearer</code> followed by the token.
+						</p>
+					</div>
+				{/if}
+	
+				{#if mcp.on && mcp.tokens.length < mcp.max}
+					<form method="POST" action="?/makeMcpToken" use:enhance={mcpSubmit('make')}>
+						<div class="token-row">
+							<input
+								class="hh-input"
+								name="name"
+								maxlength={mcp.maxName}
+								autocomplete="off"
+								aria-label="What the token is for"
+								placeholder="Claude Code on my laptop"
+							/>
+							<button class="hh-button" type="submit" disabled={mcpBusy === 'make'}>
+								{mcpBusy === 'make' ? 'Making…' : 'Make a token'}
+							</button>
+						</div>
+						<label class="row switch">
+							<span class="label">
+								May change the library
+								<span class="hint hh-muted">
+									Make, rename and delete playlists, and set favourites and ratings. Off, the token reads and
+									changes nothing.
+								</span>
+							</span>
+							<input type="checkbox" name="writes" checked />
+						</label>
+					</form>
+				{/if}
+	
+				{#if mcp.tokens.length > 0}
+					<ul class="shares">
+						{#each mcp.tokens as token (token.id)}
+							<li class="share assistant">
+								<span class="share-text">
+									<span class="share-title hh-truncate">{token.name}</span>
+									<span class="share-sub hh-truncate hh-muted">
+										{token.writes ? 'Reads and changes' : 'Reads only'} · made
+										<span class="hh-numeric">{shortDate(token.createdAt)}</span> ·
+										{#if token.lastUsedAt}last used <span class="hh-numeric">{shortDate(token.lastUsedAt)}</span>{:else}not used yet{/if}
+									</span>
+								</span>
+								<form method="POST" action="?/withdrawMcpToken" use:enhance={mcpSubmit(token.id)}>
+									<input type="hidden" name="id" value={token.id} />
+									<button
+										class="hh-button danger withdraw"
+										type="submit"
+										disabled={mcpBusy === token.id}
+										aria-label="Withdraw the token {token.name}"
+									>
+										{mcpBusy === token.id ? 'Withdrawing…' : 'Withdraw'}
+									</button>
+								</form>
+							</li>
+						{/each}
+					</ul>
+				{/if}
+	
+				<p class="hh-muted note">
+					The server keeps a fingerprint of each token rather than the token, so it cannot be shown again.
+					Withdrawing one stops it at once. Every token ends when you sign in with a changed password, and when
+					{data.serverLabel || 'the music server'} stops accepting this account. An account holds up to
+					{mcp.max}.
+				</p>
+			</section>
+		{/if}
+	{/if}
+
 	<!-- Kept while sharing is off if the account still has links, so they can
 	     be withdrawn before the operator turns it back on. -->
 	{#if data.sharing || data.shares.length > 0}
@@ -2413,6 +2597,33 @@
 	.withdraw:disabled {
 		opacity: 0.6;
 		cursor: progress;
+	}
+
+	/* A token has no cover. */
+	.share.assistant {
+		grid-template-columns: minmax(0, 1fr) auto;
+	}
+
+	.made-token {
+		display: grid;
+		gap: var(--space-2);
+		margin: var(--space-3) 0;
+		padding: var(--space-3) var(--space-4);
+		border: 1px solid var(--border-strong);
+		border-left: 3px solid var(--accent);
+		border-radius: var(--r-sm);
+		background: var(--bg-sunken);
+		font-size: 0.875rem;
+	}
+
+	.made-token p {
+		margin: 0;
+	}
+
+	.secret {
+		font-family: var(--font-mono);
+		font-size: 0.8125rem;
+		resize: none;
 	}
 
 	/* More specific than `.row form` above, which makes a form a block. */

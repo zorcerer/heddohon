@@ -3270,6 +3270,10 @@ describe('a backup of the database', () => {
 		const { default: Database } = await import('better-sqlite3');
 		const before = await (await user.request('/api/settings')).json();
 		await user.json('/api/settings', 'PATCH', { volume: 0.37 });
+		// A token, as one is kept: this app has the MCP endpoint off, so none can be made here.
+		const live = new Database(join(app.dataDir, 'heddohon.db'));
+		const owner = live.prepare("SELECT id FROM accounts WHERE username = 'testuser'").get().id;
+		live.prepare("INSERT INTO mcp_tokens (id, token_digest, account_id, name, writes, created_at) VALUES ('backup-token', 'digest', ?, 'Backup', 1, 0)").run(owner);
 		try {
 			const { response, files } = await backup();
 			assert.equal(response.headers.get('content-type'), 'application/zip');
@@ -3289,6 +3293,7 @@ describe('a backup of the database', () => {
 				assert.equal(copy.pragma('integrity_check', { simple: true }), 'ok');
 				assert.equal(rows('sessions'), 0, 'sign-ins are in the copy');
 				assert.equal(rows('login_attempts'), 0);
+				assert.equal(rows('mcp_tokens'), 0, 'MCP tokens are in the copy');
 				const account = copy.prepare("SELECT id, credential FROM accounts WHERE backend = 'subsonic' AND username = 'testuser'").get();
 				assert.ok(account, 'the account is not in the copy');
 				assert.doesNotMatch(account.credential, /testpass/, 'the credential is not sealed');
@@ -3297,7 +3302,7 @@ describe('a backup of the database', () => {
 
 				const manifest = JSON.parse(files.get('backup.json').toString());
 				assert.equal(manifest.from, 'sqlite');
-				assert.deepEqual(manifest.leftOut, ['sessions', 'login_attempts']);
+				assert.deepEqual(manifest.leftOut, ['sessions', 'mcp_tokens', 'login_attempts']);
 				assert.equal(manifest.tables.accounts, rows('accounts'));
 				assert.equal(manifest.tables.plays, rows('plays'));
 			} finally {
@@ -3313,6 +3318,8 @@ describe('a backup of the database', () => {
 			assert.match(app.output(), /backup-made/, 'the log does not say a backup was made');
 		} finally {
 			await user.json('/api/settings', 'PATCH', { volume: before.volume });
+			live.prepare("DELETE FROM mcp_tokens WHERE id = 'backup-token'").run();
+			live.close();
 		}
 	});
 
@@ -4903,5 +4910,317 @@ describe('plays from other apps, through the Navidrome plugin', () => {
 			.filter((file) => statSync(file).isFile());
 		assert.ok(files.some((file) => file.endsWith('.db')), `files: ${files}`);
 		for (const file of files) assert.ok(!readFileSync(file).includes(TOKEN), `the token is in ${file}`);
+	});
+});
+
+describe('an AI assistant, through the MCP endpoint', () => {
+	let on;
+
+	before(async () => {
+		// The session tests above end every older session of the shared client.
+		assert.equal((await user.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' })).status, 303);
+		on = await startApp({
+			subsonicUrl: subsonic.url,
+			jellyfinUrl: jellyfin.url,
+			// Everything the server can write, for the test that looks for a token in it.
+			env: { HEDDOHON_MCP: 'true', HEDDOHON_LOG_LEVEL: 'debug' }
+		});
+	});
+
+	after(async () => {
+		await on?.stop();
+	});
+
+	const told = (message) => `${message}\n--- app output ---\n${on.output()}`;
+
+	/** A form action of the settings page, with what it answered out of devalue's flat form. */
+	async function action(client, name, fields = {}) {
+		const response = await client.request(`/settings?/${name}`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json', 'x-sveltekit-action': 'true' },
+			body: new URLSearchParams(fields).toString()
+		});
+		const result = await response.json();
+		const flat = JSON.parse(result.data);
+		const revive = (at) => {
+			const value = flat[at];
+			if (Array.isArray(value)) return value.map(revive);
+			if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, to]) => [key, revive(to)]));
+			return value;
+		};
+		return { type: result.type, status: result.status, data: revive(0) };
+	}
+
+	/** Makes a token from Settings, as a person does, and returns it. */
+	async function makeToken(client, { name = 'Test assistant', writes = true } = {}) {
+		const made = await action(client, 'makeMcpToken', writes ? { name, writes: 'on' } : { name });
+		assert.equal(made.type, 'success', told(`no token was made: ${JSON.stringify(made)}`));
+		assert.match(made.data.mcpToken.token, /^hhmcp_[\w-]{43}$/);
+		return made.data.mcpToken;
+	}
+
+	let id = 0;
+	/** One JSON-RPC message as a client posts it: no `Origin`, the token as a bearer. */
+	const post = (token, message, { origin = null, headers = {}, url = on.url } = {}) =>
+		fetch(`${url}/api/mcp`, {
+			method: 'POST',
+			headers: {
+				'content-type': 'application/json',
+				accept: 'application/json, text/event-stream',
+				...(origin ? { origin } : {}),
+				...(token ? { authorization: `Bearer ${token}` } : {}),
+				...headers
+			},
+			body: typeof message === 'string' ? message : JSON.stringify(message)
+		});
+	const rpc = async (token, method, params = {}, options) => {
+		const response = await post(token, { jsonrpc: '2.0', id: ++id, method, params }, options);
+		assert.equal(response.status, 200, told(`${method} answered ${response.status}`));
+		const body = await response.json();
+		assert.equal(body.id, id);
+		return body;
+	};
+	/** A tool's answer: what it returned, or its message where it failed. */
+	const call = async (token, name, args = {}) => {
+		const { result, error } = await rpc(token, 'tools/call', { name, arguments: args });
+		if (error) return { error };
+		const text = result.content[0].text;
+		return result.isError ? { failed: text } : JSON.parse(text);
+	};
+
+	let client;
+	let token;
+
+	test('is not there unless turned on', async () => {
+		// The shared app has no HEDDOHON_MCP.
+		const response = await post('hhmcp_anything', { jsonrpc: '2.0', id: 1, method: 'initialize' }, { url: app.url });
+		assert.equal(response.status, 404);
+		assert.deepEqual(await response.json(), { error: 'not_found' });
+		const page = (await user.page('/settings?tab=ai')).html;
+		assert.ok(!page.includes('?/makeMcpToken'), 'Settings offers tokens on a server without the endpoint');
+		// An administrator is shown the switch, off.
+		assert.match(page, /Allow AI assistants[\s\S]*?<input type="checkbox" name="mcp"(?![^>]*checked)/);
+
+		client = new Client(on.url);
+		assert.equal((await client.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' })).status, 303);
+		const fromEnvironment = (await client.page('/settings?tab=ai')).html;
+		assert.ok(fromEnvironment.includes('?/makeMcpToken'));
+		assert.ok(fromEnvironment.includes('Set by HEDDOHON_MCP in the environment.'));
+	});
+
+	test('is turned on and off by an administrator under Settings, where the environment does not decide it', async () => {
+		const switchTo = (client, on) => action(client, 'saveMcp', on ? { mcp: 'on' } : {});
+		const ping = (url, token = 'hhmcp_nothing') => post(token, { jsonrpc: '2.0', id: 1, method: 'ping' }, { url });
+		try {
+			// The shared app has no HEDDOHON_MCP in its environment.
+			assert.equal((await switchTo(user, true)).type, 'success');
+			assert.equal((await ping(app.url)).status, 401, 'switched on, the endpoint is not there');
+			const made = await makeToken(user, { name: 'Switched' });
+			assert.equal((await ping(app.url, made.token)).status, 200);
+
+			assert.equal((await switchTo(user, false)).type, 'success');
+			assert.equal((await ping(app.url, made.token)).status, 404, 'switched off, a token still opens it');
+			// The token stays listed, to be withdrawn.
+			assert.ok((await user.page('/settings?tab=ai')).html.includes('Switched'));
+			assert.match(app.output(), /mcp-switched/);
+
+			subsonic.state.admin = false;
+			try {
+				assert.equal((await switchTo(user, true)).status, 403);
+				assert.equal((await ping(app.url)).status, 404);
+			} finally {
+				subsonic.state.admin = true;
+			}
+			// Where the environment sets it, Settings does not change it.
+			assert.equal((await switchTo(client, false)).status, 409);
+			assert.equal((await ping(on.url)).status, 401);
+			assert.equal((await action(user, 'withdrawMcpToken', { id: made.id })).type, 'success');
+		} finally {
+			await switchTo(user, false);
+		}
+	});
+
+	test('takes a token made under Settings, and neither a session nor anything else in its place', async () => {
+		({ token } = await makeToken(client));
+		const initialize = { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'test', version: '1' } } };
+		for (const [label, bearer, headers] of [
+			['nothing', null, {}],
+			['a made-up token', `hhmcp_${'A'.repeat(43)}`, {}],
+			['the token without its prefix', token.slice(6), {}]
+		]) {
+			const response = await post(bearer, initialize, { headers });
+			assert.equal(response.status, 401, label);
+			assert.deepEqual(await response.json(), { error: 'not_authenticated' }, label);
+		}
+		// A signed-in browser's own request, its cookie and its own Origin, is not a client.
+		const browser = await client.request('/api/mcp', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(initialize) });
+		assert.equal(browser.status, 401);
+
+		const { result } = await rpc(token, 'initialize', initialize.params);
+		assert.equal(result.protocolVersion, '2025-06-18');
+		assert.equal(result.serverInfo.name, 'heddohon');
+		assert.deepEqual(result.capabilities, { tools: { listChanged: false } });
+		// A version it does not know is answered with the newest.
+		assert.equal((await rpc(token, 'initialize', { protocolVersion: '1999-01-01' })).result.protocolVersion, '2025-11-25');
+		assert.deepEqual((await rpc(token, 'ping')).result, {});
+	});
+
+	test('answers a client that sends no Origin, and refuses one from another origin', async () => {
+		const ping = { jsonrpc: '2.0', id: 1, method: 'ping' };
+		assert.equal((await post(token, ping)).status, 200);
+		assert.equal((await post(token, ping, { origin: on.url })).status, 200);
+		const elsewhere = await post(token, ping, { origin: 'https://evil.example' });
+		assert.equal(elsewhere.status, 403);
+		assert.deepEqual(await elsewhere.json(), { error: 'cross_origin_forbidden' });
+		// Spelled another way, the path goes through the checks every route does,
+		// and a client's request without `Origin` is refused there.
+		const spelled = await fetch(`${on.url}/api/%6Dcp`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+			body: JSON.stringify(ping)
+		});
+		assert.equal(spelled.status, 403);
+	});
+
+	test('keeps to the transport: one message a request, and no stream', async () => {
+		const auth = { authorization: `Bearer ${token}` };
+		assert.equal((await fetch(`${on.url}/api/mcp`, { headers: auth })).status, 405);
+		assert.equal((await fetch(`${on.url}/api/mcp`, { method: 'DELETE', headers: auth })).status, 405);
+		// Without the token, those are refused as everything else is.
+		assert.equal((await fetch(`${on.url}/api/mcp`)).status, 401);
+		assert.equal((await post(token, { jsonrpc: '2.0', method: 'notifications/initialized' })).status, 202);
+		assert.equal((await post(token, [{ jsonrpc: '2.0', id: 1, method: 'ping' }])).status, 400);
+		assert.equal((await post(token, '{not json')).status, 400);
+		assert.equal((await post(token, { jsonrpc: '2.0', id: 1, method: 'ping' }, { headers: { 'mcp-protocol-version': '1999-01-01' } })).status, 400);
+		// With its own Origin: without one, SvelteKit's own check refuses a body a form could send, with 403.
+		assert.equal((await post(token, { jsonrpc: '2.0', id: 1, method: 'ping' }, { origin: on.url, headers: { 'content-type': 'text/plain' } })).status, 415);
+		assert.equal((await rpc(token, 'resources/list')).error.code, -32601);
+	});
+
+	test('reads the library through the tools it lists', async () => {
+		const { tools } = (await rpc(token, 'tools/list')).result;
+		const names = tools.map((tool) => tool.name);
+		for (const name of ['search', 'get_album', 'get_playlist', 'get_favourites', 'create_playlist', 'set_rating']) {
+			assert.ok(names.includes(name), `${name} is not listed: ${names}`);
+		}
+		const search = tools.find((tool) => tool.name === 'search');
+		assert.equal(search.annotations.readOnlyHint, true);
+		assert.deepEqual(search.inputSchema.required, ['query']);
+		assert.equal(tools.find((tool) => tool.name === 'delete_playlist').annotations.destructiveHint, true);
+
+		const found = await call(token, 'search', { query: 'Artist 0003' });
+		assert.ok(found.songs.some((song) => song.id === 's3a' && song.artist === 'Artist 0003' && song.quality === 'flac 16-bit 44.1kHz'), JSON.stringify(found));
+		// Nothing a page needs and an assistant does not: no cover ids, no nulls.
+		assert.ok(!JSON.stringify(found).includes('coverArt') && !JSON.stringify(found).includes('null'), JSON.stringify(found));
+
+		const album = await call(token, 'get_album', { id: 'al3' });
+		assert.equal(album.name, 'Album 3');
+		assert.deepEqual(album.tracks.map((track) => track.id), ['s3a', 's3b']);
+
+		subsonic.state.playlistEntries = ['s1a', 's2a', 's1a'];
+		const playlist = await call(token, 'get_playlist', { id: 'pl1' });
+		assert.deepEqual(playlist.entries.map((entry) => [entry.position, entry.id]), [[0, 's1a'], [1, 's2a'], [2, 's1a']]);
+		subsonic.state.playlistEntries = ['s1a', 's2a'];
+
+		assert.deepEqual(await call(token, 'get_album', { id: 'al99999' }), { failed: 'The music server has nothing with that id for this account.' });
+		assert.deepEqual(await call(token, 'search', { query: 'x' }), { failed: 'query must be 2 to 200 characters' });
+		assert.deepEqual(await call(token, 'list_albums', { sort: 'loudest' }), {
+			failed: 'sort must be one of recentlyAdded, recentlyPlayed, mostPlayed, alphabetical, byArtist, byYear, random, starred'
+		});
+		assert.equal((await call(token, 'play_everything')).error.code, -32602);
+	});
+
+	test('writes to the music server, and the pages show it at once', async () => {
+		subsonic.state.starred.delete('s5a');
+		// Read once, so the favourites are held (`listings.ts`) when the write lands.
+		assert.ok(!(await call(token, 'get_favourites')).songs?.some((song) => song.id === 's5a'));
+		assert.deepEqual(await call(token, 'set_favourite', { kind: 'song', id: 's5a', favourite: true }), { id: 's5a', favourite: true });
+		assert.ok(subsonic.state.starred.has('s5a'));
+		assert.ok((await call(token, 'get_favourites')).songs.some((song) => song.id === 's5a' && song.favourite));
+
+		assert.deepEqual(await call(token, 'set_rating', { id: 's5a', rating: 4 }), { id: 's5a', rating: 4 });
+		assert.equal(subsonic.state.ratings.get('s5a'), 4);
+		assert.deepEqual(await call(token, 'set_rating', { id: 's5a', rating: 6 }), { failed: 'rating must be a whole number from 0 to 5' });
+		subsonic.state.ratings.delete('s5a');
+		subsonic.state.starred.delete('s5a');
+
+		subsonic.state.playlistUpdates.length = 0;
+		assert.deepEqual(await call(token, 'add_to_playlist', { id: 'pl1', songIds: ['s7a', 's8a'] }), { id: 'pl1', added: 2 });
+		assert.deepEqual(await call(token, 'remove_from_playlist', { id: 'pl1', positions: [0, 2, 2] }), { id: 'pl1', removed: 2 });
+		assert.deepEqual(subsonic.state.playlistUpdates, [
+			{ id: 'pl1', add: ['s7a', 's8a'], remove: [] },
+			{ id: 'pl1', add: [], remove: [2, 0] }
+		]);
+		assert.deepEqual(await call(token, 'add_to_playlist', { id: 'pl1', songIds: [] }), { failed: 'songIds must hold at least one song id' });
+		assert.equal(subsonic.state.playlistUpdates.length, 2);
+	});
+
+	test('with a token that only reads, is offered no write and takes none', async () => {
+		const reader = (await makeToken(client, { name: 'Reads only', writes: false })).token;
+		const { tools } = (await rpc(reader, 'tools/list')).result;
+		assert.ok(tools.length >= 10);
+		assert.ok(tools.every((tool) => tool.annotations.readOnlyHint), tools.map((tool) => tool.name).join());
+		const starred = new Map(subsonic.state.starred);
+		assert.equal((await call(reader, 'set_favourite', { kind: 'song', id: 's6a', favourite: true })).error.code, -32602);
+		assert.deepEqual(subsonic.state.starred, starred);
+		assert.ok(!(await rpc(reader, 'initialize')).result.instructions.includes('removed by position'));
+	});
+
+	test('lists its tokens under Settings, where each is withdrawn', async () => {
+		const page = (await client.page('/settings?tab=account')).html;
+		assert.ok(page.includes('Test assistant') && page.includes('Reads only'), 'the tokens are not listed');
+		assert.ok(!page.includes(token), 'the page shows a token after it was made');
+
+		const withdrawn = await makeToken(client, { name: 'Withdrawn' });
+		assert.equal((await post(withdrawn.token, { jsonrpc: '2.0', id: 1, method: 'ping' })).status, 200);
+		assert.equal((await action(client, 'withdrawMcpToken', { id: withdrawn.id })).type, 'success');
+		assert.equal((await post(withdrawn.token, { jsonrpc: '2.0', id: 1, method: 'ping' })).status, 401);
+		assert.equal((await action(client, 'withdrawMcpToken', { id: withdrawn.id })).status, 404);
+		// Another account's token is out of reach.
+		const other = new Client(on.url);
+		assert.equal((await other.signIn({ username: 'seconduser', password: 'secondpass', backend: 'subsonic' })).status, 303);
+		const theirs = await makeToken(other, { name: 'Theirs' });
+		assert.equal((await action(client, 'withdrawMcpToken', { id: theirs.id })).status, 404);
+		assert.equal((await post(theirs.token, { jsonrpc: '2.0', id: 1, method: 'ping' })).status, 200);
+	});
+
+	test('ends with the account\'s sessions, as when the password changes', async () => {
+		subsonic.state.username = 'mcpuser';
+		subsonic.state.password = 'mcppass';
+		try {
+			const listener = new Client(on.url);
+			assert.equal((await listener.signIn({ username: 'mcpuser', password: 'mcppass', backend: 'subsonic' })).status, 303);
+			const { token: theirs } = await makeToken(listener);
+			assert.equal((await post(theirs, { jsonrpc: '2.0', id: 1, method: 'ping' })).status, 200);
+
+			// The music server rejects the stored credential: the token ends with the sessions.
+			subsonic.state.password = 'changed';
+			assert.deepEqual(await call(theirs, 'list_playlists'), {
+				failed: 'The music server no longer accepts this account. Sign in to Heddohon again and make a new token under Settings.'
+			});
+			assert.equal((await post(theirs, { jsonrpc: '2.0', id: 1, method: 'ping' })).status, 401);
+
+			// A sign-in with the new password, which `storeAccount` takes for a
+			// changed one, ends a token made before it.
+			const again = new Client(on.url);
+			assert.equal((await again.signIn({ username: 'mcpuser', password: 'changed', backend: 'subsonic' })).status, 303);
+			const { token: next } = await makeToken(again);
+			subsonic.state.password = 'changed-again';
+			const third = new Client(on.url);
+			assert.equal((await third.signIn({ username: 'mcpuser', password: 'changed-again', backend: 'subsonic' })).status, 303);
+			assert.equal((await post(next, { jsonrpc: '2.0', id: 1, method: 'ping' })).status, 401);
+		} finally {
+			subsonic.state.username = 'testuser';
+			subsonic.state.password = 'testpass';
+		}
+	});
+
+	test('leaves no token in the database or the log', async () => {
+		assert.ok(!on.output().includes(token), 'the token is in the log');
+		const files = readdirSync(on.dataDir, { recursive: true })
+			.map((name) => join(on.dataDir, name))
+			.filter((file) => statSync(file).isFile());
+		assert.ok(files.some((file) => file.endsWith('.db')), `files: ${files}`);
+		for (const file of files) assert.ok(!readFileSync(file).includes(token), `the token is in ${file}`);
 	});
 });
