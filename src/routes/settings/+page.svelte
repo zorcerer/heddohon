@@ -478,18 +478,21 @@
 					Theme
 					<span class="hint hh-muted">
 						Terminal is flat panes on hairlines, set in a mono face. Liquid is dark glass lit by the
-						artwork. Paper is parchment and ink, tinted by it.
+						artwork. Paper is parchment and ink, tinted by it. Phosphor is dark metal and rubber
+						keys, with its readouts lit like the display of a car stereo.
 					</span>
 				</span>
 				<select class="hh-input control" name="theme" bind:value={settings.theme}>
 					<option value="terminal">Terminal</option>
 					<option value="dark">Liquid</option>
 					<option value="light">Paper</option>
+					<option value="phosphor">Phosphor</option>
 				</select>
 			</label>
 
-			<!-- Terminal's own four. Liquid and Paper take every colour from the
-			     artwork, have no grid, and fade the player's artwork one way. -->
+			<!-- Terminal's own four, of which Phosphor has the accent. Liquid and
+			     Paper take every colour from the artwork, have no grid, and fade
+			     the player's artwork one way. -->
 			{#if settings.theme === 'terminal'}
 				<label class="row">
 					<span class="label">
@@ -513,13 +516,16 @@
 						<option value="everforest">Everforest</option>
 					</select>
 				</label>
+			{/if}
 
+			{#if settings.theme === 'terminal' || settings.theme === 'phosphor'}
 				<label class="row">
 					<span class="label">
 						Accent
 						<span class="hint hh-muted">
-							The colour of the primary controls and the playing row: the cover of what is
-							playing, or one colour that stays.
+							{settings.theme === 'phosphor'
+								? 'The colour the display and the readouts glow in: the cover of what is playing, or one colour that stays. The indicator lamps take a colour that sets it off.'
+								: 'The colour of the primary controls and the playing row: the cover of what is playing, or one colour that stays.'}
 						</span>
 					</span>
 					<select class="hh-input control" name="accent" bind:value={settings.accent}>
@@ -532,7 +538,9 @@
 						<option value="white">White</option>
 					</select>
 				</label>
+			{/if}
 
+			{#if settings.theme === 'terminal'}
 				<label class="row">
 					<span class="label">
 						Background dots
@@ -593,7 +601,9 @@
 					</span>
 				</span>
 				<select class="hh-input control" name="font" bind:value={settings.font}>
-					<option value="manrope">{settings.theme === 'terminal' ? 'JetBrains Mono' : 'Manrope'}</option>
+					<option value="manrope">
+						{settings.theme === 'terminal' ? 'JetBrains Mono' : settings.theme === 'phosphor' ? 'Barlow' : 'Manrope'}
+					</option>
 					<option value="inter">Inter</option>
 					<option value="geist">Geist</option>
 					<option value="plex">IBM Plex Sans</option>
@@ -640,8 +650,8 @@
 				<input type="checkbox" name="showQualityBadge" bind:checked={settings.showQualityBadge} />
 			</label>
 
-			<!-- Terminal has no glass and no room behind it for a glow. -->
-			{#if settings.theme !== 'terminal'}
+			<!-- Terminal and Phosphor have no glass and no room behind it for a glow. -->
+			{#if settings.theme !== 'terminal' && settings.theme !== 'phosphor'}
 				<label class="row">
 					<span class="label">
 						Aurora

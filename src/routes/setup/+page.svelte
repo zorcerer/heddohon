@@ -26,7 +26,7 @@
 		subsonic: { url: '', label: '', probe: { state: 'idle' } },
 		jellyfin: { url: '', label: '', probe: { state: 'idle' } }
 	});
-	let theme = $state<'terminal' | 'liquid' | 'paper'>('terminal');
+	let theme = $state<'terminal' | 'liquid' | 'paper' | 'phosphor'>('terminal');
 	let sharing = $state(true);
 	let downloads = $state(true);
 	let lrclib = $state(false);
@@ -331,6 +331,7 @@
 							<option value="terminal">Terminal</option>
 							<option value="liquid">Liquid</option>
 							<option value="paper">Paper</option>
+							<option value="phosphor">Phosphor</option>
 						</select>
 					</label>
 					{#if !decided.coverCache}

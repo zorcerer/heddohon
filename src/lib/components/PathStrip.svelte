@@ -119,9 +119,59 @@
 		flex: none;
 	}
 
+	/*
+	 * In Phosphor the strip is a display across the top of the pane: the path
+	 * in the dot-matrix face, the way to the page dimmer than the page itself,
+	 * under the display's control grid (`::after`).
+	 */
+	:global([data-theme='phosphor']) .strip {
+		position: sticky;
+		top: calc(var(--space-5) * -1);
+		z-index: 3;
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--space-4);
+		margin: calc(var(--space-5) * -1) calc(var(--space-5) * -1) var(--space-5);
+		padding: 0.55rem var(--space-4);
+		background: var(--vfd-glass);
+		box-shadow: var(--vfd-bezel);
+		border-radius: var(--r-xl) var(--r-xl) 0 0;
+		font-family: var(--font-readout);
+		font-size: 0.8125rem;
+		letter-spacing: 0.06em;
+		text-transform: uppercase;
+		color: color-mix(in srgb, var(--accent) 62%, transparent);
+		text-shadow: var(--glow-text);
+	}
+
+	:global([data-theme='phosphor']) .strip::after {
+		content: '';
+		position: absolute;
+		inset: 0;
+		border-radius: inherit;
+		background: var(--vfd-mesh);
+		pointer-events: none;
+	}
+
+	:global([data-theme='phosphor'] .content.rising) > .strip {
+		animation: none;
+	}
+
+	:global([data-theme='phosphor']) .here,
+	:global([data-theme='phosphor']) .path a:hover {
+		color: var(--accent);
+	}
+
+	:global([data-theme='phosphor']) .slash {
+		padding: 0 0.3em;
+		color: color-mix(in srgb, var(--accent) 35%, transparent);
+	}
+
 	/* A phone has no pane to head: the document scrolls, under the status bar. */
 	@media (max-width: 60rem) {
-		:global([data-theme='terminal']) .strip {
+		:global([data-theme='terminal']) .strip,
+		:global([data-theme='phosphor']) .strip {
 			display: none;
 		}
 	}

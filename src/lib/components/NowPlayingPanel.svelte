@@ -1954,4 +1954,162 @@
 		color: var(--accent);
 		font-weight: 700;
 	}
+
+	/* ── Phosphor ────────────────────────────────────────────────────────── */
+
+	/*
+	 * The title block is the display: smoked glass, the dot-matrix face lit in
+	 * the accent, the artist in the indicator colour, and the control grid drawn
+	 * over all of it (`::after`), as it sits in front of the phosphor.
+	 */
+	:global([data-theme='phosphor']) .text {
+		position: relative;
+		flex: 1;
+		padding: 0.625rem 0.75rem 0.7rem;
+		border-radius: var(--r-sm);
+		background: var(--vfd-glass);
+		box-shadow: var(--vfd-bezel);
+		overflow: hidden;
+	}
+
+	:global([data-theme='phosphor']) .text::after {
+		content: '';
+		position: absolute;
+		inset: 0;
+		background: var(--vfd-mesh);
+		pointer-events: none;
+	}
+
+	:global([data-theme='phosphor']) .title,
+	:global([data-theme='phosphor']) .artist,
+	:global([data-theme='phosphor']) .album {
+		font-family: var(--font-readout);
+		font-weight: 400;
+		letter-spacing: 0.04em;
+		text-transform: uppercase;
+	}
+
+	:global([data-theme='phosphor']) .title {
+		font-size: 1.25rem;
+		line-height: 1.3;
+		color: var(--accent);
+		text-shadow: var(--glow-text);
+	}
+
+	:global([data-theme='phosphor']) .artist,
+	:global([data-theme='phosphor']) .artist a {
+		font-size: 0.875rem;
+		color: var(--led);
+		text-shadow: var(--glow-led);
+	}
+
+	:global([data-theme='phosphor']) .album {
+		font-size: 0.8125rem;
+		color: color-mix(in srgb, var(--accent) 70%, transparent);
+		-webkit-line-clamp: 1;
+		line-clamp: 1;
+	}
+
+	/* The two actions beside the display, as rubber keys stacked to its height. */
+	:global([data-theme='phosphor']) .rounds {
+		flex-direction: column;
+		padding: 0.1875rem;
+	}
+
+	:global([data-theme='phosphor']) .round,
+	:global([data-theme='phosphor']) .round :global(button) {
+		width: 2.5rem;
+		height: 2.5rem;
+		border: 0;
+		border-radius: var(--r-md);
+		background: var(--key-face);
+		box-shadow: var(--key-edge);
+		color: var(--text-strong);
+	}
+
+	:global([data-theme='phosphor']) .round:has(:global(button)) {
+		background: none;
+		box-shadow: none;
+	}
+
+	/* The elapsed time is the display's readout; the time left stays unlit. */
+	:global([data-theme='phosphor']) .times {
+		font-size: 0.875rem;
+	}
+
+	:global([data-theme='phosphor']) .times > :first-child {
+		color: var(--accent);
+		text-shadow: var(--glow-text);
+	}
+
+	/*
+	 * The transport as five rubber keys, the middle one widest, with a lamp
+	 * under its glyph that is lit while the track plays. A press sinks a key
+	 * into its well; nothing scales.
+	 */
+	:global([data-theme='phosphor']) .transport {
+		display: grid;
+		grid-template-columns: 1fr 1.2fr 1.6fr 1.2fr 1fr;
+		gap: 0.625rem;
+		padding: 0.25rem 0.1875rem;
+	}
+
+	:global([data-theme='phosphor']) .edge,
+	:global([data-theme='phosphor']) .step,
+	:global([data-theme='phosphor']) .play {
+		height: 3rem;
+		padding: 0;
+		border-radius: var(--r-md);
+		background: var(--key-face);
+		box-shadow: var(--key-edge);
+		scale: none;
+	}
+
+	:global([data-theme='phosphor']) .edge:active:not(:disabled),
+	:global([data-theme='phosphor']) .step:active:not(:disabled),
+	:global([data-theme='phosphor']) .play:active:not(:disabled) {
+		scale: none;
+		background: var(--key-face-down);
+		box-shadow: var(--key-edge-down);
+	}
+
+	:global([data-theme='phosphor']) .step :global(svg),
+	:global([data-theme='phosphor']) .play :global(svg) {
+		width: 1.375rem;
+		height: 1.375rem;
+	}
+
+	:global([data-theme='phosphor']) .play {
+		padding-bottom: 0.5rem;
+	}
+
+	:global([data-theme='phosphor']) .play::after {
+		content: '';
+		position: absolute;
+		left: 50%;
+		bottom: 0.5rem;
+		width: 1.375rem;
+		height: 3px;
+		margin-left: -0.6875rem;
+		border-radius: 2px;
+		background: color-mix(in srgb, var(--led) 16%, #16120e);
+	}
+
+	/* The pause glyph is the one shown while the track plays. */
+	:global([data-theme='phosphor']) .play:has(.glyph.on:last-child)::after {
+		background: var(--led);
+		box-shadow:
+			0 0 2px var(--led),
+			0 0 8px color-mix(in srgb, var(--led) 70%, transparent);
+	}
+
+	:global([data-theme='phosphor']) .edge.on {
+		filter: var(--glow-icon);
+	}
+
+	:global([data-theme='phosphor']) .count {
+		border-radius: var(--r-pill);
+		font-family: var(--font-readout);
+		font-size: 0.6875rem;
+	}
 </style>

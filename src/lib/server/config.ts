@@ -83,7 +83,7 @@ export interface AppConfig {
 	 * The theme an account starts in, and the one pages without an account
 	 * (sign-in, a shared link) are drawn in. A value of `data-theme`.
 	 */
-	defaultTheme: 'terminal' | 'dark' | 'light';
+	defaultTheme: 'terminal' | 'dark' | 'light' | 'phosphor';
 	/** Whether the music server's internet radio stations are offered and played through this server; see `radio.ts`. */
 	radio: boolean;
 	/** Whether a station may be on a private address. Off unless asked for. */
@@ -336,7 +336,7 @@ function flagEnv(name: string, fallback: boolean): boolean {
  * `HEDDOHON_DEFAULT_THEME`, by the names Settings shows. The stored values
  * are older than those names: Liquid is `dark` and Paper is `light`.
  */
-const THEMES_BY_NAME = { terminal: 'terminal', liquid: 'dark', paper: 'light' } as const;
+const THEMES_BY_NAME = { terminal: 'terminal', liquid: 'dark', paper: 'light', phosphor: 'phosphor' } as const;
 
 function themeEnv(name: string): AppConfig['defaultTheme'] {
 	const raw = env(name)?.toLowerCase();
@@ -344,7 +344,7 @@ function themeEnv(name: string): AppConfig['defaultTheme'] {
 	if (Object.prototype.hasOwnProperty.call(THEMES_BY_NAME, raw)) {
 		return THEMES_BY_NAME[raw as keyof typeof THEMES_BY_NAME];
 	}
-	throw new ConfigError(`${name} must be terminal, liquid or paper`);
+	throw new ConfigError(`${name} must be terminal, liquid, paper or phosphor`);
 }
 
 /**

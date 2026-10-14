@@ -259,4 +259,42 @@
 	:global([data-theme='terminal']) .thumb {
 		display: none;
 	}
+
+	/* ── Phosphor ────────────────────────────────────────────────────────────── */
+
+	/*
+	 * A row of phosphor segments, 4px with 2px between and 3px high: the played
+	 * ones lit in the accent and glowing, the rest unlit and just visible, as
+	 * the segments of a display are. The rail is not clipped, so the glow
+	 * reaches past it. The thumb is not drawn.
+	 */
+	:global([data-theme='phosphor']) .rail,
+	:global([data-theme='phosphor']) .seek:hover .rail,
+	:global([data-theme='phosphor']) .seek.dragging .rail,
+	:global([data-theme='phosphor']) .seek:focus-visible .rail {
+		height: 3px;
+		border-radius: 0;
+		overflow: visible;
+		background: repeating-linear-gradient(to right, rgb(170 215 210 / 0.1) 0 4px, transparent 4px 6px);
+	}
+
+	:global([data-theme='phosphor']) .buffered,
+	:global([data-theme='phosphor']) .played {
+		border-radius: 0;
+		background: none;
+		background-size: 100vw 100%;
+	}
+
+	:global([data-theme='phosphor']) .buffered {
+		background-image: repeating-linear-gradient(to right, rgb(170 215 210 / 0.12) 0 4px, transparent 4px 6px);
+	}
+
+	:global([data-theme='phosphor']) .played {
+		background-image: repeating-linear-gradient(to right, var(--accent) 0 4px, transparent 4px 6px);
+		filter: drop-shadow(0 0 3px color-mix(in srgb, var(--accent) 70%, transparent));
+	}
+
+	:global([data-theme='phosphor']) .thumb {
+		display: none;
+	}
 </style>

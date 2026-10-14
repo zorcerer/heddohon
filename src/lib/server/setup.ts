@@ -313,7 +313,7 @@ export function finishSetup(input: SetupInput): SetupOutcome {
 		return { ok: false, field: 'server', message: 'Give the address of a music server.' };
 	}
 
-	if (input.theme === 'terminal' || input.theme === 'liquid' || input.theme === 'paper') {
+	if (input.theme === 'terminal' || input.theme === 'liquid' || input.theme === 'paper' || input.theme === 'phosphor') {
 		values.HEDDOHON_DEFAULT_THEME = input.theme;
 	}
 	for (const [field, name] of [

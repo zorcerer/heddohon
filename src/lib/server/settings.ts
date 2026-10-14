@@ -10,12 +10,13 @@ import type { AlbumSort } from '$lib/types';
  * A value of `data-theme`. Settings shows `dark` as Liquid and `light` as
  * Paper, the names they took after they were stored under these.
  */
-export type ThemeName = 'terminal' | 'dark' | 'light';
+export type ThemeName = 'terminal' | 'dark' | 'light' | 'phosphor';
 
 /**
- * The accents Terminal offers beside the artwork's own colour. A fixed list
- * and not a colour picked freely: each is written into the HTML by name, and
- * each holds 4.5:1 on the theme's ground and under its dark label.
+ * The accents Terminal and Phosphor offer beside the artwork's own colour. A
+ * fixed list and not a colour picked freely: each is written into the HTML by
+ * name, and each holds 4.5:1 on the theme's ground and under its dark label.
+ * Phosphor draws each as a phosphor of that colour (`phosphor.css`).
  */
 const ACCENTS = ['artwork', 'green', 'amber', 'cyan', 'violet', 'rose', 'white'] as const;
 
@@ -64,9 +65,9 @@ const TRANSCODE_BITRATES = [96, 128, 192, 256, 320] as const;
 export interface UserSettings {
 	theme: ThemeName;
 	/**
-	 * Where Terminal takes its accent from: the cover of what is playing, as
-	 * Liquid and Paper always do, or one fixed colour. See `[data-accent]` in
-	 * app.css.
+	 * Where Terminal and Phosphor take their accent from: the cover of what is
+	 * playing, as Liquid and Paper always do, or one fixed colour. See
+	 * `[data-accent]` in terminal.css and phosphor.css.
 	 */
 	accent: (typeof ACCENTS)[number];
 	/**
@@ -161,7 +162,12 @@ export interface UserSettings {
  * stylesheet loads: `theme-color` in the served page and the manifest's
  * colours.
  */
-export const THEME_GROUND: Record<ThemeName, string> = { terminal: '#08090a', dark: '#0b0c0f', light: '#f0e7d5' };
+export const THEME_GROUND: Record<ThemeName, string> = {
+	terminal: '#08090a',
+	dark: '#0b0c0f',
+	light: '#f0e7d5',
+	phosphor: '#0a0b0c'
+};
 
 /** The same for Terminal under a colour scheme: `--bg-base` of each in `terminal-schemes.css`. */
 const SCHEME_GROUND: Record<UserSettings['scheme'], string> = {
@@ -276,7 +282,7 @@ function sanitizeSettings(input: unknown, base: UserSettings = defaultSettings()
 	return {
 		theme: pick(
 			'theme',
-			['terminal', 'dark', 'light'] as const,
+			['terminal', 'dark', 'light', 'phosphor'] as const,
 			// `hasOwnProperty`, not a bare index: `{ theme: 'constructor' }` would
 			// return a function from the prototype chain.
 			Object.prototype.hasOwnProperty.call(LEGACY_THEMES, String(raw.theme))

@@ -24,7 +24,7 @@ The website, with screenshots and the install steps, is
 ## Features
 
 - **Original files** up to FLAC 24/192, with optional transcoding to MP3, Opus or AAC.
-- **Three themes:** Terminal, Liquid and Paper, each coloured by the artwork.
+- **Four themes:** Terminal, Liquid, Paper and Phosphor, each coloured by the artwork.
 - **Library:** albums, artists, genres, playlists, favourites and folders, with synced lyrics and recommendations.
 - **Instant mix** from a track, an album or an artist.
 - **Internet radio** from the stations Navidrome lists.
