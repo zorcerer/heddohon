@@ -8,6 +8,7 @@
 	import { page } from '$app/state';
 	import { shareComposer } from '$lib/client/share.svelte';
 	import MediaCard from '$lib/components/MediaCard.svelte';
+	import ExternalLinks from '$lib/components/ExternalLinks.svelte';
 	import MediaGrid from '$lib/components/MediaGrid.svelte';
 	import QualityBadge from '$lib/components/QualityBadge.svelte';
 	import RatingStars from '$lib/components/RatingStars.svelte';
@@ -260,6 +261,12 @@
 					{/each}
 				</MediaGrid>
 			</section>
+		{/if}
+	{/await}
+
+	{#await data.links then links}
+		{#if links.length > 0}
+			<ExternalLinks {links} />
 		{/if}
 	{/await}
 </div>

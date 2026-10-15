@@ -2,7 +2,7 @@ import type { PageServerLoad } from './$types';
 import { library, libraryContext } from '$lib/server/library';
 import { log, reason } from '$lib/server/log';
 import { albumDetail, albumsByArtist } from '$lib/server/details';
-import { similarAlbums } from '$lib/server/suggestions';
+import { externalLinks, similarAlbums } from '$lib/server/suggestions';
 
 /**
  * How many cards the "You might like" shelf asks the music server for. The
@@ -50,6 +50,12 @@ export const load: PageServerLoad = async (event) => {
 		 */
 		similar: similarAlbums(ctx, album.id, album.artistId, SUGGESTION_COUNT, { genre: album.genre, year: album.year }).catch((err) => {
 			log.warn('similar-albums-failed', { album: album.id, detail: reason(err) });
+			return [];
+		}),
+		// MusicBrainz and Last.fm, at the foot of the page. Streamed: on Navidrome
+		// the Last.fm address is its agent's.
+		links: externalLinks(ctx, 'album', album.id).catch((err) => {
+			log.warn('external-links-failed', { album: album.id, detail: reason(err) });
 			return [];
 		})
 	};

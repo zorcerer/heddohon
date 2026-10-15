@@ -525,7 +525,8 @@
 				<span class="label">
 					Theme
 					<span class="hint hh-muted">
-						Terminal is flat panes on hairlines, set in a mono face. Liquid is dark glass lit by the
+						Terminal is flat panes on hairlines, set in a mono face, with a command line on <kbd>:</kbd>
+						or <kbd>Ctrl</kbd>+<kbd>K</kbd>. Liquid is dark glass lit by the
 						artwork. Paper is parchment and ink, tinted by it. Phosphor is dark metal and rubber
 						keys, with its readouts lit like the display of a car stereo.
 					</span>

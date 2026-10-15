@@ -32,6 +32,7 @@ import type {
 	Artist,
 	ArtistDetail,
 	AudioQuality,
+	ExternalLink,
 	Folder,
 	FolderRef,
 	Playlist,
@@ -162,6 +163,9 @@ function asArray<T>(value: T | T[] | undefined | null): T[] {
 	if (value === undefined || value === null) return [];
 	return Array.isArray(value) ? value : [value];
 }
+
+/** A MusicBrainz identifier, which is a UUID. Anything else is not made into a link. */
+const MBID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const LOSSLESS = new Set(['flac', 'alac', 'wav', 'aiff', 'aif', 'ape', 'wv', 'dsf', 'dff', 'shn', 'tta']);
 
@@ -541,6 +545,27 @@ export const subsonicBackend: MediaBackend = {
 		// Nothing similar is an empty mix, not the seed alone.
 		if (songs.length === 0) return [];
 		return seed ? [toSong(seed), ...songs.filter((song) => song.id !== seed.id)] : songs;
+	},
+
+	async getExternalLinks(cred, kind, id): Promise<ExternalLink[]> {
+		// Navidrome answers `musicBrainzId` from the tags and `lastFmUrl` from
+		// its Last.fm agent, so without an API key the second is absent. An album's
+		// id is the release's, not the release group's.
+		const body = await call<{ albumInfo?: Record<string, any>; artistInfo2?: Record<string, any> }>(
+			cred,
+			kind === 'album' ? 'getAlbumInfo2.view' : 'getArtistInfo2.view',
+			kind === 'album' ? { id } : { id, count: 0 }
+		);
+		const info = (kind === 'album' ? body.albumInfo : body.artistInfo2) ?? {};
+		const links: ExternalLink[] = [];
+		if (typeof info.musicBrainzId === 'string' && MBID.test(info.musicBrainzId)) {
+			links.push({
+				label: 'MusicBrainz',
+				url: `https://musicbrainz.org/${kind === 'album' ? 'release' : 'artist'}/${info.musicBrainzId.toLowerCase()}`
+			});
+		}
+		if (typeof info.lastFmUrl === 'string' && info.lastFmUrl) links.push({ label: 'Last.fm', url: info.lastFmUrl });
+		return links;
 	},
 
 	async getAlbum(cred, id): Promise<AlbumDetail> {

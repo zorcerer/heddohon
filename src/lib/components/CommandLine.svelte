@@ -16,11 +16,30 @@
 	import type { SearchResults } from '$lib/types';
 
 	/*
-	 * Terminal's command line, in the path strip: `:` or Ctrl+K (Cmd+K) opens
-	 * it, and the `:` key on the strip for a screen without a keyboard. The
-	 * commands are in `commands.ts`. Shown in Terminal alone, as the strip is.
+	 * Terminal's command line, in the path strip: `:`, `;` (the same key
+	 * without Shift) or Ctrl+K (Cmd+K) opens it, and the button on the strip for
+	 * a screen without a keyboard. The commands are in `commands.ts`. Shown in
+	 * Terminal alone, as the strip is.
 	 */
 	let { open = $bindable(false) }: { open?: boolean } = $props();
+
+	/*
+	 * The button names the line and its shortcut, so it is found without the
+	 * README. Until the line has been opened once in this browser it is drawn in
+	 * the accent and glows three times; after that it is drawn as the strip is.
+	 */
+	const KNOWN_KEY = 'hh-command-known';
+	let known = $state(true);
+	let shortcut = $state('Ctrl K');
+
+	$effect(() => {
+		try {
+			known = localStorage.getItem(KNOWN_KEY) === '1';
+		} catch {
+			known = true;
+		}
+		if (/Mac|iPhone|iPad/.test(navigator.userAgent)) shortcut = '⌘K';
+	});
 
 	interface Suggestion {
 		/** What the line becomes when it is taken with Tab. */
@@ -74,6 +93,14 @@
 		suggestions = [];
 		selected = -1;
 		open = true;
+		if (!known) {
+			known = true;
+			try {
+				localStorage.setItem(KNOWN_KEY, '1');
+			} catch {
+				// Private browsing: it glows again next time.
+			}
+		}
 	}
 
 	function hide() {
@@ -90,7 +117,9 @@
 		if (open || !terminal()) return;
 		const target = event.target as HTMLElement | null;
 		if (target?.matches('input, textarea, select, [contenteditable="true"]')) return;
-		const opener = (event.key === ':' && !event.ctrlKey && !event.metaKey && !event.altKey) || ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k');
+		const opener =
+			((event.key === ':' || event.key === ';') && !event.ctrlKey && !event.metaKey && !event.altKey) ||
+			((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k');
 		if (!opener) return;
 		event.preventDefault();
 		show();
@@ -272,7 +301,9 @@
 	{/if}
 {:else}
 	{#if said?.ok}<span class="said hh-truncate" role="status">{said.text}</span>{/if}
-	<button class="open" type="button" onclick={show} aria-label="Command line" title="Command line ( : or Ctrl+K )">:</button>
+	<button class="open" class:fresh={!known} type="button" onclick={show} aria-label="Command line" aria-keyshortcuts=": ; Control+K Meta+K">
+		<span class="mark" aria-hidden="true">:</span><span class="word" aria-hidden="true">command</span><kbd aria-hidden="true">{shortcut}</kbd>
+	</button>
 {/if}
 
 <style>
@@ -371,17 +402,61 @@
 
 	.open {
 		flex: none;
-		padding: 0 0.6ch;
+		display: inline-flex;
+		align-items: center;
+		gap: 0.6ch;
+		padding: 0.1rem 0.3rem 0.1rem 0.6ch;
 		border: 1px solid var(--border-strong);
 		border-radius: var(--r-sm);
 		background: none;
 		color: var(--text-muted);
 		font: inherit;
 		cursor: pointer;
+		transition:
+			color var(--transition),
+			border-color var(--transition);
 	}
 
-	.open:hover {
+	.mark {
+		color: var(--accent);
+		font-weight: 600;
+	}
+
+	kbd {
+		padding: 0 0.5ch;
+		border: 1px solid var(--border-hairline);
+		border-radius: calc(var(--r-sm) - 2px);
+		background: var(--bg-base);
+		color: var(--text-faint);
+		font: inherit;
+		font-size: 0.6875rem;
+	}
+
+	.open:hover,
+	.open.fresh {
 		color: var(--accent);
 		border-color: var(--accent);
+	}
+
+	.open:hover kbd,
+	.open.fresh kbd {
+		color: var(--text-muted);
+	}
+
+	/* Three slow pulses, a second after the page is drawn, then still. */
+	.open.fresh {
+		animation: hh-command-glow 1.6s var(--ease-colour) 1s 3;
+	}
+
+	@keyframes hh-command-glow {
+		50% {
+			box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 28%, transparent);
+		}
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.open.fresh {
+			animation: none;
+		}
 	}
 </style>

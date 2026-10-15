@@ -333,7 +333,7 @@ describe('settings', () => {
 
 	test('Terminal\'s scheme, accent, dot grid and player artwork are each one of those offered, and are in the first byte of the page', async () => {
 		const fresh = await (await user.json('/api/settings', 'PATCH', {})).json();
-		assert.deepEqual([fresh.scheme, fresh.accent, fresh.dots, fresh.playerArt], ['heddohon', 'artwork', 'faint', 'dither']);
+		assert.deepEqual([fresh.scheme, fresh.accent, fresh.dots, fresh.playerArt], ['heddohon', 'artwork', 'faint', 'duotone']);
 		try {
 			const saved = await (
 				await user.json('/api/settings', 'PATCH', { theme: 'terminal', scheme: 'tokyo-night', accent: 'green', dots: 'off', playerArt: 'duotone' })
@@ -353,7 +353,7 @@ describe('settings', () => {
 			await user.json('/api/settings', 'PATCH', { theme: 'dark' });
 			assert.match((await user.page('/albums')).html, /name="theme-color" content="#0b0c0f"/);
 		} finally {
-			await user.json('/api/settings', 'PATCH', { theme: 'dark', scheme: 'heddohon', accent: 'artwork', dots: 'faint', playerArt: 'dither' });
+			await user.json('/api/settings', 'PATCH', { theme: 'dark', scheme: 'heddohon', accent: 'artwork', dots: 'faint', playerArt: 'duotone' });
 		}
 	});
 
@@ -814,6 +814,35 @@ describe('held album details and suggestions', () => {
 			subsonic.state.similarAlbums = 0;
 			subsonic.state.alikeAlbums = 0;
 		}
+	});
+});
+
+describe('links elsewhere', () => {
+	test('an artist and an album page link MusicBrainz and Last.fm, and nothing that is not a web page', async () => {
+		await asFreshAccount('elsewhere', async (client) => {
+			const artist = await client.page('/artists/ar0');
+			// Streamed, so the links arrive as data rather than markup.
+			assert.match(artist.html, /https:\/\/musicbrainz\.org\/artist\/b09c8a50-7bfa-434f-a2cf-f9bf9f6f91a5/, explain('the MusicBrainz link is missing'));
+			assert.match(artist.html, /https:\/\/www\.last\.fm\/music\/Artist\+0000/);
+
+			const album = await client.page('/albums/al4');
+			assert.match(album.html, /https:\/\/musicbrainz\.org\/release\/de5c6a49-a5ec-41d9-9117-a128898fa099/, explain('the album link is missing'));
+			assert.doesNotMatch(album.html, /javascript:alert/);
+			await client.page('/albums/al4');
+			assert.equal(subsonic.calls.get('getAlbumInfo2'), 1, 'the links were not held');
+
+			const bare = await client.page('/albums/al5');
+			assert.doesNotMatch(bare.html, /Elsewhere|musicbrainz\.org/);
+		});
+	});
+
+	test('on Jellyfin, from the item\'s ExternalUrls, without one that carries a password', async () => {
+		const client = new Client(app.url);
+		await client.signIn({ username: 'jfuser', password: 'jfpass', backend: 'jellyfin' });
+		const { html } = await client.page('/albums/b2');
+		assert.match(html, /https:\/\/musicbrainz\.org\/release\/11111111-2222-3333-4444-555555555555/, explain('the MusicBrainz link is missing'));
+		assert.match(html, /MusicBrainz Release Group/);
+		assert.doesNotMatch(html, /MusicBrainz Album|someone:secret/);
 	});
 });
 
