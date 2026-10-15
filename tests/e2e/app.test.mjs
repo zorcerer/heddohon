@@ -1351,9 +1351,10 @@ describe('playback on another browser', () => {
 			assert.equal((await new Client(app.url).request('/api/search?q=Artist%200003')).status, 401);
 			const client = await signedIn('seconduser', 'secondpass');
 			const found = await (await client.request('/api/search?q=Artist%200003')).json();
-			assert.deepEqual(Object.keys(found), ['songs']);
+			// The albums and artists are for Terminal's command line.
+			assert.deepEqual(Object.keys(found), ['songs', 'albums', 'artists']);
 			assert.equal(found.songs[0].id, 's3a');
-			assert.deepEqual(await (await client.request('/api/search?q=a')).json(), { songs: [] });
+			assert.deepEqual(await (await client.request('/api/search?q=a')).json(), { songs: [], albums: [], artists: [] });
 		});
 	});
 	describe('listening now', () => {

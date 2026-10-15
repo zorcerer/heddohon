@@ -5922,6 +5922,74 @@ describe('Terminal, the default theme', () => {
 		}
 		assert.deepEqual(problems, []);
 	});
+
+	test('the command line opens on : and Ctrl+K, suggests, runs, and says what went wrong', async () => {
+		await settings({ theme: 'terminal' });
+		const { page, problems } = await watchedPage();
+		try {
+			await page.goto(app.url + '/', { waitUntil: 'networkidle' });
+			const field = page.getByRole('combobox', { name: 'Command' });
+
+			// A command's name suggests the commands it begins.
+			await page.keyboard.press(':');
+			await field.waitFor();
+			await field.pressSequentially('se');
+			const names = await page.getByRole('option').allTextContents();
+			assert.ok(names.some((name) => name.startsWith('seek')) && names.some((name) => name.startsWith('search')), names.join(' | '));
+
+			// cd goes to a page; the line closes and the strip says where.
+			await field.fill('');
+			await field.pressSequentially('cd albums');
+			await page.keyboard.press('Enter');
+			await page.waitForURL(/\/albums$/);
+			await field.waitFor({ state: 'detached', timeout: 2000 });
+			await page.getByRole('status').filter({ hasText: '~/albums' }).waitFor();
+
+			// play looks the words up and plays the best match.
+			await page.keyboard.press('Control+k');
+			await field.pressSequentially('play Artist 0003');
+			await page.getByRole('option').first().waitFor();
+			await page.keyboard.press('Enter');
+			await page.getByRole('status').filter({ hasText: /^playing Song 3a/ }).waitFor();
+			assert.equal(await page.evaluate(() => document.title.includes('Song 3a')), true);
+
+			await page.keyboard.press(':');
+			await field.pressSequentially('vol 40');
+			await page.keyboard.press('Enter');
+			await page.getByRole('status').filter({ hasText: 'volume 40' }).waitFor();
+
+			// A line that is not a command keeps the line open with why.
+			await page.keyboard.press(':');
+			await field.pressSequentially('frobnicate');
+			await page.keyboard.press('Enter');
+			await page.getByRole('alert').filter({ hasText: 'frobnicate: no such command' }).waitFor();
+			await page.keyboard.press('Escape');
+			assert.equal(await field.count(), 0);
+
+			// Typing in a field does not open it.
+			await page.goto(app.url + '/search', { waitUntil: 'networkidle' });
+			await page.getByRole('searchbox').first().pressSequentially('a:b');
+			assert.equal(await field.count(), 0, 'a colon typed into the search field opened the command line');
+		} finally {
+			await liquid();
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+
+	test('the command line is Terminal\'s alone', async () => {
+		const { page } = await watchedPage();
+		try {
+			await page.goto(app.url + '/', { waitUntil: 'networkidle' });
+			await page.keyboard.press(':');
+			// In the DOM at all: the strip is hidden outside Terminal, and a line open
+			// in it would hold the focus out of sight.
+			assert.equal(await page.locator('input[aria-label="Command"]').count(), 0);
+			assert.equal(await page.getByRole('button', { name: 'Command line' }).isVisible(), false);
+		} finally {
+			await page.close();
+		}
+	});
 });
 
 describe('Phosphor', () => {
