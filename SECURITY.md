@@ -1477,6 +1477,9 @@ session token and any `u`, `t`, `s` or `p` query parameter.
 
 ## Operator checklist
 
+The same steps in the order to do them, with less of the reasoning, are in
+[SETUP.md](SETUP.md).
+
 1. **Generate a secret** with `openssl rand -base64 48` (32 characters minimum).
    Changing it signs everyone out.
 2. **Set `ORIGIN`** to your public `https://` URL. A wrong value fails closed and
