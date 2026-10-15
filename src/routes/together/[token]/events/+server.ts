@@ -1,6 +1,7 @@
 import { error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { listen, togetherEnabled } from '$lib/server/together';
+import { visitorAddress } from '$lib/server/ratelimit';
 
 /** See `routes/api/remote/events`: the same keepalive, for the same proxies. */
 const KEEPALIVE_MS = 25_000;
@@ -45,7 +46,7 @@ export const GET: RequestHandler = async ({ params, request, locals, getClientAd
 			const joined = listen(
 				params.token,
 				locals.session,
-				getClientAddress(),
+				visitorAddress({ getClientAddress, request }),
 				(event, data) => {
 					write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
 					if (event === 'ended') end();

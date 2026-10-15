@@ -12,7 +12,8 @@ import {
 	loginKeys,
 	pruneLoginAttempts,
 	refundLoginAttempt,
-	reserveLoginAttempt
+	reserveLoginAttempt,
+	visitorAddress
 } from '$lib/server/ratelimit';
 import { log, reason } from '$lib/server/log';
 
@@ -76,7 +77,7 @@ export const actions: Actions = {
 		 * not a resolved account: the limit is on guesses at accounts that may
 		 * not exist. Anything the upstream did not judge is handed back below.
 		 */
-		const keys = loginKeys(backend, username, event.getClientAddress(), await knownDevice(event, backend, username));
+		const keys = loginKeys(backend, username, visitorAddress(event), await knownDevice(event, backend, username));
 		const verdict = await reserveLoginAttempt(keys);
 		if (!verdict.allowed) {
 			// A throttled address is the sign of somebody guessing, and the line an

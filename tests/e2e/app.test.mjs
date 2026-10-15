@@ -1172,6 +1172,8 @@ describe('playback on another browser', () => {
 			try {
 				for (let i = 0; i < 50; i++) streams.push(await listen(new Client(app.url), `${party.url}/events`));
 				assert.equal((await new Client(app.url).request(`${party.url}/events`)).status, 404, 'a 51st visitor was let in');
+				// Every one from 127.0.0.1, which is not counted per visitor, and the log says why.
+				assert.match(app.output(), /together-one-address/);
 				streams.push(await listen(client, `${party.url}/events`));
 				const second = await member(party);
 				streams.push(second.stream);
@@ -3709,6 +3711,10 @@ describe('the security review of 2026-09-29', () => {
 			for (let i = 0; i < 4; i++) assert.equal(await stream('203.0.113.5'), 200, `stream ${i + 1} was refused`);
 			assert.equal(await stream('203.0.113.5'), 404, 'a fifth stream from one address was let in');
 			assert.equal(await stream('203.0.113.6'), 200, 'another address was refused');
+			// An IPv6 address by its /64, the block routed to one customer.
+			for (let i = 1; i <= 4; i++) assert.equal(await stream(`2001:db8:1:2::${i}`), 200, `IPv6 stream ${i} was refused`);
+			assert.equal(await stream('2001:db8:1:2:ffff::1'), 404, 'a fifth address of one /64 was let in');
+			assert.equal(await stream('2001:db8:1:3::1'), 200, 'the next /64 was refused');
 		} finally {
 			for (const controller of open) controller.abort();
 			await proxied.stop();

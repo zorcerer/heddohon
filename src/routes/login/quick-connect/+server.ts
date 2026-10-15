@@ -8,7 +8,8 @@ import {
 	pruneLoginAttempts,
 	quickConnectKeys,
 	refundLoginAttempt,
-	reserveLoginAttempt
+	reserveLoginAttempt,
+	visitorAddress
 } from '$lib/server/ratelimit';
 import { log, reason } from '$lib/server/log';
 
@@ -36,7 +37,7 @@ export const POST: RequestHandler = async (event) => {
 		return json({ error: 'Quick Connect is not turned on for this server.' }, { status: 404 });
 	}
 
-	const keys = quickConnectKeys(address);
+	const keys = quickConnectKeys(visitorAddress(event));
 	const verdict = await reserveLoginAttempt(keys);
 	// Starts never reach the path that prunes after a rejected password, so the
 	// rows they leave are dropped here.
