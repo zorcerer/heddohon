@@ -1246,6 +1246,26 @@ export const jellyfinBackend: MediaBackend = {
 		await post(cred, path, payload);
 	},
 
+	async forEachSong(cred, onPage) {
+		const { userId } = creds(cred);
+		// Sorted, so a page boundary does not move while the listing is read.
+		for (let start = 0; ; start += PLAYED_PAGE) {
+			const body = await call<ItemsResponse>(cred, '/Items', {
+				userId,
+				IncludeItemTypes: 'Audio',
+				Recursive: 'true',
+				SortBy: 'SortName',
+				SortOrder: 'Ascending',
+				Fields: SONG_FIELDS,
+				StartIndex: start,
+				Limit: PLAYED_PAGE
+			});
+			const items = body.Items ?? [];
+			onPage(items.filter((item) => item.Type === 'Audio').map(toSong));
+			if (items.length < PLAYED_PAGE) return;
+		}
+	},
+
 	async getPlayedSongs(cred) {
 		const { userId } = creds(cred);
 		const played: { song: Song; playedAt: number }[] = [];

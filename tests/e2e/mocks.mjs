@@ -203,6 +203,9 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 		mixSize: 0,
 		/** A genre every song carries, and `getSongsByGenre` answers for with 30 songs; null for none. */
 		songGenre: null,
+		/** Artist indexes whose second song is an MP3, and whose second song is on a second copy of the album. */
+		lossy: new Set(),
+		copied: new Set(),
 		/**
 		 * Navidrome's own API (`/auth/login`, `/api/lastfm/link`,
 		 * `/api/listenbrainz/link`). Null makes this a Subsonic server that is
@@ -237,7 +240,11 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 		size: 20_000_000,
 		starred: state.starred.get(`s${i}${side}`),
 		userRating: state.ratings.get(`s${i}${side}`),
-		...(state.songGenre ? { genre: state.songGenre } : {})
+		...(state.songGenre ? { genre: state.songGenre } : {}),
+		// For the library report: the second song of an album an MP3, or on a
+		// second copy of the album.
+		...(side === 'b' && state.lossy.has(i) ? { suffix: 'mp3', bitRate: 320, bitDepth: undefined, size: 7_000_000 } : {}),
+		...(side === 'b' && state.copied.has(i) ? { albumId: `al${i}-copy` } : {})
 	});
 	const album = (i, id = `al${i}`) => ({
 		id,

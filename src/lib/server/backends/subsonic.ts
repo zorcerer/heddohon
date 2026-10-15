@@ -1021,6 +1021,21 @@ export const subsonicBackend: MediaBackend = {
 		});
 	},
 
+	async forEachSong(cred, onPage) {
+		for (let offset = 0; ; offset += PLAYED_PAGE) {
+			const body = await call<{ searchResult3?: Record<string, any> }>(cred, 'search3.view', {
+				query: '',
+				songCount: PLAYED_PAGE,
+				songOffset: offset,
+				albumCount: 0,
+				artistCount: 0
+			});
+			const songs = asArray(body.searchResult3?.song as Record<string, any>[]);
+			onPage(songs.map(toSong));
+			if (songs.length < PLAYED_PAGE) return;
+		}
+	},
+
 	async getPlayedSongs(cred) {
 		const played: { song: Song; playedAt: number }[] = [];
 		// The whole library a page at a time, since no call lists played songs

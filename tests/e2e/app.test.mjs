@@ -5398,3 +5398,65 @@ describe('daily mixes', () => {
 		}
 	});
 });
+
+describe('the library report', () => {
+	// The session tests above end every older session of the shared client.
+	before(async () => {
+		assert.equal((await user.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' })).status, 303);
+	});
+
+	async function made(client) {
+		const deadline = Date.now() + 10_000;
+		for (;;) {
+			const status = await (await client.request('/api/library-report')).json();
+			if (status.state !== 'running') return status;
+			assert.ok(Date.now() < deadline, 'the report was not made in 10s');
+			await new Promise((done) => setTimeout(done, 100));
+		}
+	}
+
+	test('is an administrator\'s', async () => {
+		subsonic.state.admin = false;
+		try {
+			assert.equal((await user.request('/api/library-report', { method: 'POST' })).status, 403);
+			assert.doesNotMatch((await user.page('/settings?tab=storage')).html, /Library report/);
+		} finally {
+			subsonic.state.admin = true;
+		}
+		assert.match((await user.page('/settings?tab=storage')).html, /Library report/);
+	});
+
+	test('counts the whole library by format, and finds albums in two formats and held twice', async () => {
+		subsonic.state.lossy.add(3);
+		subsonic.state.copied.add(4);
+		try {
+			const started = await user.request('/api/library-report', { method: 'POST' });
+			assert.equal(started.status, 200, explain('the report did not start'));
+			const status = await made(user);
+			assert.equal(status.state, 'done', explain(JSON.stringify(status)));
+			const r = status.report;
+			// 250 artists of two songs each, in one page of 500 and an empty one.
+			assert.equal(r.tracks, 500);
+			assert.equal(r.artists, 250);
+			assert.deepEqual(r.formats.map(({ format, tracks }) => ({ format, tracks })), [
+				{ format: 'flac', tracks: 499 },
+				{ format: 'mp3', tracks: 1 }
+			]);
+			assert.equal(r.lossless, 499);
+			assert.deepEqual(r.resolutions, [{ label: '16-bit 44.1kHz', tracks: 499 }]);
+			assert.deepEqual(r.mixed.map((album) => [album.id, album.formats]), [['al3', ['flac', 'mp3']]]);
+			assert.equal(r.duplicateCount, 1);
+			assert.deepEqual(r.duplicates[0].albums.map((album) => album.id).sort(), ['al4', 'al4-copy']);
+			// The mock sends no ReplayGain, genre or year.
+			assert.equal(r.withoutReplayGain, 500);
+			assert.equal(r.withoutReplayGainAlbums.length, 50);
+
+			const page = (await user.page('/settings?tab=storage')).html;
+			assert.match(page, /Formats/);
+			assert.match(page, /1 album in more than one format/);
+		} finally {
+			subsonic.state.lossy.clear();
+			subsonic.state.copied.clear();
+		}
+	});
+});

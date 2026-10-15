@@ -293,6 +293,14 @@ export interface MediaBackend {
 	 */
 	getPlayedSongs(cred: StoredCredential): Promise<{ song: Song; playedAt: number }[]>;
 
+	/**
+	 * Every track in the library, a page at a time, to `onPage`, for the
+	 * library report (`libraryreport.ts`). The same listing `getPlayedSongs`
+	 * reads: `search3` with an empty query on Subsonic, which a server other
+	 * than Navidrome may answer with nothing, and `/Items` on Jellyfin.
+	 */
+	forEachSong(cred: StoredCredential, onPage: (songs: Song[]) => void): Promise<void>;
+
 	/** Byte-exact original file. Never transcoded. */
 	openStream(
 		cred: StoredCredential,

@@ -12,6 +12,8 @@
 	import { EQ_FREQUENCIES, EQ_RANGE_DB } from '$lib/client/audiochain';
 	import { EQ_PRESETS, processing } from '$lib/client/processing.svelte';
 	import { APP_KINDS, APP_RELEASES, installer, INSTALL_STEPS } from '$lib/client/install.svelte';
+	import { formatBytes, formatLongDuration } from '$lib/client/format';
+	import type { ReportStatus } from '$lib/server/libraryreport';
 
 	/** One of Heddohon's own apps for this system, where there is one; see `install.svelte.ts`. */
 	const appKind = $derived(
@@ -298,6 +300,33 @@
 		return () => clearInterval(timer);
 	});
 
+
+	/*
+	 * The library report: started here, made by the server (`libraryreport.ts`).
+	 * Asked for again every 1.5 seconds while it is made and the Cover cache
+	 * tab is showing, as the cover fill is.
+	 */
+	let report = $state<ReportStatus | null>(untrack(() => data.libraryReport));
+	let reportError = $state('');
+
+	async function reportRequest(method: 'GET' | 'POST') {
+		const response = await fetch('/api/library-report', { method }).catch(() => null);
+		if (!response?.ok) {
+			const body = (await response?.json().catch(() => null)) as { message?: string } | null;
+			reportError = body?.message ?? 'The report could not be asked for.';
+			return;
+		}
+		reportError = '';
+		report = await response.json();
+	}
+
+	$effect(() => {
+		if (report?.state !== 'running' || shown !== 'storage') return;
+		const timer = setInterval(() => void reportRequest('GET'), 1500);
+		return () => clearInterval(timer);
+	});
+
+	const percent = (part: number, whole: number) => (whole > 0 ? `${Math.round((part / whole) * 100)}%` : '0%');
 	/** Whether the server repeats the fill daily; see `keepFilled` in `coverfill.ts`. */
 	let daily = $state(untrack(() => data.coverFillDaily));
 
@@ -1916,6 +1945,120 @@
 		</section>
 	{/if}
 
+	{#if report}
+		<section class="hh-card hh-glass group" id="library-report" hidden={shown !== 'storage'}>
+			<div class="group-head">
+				<h2>Library report</h2>
+				<p class="hh-muted">
+					What the library on {data.serverLabel || 'the music server'} is made of, by format and resolution,
+					and what it lacks: albums in more than one format, the same album held twice, tracks without
+					ReplayGain, a genre or a year. Read from the whole library, a page of tracks at a time, and kept
+					for a day.
+				</p>
+			</div>
+
+			{#if report.state === 'running'}
+				<p class="hh-muted note-inline" role="status">Reading the library: {report.tracks.toLocaleString()} tracks so far.</p>
+			{:else}
+				<button class="hh-button" type="button" onclick={() => reportRequest('POST')}>
+					{report.state === 'done' ? 'Make it again' : 'Make a report'}
+				</button>
+			{/if}
+			{#if reportError}
+				<p class="hh-muted note-inline" role="alert">{reportError}</p>
+			{:else if report.state === 'failed'}
+				<p class="hh-muted note-inline" role="alert">{report.detail}</p>
+			{/if}
+
+			{#if report.state === 'done'}
+				{@const r = report.report}
+				{#if r.tracks === 0}
+					<p class="hh-muted note-inline">
+						The music server listed no tracks. A Subsonic server other than Navidrome may not list its whole
+						library this way.
+					</p>
+				{:else}
+					<dl class="report-figures hh-numeric">
+						<div><dt>Tracks</dt><dd>{r.tracks.toLocaleString()}</dd></div>
+						<div><dt>Albums</dt><dd>{r.albums.toLocaleString()}</dd></div>
+						<div><dt>Artists</dt><dd>{r.artists.toLocaleString()}</dd></div>
+						<div><dt>Length</dt><dd>{formatLongDuration(r.seconds)}</dd></div>
+						<div><dt>Size</dt><dd>{formatBytes(r.bytes)}</dd></div>
+						<div><dt>Lossless</dt><dd>{percent(r.lossless, r.tracks)}</dd></div>
+						<div><dt>Hi-res</dt><dd>{percent(r.hiRes, r.tracks)}</dd></div>
+					</dl>
+
+					<div class="report-tables">
+						<table>
+							<caption>Formats</caption>
+							<thead><tr><th scope="col">Format</th><th scope="col">Tracks</th><th scope="col">Size</th></tr></thead>
+							<tbody>
+								{#each r.formats as entry (entry.format)}
+									<tr><td>{entry.format}</td><td class="hh-numeric">{entry.tracks.toLocaleString()}</td><td class="hh-numeric">{formatBytes(entry.bytes)}</td></tr>
+								{/each}
+							</tbody>
+						</table>
+						{#if r.resolutions.length > 0}
+							<table>
+								<caption>Lossless, by resolution</caption>
+								<thead><tr><th scope="col">Resolution</th><th scope="col">Tracks</th></tr></thead>
+								<tbody>
+									{#each r.resolutions as entry (entry.label)}
+										<tr><td>{entry.label}</td><td class="hh-numeric">{entry.tracks.toLocaleString()}</td></tr>
+									{/each}
+								</tbody>
+							</table>
+						{/if}
+					</div>
+
+					<ul class="report-lacks hh-numeric">
+						<li>{r.withoutReplayGain.toLocaleString()} tracks without ReplayGain</li>
+						<li>{r.withoutGenre.toLocaleString()} without a genre</li>
+						<li>{r.withoutYear.toLocaleString()} without a year</li>
+					</ul>
+
+					{#if r.mixedCount > 0}
+						<details>
+							<summary>{r.mixedCount === 1 ? "1 album" : `${r.mixedCount.toLocaleString()} albums`} in more than one format{r.mixedCount > r.mixed.length ? `, the first ${r.mixed.length}` : ''}</summary>
+							<ul class="report-list">
+								{#each r.mixed as album (album.id)}
+									<li><a href="/albums/{album.id}">{album.name}</a><span class="hh-muted"> · {album.artist ?? 'Unknown artist'} · {album.formats.join(', ')}</span></li>
+								{/each}
+							</ul>
+						</details>
+					{/if}
+					{#if r.duplicateCount > 0}
+						<details>
+							<summary>{r.duplicateCount === 1 ? "1 album" : `${r.duplicateCount.toLocaleString()} albums`} held more than once{r.duplicateCount > r.duplicates.length ? `, the first ${r.duplicates.length}` : ''}</summary>
+							<ul class="report-list">
+								{#each r.duplicates as group, index (index)}
+									<li>
+										{group.name}<span class="hh-muted"> · {group.artist ?? 'Unknown artist'}:</span>
+										{#each group.albums as album, i (album.id)}{i > 0 ? ', ' : ' '}<a href="/albums/{album.id}">{album.formats.join('/')} ({album.tracks})</a>{/each}
+									</li>
+								{/each}
+							</ul>
+						</details>
+					{/if}
+					{#if r.withoutReplayGainAlbums.length > 0}
+						<details>
+							<summary>Albums with tracks without ReplayGain{r.withoutReplayGainAlbums.length >= 50 ? ', the first 50' : ''}</summary>
+							<ul class="report-list">
+								{#each r.withoutReplayGainAlbums as album (album.id)}
+									<li><a href="/albums/{album.id}">{album.name}</a><span class="hh-muted"> · {album.artist ?? 'Unknown artist'}</span></li>
+								{/each}
+							</ul>
+						</details>
+					{/if}
+					<p class="hh-muted note">
+						Made {shortDate(r.madeAt)}. Covers are not checked: the music server gives every album a cover
+						whether or not there is art behind it. Caching every cover, above, reads them all.
+					</p>
+				{/if}
+			{/if}
+		</section>
+	{/if}
+
 	<!--
 		The two values of the deployment an administrator can change from here.
 		Everything else about it is in its environment.
@@ -2597,6 +2740,79 @@
 	.withdraw:disabled {
 		opacity: 0.6;
 		cursor: progress;
+	}
+
+	.report-figures {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(8rem, 1fr));
+		gap: var(--space-3);
+		margin: var(--space-4) 0;
+	}
+
+	.report-figures div {
+		display: grid;
+		gap: 0.15rem;
+	}
+
+	.report-figures dt {
+		color: var(--text-muted);
+		font-size: 0.75rem;
+	}
+
+	.report-figures dd {
+		margin: 0;
+		color: var(--text-strong);
+		font-size: 1.125rem;
+	}
+
+	.report-tables {
+		display: flex;
+		flex-wrap: wrap;
+		gap: var(--space-5);
+		margin-bottom: var(--space-4);
+	}
+
+	.report-tables table {
+		border-collapse: collapse;
+		font-size: 0.8125rem;
+	}
+
+	.report-tables caption {
+		text-align: left;
+		padding-bottom: var(--space-2);
+		color: var(--text-muted);
+	}
+
+	.report-tables th,
+	.report-tables td {
+		padding: 0.25rem var(--space-4) 0.25rem 0;
+		text-align: left;
+		border-bottom: 1px solid var(--border-hairline);
+	}
+
+	.report-tables th {
+		color: var(--text-muted);
+		font-weight: 500;
+	}
+
+	.report-lacks {
+		margin: 0 0 var(--space-3);
+		padding-left: 1.2rem;
+		font-size: 0.875rem;
+	}
+
+	.report-list {
+		margin: var(--space-2) 0 var(--space-3);
+		padding-left: 1.2rem;
+		font-size: 0.8125rem;
+		max-height: 18rem;
+		overflow-y: auto;
+	}
+
+	details summary {
+		cursor: pointer;
+		font-size: 0.875rem;
+		padding: 0.25rem 0;
 	}
 
 	/* A token has no cover. */
