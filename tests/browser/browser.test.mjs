@@ -5923,12 +5923,17 @@ describe('Terminal, the default theme', () => {
 		assert.deepEqual(problems, []);
 	});
 
-	test('the command line opens on : and Ctrl+K, suggests, runs, and says what went wrong', async () => {
+	test('the command line opens on :, ; and Ctrl+K, suggests, runs, and says what went wrong', async () => {
 		await settings({ theme: 'terminal' });
 		const { page, problems } = await watchedPage();
 		try {
 			await page.goto(app.url + '/', { waitUntil: 'networkidle' });
 			const field = page.getByRole('combobox', { name: 'Command' });
+
+			// The button names its shortcut, and is drawn in the accent until the line has been opened once.
+			const button = page.getByRole('button', { name: 'Command line' });
+			assert.match(await button.textContent(), /command\s*Ctrl K/);
+			assert.equal(await button.evaluate((node) => node.classList.contains('fresh')), true);
 
 			// A command's name suggests the commands it begins.
 			await page.keyboard.press(':');
@@ -5953,7 +5958,8 @@ describe('Terminal, the default theme', () => {
 			await page.getByRole('status').filter({ hasText: /^playing Song 3a/ }).waitFor();
 			assert.equal(await page.evaluate(() => document.title.includes('Song 3a')), true);
 
-			await page.keyboard.press(':');
+			// `;`, the same key without Shift.
+			await page.keyboard.press(';');
 			await field.pressSequentially('vol 40');
 			await page.keyboard.press('Enter');
 			await page.getByRole('status').filter({ hasText: 'volume 40' }).waitFor();
@@ -5965,6 +5971,7 @@ describe('Terminal, the default theme', () => {
 			await page.getByRole('alert').filter({ hasText: 'frobnicate: no such command' }).waitFor();
 			await page.keyboard.press('Escape');
 			assert.equal(await field.count(), 0);
+			assert.equal(await button.evaluate((node) => node.classList.contains('fresh')), false, 'the button still asks to be found');
 
 			// Typing in a field does not open it.
 			await page.goto(app.url + '/search', { waitUntil: 'networkidle' });
