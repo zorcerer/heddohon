@@ -1244,6 +1244,8 @@ Covers are cached under `$HEDDOHON_DATA_DIR/covers` (see
 | MCP tokens per account | 20; a name of 64 characters, cut, with control and format characters removed |
 | MCP tool arguments | ids of 1 to 255 characters; a search of 2 to 200 characters and 50 of each kind; 200 albums, 1000 artists, 100 songs or 100 plays a page; 1000 songs or positions a playlist write; a playlist name of 200 characters; a rating from 0 to 5 |
 | MCP request | one JSON-RPC message, within the 512 KB body cap |
+| Library report | an account the music server lists as an administrator; one at a time on the server; kept in memory a day; 50 entries a list |
+| Daily mixes | 3 a day for an account, 40 songs each, made at most once a day from this server's history and kept in `daily_mixes` |
 | Navidrome plugin token | at least 32 characters, and not `HEDDOHON_SECRET` |
 | Navidrome plugin message | 100 plays, or a page of 2000 scrobbles; a user name and a song id of 1 to 255 characters; a time in whole seconds, at most 5 minutes ahead |
 | Scrobble history imports open at once | 4; closed after 2 minutes without a page |
@@ -1759,3 +1761,49 @@ Looked at and left as it is: the probe tells whoever has the code whether
 something answers at an address and port, which is what entering a music
 server's address is; and the secret the setup makes is kept in the data
 directory, which **First-run setup** and the last step of the setup state.
+
+### 15 October 2026
+
+Found while adding public and private playlists, with a check each in
+`tests/e2e/app.test.mjs` (**whose a playlist is, and who sees it**).
+
+| Severity | Finding | Fix |
+| --- | --- | --- |
+| Medium | On Jellyfin a link could be made to another user's public playlist, which served that user's name and tracks to anyone, out of their reach to withdraw. Jellyfin 12.1.0 lists another user's public playlist to every account and names no owner, and a playlist without one was taken for the sharer's own | Refused with 403; a playlist is the account's own when `/Playlists/{id}/Users` answers it, which Jellyfin does for the owner alone |
+| Low | Navidrome's error 50 ("not authorized for the given operation") was taken for a rejected password. A change to another user's playlist through a path that ends sessions on one (a rating, an MCP tool) signed the account out everywhere and withdrew its MCP tokens | A refusal of its own (`forbidden`), answered 403, which ends nothing; Jellyfin's 403 likewise |
+| Info | Navidrome 0.64.2 lists an administrator every user's private playlists, and the playlists page showed them | Left out: an account sees its own playlists and the public ones |
+
+The same day, a pass over the whole app as an outside tester would make
+it, against the test rig's Navidrome 0.64.2 and Jellyfin 12.1.0, two
+accounts each. Found and fixed with it: an account's first visit of the day,
+before it had played anything, kept an empty set of daily mixes for the rest
+of the day; and Jellyfin's playlists were asked whose they are twice per
+playlist each time the add-to-playlist list opened (held ten minutes now).
+Looked at and found holding:
+
+- `next` after sign-in, in twelve forms (`//host`, `/\host`, encoded
+  slashes and backslashes, a tab, `javascript:`, CR and LF, a full-width
+  dot): every one lands on a path of this site.
+- The origin check against `null`, a trailing slash, a capital scheme, a
+  missing port and a suffixed host; a form action posted as `text/plain`
+  from another site; `x-heddohon-host` and `x-heddohon-protocol`,
+  `X-Forwarded-*` and `Host` sent by the client on a deployment with a saved
+  address. All refused.
+- Ids with `../`, `&u=`, CR and LF, and 300 characters on the stream, cover,
+  download and lyrics routes: passed to the music server as one encoded
+  value, or refused. An answer that is not audio or an image (Navidrome's
+  error, which names its version) is sent as `application/octet-stream`
+  with `nosniff` and the sandbox, to the signed-in account alone.
+- One Navidrome account against another's private playlist (read, add,
+  make public, delete, link), link, session handle, MCP token and library
+  report; the same on Jellyfin against a public playlist. Each refused, and
+  none signs the account out. Jellyfin 12.1.0 itself names another user's
+  private playlist to `/Items?Ids=`; Heddohon reads a playlist's tracks
+  through `/Playlists/{id}/Items`, which refuses, so neither the page nor a
+  link opens it.
+- Radio addresses as `::ffff:7f00:1`, `0:0:0:0:0:ffff:a00:1`,
+  `::ffff:a9fe:a9fe`, `0x7f.1`, `2130706433`, `127.1`, `::` and `fd00::1`:
+  each taken for private. The connection is made to the address checked.
+- A cast address after its session signs out: 404. The hardening headers
+  on media, `/api/mcp`, `/healthz` and JSON answers; no `Server` or
+  `X-Powered-By`.
