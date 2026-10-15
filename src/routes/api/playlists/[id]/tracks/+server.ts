@@ -23,7 +23,7 @@ export const POST: RequestHandler = async ({ locals, params, request }) => {
 		forgetSharedItems(session.account.id);
 		return json({ id: params.id, added: songIds.length });
 	} catch (err) {
-		if (err instanceof UpstreamError) error(err.status === 404 ? 404 : 502, err.message);
+		if (err instanceof UpstreamError) error(err.kind === 'forbidden' ? 403 : err.status === 404 ? 404 : 502, err.message);
 		throw err;
 	}
 };
@@ -58,7 +58,7 @@ export const DELETE: RequestHandler = async ({ locals, params, request }) => {
 		forgetSharedItems(session.account.id);
 		return json({ id: params.id, removed: indices.length });
 	} catch (err) {
-		if (err instanceof UpstreamError) error(err.status === 404 ? 404 : 502, err.message);
+		if (err instanceof UpstreamError) error(err.kind === 'forbidden' ? 403 : err.status === 404 ? 404 : 502, err.message);
 		throw err;
 	}
 };
@@ -97,7 +97,7 @@ export const PATCH: RequestHandler = async ({ locals, params, request }) => {
 		return json({ id: params.id, from, to });
 	} catch (err) {
 		if (err instanceof UpstreamError) {
-			error(err.kind === 'conflict' ? 409 : err.status === 404 ? 404 : 502, err.message);
+			error(err.kind === 'conflict' ? 409 : err.kind === 'forbidden' ? 403 : err.status === 404 ? 404 : 502, err.message);
 		}
 		throw err;
 	}

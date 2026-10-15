@@ -10,6 +10,7 @@ import {
 	UpstreamError,
 	assertSafeId,
 	forwardRequestHeaders,
+	mapLimited,
 	readJson,
 	upstreamFetch,
 	upstreamUrl
@@ -127,6 +128,18 @@ const TRANSCODE_CONTAINERS: Record<'mp3' | 'opus' | 'aac', string> = {
 	aac: 'aac'
 };
 
+/**
+ * Throws for an answer that is not a success. 403 is a token that works and a
+ * request it may not make: Jellyfin 12.1.0 answers it to a change to another
+ * user's playlist. It ends no session (`forbidden` on `UpstreamError`).
+ */
+function refused(response: Response): void {
+	if (response.ok) return;
+	if (response.status === 403) throw new UpstreamError('Not allowed', 403, 'forbidden');
+	if (response.status === 404) throw new UpstreamError('Not found', 404, 'not_found');
+	throw new UpstreamError(`Jellyfin returned HTTP ${response.status}`, 502);
+}
+
 async function call<T>(
 	cred: StoredCredential,
 	path: string,
@@ -138,8 +151,7 @@ async function call<T>(
 	if (response.status === 401) {
 		throw new UpstreamError('The Jellyfin session has expired. Please sign in again.', 401, 'auth');
 	}
-	if (response.status === 404) throw new UpstreamError('Not found', 404, 'not_found');
-	if (!response.ok) throw new UpstreamError(`Jellyfin returned HTTP ${response.status}`, 502);
+	refused(response);
 	if (response.status === 204) return undefined as T;
 	try {
 		return (await readJson(response)) as T;
@@ -161,9 +173,10 @@ async function post(
 		headers: { ...headersFor(cred), 'content-type': 'application/json' },
 		body: body === undefined ? undefined : JSON.stringify(body)
 	});
-	if (!response.ok && response.status !== 204) {
-		throw new UpstreamError(`Jellyfin returned HTTP ${response.status}`, 502);
+	if (response.status === 401) {
+		throw new UpstreamError('The Jellyfin session has expired. Please sign in again.', 401, 'auth');
 	}
+	refused(response);
 	// Drain so the connection can be reused.
 	await response.arrayBuffer().catch(() => undefined);
 }
@@ -321,7 +334,7 @@ function toArtist(item: JellyfinItem): Artist {
 	};
 }
 
-function toPlaylist(item: JellyfinItem): Playlist {
+function toPlaylist(item: JellyfinItem, access: PlaylistAccess): Playlist {
 	const created = item.DateCreated ? Date.parse(item.DateCreated) : NaN;
 	// Jellyfin reports no modification time for playlists, so the two dates are
 	// the same.
@@ -333,11 +346,60 @@ function toPlaylist(item: JellyfinItem): Playlist {
 		duration: ticksToSeconds(item.RunTimeTicks) || null,
 		coverArt: coverHandle(item),
 		owner: null,
-		isPublic: true,
+		...access,
 		createdAt: Number.isFinite(created) ? created : null,
 		changedAt: Number.isFinite(created) ? created : null
 	};
 }
+
+type PlaylistAccess = Pick<Playlist, 'editable' | 'isPublic'>;
+
+/**
+ * Whether a playlist is this account's, and whether it is public, which
+ * Jellyfin's listing does not say. Measured on Jellyfin 12.1.0:
+ * `/Playlists/{id}/Users` answers the owner with the playlist's shares and
+ * any other user with 403, and `/Playlists/{id}` holds `OpenAccess`, which a
+ * new playlist has set. Each took 26ms on the test rig.
+ *
+ * Another user's playlist is listed only when it is public: an administrator
+ * is not shown a private one. A server from before playlists could be shared
+ * (10.9) answers 404 to the first; its playlists are each its user's own.
+ */
+async function playlistAccess(cred: StoredCredential, id: string): Promise<PlaylistAccess> {
+	const key = accessKey(cred, id);
+	const held = accessHeld.get(key);
+	if (held && held.until > Date.now()) return held.access;
+	let access: PlaylistAccess;
+	try {
+		await call(cred, `/Playlists/${seg(id)}/Users`);
+		const detail = await call<{ OpenAccess?: boolean } | undefined>(cred, `/Playlists/${seg(id)}`);
+		access = { editable: true, isPublic: detail?.OpenAccess === true };
+	} catch (err) {
+		if (!(err instanceof UpstreamError)) throw err;
+		if (err.kind === 'forbidden') access = { editable: false, isPublic: true };
+		else if (err.kind === 'not_found') access = { editable: true, isPublic: false };
+		else throw err;
+	}
+	accessHeld.delete(key);
+	// The oldest goes first: a Map keeps the order its keys were set in.
+	if (accessHeld.size >= MAX_ACCESS_HELD) accessHeld.delete(accessHeld.keys().next().value!);
+	accessHeld.set(key, { access, until: Date.now() + ACCESS_HELD_MS });
+	return access;
+}
+
+/*
+ * `playlistAccess` answers, by user and playlist, held for ten minutes. The
+ * listing asks for every playlist each time the add-to-playlist picker opens,
+ * two calls for each of the user's own. Whose a playlist is does not change.
+ * Whether it is public changes here (`setPlaylistPublic`, which drops the
+ * entry) or in Jellyfin's own apps, which shows here up to ten minutes late.
+ * Two booleans an entry, and nothing of the credential: the key is the user
+ * id.
+ */
+const ACCESS_HELD_MS = 10 * 60 * 1000;
+const MAX_ACCESS_HELD = 5000;
+const accessHeld = new Map<string, { access: PlaylistAccess; until: number }>();
+const accessKey = (cred: StoredCredential, id: string) => `${creds(cred).userId}\u0000${id}`;
 
 interface ItemsResponse {
 	Items?: JellyfinItem[];
@@ -934,19 +996,22 @@ export const jellyfinBackend: MediaBackend = {
 			SortOrder: 'Ascending'
 		});
 		// Jellyfin playlists can hold video too; the music player only shows audio ones.
-		return (body.Items ?? []).map(toPlaylist);
+		const items = body.Items ?? [];
+		const access = await mapLimited(items, (item) => playlistAccess(cred, item.Id));
+		return items.map((item, i) => toPlaylist(item, access[i]));
 	},
 
 	async getPlaylist(cred, id): Promise<PlaylistDetail> {
 		const { userId } = creds(cred);
-		const [playlist, items] = await Promise.all([
+		const [playlist, items, access] = await Promise.all([
 			itemOf(cred, id, 'Playlist'),
 			call<ItemsResponse>(cred, `/Playlists/${seg(id)}/Items`, {
 				userId,
 				Fields: SONG_FIELDS
-			})
+			}),
+			playlistAccess(cred, id)
 		]);
-		return { ...toPlaylist(playlist), songs: (items.Items ?? []).map(toSong) };
+		return { ...toPlaylist(playlist, access), songs: (items.Items ?? []).map(toSong) };
 	},
 
 	async getSongs(cred, ids) {
@@ -1084,6 +1149,11 @@ export const jellyfinBackend: MediaBackend = {
 			throw new UpstreamError('Jellyfin did not return the new playlist', 502, 'protocol');
 		}
 		return payload.Id;
+	},
+
+	async setPlaylistPublic(cred, id, isPublic) {
+		await post(cred, `/Playlists/${seg(id)}`, { IsPublic: isPublic });
+		accessHeld.delete(accessKey(cred, id));
 	},
 
 	async renamePlaylist(cred, id, name) {

@@ -5224,3 +5224,76 @@ describe('an AI assistant, through the MCP endpoint', () => {
 		for (const file of files) assert.ok(!readFileSync(file).includes(token), `the token is in ${file}`);
 	});
 });
+
+describe('whose a playlist is, and who sees it', () => {
+	// The session tests above end every older session of the shared client.
+	before(async () => {
+		assert.equal((await user.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' })).status, 303);
+	});
+
+	const listed = async (client) => (await (await client.request('/api/playlists')).json()).playlists;
+	const patch = (client, id, body) => client.json(`/api/playlists/${id}`, 'PATCH', body);
+	const share = (client, id) => client.json('/api/shares', 'POST', { kind: 'playlist', id });
+
+	test('on Navidrome lists the account\'s own and the public ones, never another\'s private one', async () => {
+		const playlists = await listed(user);
+		assert.deepEqual(
+			playlists.map(({ id, editable, isPublic, owner }) => ({ id, editable, isPublic, owner })),
+			[
+				{ id: 'pl1', editable: true, isPublic: false, owner: 'testuser' },
+				{ id: 'pl2', editable: false, isPublic: true, owner: 'seconduser' }
+			]
+		);
+	});
+
+	test('makes the account\'s own public and private again', async () => {
+		try {
+			const made = await patch(user, 'pl1', { public: true });
+			assert.equal(made.status, 200, explain('making it public failed'));
+			assert.deepEqual(await made.json(), { id: 'pl1', public: true });
+			assert.equal(subsonic.state.playlistPublic, true);
+			assert.equal((await listed(user))[0].isPublic, true);
+			assert.match((await user.page('/playlists/pl1')).html, /Make private/);
+			assert.equal((await patch(user, 'pl1', { public: 'yes' })).status, 400);
+		} finally {
+			await patch(user, 'pl1', { public: false });
+		}
+		assert.equal(subsonic.state.playlistPublic, false);
+	});
+
+	test('another user\'s is read only, cannot be shared, and a refused change signs nobody out', async () => {
+		const page = (await user.page('/playlists/pl2')).html;
+		assert.match(page, /By seconduser, read only/);
+		assert.doesNotMatch(page, /Make public|Make private|>\s*Rename\s*</);
+
+		const refused = await patch(user, 'pl2', { name: 'Mine now' });
+		assert.equal(refused.status, 403);
+		// Navidrome's code 50 was taken for a rejected password, which ended every
+		// session of the account.
+		assert.equal((await user.request('/api/settings')).status, 200, 'a refused change signed the account out');
+		assert.equal((await share(user, 'pl2')).status, 403);
+	});
+
+	test('on Jellyfin, which names no owner, tells its own from another\'s public one', async () => {
+		const client = new Client(app.url);
+		assert.equal((await client.signIn({ username: 'jfuser', password: 'jfpass', backend: 'jellyfin' })).status, 303);
+		const playlists = await listed(client);
+		assert.deepEqual(
+			playlists.map(({ id, editable, isPublic }) => ({ id, editable, isPublic })),
+			[
+				{ id: 'jpl', editable: true, isPublic: true },
+				{ id: 'jother', editable: false, isPublic: true }
+			]
+		);
+		try {
+			assert.equal((await patch(client, 'jpl', { public: false })).status, 200);
+			assert.equal(jellyfin.state.playlistPublic, false);
+		} finally {
+			jellyfin.state.playlistPublic = true;
+		}
+		// Taken for the account's own while Jellyfin named no owner.
+		assert.equal((await share(client, 'jother')).status, 403);
+		assert.equal((await patch(client, 'jother', { public: false })).status, 403);
+		assert.equal((await client.request('/api/settings')).status, 200, 'a refused change signed the account out');
+	});
+});

@@ -260,6 +260,8 @@ export interface MediaBackend {
 	/** Creates a playlist, optionally seeded with tracks. Returns the new id. */
 	createPlaylist(cred: StoredCredential, name: string, songIds: string[]): Promise<string>;
 	renamePlaylist(cred: StoredCredential, id: string, name: string): Promise<void>;
+	/** Makes a playlist of this account's visible to every account on the music server, or to this one alone. */
+	setPlaylistPublic(cred: StoredCredential, id: string, isPublic: boolean): Promise<void>;
 	addToPlaylist(cred: StoredCredential, id: string, songIds: string[]): Promise<void>;
 	/**
 	 * Removes entries by their position in the playlist. Subsonic removes by

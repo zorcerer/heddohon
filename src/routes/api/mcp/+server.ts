@@ -138,6 +138,9 @@ export const POST: RequestHandler = async ({ request }) => {
 					return toolFailure(id, 'The music server no longer accepts this account. Sign in to Heddohon again and make a new token under Settings.');
 				}
 				if (err.kind === 'not_found') return toolFailure(id, 'The music server has nothing with that id for this account.');
+				if (err.kind === 'forbidden') {
+					return toolFailure(id, 'The music server does not let this account do that. Only the owner of a playlist can change it.');
+				}
 				return toolFailure(id, 'The music server did not complete that. Try again.');
 			}
 		}

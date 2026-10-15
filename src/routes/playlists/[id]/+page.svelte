@@ -13,7 +13,8 @@
 		deletePlaylist,
 		moveTrack,
 		removeTracks,
-		renamePlaylist
+		renamePlaylist,
+		setPlaylistPublic
 	} from '$lib/client/playlists.svelte';
 	import { heroSweep } from '$lib/client/motion';
 	import type { Song } from '$lib/types';
@@ -116,6 +117,20 @@
 		}
 	}
 
+
+	async function toggleVisibility() {
+		if (busy) return;
+		busy = true;
+		error = null;
+		try {
+			await setPlaylistPublic(playlist.id, !playlist.isPublic);
+			await invalidateAll();
+		} catch (err) {
+			error = err instanceof Error ? err.message : 'Could not change who can see this playlist';
+		} finally {
+			busy = false;
+		}
+	}
 	async function destroy() {
 		if (busy) return;
 		busy = true;
@@ -175,7 +190,12 @@
 			<p class="meta hh-numeric hh-muted">
 				{playlist.songs.length} track{playlist.songs.length === 1 ? '' : 's'}
 				{#if totalDuration}<span class="dot" aria-hidden="true">·</span>{formatLongDuration(totalDuration)}{/if}
-				{#if playlist.owner}<span class="dot" aria-hidden="true">·</span>{playlist.owner}{/if}
+				<span class="dot" aria-hidden="true">·</span>
+				{#if playlist.editable}
+					{playlist.isPublic ? 'Public' : 'Private'}
+				{:else}
+					{playlist.owner ? `By ${playlist.owner}` : "Another user's"}, read only
+				{/if}
 			</p>
 
 			<!--
@@ -209,7 +229,8 @@
 						<Icon name="queue" size={16} />
 						Queue
 					</button>
-					{#if page.data.sharing}
+					<!-- A link plays through the sharer's account, so only the owner's own can be shared. -->
+					{#if page.data.sharing && playlist.editable}
 						<button
 							class="hh-button"
 							onclick={() =>
@@ -239,21 +260,33 @@
 							Save the queue
 						</button>
 					{/if}
-					<button
-						class="hh-button hh-button--ghost"
-						onclick={startRename}
-						disabled={busy || renaming}
-					>
-						Rename
-					</button>
-					<button
-						class="hh-button hh-button--ghost danger"
-						onclick={() => (confirmingDelete = true)}
-						disabled={busy}
-					>
-						<Icon name="trash" size={16} />
-						Delete
-					</button>
+					{#if playlist.editable}
+						<button
+							class="hh-button hh-button--ghost"
+							onclick={toggleVisibility}
+							disabled={busy}
+							title={playlist.isPublic
+								? 'Every account on the music server can see and play it. Make it yours alone.'
+								: 'Only you can see it. Let every account on the music server see and play it.'}
+						>
+							{playlist.isPublic ? 'Make private' : 'Make public'}
+						</button>
+						<button
+							class="hh-button hh-button--ghost"
+							onclick={startRename}
+							disabled={busy || renaming}
+						>
+							Rename
+						</button>
+						<button
+							class="hh-button hh-button--ghost danger"
+							onclick={() => (confirmingDelete = true)}
+							disabled={busy}
+						>
+							<Icon name="trash" size={16} />
+							Delete
+						</button>
+					{/if}
 				</div>
 			</div>
 		</div>
@@ -281,7 +314,14 @@
 	{/if}
 
 	<section class="tracks">
-		<TrackList songs={shownSongs} variant="artwork" showAlbum onremove={removeAt} onmove={move} />
+		<!-- Another user's playlist offers no edits: the music server refuses them. -->
+		<TrackList
+			songs={shownSongs}
+			variant="artwork"
+			showAlbum
+			onremove={playlist.editable ? removeAt : null}
+			onmove={playlist.editable ? move : null}
+		/>
 	</section>
 </div>
 

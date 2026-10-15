@@ -689,6 +689,15 @@ an edit made in Heddohon, and within five minutes for one made elsewhere (see
 below). The share dialog says so. A link without a kind, made before albums
 and playlists could be shared, is a song link.
 
+**Only an account's own playlist can be linked to.** Navidrome and Jellyfin
+list another user's public playlist to every account. A link to one would
+serve that user's name and tracks to anyone, which that user could neither see
+nor withdraw, so making one is refused with 403 and an existing one stops
+opening. Navidrome names a playlist's owner. Jellyfin 12.1.0 names none, and a
+playlist is taken for the account's own when `/Playlists/{id}/Users` answers
+it, which Jellyfin does for the owner alone. Until 2026-10-15 a Jellyfin
+playlist was taken for the account's own whoever had made it.
+
 **What a link is to is held for five minutes.** The album, playlist or song is
 read with the owner's credential when a link is first used and held in memory
 for five minutes per link, so a range request or a track change through the

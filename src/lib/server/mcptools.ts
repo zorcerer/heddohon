@@ -174,6 +174,8 @@ function playlist(item: Playlist): Record<string, unknown> {
 		seconds: item.duration,
 		owner: item.owner,
 		public: item.isPublic,
+		// Whether this account may change it: another user's public playlist is listed too.
+		readOnly: !item.editable,
 		changed: iso(item.changedAt)
 	});
 }
@@ -336,7 +338,7 @@ export const TOOLS: Tool[] = [
 	{
 		name: 'list_playlists',
 		title: 'List playlists',
-		description: 'The playlists this account can see.',
+		description: 'Your playlists, and the public ones of other accounts, which are marked readOnly and cannot be changed.',
 		inputSchema: object({}),
 		writes: false,
 		async run({ backend, credential }) {
@@ -462,6 +464,22 @@ export const TOOLS: Tool[] = [
 			await backend.renamePlaylist(credential, playlistId, name);
 			forgetSharedItems(accountId);
 			return { id: playlistId, name };
+		}
+	},
+	{
+		name: 'set_playlist_public',
+		title: 'Make a playlist public or private',
+		description:
+			'Makes one of your own playlists visible to every account on the music server (public true), or to you alone (public false).',
+		inputSchema: object({ id: ID, public: { type: 'boolean' } }, ['id', 'public']),
+		writes: true,
+		idempotent: true,
+		async run({ backend, credential, accountId }, args) {
+			const playlistId = id(args);
+			const isPublic = flag(args, 'public');
+			await backend.setPlaylistPublic(credential, playlistId, isPublic);
+			forgetSharedItems(accountId);
+			return { id: playlistId, public: isPublic };
 		}
 	},
 	{
