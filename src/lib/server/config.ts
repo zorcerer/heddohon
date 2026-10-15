@@ -1,11 +1,15 @@
 /**
  * Administrator-supplied configuration.
  *
- * Every value comes from the process environment and none can be influenced by
- * a request: the operator decides which upstream servers exist, and a user
- * supplies only a username and a password.
+ * Every value comes from the process environment, or from what the first-run
+ * setup saved (`setup.json` in the data directory; see `setup.ts`) for the
+ * few values it may hold. The environment wins. No request can influence a
+ * value once the deployment is set up: the operator decides which upstream
+ * servers exist, and a user supplies only a username and a password.
  */
-import { accessSync, constants, mkdirSync, readFileSync } from 'node:fs';
+import { accessSync, chmodSync, constants, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { publishOrigins } from './origin';
 import { building } from '$app/environment';
 
 export type BackendKind = 'subsonic' | 'jellyfin';
@@ -47,6 +51,14 @@ export interface AppConfig {
 	/** Disk budget for the cover cache, in bytes. Zero switches it off. */
 	coverCacheBytes: number;
 	upstreams: UpstreamConfig[];
+	/**
+	 * The addresses this deployment is opened at, as saved by the setup or an
+	 * administrator: `http://192.168.1.10:3000`, `https://music.example.com`.
+	 * A request that arrives on one of them is served as from that address;
+	 * see `origin.ts`. Empty where the environment sets `ORIGIN`, and where
+	 * none was saved.
+	 */
+	origins: string[];
 	appName: string;
 	registrationHint: string | null;
 	/** Whether accounts may make song links, and whether links open. */
@@ -67,6 +79,11 @@ export interface AppConfig {
 	listenbrainzUrl: string | null;
 	/** Whether the library can be browsed by its folders on disk: the Folders page and playing a folder. */
 	folders: boolean;
+	/**
+	 * The theme an account starts in, and the one pages without an account
+	 * (sign-in, a shared link) are drawn in. A value of `data-theme`.
+	 */
+	defaultTheme: 'terminal' | 'dark' | 'light' | 'phosphor';
 	/** Whether the music server's internet radio stations are offered and played through this server; see `radio.ts`. */
 	radio: boolean;
 	/** Whether a station may be on a private address. Off unless asked for. */
@@ -77,6 +94,11 @@ export interface AppConfig {
 	 */
 	navidromePluginToken: string | null;
 	/**
+	 * Whether accounts may make tokens for the MCP endpoint, through which an AI
+	 * assistant browses the library and changes playlists; see `mcp.ts`.
+	 */
+	mcp: boolean;
+	/**
 	 * SHA-256 fingerprints of the certificates an Android app this server
 	 * vouches for is signed with; see `routes/.well-known/assetlinks.json`.
 	 */
@@ -85,6 +107,147 @@ export interface AppConfig {
 }
 
 export class ConfigError extends Error {}
+
+/**
+ * The deployment has not been told its secret or its music server, and
+ * nothing else is wrong with it. The request gate answers with the setup
+ * page (`hooks.server.ts`), where every other ConfigError is a 500.
+ */
+export class SetupRequired extends ConfigError {
+	constructor(readonly missing: { secret: boolean; upstream: boolean }) {
+		super(
+			'Heddohon is not set up: ' +
+				[missing.secret ? 'HEDDOHON_SECRET' : null, missing.upstream ? 'a music server' : null]
+					.filter(Boolean)
+					.join(' and ') +
+				' is missing. The setup page takes them, or set them in the environment.'
+		);
+	}
+}
+
+/**
+ * What the setup may save, by the variable each stands in for. A short list:
+ * the two values a deployment cannot start without, the choices a first run
+ * is asked about, and the three an administrator can change afterwards under
+ * Settings: the addresses the deployment is opened at (`ORIGIN`), the size of
+ * the cover cache and the MCP endpoint (`HEDDOHON_MCP`). Everything that
+ * names another host (the database, the third-party addresses), everything
+ * that widens what the server will fetch
+ * (`HEDDOHON_RADIO_PRIVATE`) and the plugin's token stay with the environment,
+ * where only the operator's own hands reach.
+ */
+export const SETUP_NAMES = [
+	'HEDDOHON_SECRET',
+	'HEDDOHON_SUBSONIC_URL',
+	'HEDDOHON_SUBSONIC_LABEL',
+	'HEDDOHON_JELLYFIN_URL',
+	'HEDDOHON_JELLYFIN_LABEL',
+	'HEDDOHON_DEFAULT_THEME',
+	'HEDDOHON_SHARING',
+	'HEDDOHON_DOWNLOADS',
+	'HEDDOHON_LYRICS_LRCLIB',
+	'HEDDOHON_MCP',
+	'HEDDOHON_COVER_CACHE_MB',
+	'ORIGIN'
+] as const;
+export type SetupName = (typeof SETUP_NAMES)[number];
+
+const SETUP_FILE = 'setup.json';
+
+/** The data directory as the environment names it. The saved values are found through it, so it cannot be one of them. */
+function dataDirName(): string {
+	return process.env.HEDDOHON_DATA_DIR?.trim() || '/data';
+}
+
+let saved: Partial<Record<SetupName, string>> | null = null;
+
+/**
+ * The saved values, read once. No file is no values. A file that cannot be
+ * read, or is not what the setup writes, is an error and not an empty one: an
+ * empty one would offer the setup again, over a deployment that has accounts.
+ */
+function savedValues(): Partial<Record<SetupName, string>> {
+	if (saved) return saved;
+	const path = join(dataDirName(), SETUP_FILE);
+	let text: string;
+	try {
+		text = readFileSync(path, 'utf8');
+	} catch (err) {
+		const code = (err as NodeJS.ErrnoException).code;
+		// A data directory that is not there yet has no file either; `dataDirectory` reports on the directory.
+		if (code === 'ENOENT' || code === 'ENOTDIR') return (saved = {});
+		throw new ConfigError(`${path} could not be read (${code ?? 'error'}). It holds what the setup page saved.`);
+	}
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(text);
+	} catch {
+		throw new ConfigError(`${path} is not valid JSON. It holds what the setup page saved; delete it to run the setup again.`);
+	}
+	if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+		throw new ConfigError(`${path} is not an object of saved values.`);
+	}
+	const values: Partial<Record<SetupName, string>> = {};
+	for (const name of SETUP_NAMES) {
+		// Own properties only, and strings only: the file is data.
+		const value = Object.prototype.hasOwnProperty.call(parsed, name) ? (parsed as Record<string, unknown>)[name] : undefined;
+		if (typeof value === 'string') values[name] = value;
+	}
+	return (saved = values);
+}
+
+/**
+ * Adds to the saved values and has the configuration read again. Written
+ * beside the file and renamed over it, so a crash leaves the old file or the
+ * new one. Readable by this user alone: it can hold the secret.
+ */
+export function saveSetup(values: Partial<Record<SetupName, string>>): void {
+	const path = join(dataDirectory(), SETUP_FILE);
+	const next: Partial<Record<SetupName, string>> = { ...savedValues() };
+	for (const name of SETUP_NAMES) {
+		const value = values[name];
+		if (typeof value !== 'string') continue;
+		// An empty value takes the saved one away, and the default stands again.
+		if (value.trim() === '') delete next[name];
+		else next[name] = value.trim();
+	}
+	const scratch = `${path}.${process.pid}.tmp`;
+	writeFileSync(scratch, JSON.stringify(next, null, '\t') + '\n', { mode: 0o600 });
+	// The mode above is masked by the umask, and does nothing to a file that
+	// was already there.
+	chmodSync(scratch, 0o600);
+	renameSync(scratch, path);
+	resetConfig();
+}
+
+/**
+ * The secret, where it was taken out of the saved file while this process
+ * runs (`forgetSavedSecret`). It is nowhere but here then, until the operator
+ * has set it in the environment and restarted.
+ */
+let heldSecret: string | null = null;
+
+/**
+ * Takes the secret out of `setup.json`, for an operator who has copied it to
+ * set in the environment. This process goes on with it in memory, so nobody is
+ * signed out; the next start reads it from the environment. Started again
+ * without it there, the deployment asks for its setup once more and makes a
+ * new one, and the credentials sealed under the old one cannot be read.
+ * False where the file holds none.
+ */
+export function forgetSavedSecret(): boolean {
+	const kept = savedValues().HEDDOHON_SECRET;
+	if (!kept) return false;
+	if (!fromEnvironment('HEDDOHON_SECRET')) heldSecret = kept;
+	saveSetup({ HEDDOHON_SECRET: '' });
+	return true;
+}
+
+/** Has the next `config()` read the environment and the saved values again. */
+export function resetConfig(): void {
+	cached = null;
+	saved = null;
+}
 
 /**
  * The SHA-256 of the certificate the released Android app is signed with, as
@@ -117,11 +280,16 @@ function androidFingerprints(): string[] {
 	return [...new Set([ANDROID_RELEASE_KEY, ...extra])];
 }
 
+/** A variable as the environment has it, or as the setup saved it where the environment has none. */
 function env(name: string): string | undefined {
-	const raw = process.env[name];
-	if (raw === undefined) return undefined;
-	const trimmed = raw.trim();
-	return trimmed === '' ? undefined : trimmed;
+	const given = process.env[name]?.trim();
+	if (given) return given;
+	if ((SETUP_NAMES as readonly string[]).includes(name)) {
+		const kept = savedValues()[name as SetupName]?.trim();
+		if (kept) return kept;
+	}
+	if (name === 'HEDDOHON_SECRET' && heldSecret) return heldSecret;
+	return undefined;
 }
 
 function normaliseUrl(name: string, raw: string): string {
@@ -169,6 +337,21 @@ function flagEnv(name: string, fallback: boolean): boolean {
 	if (['1', 'true', 'yes', 'on'].includes(raw)) return true;
 	if (['0', 'false', 'no', 'off'].includes(raw)) return false;
 	throw new ConfigError(`${name} must be true or false`);
+}
+
+/**
+ * `HEDDOHON_DEFAULT_THEME`, by the names Settings shows. The stored values
+ * are older than those names: Liquid is `dark` and Paper is `light`.
+ */
+const THEMES_BY_NAME = { terminal: 'terminal', liquid: 'dark', paper: 'light', phosphor: 'phosphor' } as const;
+
+function themeEnv(name: string): AppConfig['defaultTheme'] {
+	const raw = env(name)?.toLowerCase();
+	if (raw === undefined) return 'terminal';
+	if (Object.prototype.hasOwnProperty.call(THEMES_BY_NAME, raw)) {
+		return THEMES_BY_NAME[raw as keyof typeof THEMES_BY_NAME];
+	}
+	throw new ConfigError(`${name} must be terminal, liquid, paper or phosphor`);
 }
 
 /**
@@ -223,7 +406,7 @@ function identity(): string {
  * reports `misconfigured`, which fails the container's HEALTHCHECK.
  */
 function dataDirectory(): string {
-	const dir = env('HEDDOHON_DATA_DIR') ?? '/data';
+	const dir = dataDirName();
 
 	try {
 		mkdirSync(dir, { recursive: true });
@@ -243,7 +426,10 @@ function dataDirectory(): string {
 		throw new ConfigError(
 			`HEDDOHON_DATA_DIR ${dir} is not writable by ${identity()}. ` +
 				'It holds the database and the cover cache, so nothing works without it. ' +
-				'Give that user the host directory mounted there, for example ' +
+				'The image gives the directory to the user it runs as when the container starts, ' +
+				'unless the container is started as a user (`--user`, `user:` in a compose file, ' +
+				'`--user 99:100` under Extra Parameters on Unraid). Remove that and set PUID and PGID ' +
+				'to choose the user, or give that user the host directory mounted there, for example ' +
 				'`chown -R 99:100 /mnt/user/appdata/heddohon` on Unraid.'
 		);
 	}
@@ -251,8 +437,82 @@ function dataDirectory(): string {
 	return dir;
 }
 
+/** Whether the environment itself gives a variable, which a saved value then does not replace. */
+export function fromEnvironment(name: string): boolean {
+	return Boolean(process.env[name]?.trim());
+}
+
+/**
+ * Addresses as origins: one or several, apart by spaces, commas or lines,
+ * each `http://` or `https://` with a host and at most a port. A ConfigError
+ * says which one is not.
+ */
+export function parseOrigins(raw: string): string[] {
+	const found: string[] = [];
+	for (const part of raw.split(/[\s,]+/).filter(Boolean)) {
+		let url: URL;
+		try {
+			url = new URL(part);
+		} catch {
+			throw new ConfigError(`${JSON.stringify(part)} is not an address`);
+		}
+		if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+			throw new ConfigError(`${JSON.stringify(part)} must start with http:// or https://`);
+		}
+		if (url.pathname !== '/' || url.search || url.hash || url.username || url.password) {
+			throw new ConfigError(`${JSON.stringify(part)} must be an address alone, with nothing after the host and port`);
+		}
+		if (!found.includes(url.origin)) found.push(url.origin);
+	}
+	if (found.length > 8) throw new ConfigError('At most 8 addresses');
+	return found;
+}
+
+/**
+ * The addresses saved for this deployment, where the environment sets no
+ * `ORIGIN`. With `ORIGIN` in the environment the adapter already has the
+ * one address, and a saved list is not read. See `origin.ts`.
+ */
+function savedOrigins(): string[] {
+	if (fromEnvironment('ORIGIN')) return [];
+	const kept = savedValues().ORIGIN;
+	if (!kept) return [];
+	try {
+		return parseOrigins(kept);
+	} catch (err) {
+		throw new ConfigError(`ORIGIN in ${join(dataDirName(), SETUP_FILE)}: ${err instanceof Error ? err.message : 'not valid'}`);
+	}
+}
+
+/**
+ * `HEDDOHON_SETUP`, on unless set to false. Off, a deployment missing its
+ * secret or its music server answers 500 as every other misconfiguration
+ * does, and there is no setup page to find.
+ */
+export function setupOffered(): boolean {
+	return flagEnv('HEDDOHON_SETUP', true);
+}
+
+/**
+ * A music server's address as the configuration keeps it, or a ConfigError
+ * that says what is wrong with it. For the setup page, which checks an
+ * address by the rules the environment's are held to.
+ */
+export function upstreamAddress(raw: string): string {
+	return normaliseUrl('The address', raw);
+}
+
 function build(): AppConfig {
+	// First: the saved values are in it, and an unwritable one is a fault the
+	// setup page could not get past.
+	const dataDir = dataDirectory();
 	const secret = env('HEDDOHON_SECRET');
+	const anyUpstream = Boolean(
+		env('HEDDOHON_SUBSONIC_URL') ?? env('HEDDOHON_NAVIDROME_URL') ?? env('HEDDOHON_JELLYFIN_URL')
+	);
+	if ((!secret || !anyUpstream) && setupOffered()) {
+		throw new SetupRequired({ secret: !secret, upstream: !anyUpstream });
+	}
 	if (!secret) {
 		throw new ConfigError(
 			'HEDDOHON_SECRET is required. Generate one with: openssl rand -base64 48'
@@ -294,13 +554,14 @@ function build(): AppConfig {
 
 	return {
 		secret,
-		dataDir: dataDirectory(),
+		dataDir,
 		sessionMaxHours: intEnv('HEDDOHON_SESSION_HOURS', DEFAULT_SESSION_HOURS, 1, MAX_SESSION_HOURS),
 		cookieSecure: boolEnv('HEDDOHON_COOKIE_SECURE', 'auto'),
 		upstreamTimeoutMs: intEnv('HEDDOHON_UPSTREAM_TIMEOUT_MS', 20_000, 1_000, 120_000),
 		// Megabytes in, bytes out. 0 switches the cache off.
 		coverCacheBytes: intEnv('HEDDOHON_COVER_CACHE_MB', 512, 0, 65_536) * 1024 * 1024,
 		upstreams,
+		origins: savedOrigins(),
 		appName: env('HEDDOHON_APP_NAME') ?? 'Heddohon',
 		registrationHint: env('HEDDOHON_LOGIN_HINT') ?? null,
 		sharing: flagEnv('HEDDOHON_SHARING', true),
@@ -336,12 +597,16 @@ function build(): AppConfig {
 		// Off for a library whose layout on disk is not for its listeners: the
 		// page shows folder names as the music server stores them.
 		folders: flagEnv('HEDDOHON_FOLDERS', true),
+		defaultTheme: themeEnv('HEDDOHON_DEFAULT_THEME'),
 		// The stations are the music server administrator's list, and a stream
 		// is fetched only when a listener plays one. A station on a private
 		// address is refused unless `radioPrivate` is set.
 		radio: flagEnv('HEDDOHON_RADIO', true),
 		radioPrivate: flagEnv('HEDDOHON_RADIO_PRIVATE', false),
 		navidromePluginToken: navidromePluginToken(secret),
+		// Off unless asked for: what an assistant reads through it reaches the
+		// provider of the assistant's model, which is a third party.
+		mcp: flagEnv('HEDDOHON_MCP', false),
 		androidFingerprints: androidFingerprints(),
 		database: databaseConfig()
 	};
@@ -416,6 +681,7 @@ export function config(): AppConfig {
 			upstreamTimeoutMs: 20_000,
 			coverCacheBytes: 0,
 			upstreams: [],
+			origins: [],
 			appName: 'Heddohon',
 			registrationHint: null,
 			sharing: true,
@@ -427,14 +693,19 @@ export function config(): AppConfig {
 			discordUrl: null,
 			listenbrainzUrl: null,
 			folders: true,
+			defaultTheme: 'terminal',
 			radio: true,
 			radioPrivate: false,
 			navidromePluginToken: null,
+			mcp: false,
 			androidFingerprints: [ANDROID_RELEASE_KEY],
 			database: { kind: 'sqlite' }
 		};
 	}
-	if (!cached) cached = build();
+	if (!cached) {
+		cached = build();
+		publishOrigins(cached.origins);
+	}
 	return cached;
 }
 

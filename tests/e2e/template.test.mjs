@@ -104,10 +104,15 @@ const one = (element, name) => {
 	return found[0];
 };
 
-/** Every `HEDDOHON_` variable the server reads, and `ORIGIN`, which the adapter reads for it. */
+/**
+ * Every `HEDDOHON_` variable the server reads, `ORIGIN`, which the adapter
+ * reads for it, and `PUID` and `PGID`, which the image's entrypoint reads
+ * before the server starts.
+ */
 function variablesRead() {
 	const sources = ['src/lib/server/config.ts', 'src/lib/server/log.ts', 'src/lib/server/logfile.ts', 'src/hooks.server.ts'];
-	return new Set([...sources.flatMap((path) => read(path).match(/HEDDOHON_[A-Z_]+/g) ?? []), 'ORIGIN']);
+	const entrypoint = read('docker-entrypoint.sh').match(/\bP[UG]ID\b/g) ?? [];
+	return new Set([...sources.flatMap((path) => read(path).match(/HEDDOHON_[A-Z_]+/g) ?? []), 'ORIGIN', ...entrypoint]);
 }
 
 /**
@@ -164,11 +169,20 @@ describe('the Unraid template', () => {
 		// the notes on what to set before the first start were in one, unseen.
 		assert.deepEqual(all(root, 'Description'), []);
 		const needs = one(root, 'Requires').text;
-		for (const named of ['Secret', 'Public URL', 'Secure cookie', 'chown -R 99:100 /mnt/user/appdata/heddohon']) {
+		for (const named of ['setup code', 'Secret', 'Public URL', 'Secure cookie', 'PUID and PGID']) {
 			assert.ok(needs.includes(named), `<Requires> does not mention ${named}`);
 		}
-		// The container is run as the owner of appdata, which the notes count on.
-		assert.equal(one(root, 'ExtraParams').text.trim(), '--user 99:100');
+		// The image gives appdata to PUID and PGID as it starts. With `--user` it
+		// has no root to do that with, and a folder Docker made could not be written.
+		assert.deepEqual(all(root, 'ExtraParams'), [], 'the template runs the container as a user, which stops the image giving it appdata');
+		const settings = all(root, 'Config');
+		const value = (target) => settings.find((setting) => setting.attrs.Target === target)?.attrs.Default;
+		assert.deepEqual([value('PUID'), value('PGID')], ['99', '100'], 'nobody and users, as Unraid has them');
+		// Nothing but the port and the folder has to be filled in: the first-run setup takes the rest.
+		assert.deepEqual(
+			settings.filter((setting) => setting.attrs.Required === 'true').map((setting) => setting.attrs.Target),
+			['3000', '/data']
+		);
 		assert.match(one(root, 'Repository').text, /^ghcr\.io\/zorcerer\/heddohon:latest$/);
 	});
 
@@ -240,9 +254,12 @@ describe('the Unraid template', () => {
 		for (const [, name, value] of config.matchAll(/env\('(HEDDOHON_[A-Z_]+)'\) \?\? '([^']+)'/g)) defaults.set(name, value);
 		assert.ok(defaults.size >= 15, `only ${defaults.size} defaults found in config.ts`);
 		const settings = new Map(all(template(), 'Config').map((setting) => [setting.attrs.Target, setting.attrs.Default]));
+		// Left empty in the template, so that the setup and Settings decide it: a
+		// value there would be the environment's, which Settings does not change.
+		const savedElsewhere = new Set(['HEDDOHON_MCP']);
 		let compared = 0;
 		for (const [name, value] of defaults) {
-			if (!settings.has(name)) continue;
+			if (!settings.has(name) || savedElsewhere.has(name)) continue;
 			assert.equal(settings.get(name), value, `${name}: the template fills in ${settings.get(name)}, and the server's default is ${value}`);
 			compared++;
 		}

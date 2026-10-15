@@ -148,8 +148,16 @@ export interface Playlist {
 	songCount: number | null;
 	duration: number | null;
 	coverArt: string | null;
+	/** Whose it is. Navidrome names the user; Jellyfin names nobody, and `editable` says whether it is this account's. */
 	owner: string | null;
+	/** Whether every account on the music server can see and play it. */
 	isPublic: boolean;
+	/**
+	 * Whether it is this account's own, and so one it may rename, change, delete,
+	 * share or make public. Another user's public playlist is listed and played,
+	 * and the music server refuses any change to it.
+	 */
+	editable: boolean;
 	/** Epoch millis the playlist was created, when the server reports it. */
 	createdAt: number | null;
 	/** Epoch millis it was last modified. */
@@ -231,3 +239,13 @@ export type RatingKind = 'song' | 'album';
 
 /** What an instant mix is made from. */
 export type MixSeed = 'song' | 'album' | 'artist';
+
+/**
+ * A page about an album or an artist on another site, as the music server
+ * records it: MusicBrainz, Last.fm, TheAudioDB. `url` is http or https
+ * (`suggestions.ts` drops anything else).
+ */
+export interface ExternalLink {
+	label: string;
+	url: string;
+}

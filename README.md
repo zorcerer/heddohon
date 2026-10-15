@@ -24,9 +24,10 @@ The website, with screenshots and the install steps, is
 ## Features
 
 - **Original files** up to FLAC 24/192, with optional transcoding to MP3, Opus or AAC.
-- **Coloured by the artwork**, in two themes: Liquid and Paper.
-- **Library:** albums, artists, genres, playlists, favourites and folders, with synced lyrics and recommendations.
-- **Instant mix** from a track, an album or an artist.
+- **Four themes:** Terminal, Liquid, Paper and Phosphor, each coloured by the artwork.
+- **A command line in Terminal:** `:`, `;` or Ctrl+K (the button at the top right of the page), then `play kind of blue`, `queue artist:miles`, `seek 1:30`, `cd albums`.
+- **Library:** albums, artists, genres, playlists (your own public or private, and others' public ones), favourites and folders, with synced lyrics, recommendations, and links to MusicBrainz, Last.fm and TheAudioDB where your server has them.
+- **Instant mix** from a track, an album or an artist, and **daily mixes** made each day from what you play most.
 - **Internet radio** from the stations Navidrome lists.
 - **Shared links** to songs, albums and playlists that play without an account, and listening together live.
 - **A phone layout**, an installable app, and desktop apps for Linux and Windows. The Android APK is experimental.
@@ -35,7 +36,9 @@ The website, with screenshots and the install steps, is
 - **Crossfade, a 10-band equaliser** with AutoEq headphone corrections, ReplayGain and a sleep timer.
 - **Scrobbling** to Last.fm and ListenBrainz.
 - **Listening history and statistics**, kept on your own server. With the [plugin for Navidrome](https://github.com/zorcerer/heddohon-navidrome-plugin), they cover the plays made in other apps too.
+- **AI assistants** that speak MCP, such as Claude Code, search the library and edit playlists, favourites and ratings with a token each account makes. Off until the setup, an administrator under Settings or `HEDDOHON_MCP=true` turns it on.
 - **Casting** to Chromecast and AirPlay, and a full-screen view for a TV.
+- **A library report** for administrators: formats, resolutions, albums in two formats or held twice, missing ReplayGain.
 - **SQLite or PostgreSQL.**
 
 <table>
@@ -48,7 +51,7 @@ The website, with screenshots and the install steps, is
     <td align="center">More from the artist</td>
   </tr>
   <tr>
-    <td colspan="2"><img src="docs/assets/listening.jpg" alt="Your listening over the last 30 days: 581 plays, 36 hours, a chart of plays by the hour of the day and one by the day of the week, and the top artists and albums"></td>
+    <td colspan="2"><img src="docs/assets/listening.jpg" alt="Your listening over the last 30 days: 577 plays, 35 hours, a chart of plays by the hour of the day and one by the day of the week, and the top artists and albums"></td>
   </tr>
   <tr>
     <td colspan="2" align="center">Your listening: the history summed up, by 30 days, 90 days, the year or everything kept</td>
@@ -84,14 +87,29 @@ Your listening counts are generated for the screenshot.</sub>
 
 ```bash
 git clone https://github.com/zorcerer/heddohon.git && cd heddohon
+docker compose up -d
+docker compose logs heddohon
+```
+
+The log shows a setup code. Open `http://localhost:3000`, enter it, and give
+the address of your Navidrome, Subsonic or Jellyfin server. The page makes the
+secret, saves the address Heddohon is opened at, and sign-in works from there.
+[SECURITY.md](SECURITY.md#first-run-setup) says what that page can do and where
+the secret is then kept.
+
+To configure it by environment variables instead, and never see the setup page:
+
+```bash
 cp .env.example .env
 echo "HEDDOHON_SECRET=$(openssl rand -base64 48)" >> .env
 echo "HEDDOHON_SUBSONIC_URL=http://10.0.0.10:4533" >> .env
 docker compose up -d
 ```
 
-Open `http://localhost:3000` and sign in with your music server account. To
-expose it publicly, set `ORIGIN` and read [SECURITY.md](SECURITY.md).
+To expose it publicly, put it behind TLS and read [SECURITY.md](SECURITY.md).
+The data directory is given to the user the server runs as when the container
+starts (`PUID` and `PGID`, or its owner), so a folder Docker created needs no
+`chown`.
 
 Images are `ghcr.io/zorcerer/heddohon` and `zorcererd/heddohon`, for
 `linux/amd64` and `linux/arm64` (a Raspberry Pi 4 or 5 on a 64-bit OS, an ARM

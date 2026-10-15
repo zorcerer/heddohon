@@ -3369,6 +3369,83 @@ describe('your listening', () => {
 	});
 });
 
+describe('your listening, day by day', () => {
+	/*
+	 * Plays today, three days ago and ten days ago, the two older ones brought
+	 * in from the music server with their dates.
+	 */
+	test('draws the days as a line and a calendar, the hours against the weekdays, and the parts of the day', async () => {
+		const daysAgo = (days) => new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+		subsonic.state.played.set('s18a', daysAgo(3));
+		subsonic.state.played.set('s19a', daysAgo(10));
+		const { page, problems } = await watchedPage();
+		try {
+			for (const songId of ['s17a', 's17a']) {
+				await context.request.post(`${app.url}/api/playback`, { data: { songId, event: 'stop', position: 100, completed: true }, headers: { origin: app.url } });
+			}
+			const imported = await context.request.post(`${app.url}/settings?/importHistory`, {
+				headers: { origin: app.url, 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json', 'x-sveltekit-action': 'true' },
+				data: ''
+			});
+			assert.equal((await imported.json()).type, 'success');
+			await page.goto(app.url + '/stats', { waitUntil: 'networkidle' });
+
+			// The line: one stop for the keyboard, a point for each of the 31 days.
+			const line = page.getByRole('slider', { name: /^Plays by day/ });
+			assert.equal(await line.getAttribute('aria-valuemax'), '30');
+			assert.equal(await line.getAttribute('aria-valuetext'), 'No day chosen');
+			await line.focus();
+			await page.keyboard.press('End');
+			const today = await line.getAttribute('aria-valuetext');
+			assert.match(today, /: \d+ plays?$/);
+			assert.ok(Number(/: (\d+) play/.exec(today)[1]) >= 2, `today reads "${today}"`);
+			await page.keyboard.press('ArrowLeft');
+			assert.notEqual(await line.getAttribute('aria-valuetext'), today);
+			assert.equal(await line.getAttribute('aria-valuenow'), '29');
+			assert.match(await page.locator('.trend .readout').textContent(), /plays?/);
+			await page.keyboard.press('Escape');
+			assert.equal(await line.getAttribute('aria-valuetext'), 'No day chosen');
+
+			// The calendar: whole weeks, the three days lit, and a line of text under the pointer.
+			const calendar = page.locator('.calendar .weeks');
+			const cells = await calendar.locator('.cell').count();
+			assert.equal(cells % 7 === 0 || cells >= 31, true);
+			assert.equal(await calendar.locator('.cell:not(.blank)').count(), 31);
+			assert.ok((await calendar.locator('.cell:not([data-level="0"]):not(.blank)').count()) >= 3, 'the days played on are not lit');
+			await calendar.locator('.cell[data-level="4"]').first().hover();
+			const tip = page.locator('.tip[aria-hidden="true"]').last();
+			await tip.waitFor();
+			assert.match(await tip.textContent(), /\d+ plays?/);
+			// Inside the window, and off when the pointer leaves the charts.
+			const box = await tip.boundingBox();
+			assert.ok(box.x >= 0 && box.x + box.width <= 1440, JSON.stringify(box));
+			await page.locator('h1').hover();
+			assert.equal(await page.locator('.maps ~ .tip, .tip.hh-numeric[style*="left"]').count(), 0, 'the line of text stayed');
+
+			// The hours against the weekdays: 7 rows of 24, with as many plays as the page counts.
+			assert.equal(await page.locator('.punch .row').count(), 7);
+			assert.equal(await page.locator('.punch .row .cell').count(), 168);
+			const total = Number((await page.locator('.figure.hero .number').textContent()).replace(/\D/g, ''));
+			const inRows = await page.locator('.punch .row').evaluateAll((rows) => rows.reduce((sum, row) => sum + Number(/: ([\d,.]+) play/.exec(row.getAttribute('aria-label'))[1].replace(/\D/g, '')), 0));
+			assert.equal(inRows, total);
+
+			// The parts of the day are shares of the same plays.
+			const shares = await page.locator('.parts .count').allTextContents();
+			assert.equal(shares.length, 4);
+			const percent = shares.reduce((sum, text) => sum + Number(/^(\d+)%/.exec(text.trim())[1]), 0);
+			assert.ok(percent >= 98 && percent <= 102, `the parts add to ${percent}%`);
+
+			// Each chart has its values as a table.
+			assert.equal(await page.locator('.trend details.table tbody tr').count(), 31);
+			assert.equal(await page.locator('.maps details.table').nth(1).locator('tbody tr').count(), 24);
+		} finally {
+			subsonic.state.played.clear();
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+});
+
 describe('the living-room screen', () => {
 	test('shows what plays with its lyrics, keeps playing on the way in, and takes a remote\'s keys', async () => {
 		const { page, problems } = await watchedPage();
@@ -4398,6 +4475,12 @@ describe('on a phone', () => {
 				await page.goto(app.url + '/albums', { waitUntil: 'networkidle' });
 				await tap(page, page.getByRole('navigation', { name: 'Primary' }).getByRole('link', { name: 'Favourites' }));
 				await page.waitForURL(/\/favourites$/);
+				// The address changes before the page is put in, and a sheet opened in
+				// between is closed when the page arrives (a navigation closes the
+				// sheet). Measured: a tap on the mini player up to 80ms after the tap
+				// on the tab opened it and shut it, and from 150ms it stayed. In CI
+				// the tap below landed inside that once, and the sheet never opened.
+				await page.locator('main').getByRole('heading', { name: 'Favourites' }).waitFor();
 				await page.waitForSelector('#dock-open');
 				await tap(page, page.locator('#dock-open'));
 				await page.waitForFunction(() => document.querySelector('.app').classList.contains('player-open'));
@@ -5296,5 +5379,1069 @@ describe('Paper, the light theme', () => {
 			await paper.request.patch(`${app.url}/api/settings`, { data: { theme: 'dark' }, headers: { origin: app.url } });
 			await paper.close();
 		}
+	});
+});
+
+describe('Terminal, the default theme', () => {
+	/*
+	 * The harness starts accounts in Liquid, which the rest of this file
+	 * measures, so each test here sets the theme and puts Liquid back.
+	 */
+	const settings = (patch) => context.request.patch(`${app.url}/api/settings`, { data: patch, headers: { origin: app.url } });
+	const liquid = () => settings({ theme: 'dark', scheme: 'heddohon', accent: 'artwork', dots: 'faint', playerArt: 'dither' });
+	/** A CSS colour as the browser computes it on an element, as `[r, g, b, a]`. */
+	const computed = (page, colour) =>
+		page.evaluate((colour) => {
+			const canvas = document.createElement('canvas').getContext('2d');
+			const probe = document.createElement('div');
+			probe.style.color = colour;
+			document.body.append(probe);
+			canvas.fillStyle = getComputedStyle(probe).color;
+			probe.remove();
+			canvas.fillRect(0, 0, 1, 1);
+			return [...canvas.getImageData(0, 0, 1, 1).data];
+		}, colour);
+
+	test('no page logs an error in it', async () => {
+		await settings({ theme: 'terminal' });
+		const { page, problems } = await watchedPage();
+		try {
+			for (const path of ['/', '/albums', '/albums/al1', '/artists', '/artists/ar1', '/favourites', '/genres', '/radio', '/library', '/playlists', '/folders', '/folders/d-al1', '/history', '/screen', '/stats', '/search?q=song', '/settings']) {
+				const response = await page.goto(app.url + path, { waitUntil: 'networkidle' });
+				assert.equal(response?.status(), 200, path);
+				assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), 'terminal', path);
+			}
+		} finally {
+			await liquid();
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+
+	/*
+	 * What makes it Terminal and not Liquid in other colours: a pane is opaque
+	 * and blurs nothing, the tint layers Liquid cross-fades are not painted, and
+	 * the canvas stays the ground while a red cover plays, where Liquid's takes
+	 * the cover's colour (the test of `theme-color` above).
+	 */
+	test('is opaque panes in a mono face over the ground alone, whatever plays', async () => {
+		await settings({ theme: 'terminal' });
+		subsonic.state.audio = { type: 'audio/wav', body: silentWav(30) };
+		subsonic.state.coverColors.set('al-37', [220, 60, 30]);
+		const { page, problems } = await watchedPage();
+		try {
+			await page.goto(app.url + '/albums/al37', { waitUntil: 'networkidle' });
+			await page.getByRole('button', { name: 'Play Song 37a', exact: true }).click();
+			await page.waitForFunction(() => [...document.querySelectorAll('audio')].some((a) => !a.paused && a.currentTime > 0));
+			// As long as Liquid's canvas takes to reach the cover's colour.
+			await page.waitForTimeout(2200);
+			const seen = await page.evaluate(() => {
+				const rail = document.querySelector('nav.rail');
+				const panel = document.querySelector('aside.panel');
+				const style = getComputedStyle(rail);
+				return {
+					blur: [style.backdropFilter, getComputedStyle(panel).backdropFilter],
+					ground: style.backgroundColor,
+					tint: [getComputedStyle(rail, '::before').display, getComputedStyle(rail, '::after').display],
+					radius: style.borderTopLeftRadius,
+					shadow: style.boxShadow,
+					canvas: getComputedStyle(document.documentElement).backgroundColor,
+					bar: document.querySelector('meta[name="theme-color"]').getAttribute('content'),
+					face: getComputedStyle(document.body).fontFamily.split(',')[0].replaceAll('"', '').trim()
+				};
+			});
+			assert.deepEqual(seen.blur, ['none', 'none']);
+			assert.match(seen.ground, /^rgb\(/, `the rail's ground is see-through: ${seen.ground}`);
+			assert.deepEqual(seen.tint, ['none', 'none'], 'a tint layer is painted');
+			assert.equal(seen.radius, '6px');
+			assert.equal(seen.shadow, 'none');
+			assert.equal(seen.canvas, 'rgb(8, 9, 10)', 'the canvas took the cover\'s colour');
+			assert.equal(seen.bar, '#08090a');
+			assert.equal(seen.face, 'Heddohon Terminal');
+		} finally {
+			await liquid();
+			subsonic.state.audio = null;
+			subsonic.state.coverColors.delete('al-37');
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+
+	test('the accent is the colour chosen, and the dot grid is as strong as chosen or not drawn', async () => {
+		await settings({ theme: 'terminal', accent: 'green', dots: 'faint' });
+		const { page, problems } = await watchedPage();
+		const dots = () =>
+			page.evaluate(() => {
+				const image = getComputedStyle(document.querySelector('.app > .hh-ambience')).backgroundImage;
+				// The dot's colour is the text colour at the share chosen: its alpha, or null with no grid.
+				return image.includes('radial-gradient') ? Number(/srgb [\d.]+ [\d.]+ [\d.]+ \/ ([\d.]+)\)|rgba\([^)]*, ([\d.]+)\)/.exec(image)?.slice(1).find(Boolean)) : null;
+			});
+		try {
+			await page.goto(app.url + '/albums', { waitUntil: 'networkidle' });
+			assert.deepEqual(await computed(page, 'var(--accent)'), [143, 240, 164, 255]);
+			const faint = await dots();
+			assert.ok(faint > 0.05 && faint < 0.09, `faint is 7 percent: ${faint}`);
+
+			// Changed in Settings, it is on the page at once, without a load.
+			await page.goto(app.url + '/settings', { waitUntil: 'networkidle' });
+			await page.locator('select[name="dots"]').selectOption('strong');
+			await page.locator('select[name="accent"]').selectOption('amber');
+			await page.getByRole('button', { name: 'Save settings' }).click();
+			await page.getByText('Settings saved.').waitFor();
+			await page.waitForFunction(() => document.documentElement.dataset.dots === 'strong');
+			const strong = await dots();
+			assert.ok(strong > 0.18 && strong < 0.22, `strong is 20 percent: ${strong}`);
+			assert.deepEqual(await computed(page, 'var(--accent)'), [255, 180, 84, 255]);
+
+			await settings({ dots: 'off' });
+			await page.goto(app.url + '/albums', { waitUntil: 'networkidle' });
+			assert.equal(await dots(), null, 'the grid is drawn with the dots off');
+		} finally {
+			await liquid();
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+
+	test('the line along the top of the page says where it is, in Terminal alone and not on a phone', async () => {
+		await settings({ theme: 'terminal' });
+		const { page, problems } = await watchedPage();
+		const strip = page.locator('main.content > nav.strip');
+		try {
+			await page.goto(app.url + '/albums/al1', { waitUntil: 'networkidle' });
+			const name = await page.locator('main.content h1').first().textContent();
+			const slug = name.trim().toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-|-$/g, '');
+			assert.ok(await strip.isVisible());
+			assert.equal((await strip.locator('.path').textContent()).replace(/\s+/g, ''), `~/albums/${slug}`);
+			assert.match(await strip.locator('.whose').textContent(), /^testuser@/);
+			// It stays at the top of the pane while the page scrolls under it.
+			const top = async () => (await strip.boundingBox()).y;
+			const before = await top();
+			await page.locator('main.content').evaluate((el) => el.scrollTo({ top: 400, behavior: 'instant' }));
+			assert.equal(await top(), before);
+			// The section is a link to it.
+			await strip.getByRole('link', { name: 'albums' }).click();
+			await page.waitForURL(app.url + '/albums');
+			// The page is put in after the address changes.
+			await page.waitForFunction(() => document.querySelector('main.content > nav.strip .path').textContent.replace(/\s+/g, '') === '~/albums');
+			// The page it is on is text: a link to it would load nothing.
+			assert.equal(await strip.getByRole('link').count(), 1);
+
+			await page.setViewportSize({ width: 393, height: 852 });
+			assert.equal(await strip.isVisible(), false, 'the line is shown on a phone');
+			await page.setViewportSize({ width: 1440, height: 900 });
+			await settings({ theme: 'dark' });
+			await page.goto(app.url + '/albums/al1', { waitUntil: 'networkidle' });
+			assert.equal(await strip.isVisible(), false, 'the line is shown in Liquid');
+		} finally {
+			await liquid();
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+
+	/** WCAG contrast of two `[r, g, b]` colours. */
+	const contrast = (one, two) => {
+		const luminance = ([r, g, b]) =>
+			[r, g, b].reduce((sum, c, at) => {
+				const v = c / 255;
+				return sum + (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4) * [0.2126, 0.7152, 0.0722][at];
+			}, 0);
+		const [hi, lo] = [luminance(one), luminance(two)].sort((a, b) => b - a);
+		return (hi + 0.05) / (lo + 0.05);
+	};
+
+	test('the playing track is an inverted row that reads at 4.5:1, and the player\'s title ends as the title after a skip', async () => {
+		await settings({ theme: 'terminal' });
+		subsonic.state.audio = { type: 'audio/wav', body: silentWav(30) };
+		const { page, problems } = await watchedPage();
+		try {
+			await page.goto(app.url + '/albums/al1', { waitUntil: 'networkidle' });
+			await page.getByRole('button', { name: /^(Play|Pause) Song 1a$/ }).click();
+			await page.waitForFunction(() => [...document.querySelectorAll('audio')].some((a) => !a.paused && a.currentTime > 0));
+			await page.waitForTimeout(400);
+			const row = await page.evaluate(() => {
+				const rgb = (colour) => {
+					const canvas = document.createElement('canvas').getContext('2d');
+					canvas.fillStyle = colour;
+					canvas.fillRect(0, 0, 1, 1);
+					return [...canvas.getImageData(0, 0, 1, 1).data].slice(0, 3);
+				};
+				const current = document.querySelector('.track.current');
+				const colour = (selector) => rgb(getComputedStyle(current.querySelector(selector)).color);
+				return {
+					ground: rgb(getComputedStyle(current).backgroundColor),
+					title: colour('.title'),
+					artist: colour('.sub'),
+					time: colour('.duration'),
+					other: rgb(getComputedStyle(document.querySelector('.track:not(.current)')).backgroundColor)
+				};
+			});
+			assert.deepEqual(row.ground, (await computed(page, 'var(--accent)')).slice(0, 3), 'the playing row is not the accent');
+			for (const part of ['title', 'artist', 'time']) {
+				const ratio = contrast(row[part], row.ground);
+				assert.ok(ratio >= 4.5, `the ${part} on the playing row: ${ratio.toFixed(1)} to 1`);
+			}
+
+			// The title resolves out of other glyphs, in place, and is the title when it is done.
+			const title = page.locator('aside.panel h2.title');
+			const frames = await page.evaluate(async () => {
+				const heading = document.querySelector('aside.panel h2.title');
+				const seen = [];
+				document.querySelector('aside.panel button[aria-label="Next track"]').click();
+				const until = performance.now() + 2500;
+				let settled = 0;
+				while (performance.now() < until && settled < 20) {
+					await new Promise((done) => requestAnimationFrame(done));
+					seen.push(heading.textContent);
+					settled = heading.textContent === 'Song 1b' ? settled + 1 : 0;
+				}
+				return seen;
+			});
+			assert.equal(frames.at(-1), 'Song 1b');
+			assert.ok(frames.some((text) => text !== 'Song 1a' && text !== 'Song 1b'), 'the title changed in one step');
+			assert.ok(frames.every((text) => text === 'Song 1a' || text.length === 'Song 1b'.length), 'a frame of it was a different length');
+			await page.waitForTimeout(500);
+			assert.equal(await title.textContent(), 'Song 1b');
+			assert.equal(await title.getAttribute('data-text'), 'Song 1b');
+		} finally {
+			await liquid();
+			subsonic.state.audio = null;
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+
+	/*
+	 * The four ways the artwork meets the panel, each drawn by the layer over
+	 * it. Chosen in Settings, the one on the page changes without a load.
+	 */
+	test('the player\'s artwork is dissolved into dots, faded plainly, crossed by scanlines or in two tones, as chosen', async () => {
+		// A blue cover under a green accent, so the two can be told apart.
+		await settings({ theme: 'terminal', playerArt: 'dither', accent: 'green' });
+		// On an album no other test plays: the browser keeps a cover it has fetched.
+		subsonic.state.coverColors.set('al-38', [40, 60, 210]);
+		subsonic.state.audio = { type: 'audio/wav', body: silentWav(30) };
+		const { page, problems } = await watchedPage();
+		const drawn = () =>
+			page.evaluate(() => {
+				const art = document.querySelector('aside.panel .art');
+				const layer = getComputedStyle(art, '::after');
+				return {
+					layer: /^(radial-gradient|repeating-linear-gradient)/.exec(layer.backgroundImage)?.[1] ?? layer.backgroundImage,
+					fill: layer.backgroundColor,
+					blend: layer.mixBlendMode,
+					masked: layer.maskImage !== 'none',
+					picture: getComputedStyle(art.querySelector('.cover')).filter
+				};
+			});
+		try {
+			await page.goto(app.url + '/albums/al38', { waitUntil: 'networkidle' });
+			await page.getByRole('button', { name: /^(Play|Pause) Song 38a$/ }).click();
+			await page.waitForFunction(() => [...document.querySelectorAll('audio')].some((a) => !a.paused && a.currentTime > 0));
+			assert.deepEqual(await drawn(), { layer: 'radial-gradient', fill: 'rgba(0, 0, 0, 0)', blend: 'normal', masked: true, picture: 'none' });
+
+			// By the rail, so the page is not loaded again and the track goes on.
+			await page.locator('nav.rail a[href="/settings"]').click();
+			await page.waitForURL(app.url + '/settings');
+			const choose = async (value) => {
+				await page.locator('select[name="playerArt"]').selectOption(value);
+				await page.getByRole('button', { name: 'Save settings' }).click();
+				await page.waitForFunction((value) => document.documentElement.dataset.art === value, value);
+				// The form reads the settings once more after that, and a choice made
+				// before it answers is put back to the one just saved.
+				await page.getByRole('button', { name: 'Save settings' }).waitFor();
+				return drawn();
+			};
+			assert.deepEqual(await choose('plain'), { layer: 'none', fill: 'rgba(0, 0, 0, 0)', blend: 'normal', masked: true, picture: 'none' });
+			assert.deepEqual(await choose('scanlines'), { layer: 'repeating-linear-gradient', fill: 'rgba(0, 0, 0, 0)', blend: 'normal', masked: false, picture: 'none' });
+			await choose('duotone');
+			// The second tone fades in over the grey picture, so it is read when it has.
+			await page.waitForFunction(() => /^rgb\(/.test(getComputedStyle(document.querySelector('aside.panel .art'), '::after').backgroundColor));
+			const duotone = await drawn();
+			assert.equal(duotone.blend, 'multiply');
+			assert.match(duotone.picture, /grayscale\(1\)/);
+			// The cover's own colour, and not the accent: blue over green.
+			const [red, green, blue] = duotone.fill.match(/\d+/g).map(Number);
+			assert.ok(blue > red && blue > green, `the second tone is ${duotone.fill} for a blue cover`);
+			assert.notDeepEqual([red, green, blue], (await computed(page, 'var(--accent)')).slice(0, 3));
+			// The track went on playing through the three saves.
+			assert.ok(await page.evaluate(() => [...document.querySelectorAll('audio')].some((a) => !a.paused)));
+		} finally {
+			await liquid();
+			subsonic.state.audio = null;
+			subsonic.state.coverColors.delete('al-38');
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+
+	/*
+	 * Terminal's own arrival: the rows of a list 16ms apart, and the page under
+	 * them still. Liquid's, 24ms apart under a page that rises, has its test
+	 * under "motion".
+	 */
+	test('a list prints in after a navigation, 16ms a row, and the page does not rise', async () => {
+		await settings({ theme: 'terminal' });
+		const { page, problems } = await watchedPage();
+		try {
+			await page.goto(app.url + '/playlists', { waitUntil: 'networkidle' });
+			const onFirstPaint = await page.evaluate(() =>
+				document.getAnimations().map((a) => a.animationName).filter((name) => /rise/.test(name ?? ''))
+			);
+			assert.deepEqual(onFirstPaint, [], 'a server-rendered page must not animate in');
+
+			await page.evaluate(() => {
+				window.__rise = null;
+				const look = () => {
+					const names = document.getAnimations().map((a) => a.animationName);
+					if (names.includes('terminal-list-rise')) {
+						const cards = [...document.querySelectorAll('.content .hh-stagger > *')].slice(0, 4);
+						window.__rise = {
+							names: names.filter((name) => /rise/.test(name ?? '')),
+							delays: cards.map((card) => getComputedStyle(card).animationDelay)
+						};
+						return;
+					}
+					requestAnimationFrame(look);
+				};
+				requestAnimationFrame(look);
+			});
+			await page.locator('nav.rail').getByRole('link', { name: 'Albums', exact: true }).click();
+			await page.waitForFunction(() => window.__rise !== null, null, { timeout: 5000 });
+			const rise = await page.evaluate(() => window.__rise);
+			assert.deepEqual([...new Set(rise.names)], ['terminal-list-rise'], 'something else rose with the rows');
+			assert.deepEqual(rise.delays, ['0s', '0.016s', '0.032s', '0.048s']);
+		} finally {
+			await liquid();
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+
+	test('Settings offers Terminal its scheme, its accent and its dots, and the other two the aurora', async () => {
+		await settings({ theme: 'terminal' });
+		const { page, problems } = await watchedPage();
+		const rows = async () => ({
+			scheme: await page.locator('select[name="scheme"]').count(),
+			accent: await page.locator('select[name="accent"]').count(),
+			dots: await page.locator('select[name="dots"]').count(),
+			art: await page.locator('select[name="playerArt"]').count(),
+			aurora: await page.locator('select[name="aurora"]').count(),
+			face: (await page.locator('select[name="font"] option[value="manrope"]').textContent()).trim()
+		});
+		try {
+			await page.goto(app.url + '/settings', { waitUntil: 'networkidle' });
+			assert.equal(await page.locator('select[name="theme"]').inputValue(), 'terminal');
+			assert.equal(await page.locator('select[name="theme"] option[value="terminal"]').textContent(), 'Terminal');
+			assert.deepEqual(await rows(), { scheme: 1, accent: 1, dots: 1, art: 1, aurora: 0, face: 'JetBrains Mono' });
+			// Before it is saved: the rows follow the theme picked.
+			await page.locator('select[name="theme"]').selectOption('dark');
+			assert.deepEqual(await rows(), { scheme: 0, accent: 0, dots: 0, art: 0, aurora: 1, face: 'Manrope' });
+			// Saved without them on the form, the two keep their stored values.
+			await settings({ accent: 'cyan', dots: 'medium' });
+			await page.getByRole('button', { name: 'Save settings' }).click();
+			await page.getByText('Settings saved.').waitFor();
+			const saved = await (await context.request.get(`${app.url}/api/settings`)).json();
+			assert.deepEqual([saved.theme, saved.accent, saved.dots], ['dark', 'cyan', 'medium']);
+		} finally {
+			await liquid();
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+
+	/*
+	 * The album page's actions as one row of words between brackets: the mix
+	 * button and the heart are components of their own, and kept their own
+	 * padding and their own look.
+	 */
+	test('the album page\'s actions line up, and the heart is one of them', async () => {
+		await settings({ theme: 'terminal' });
+		const { page, problems } = await watchedPage();
+		const row = () =>
+			page.evaluate(() => {
+				const actions = document.querySelector('.hero .actions, header .actions');
+				const edge = (el) => {
+					// Where its first bracket is drawn: the box, less the padding before it.
+					const box = el.getBoundingClientRect();
+					return Math.round(box.left + Number.parseFloat(getComputedStyle(el).paddingLeft));
+				};
+				const fav = actions.querySelector('.fav');
+				return {
+					brackets: [...actions.children].filter((el) => !el.classList.contains('hh-button--primary')).map((el) => edge(el) - Math.round(el.getBoundingClientRect().left)),
+					heart: [getComputedStyle(fav, '::before').content, getComputedStyle(fav, '::after').content].join(' '),
+					word: fav.querySelector('.label') ? getComputedStyle(fav.querySelector('.label')).display : 'absent',
+					name: fav.getAttribute('aria-label'),
+					lefts: [...actions.children].map((el) => Math.round(el.getBoundingClientRect().left)),
+					tops: [...actions.children].map((el) => Math.round(el.getBoundingClientRect().top + el.getBoundingClientRect().height / 2))
+				};
+			});
+		try {
+			await page.goto(app.url + '/albums/al1', { waitUntil: 'networkidle' });
+			let drawn = await row();
+			assert.deepEqual([...new Set(drawn.brackets)], [2], 'an action\'s bracket is not 2px inside its box');
+			assert.match(drawn.heart, /^"\[".* "\]"/);
+			assert.notEqual(drawn.word, 'none', 'the word is not drawn');
+			assert.equal(drawn.name, 'Add to favourites', 'the brackets or the word are in its name');
+			// Narrow enough to wrap: what starts the second line is under the play key.
+			await page.setViewportSize({ width: 1000, height: 900 });
+			drawn = await row();
+			const second = drawn.tops.findIndex((top) => top > drawn.tops[0] + 12);
+			assert.ok(second > 0, 'the row did not wrap at 1000px');
+			assert.ok(Math.abs(drawn.lefts[second] - drawn.lefts[0]) <= 1, `the second line starts ${drawn.lefts[second] - drawn.lefts[0]}px from the first`);
+
+			// In Liquid the heart is a glyph, as it was.
+			await page.setViewportSize({ width: 1440, height: 900 });
+			await settings({ theme: 'dark' });
+			await page.reload({ waitUntil: 'networkidle' });
+			drawn = await row();
+			assert.equal(drawn.word, 'none');
+			assert.match(drawn.heart, /^none none$/);
+		} finally {
+			await liquid();
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+
+	/*
+	 * Each scheme is measured as drawn: the four text tones on the pane, the
+	 * two signals, and the dark label on each of the six accents and on the
+	 * accent from the artwork.
+	 */
+	test('every colour scheme keeps its text at 4.5:1 on the pane and its label at 4.5:1 on each accent', async () => {
+		await settings({ theme: 'terminal' });
+		const { page, problems } = await watchedPage();
+		try {
+			await page.goto(app.url + '/settings', { waitUntil: 'networkidle' });
+			const schemes = await page.locator('select[name="scheme"] option').evaluateAll((all) => all.map((option) => option.value));
+			assert.equal(schemes.length, 10);
+			assert.equal(schemes[0], 'heddohon');
+			const measured = await page.evaluate((schemes) => {
+				const root = document.documentElement;
+				const probe = document.createElement('div');
+				document.body.append(probe);
+				const canvas = document.createElement('canvas').getContext('2d', { willReadFrequently: true });
+				const rgb = (value) => {
+					probe.style.color = value;
+					canvas.clearRect(0, 0, 1, 1);
+					canvas.fillStyle = getComputedStyle(probe).color;
+					canvas.fillRect(0, 0, 1, 1);
+					return [...canvas.getImageData(0, 0, 1, 1).data].slice(0, 3);
+				};
+				const luminance = (colour) =>
+					colour.reduce((sum, c, at) => {
+						const v = c / 255;
+						return sum + (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4) * [0.2126, 0.7152, 0.0722][at];
+					}, 0);
+				const ratio = (one, two) => {
+					const [hi, lo] = [luminance(rgb(one)), luminance(rgb(two))].sort((a, b) => b - a);
+					return (hi + 0.05) / (lo + 0.05);
+				};
+				const low = [];
+				const grounds = {};
+				for (const scheme of schemes) {
+					root.dataset.scheme = scheme;
+					root.dataset.accent = 'artwork';
+					grounds[scheme] = rgb('var(--bg-base)').join(',');
+					for (const tone of ['strong', 'default', 'muted', 'faint']) {
+						const found = ratio(`var(--text-${tone})`, 'var(--bg-surface)');
+						if (found < 4.5) low.push(`${scheme}: --text-${tone} at ${found.toFixed(2)}`);
+					}
+					for (const signal of ['danger', 'positive']) {
+						const found = ratio(`var(--${signal})`, 'var(--bg-surface)');
+						if (found < 4.5) low.push(`${scheme}: --${signal} at ${found.toFixed(2)}`);
+					}
+					for (const accent of ['artwork', 'green', 'amber', 'cyan', 'violet', 'rose', 'white']) {
+						root.dataset.accent = accent;
+						const found = ratio('var(--accent-contrast)', 'var(--accent)');
+						if (found < 4.5) low.push(`${scheme}: the label on ${accent} at ${found.toFixed(2)}`);
+					}
+				}
+				probe.remove();
+				return { low, grounds };
+			}, schemes);
+			assert.deepEqual(measured.low, []);
+			// Ten grounds, so a scheme whose rules did not apply shows as a repeat.
+			assert.equal(new Set(Object.values(measured.grounds)).size, 10, JSON.stringify(measured.grounds));
+
+			// Chosen and saved, it is on the root and the bar a phone draws is its ground.
+			await page.reload({ waitUntil: 'networkidle' });
+			await page.locator('select[name="scheme"]').selectOption('nord');
+			await page.getByRole('button', { name: 'Save settings' }).click();
+			await page.waitForFunction(() => document.documentElement.dataset.scheme === 'nord');
+			assert.deepEqual((await computed(page, 'var(--bg-base)')).slice(0, 3), [0x2e, 0x34, 0x40]);
+			await page.reload({ waitUntil: 'networkidle' });
+			assert.equal(await page.locator('meta[name="theme-color"]').getAttribute('content'), '#2e3440');
+			// Liquid does not take it.
+			await settings({ theme: 'dark' });
+			await page.reload({ waitUntil: 'networkidle' });
+			assert.notDeepEqual((await computed(page, 'var(--bg-base)')).slice(0, 3), [0x2e, 0x34, 0x40]);
+		} finally {
+			await settings({ scheme: 'heddohon' });
+			await liquid();
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+
+	/*
+	 * Two lists that kept Liquid's hover: a wash of the accent that opens from
+	 * the left, with the cover lifting over a glow or the name stepping right.
+	 */
+	test('the tiles under Jump back in and the playlists in the picker hover as flat rows', async () => {
+		await settings({ theme: 'terminal' });
+		const { page, problems } = await watchedPage();
+		const hover = (selector, moved) =>
+			page.evaluate(
+				([selector, moved]) => {
+					const row = document.querySelector(selector);
+					const wash = getComputedStyle(row, '::before');
+					return { wash: wash.backgroundImage, moved: getComputedStyle(row.querySelector(moved)).translate };
+				},
+				[selector, moved]
+			);
+		try {
+			await page.goto(app.url + '/', { waitUntil: 'networkidle' });
+			const tile = page.locator('section.resume a.tile').first();
+			await tile.hover();
+			await page.waitForTimeout(400);
+			assert.deepEqual(await hover('section.resume a.tile:hover', '.thumb'), { wash: 'none', moved: 'none' });
+			assert.equal(await tile.locator('.thumb').evaluate((el) => getComputedStyle(el, '::before').display), 'none', 'the cover still casts a glow');
+
+			await page.goto(app.url + '/albums/al1', { waitUntil: 'networkidle' });
+			await page.locator('.track').first().getByRole('button', { name: 'Add Song 1a to a playlist' }).click();
+			const row = page.locator('dialog.picker .row').first();
+			await row.hover();
+			await page.waitForTimeout(400);
+			assert.deepEqual(await hover('dialog.picker .row:hover', '.name'), { wash: 'none', moved: 'none' });
+		} finally {
+			await liquid();
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+
+	test('the command line opens on :, ; and Ctrl+K, suggests, runs, and says what went wrong', async () => {
+		await settings({ theme: 'terminal' });
+		const { page, problems } = await watchedPage();
+		try {
+			await page.goto(app.url + '/', { waitUntil: 'networkidle' });
+			const field = page.getByRole('combobox', { name: 'Command' });
+
+			// The button names its shortcut, and is drawn in the accent until the line has been opened once.
+			const button = page.getByRole('button', { name: 'Command line' });
+			assert.match(await button.textContent(), /command\s*Ctrl K/);
+			assert.equal(await button.evaluate((node) => node.classList.contains('fresh')), true);
+
+			// A command's name suggests the commands it begins.
+			await page.keyboard.press(':');
+			await field.waitFor();
+			await field.pressSequentially('se');
+			const names = await page.getByRole('option').allTextContents();
+			assert.ok(names.some((name) => name.startsWith('seek')) && names.some((name) => name.startsWith('search')), names.join(' | '));
+
+			// cd goes to a page; the line closes and the strip says where.
+			await field.fill('');
+			await field.pressSequentially('cd albums');
+			await page.keyboard.press('Enter');
+			await page.waitForURL(/\/albums$/);
+			await field.waitFor({ state: 'detached', timeout: 2000 });
+			await page.getByRole('status').filter({ hasText: '~/albums' }).waitFor();
+
+			// play looks the words up and plays the best match.
+			await page.keyboard.press('Control+k');
+			await field.pressSequentially('play Artist 0003');
+			await page.getByRole('option').first().waitFor();
+			await page.keyboard.press('Enter');
+			await page.getByRole('status').filter({ hasText: /^playing Song 3a/ }).waitFor();
+			assert.equal(await page.evaluate(() => document.title.includes('Song 3a')), true);
+
+			// `;`, the same key without Shift.
+			await page.keyboard.press(';');
+			await field.pressSequentially('vol 40');
+			await page.keyboard.press('Enter');
+			await page.getByRole('status').filter({ hasText: 'volume 40' }).waitFor();
+
+			// A line that is not a command keeps the line open with why.
+			await page.keyboard.press(':');
+			await field.pressSequentially('frobnicate');
+			await page.keyboard.press('Enter');
+			await page.getByRole('alert').filter({ hasText: 'frobnicate: no such command' }).waitFor();
+			await page.keyboard.press('Escape');
+			assert.equal(await field.count(), 0);
+			assert.equal(await button.evaluate((node) => node.classList.contains('fresh')), false, 'the button still asks to be found');
+
+			// Typing in a field does not open it.
+			await page.goto(app.url + '/search', { waitUntil: 'networkidle' });
+			await page.getByRole('searchbox').first().pressSequentially('a:b');
+			assert.equal(await field.count(), 0, 'a colon typed into the search field opened the command line');
+		} finally {
+			await liquid();
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+
+	test('the command line is Terminal\'s alone', async () => {
+		const { page } = await watchedPage();
+		try {
+			await page.goto(app.url + '/', { waitUntil: 'networkidle' });
+			await page.keyboard.press(':');
+			// In the DOM at all: the strip is hidden outside Terminal, and a line open
+			// in it would hold the focus out of sight.
+			assert.equal(await page.locator('input[aria-label="Command"]').count(), 0);
+			assert.equal(await page.getByRole('button', { name: 'Command line' }).isVisible(), false);
+		} finally {
+			await page.close();
+		}
+	});
+});
+
+describe('Phosphor', () => {
+	/* As for Terminal: each test sets the theme and puts Liquid back. */
+	const settings = (patch) => context.request.patch(`${app.url}/api/settings`, { data: patch, headers: { origin: app.url } });
+	const liquid = () => settings({ theme: 'dark', accent: 'artwork' });
+
+	test('no page logs an error in it', async () => {
+		await settings({ theme: 'phosphor' });
+		const { page, problems } = await watchedPage();
+		try {
+			for (const path of ['/', '/albums', '/albums/al1', '/artists', '/artists/ar1', '/favourites', '/genres', '/radio', '/library', '/playlists', '/folders', '/history', '/stats', '/search?q=song', '/settings']) {
+				const response = await page.goto(app.url + path, { waitUntil: 'networkidle' });
+				assert.equal(response?.status(), 200, path);
+				assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), 'phosphor', path);
+			}
+		} finally {
+			await liquid();
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+
+	/*
+	 * Opaque panes over the ground alone while a red cover plays, as in
+	 * Terminal, and the player's title drawn as a display: in the dot-matrix
+	 * face, in the accent, glowing, with the lamp under the pause glyph lit.
+	 */
+	test('is opaque metal panes over the ground alone, with the player\'s title lit as a display', async () => {
+		await settings({ theme: 'phosphor' });
+		subsonic.state.audio = { type: 'audio/wav', body: silentWav(30) };
+		subsonic.state.coverColors.set('al-37', [220, 60, 30]);
+		const { page, problems } = await watchedPage();
+		try {
+			await page.goto(app.url + '/albums/al37', { waitUntil: 'networkidle' });
+			await page.getByRole('button', { name: 'Play Song 37a', exact: true }).click();
+			await page.waitForFunction(() => [...document.querySelectorAll('audio')].some((a) => !a.paused && a.currentTime > 0));
+			await page.waitForTimeout(2200);
+			const seen = await page.evaluate(() => {
+				const rail = document.querySelector('nav.rail');
+				const panel = document.querySelector('aside.panel');
+				const title = panel.querySelector('.title');
+				const accent = document.createElement('div');
+				accent.style.color = 'var(--accent)';
+				document.body.append(accent);
+				const drawn = {
+					blur: [getComputedStyle(rail).backdropFilter, getComputedStyle(panel).backdropFilter],
+					tint: [getComputedStyle(rail, '::before').display, getComputedStyle(rail, '::after').display],
+					radius: getComputedStyle(rail).borderTopLeftRadius,
+					canvas: getComputedStyle(document.documentElement).backgroundColor,
+					bar: document.querySelector('meta[name="theme-color"]').getAttribute('content'),
+					face: getComputedStyle(document.body).fontFamily.split(',')[0].replaceAll('"', '').trim(),
+					titleFace: getComputedStyle(title).fontFamily.split(',')[0].replaceAll('"', '').trim(),
+					titleColour: getComputedStyle(title).color === getComputedStyle(accent).color,
+					titleGlow: getComputedStyle(title).textShadow,
+					grid: getComputedStyle(panel.querySelector('.text'), '::after').backgroundImage,
+					lamp: getComputedStyle(panel.querySelector('.play'), '::after').boxShadow
+				};
+				accent.remove();
+				return drawn;
+			});
+			assert.deepEqual(seen.blur, ['none', 'none']);
+			assert.deepEqual(seen.tint, ['none', 'none'], 'a tint layer is painted');
+			assert.equal(seen.radius, '6px');
+			assert.equal(seen.canvas, 'rgb(10, 11, 12)', 'the canvas took the cover\'s colour');
+			assert.equal(seen.bar, '#0a0b0c');
+			assert.equal(seen.face, 'Barlow');
+			assert.equal(seen.titleFace, 'DotGothic16');
+			assert.ok(seen.titleColour, 'the title is not in the accent');
+			assert.notEqual(seen.titleGlow, 'none');
+			assert.match(seen.grid, /repeating-linear-gradient/, 'the display has no control grid');
+			assert.notEqual(seen.lamp, 'none', 'the lamp under the pause glyph is not lit while it plays');
+
+			await page.getByRole('button', { name: 'Pause', exact: true }).first().click();
+			await page.waitForFunction(() => getComputedStyle(document.querySelector('aside.panel .play'), '::after').boxShadow === 'none');
+		} finally {
+			await liquid();
+			subsonic.state.audio = null;
+			subsonic.state.coverColors.delete('al-37');
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+
+	/*
+	 * The accent from the artwork is swept round the hue circle at the lowest
+	 * saturation `artwork.ts` writes and at a high one; each fixed accent is
+	 * measured as set. The accent as text on a pane, the dark label on the
+	 * accent and the lamps' colour on a pane each hold 4.5:1, as do the text
+	 * tones.
+	 */
+	test('every accent, from the artwork or fixed, and its lamps hold 4.5:1', async () => {
+		await settings({ theme: 'phosphor' });
+		const { page, problems } = await watchedPage();
+		try {
+			await page.goto(app.url + '/settings', { waitUntil: 'networkidle' });
+			const measured = await page.evaluate(() => {
+				const root = document.documentElement;
+				root.style.transition = 'none';
+				const probe = document.createElement('div');
+				document.body.append(probe);
+				const canvas = document.createElement('canvas').getContext('2d', { willReadFrequently: true });
+				const rgb = (value) => {
+					probe.style.color = value;
+					canvas.clearRect(0, 0, 1, 1);
+					canvas.fillStyle = getComputedStyle(probe).color;
+					canvas.fillRect(0, 0, 1, 1);
+					return [...canvas.getImageData(0, 0, 1, 1).data].slice(0, 3);
+				};
+				const luminance = (colour) =>
+					colour.reduce((sum, c, at) => {
+						const v = c / 255;
+						return sum + (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4) * [0.2126, 0.7152, 0.0722][at];
+					}, 0);
+				const ratio = (one, two) => {
+					const [hi, lo] = [luminance(rgb(one)), luminance(rgb(two))].sort((a, b) => b - a);
+					return (hi + 0.05) / (lo + 0.05);
+				};
+				const low = [];
+				const check = (name) => {
+					for (const [label, one, two] of [
+						['the accent on the pane', 'var(--accent)', 'var(--bg-surface)'],
+						['the label on the accent', 'var(--accent-contrast)', 'var(--accent)'],
+						['the lamps on the pane', 'var(--led)', 'var(--bg-surface)']
+					]) {
+						const found = ratio(one, two);
+						if (found < 4.5) low.push(`${name}: ${label} at ${found.toFixed(2)}`);
+					}
+				};
+				for (const tone of ['strong', 'default', 'muted', 'faint']) {
+					const found = ratio(`var(--text-${tone})`, 'var(--bg-surface)');
+					if (found < 4.5) low.push(`--text-${tone} at ${found.toFixed(2)}`);
+				}
+				root.dataset.accent = 'artwork';
+				for (let hue = 0; hue < 360; hue += 15) {
+					for (const saturation of ['22%', '70%']) {
+						root.style.setProperty('--art-h', String(hue));
+						root.style.setProperty('--art-s', saturation);
+						check(`hue ${hue} at ${saturation}`);
+					}
+				}
+				const fixed = {};
+				for (const accent of ['green', 'amber', 'cyan', 'violet', 'rose', 'white']) {
+					root.dataset.accent = accent;
+					check(accent);
+					fixed[accent] = [rgb('var(--accent)').join(','), rgb('var(--led)').join(',')];
+				}
+				probe.remove();
+				return { low, fixed };
+			});
+			assert.deepEqual(measured.low, []);
+			const accents = Object.values(measured.fixed).map(([accent]) => accent);
+			assert.equal(new Set(accents).size, 6, 'two fixed accents are the same colour');
+			// The lamps set the accent off: amber beside cyan, cyan beside amber.
+			assert.notEqual(measured.fixed.cyan[1], measured.fixed.amber[1]);
+			assert.equal(measured.fixed.amber[1], measured.fixed.cyan[0]);
+		} finally {
+			await liquid();
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+
+	test('Settings offers it the accent and not Terminal\'s scheme, dots or player artwork', async () => {
+		await settings({ theme: 'phosphor' });
+		const { page, problems } = await watchedPage();
+		try {
+			await page.goto(app.url + '/settings', { waitUntil: 'networkidle' });
+			assert.equal(await page.locator('select[name="theme"]').inputValue(), 'phosphor');
+			assert.equal(await page.locator('select[name="theme"] option[value="phosphor"]').textContent(), 'Phosphor');
+			const rows = {
+				scheme: await page.locator('select[name="scheme"]').count(),
+				accent: await page.locator('select[name="accent"]').count(),
+				dots: await page.locator('select[name="dots"]').count(),
+				art: await page.locator('select[name="playerArt"]').count(),
+				aurora: await page.locator('select[name="aurora"]').count(),
+				face: (await page.locator('select[name="font"] option[value="manrope"]').textContent()).trim()
+			};
+			assert.deepEqual(rows, { scheme: 0, accent: 1, dots: 0, art: 0, aurora: 0, face: 'Barlow' });
+			await page.locator('select[name="accent"]').selectOption('amber');
+			await page.getByRole('button', { name: 'Save settings' }).click();
+			await page.waitForFunction(() => document.documentElement.dataset.accent === 'amber');
+		} finally {
+			await liquid();
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+});
+
+describe('the menu on a right click', () => {
+	const menu = (page) => page.getByRole('menu');
+	const item = (page, name) => menu(page).getByRole('menuitem', { name, exact: true });
+	const names = (page) => menu(page).getByRole('menuitem').allTextContents().then((all) => all.map((text) => text.trim()));
+	const playing = (page) => page.waitForFunction(() => [...document.querySelectorAll('audio')].some((a) => !a.paused && a.currentTime > 0));
+
+	test('a song row opens a menu of what can be done with it, and Play next puts it after the one playing', async () => {
+		subsonic.state.albumSongs = 4;
+		subsonic.state.audio = { type: 'audio/wav', body: silentWav(30) };
+		const { page, problems } = await watchedPage();
+		try {
+			// An album no other test has opened: the server holds an album it has read, with the two tracks it had.
+			await page.goto(app.url + '/albums/al17', { waitUntil: 'networkidle' });
+			await page.getByRole('button', { name: 'Play Song 17a', exact: true }).click();
+			await playing(page);
+
+			const row = page.locator('.track', { hasText: 'Song 17d' });
+			await row.locator('.title').click({ button: 'right' });
+			assert.equal(await menu(page).getAttribute('aria-label'), 'Song: Song 17d');
+			const offered = await names(page);
+			assert.deepEqual(offered.slice(0, 6), ['Play', 'Play next', 'Add to queue', 'Add to playlist…', 'Add to favourites', 'Start instant mix']);
+			// On the album's own page there is nowhere for "Go to album" to go.
+			assert.ok(offered.includes('Go to artist') && !offered.includes('Go to album'), offered.join(', '));
+			assert.equal(await row.getAttribute('data-menu-open'), '', 'the row is not marked while its menu is open');
+
+			await item(page, 'Play next').click();
+			assert.equal(await menu(page).count(), 0, 'the menu stayed after a choice');
+			assert.equal(await row.getAttribute('data-menu-open'), null);
+			await page.locator('aside.panel button[aria-label="Next track"]').click();
+			await page.waitForFunction(() => document.querySelector('.track.current .title')?.textContent === 'Song 17d');
+
+			// The heart in the menu and the one on the row are one state.
+			const second = page.locator('.track', { hasText: 'Song 17b' });
+			await second.locator('.title').click({ button: 'right' });
+			await item(page, 'Add to favourites').click();
+			await second.locator('button[aria-pressed="true"]').waitFor();
+			await second.locator('.title').click({ button: 'right' });
+			await item(page, 'Remove from favourites').click();
+			await second.locator('button[aria-pressed="false"]').first().waitFor();
+
+			// A press anywhere else closes it.
+			await second.locator('.title').click({ button: 'right' });
+			await menu(page).waitFor();
+			await page.locator('h1').click();
+			assert.equal(await menu(page).count(), 0, 'a press outside left the menu open');
+		} finally {
+			subsonic.state.albumSongs = 2;
+			subsonic.state.audio = null;
+			subsonic.state.starred.clear();
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+
+	test('the menu key opens it on a focused row, the arrow keys move in it, and Escape returns the focus', async () => {
+		const { page, problems } = await watchedPage();
+		try {
+			await page.goto(app.url + '/albums/al1', { waitUntil: 'networkidle' });
+			const row = page.locator('.track').first();
+			await row.focus();
+			await page.keyboard.press('ContextMenu');
+			await menu(page).waitFor();
+			const focused = () => page.evaluate(() => (document.activeElement?.getAttribute('role') === 'menuitem' ? document.activeElement.textContent.trim() : document.activeElement?.tagName));
+			const all = await names(page);
+			assert.equal(await focused(), all[0]);
+			await page.keyboard.press('ArrowDown');
+			assert.equal(await focused(), all[1]);
+			await page.keyboard.press('End');
+			assert.equal(await focused(), all.at(-1));
+			await page.keyboard.press('ArrowDown');
+			assert.equal(await focused(), all[0], 'the last item does not lead on to the first');
+			// Over the row, and inside the window.
+			const [box, at] = [await menu(page).boundingBox(), await row.boundingBox()];
+			assert.ok(box.x >= at.x && box.x <= at.x + at.width && box.y >= at.y && box.y <= at.y + at.height + 1, JSON.stringify([box, at]));
+			await page.keyboard.press('Escape');
+			assert.equal(await menu(page).count(), 0);
+			assert.ok(await row.evaluate((el) => el === document.activeElement), 'the focus did not go back to the row');
+
+			// With Shift held the click is the browser's: no menu, and the event is not taken.
+			const taken = page.evaluate(() => new Promise((done) => addEventListener('contextmenu', (event) => setTimeout(() => done(event.defaultPrevented)), { once: true })));
+			await row.locator('.title').click({ button: 'right', modifiers: ['Shift'] });
+			assert.equal(await taken, false);
+			assert.equal(await menu(page).count(), 0);
+		} finally {
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+
+	test('an album card opens a menu that plays the album and goes to it without a page load, and it stays inside the window', async () => {
+		subsonic.state.audio = { type: 'audio/wav', body: silentWav(30) };
+		const { page, problems } = await watchedPage();
+		try {
+			// A window a menu does not fit under the pointer in.
+			await page.setViewportSize({ width: 1100, height: 520 });
+			await page.goto(app.url + '/albums', { waitUntil: 'networkidle' });
+			const card = page.locator('a.card').first();
+			const id = (await card.getAttribute('href')).replace('/albums/al', '');
+			// In the upper right corner of the card: under 250px are left below it.
+			const at = await card.boundingBox();
+			await card.click({ button: 'right', position: { x: at.width - 6, y: 30 } });
+			await menu(page).waitFor();
+			assert.equal(await menu(page).getAttribute('aria-label'), `Album: Album ${id}`);
+			assert.deepEqual((await names(page)).slice(0, 4), ['Play', 'Shuffle', 'Play next', 'Add to queue']);
+			const box = await menu(page).boundingBox();
+			assert.ok(box.x >= 8 && box.y >= 8 && box.x + box.width <= 1100 - 7 && box.y + box.height <= 520 - 7, `the menu is at ${JSON.stringify(box)} in 1100x520`);
+
+			await item(page, 'Play').click();
+			await playing(page);
+			assert.equal(await page.locator('aside.panel h2.title').getAttribute('data-text'), `Song ${id}a`);
+
+			await page.evaluate(() => (window.__sameDocument = true));
+			// The first track opens the player, the page beside it is laid out
+			// again and its column scrolls to keep its place. A menu opened in
+			// the middle of that is closed by the scroll, as it is meant to be
+			// (CI, 2026-10-13), so the page is left to settle first.
+			await page.waitForFunction(() => document.querySelector('.app')?.classList.contains('panel-in'));
+			await page.waitForTimeout(900);
+			await card.scrollIntoViewIfNeeded();
+			await page.waitForTimeout(400);
+			await card.click({ button: 'right' });
+			await menu(page).waitFor();
+			await item(page, 'Go to album').click();
+			await page.waitForURL(`${app.url}/albums/al${id}`);
+			assert.equal(await menu(page).count(), 0, 'the menu followed the page');
+			assert.equal(await page.evaluate(() => window.__sameDocument), true, 'the page was loaded again');
+			assert.ok(await page.evaluate(() => [...document.querySelectorAll('audio')].some((a) => !a.paused)), 'the track stopped');
+		} finally {
+			subsonic.state.audio = null;
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+
+	test('the lines of the lyrics are centred in the player', async () => {
+		subsonic.state.audio = { type: 'audio/wav', body: silentWav(30) };
+		subsonic.state.lyrics.set('s1a', [
+			{ start: 0, value: 'A first line' },
+			{ start: 20_000, value: 'A second line, long enough that it is broken over two lines in a column this narrow' }
+		]);
+		const { page, problems } = await watchedPage();
+		try {
+			await page.goto(app.url + '/albums/al1', { waitUntil: 'networkidle' });
+			await page.getByRole('button', { name: 'Play Song 1a', exact: true }).click();
+			await playing(page);
+			await page.locator('aside.panel button[aria-label="Lyrics"]').click();
+			const line = page.locator('aside.panel .line', { hasText: 'A first line' });
+			await line.waitFor();
+			assert.equal(await line.evaluate((el) => getComputedStyle(el).textAlign), 'center');
+			// The words are in the middle of the column, to a pixel or two.
+			const offset = await line.evaluate((el) => {
+				const range = document.createRange();
+				range.selectNodeContents(el);
+				const [text, box] = [range.getBoundingClientRect(), el.getBoundingClientRect()];
+				return text.left + text.width / 2 - (box.left + box.width / 2);
+			});
+			assert.ok(Math.abs(offset) <= 2, `the line is ${offset}px off the middle`);
+		} finally {
+			subsonic.state.audio = null;
+			subsonic.state.lyrics.clear();
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+});
+
+describe('the first-run setup page', () => {
+	/*
+	 * An app of its own, started without its secret or its music server. The
+	 * page is walked as an operator would: the code from the log, an address
+	 * tested and saved, and what the last step says about the key.
+	 */
+	test('takes the code from the log, tests and saves a music server, and says whose the key is to keep', async () => {
+		// As the image runs on a local network: production, plain http, and no
+		// ORIGIN, which `undefined` leaves out of the app's environment.
+		const fresh = await startApp({
+			env: { HEDDOHON_SECRET: '', HEDDOHON_SUBSONIC_URL: '', HEDDOHON_JELLYFIN_URL: '', HEDDOHON_DEFAULT_THEME: '', ORIGIN: undefined, NODE_ENV: 'production', HEDDOHON_COOKIE_SECURE: '' }
+		});
+		const visitor = await browser.newContext({ viewport: { width: 1100, height: 900 } });
+		const page = await visitor.newPage();
+		const problems = [];
+		// A refused code is a 401, which the browser reports as a failed resource.
+		page.on('console', (message) => {
+			if (message.type() === 'error' && !/401/.test(message.text())) problems.push(message.text());
+		});
+		page.on('pageerror', (err) => problems.push(err.message));
+		try {
+			const code = fresh.output().match(/\b([0-9A-Z]{5}(?:-[0-9A-Z]{5}){3})\b/)?.[1];
+			assert.ok(code, fresh.output());
+			await page.goto(fresh.url + '/', { waitUntil: 'networkidle' });
+			assert.equal(new URL(page.url()).pathname, '/setup');
+			assert.equal(await page.locator('html').getAttribute('data-theme'), 'terminal');
+
+			await page.getByLabel('Setup code').fill('AAAAA-AAAAA-AAAAA-AAAAA');
+			await page.getByRole('button', { name: 'Continue' }).click();
+			await page.getByRole('alert').waitFor();
+			assert.match(await page.getByRole('alert').textContent(), /not the code/);
+			assert.equal(await page.getByRole('group', { name: 'Navidrome or Subsonic' }).count(), 0, 'a wrong code went on to the form');
+
+			await page.getByLabel('Setup code').fill(code.toLowerCase());
+			await page.getByRole('button', { name: 'Continue' }).click();
+			const server = page.getByRole('group', { name: 'Navidrome or Subsonic' });
+			await server.getByLabel('Address').fill('http://127.0.0.1:9');
+			await server.getByRole('button', { name: 'Test the address' }).click();
+			await server.locator('.result.no').waitFor();
+			await server.getByLabel('Address').fill(subsonic.url);
+			assert.equal(await server.locator('.result').textContent().then((text) => text.trim()), '', 'the last answer stayed beside a changed address');
+			await server.getByRole('button', { name: 'Test the address' }).click();
+			await server.locator('.result.ok').waitFor();
+			await server.getByLabel('Name on the sign-in page').fill('Home');
+			// The address is the one in the bar, filled in, and the cache has a size.
+			assert.equal(await page.getByLabel('Where Heddohon is opened').inputValue(), fresh.url);
+			await page.getByLabel('Cover cache, in megabytes').fill('128');
+
+			await page.getByRole('button', { name: 'Save and finish' }).click();
+			const notice = page.getByRole('region', { name: 'The key is yours to keep' });
+			await notice.waitFor();
+			assert.match(await notice.textContent(), /Keeping that directory and its backups private is your responsibility/);
+			const line = await notice.getByLabel('The line for the environment').inputValue();
+			assert.match(line, /^HEDDOHON_SECRET=.{64,}$/);
+			// What the key opens is said for each kind of server.
+			assert.match(await notice.textContent(), /Navidrome and Subsonic:\s*the password of every account/);
+			assert.match(await notice.textContent(), /Jellyfin:\s*an access token for each account, and not its password/);
+			// Copied, it can be taken out of the file from here, and the page says what is owed then.
+			await notice.getByRole('button', { name: 'I have copied it: remove it from setup.json' }).click();
+			await notice.getByText('The key is out of setup.json.').waitFor();
+			assert.equal(await notice.getByRole('button', { name: /remove it from setup\.json/ }).count(), 0);
+			const { readFileSync } = await import('node:fs');
+			assert.ok(!('HEDDOHON_SECRET' in JSON.parse(readFileSync(`${fresh.dataDir}/setup.json`, 'utf8'))), 'the key is still in the file');
+			// It is on plain http on the local network, and the page says what that means for sign-in.
+			const plain = page.getByRole('region', { name: 'Sign-in on plain http' });
+			assert.match(await plain.textContent(), new RegExp(`On ${fresh.url.replace(/[.]/g, '\\.')} the sign-in cookie is sent without Secure`));
+			// The address was saved, so there is nothing to set in the environment.
+			assert.equal(await page.getByRole('heading', { name: 'Set ORIGIN before signing in' }).count(), 0);
+
+			await page.getByRole('link', { name: 'Go to sign in' }).click();
+			await page.waitForURL(fresh.url + '/login');
+			await page.getByText('to Home').waitFor();
+			// And it can be signed in to there, on plain http, without a variable
+			// set or a restart: the reason the address is asked for.
+			await page.getByLabel('Username').fill('testuser');
+			await page.getByLabel('Password').fill('testpass');
+			await page.getByRole('button', { name: 'Sign in' }).click();
+			await page.waitForURL(fresh.url + '/');
+			await page.goto(fresh.url + '/settings?tab=storage', { waitUntil: 'load' });
+			assert.equal(await page.getByLabel(/^Cover cache size/).inputValue(), '128');
+			assert.equal(await page.getByLabel(/^Addresses/).inputValue(), fresh.url);
+			// The administrator is told the same wherever the address can be changed.
+			assert.match(await page.getByRole('note').filter({ hasText: 'Sign-in on plain http' }).textContent(), /sent without\s+Secure/);
+			await page.goto(fresh.url + '/setup', { waitUntil: 'load' });
+			assert.equal(new URL(page.url()).pathname, '/', 'the setup page is still there');
+		} finally {
+			await visitor.close();
+			await fresh.stop();
+		}
+		assert.deepEqual(problems, []);
 	});
 });

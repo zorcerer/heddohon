@@ -12,6 +12,8 @@
 	import { EQ_FREQUENCIES, EQ_RANGE_DB } from '$lib/client/audiochain';
 	import { EQ_PRESETS, processing } from '$lib/client/processing.svelte';
 	import { APP_KINDS, APP_RELEASES, installer, INSTALL_STEPS } from '$lib/client/install.svelte';
+	import { formatBytes, formatLongDuration } from '$lib/client/format';
+	import type { ReportStatus } from '$lib/server/libraryreport';
 
 	/** One of Heddohon's own apps for this system, where there is one; see `install.svelte.ts`. */
 	const appKind = $derived(
@@ -219,13 +221,16 @@
 		{ id: 'playback', label: 'Playback' },
 		{ id: 'history', label: 'Listening history' },
 		{ id: 'account', label: 'Account' },
+		{ id: 'ai', label: 'AI' },
 		{ id: 'sharing', label: 'Shared links' },
 		{ id: 'storage', label: 'Cover cache' }
 	] as const;
 	type Tab = (typeof TABS)[number]['id'];
 
 	const sharingShown = $derived(data.sharing || data.shares.length > 0);
-	const tabs = $derived(TABS.filter((entry) => entry.id !== 'sharing' || sharingShown));
+	const tabs = $derived(
+		TABS.filter((entry) => (entry.id !== 'sharing' || sharingShown) && (entry.id !== 'ai' || data.mcp !== null))
+	);
 
 	function tabFrom(url: URL): Tab {
 		const requested = url.searchParams.get('tab');
@@ -235,8 +240,10 @@
 	}
 
 	let tab = $state<Tab>(untrack(() => tabFrom(page.url)));
-	// A link to the sharing tab where sharing is off and no links remain.
-	const shown = $derived<Tab>(tab === 'sharing' && !sharingShown ? 'appearance' : tab);
+	// A link to a tab that is not offered: sharing off with no links left, or AI with nothing to show.
+	const shown = $derived<Tab>(
+		(tab === 'sharing' && !sharingShown) || (tab === 'ai' && data.mcp === null) ? 'appearance' : tab
+	);
 
 	function selectTab(event: MouseEvent, next: Tab) {
 		// A modified click opens the tab's link as a link would.
@@ -293,6 +300,33 @@
 		return () => clearInterval(timer);
 	});
 
+
+	/*
+	 * The library report: started here, made by the server (`libraryreport.ts`).
+	 * Asked for again every 1.5 seconds while it is made and the Cover cache
+	 * tab is showing, as the cover fill is.
+	 */
+	let report = $state<ReportStatus | null>(untrack(() => data.libraryReport));
+	let reportError = $state('');
+
+	async function reportRequest(method: 'GET' | 'POST') {
+		const response = await fetch('/api/library-report', { method }).catch(() => null);
+		if (!response?.ok) {
+			const body = (await response?.json().catch(() => null)) as { message?: string } | null;
+			reportError = body?.message ?? 'The report could not be asked for.';
+			return;
+		}
+		reportError = '';
+		report = await response.json();
+	}
+
+	$effect(() => {
+		if (report?.state !== 'running' || shown !== 'storage') return;
+		const timer = setInterval(() => void reportRequest('GET'), 1500);
+		return () => clearInterval(timer);
+	});
+
+	const percent = (part: number, whole: number) => (whole > 0 ? `${Math.round((part / whole) * 100)}%` : '0%');
 	/** Whether the server repeats the fill daily; see `keepFilled` in `coverfill.ts`. */
 	let daily = $state(untrack(() => data.coverFillDaily));
 
@@ -374,6 +408,20 @@
 				await update({ reset: false });
 				await invalidateAll();
 				linking = null;
+			};
+		};
+	}
+
+	/** The MCP token form waiting on the server: `make`, or the id of one being withdrawn. */
+	let mcpBusy = $state<string | null>(null);
+
+	function mcpSubmit(busy: string): SubmitFunction {
+		return () => {
+			mcpBusy = busy;
+			return async ({ update }) => {
+				await update({ reset: true });
+				await invalidateAll();
+				mcpBusy = null;
 			};
 		};
 	}
@@ -477,14 +525,100 @@
 				<span class="label">
 					Theme
 					<span class="hint hh-muted">
-						Liquid is dark glass lit by the artwork. Paper is parchment and ink, tinted by it.
+						Terminal is flat panes on hairlines, set in a mono face, with a command line on <kbd>:</kbd>
+						or <kbd>Ctrl</kbd>+<kbd>K</kbd>. Liquid is dark glass lit by the
+						artwork. Paper is parchment and ink, tinted by it. Phosphor is dark metal and rubber
+						keys, with its readouts lit like the display of a car stereo.
 					</span>
 				</span>
 				<select class="hh-input control" name="theme" bind:value={settings.theme}>
+					<option value="terminal">Terminal</option>
 					<option value="dark">Liquid</option>
 					<option value="light">Paper</option>
+					<option value="phosphor">Phosphor</option>
 				</select>
 			</label>
+
+			<!-- Terminal's own four, of which Phosphor has the accent. Liquid and
+			     Paper take every colour from the artwork, have no grid, and fade
+			     the player's artwork one way. -->
+			{#if settings.theme === 'terminal'}
+				<label class="row">
+					<span class="label">
+						Colour scheme
+						<span class="hint hh-muted">
+							The grounds and the text: Terminal's own, or those of an editor theme. Each
+							scheme has its own green, amber, cyan, violet, rose and white for the accent
+							below.
+						</span>
+					</span>
+					<select class="hh-input control" name="scheme" bind:value={settings.scheme}>
+						<option value="heddohon">Heddohon</option>
+						<option value="nord">Nord</option>
+						<option value="dracula">Dracula</option>
+						<option value="gruvbox">Gruvbox</option>
+						<option value="catppuccin">Catppuccin</option>
+						<option value="tokyo-night">Tokyo Night</option>
+						<option value="solarized">Solarized</option>
+						<option value="one-dark">One Dark</option>
+						<option value="monokai">Monokai</option>
+						<option value="everforest">Everforest</option>
+					</select>
+				</label>
+			{/if}
+
+			{#if settings.theme === 'terminal' || settings.theme === 'phosphor'}
+				<label class="row">
+					<span class="label">
+						Accent
+						<span class="hint hh-muted">
+							{settings.theme === 'phosphor'
+								? 'The colour the display and the readouts glow in: the cover of what is playing, or one colour that stays. The indicator lamps take a colour that sets it off.'
+								: 'The colour of the primary controls and the playing row: the cover of what is playing, or one colour that stays.'}
+						</span>
+					</span>
+					<select class="hh-input control" name="accent" bind:value={settings.accent}>
+						<option value="artwork">From the artwork</option>
+						<option value="green">Green</option>
+						<option value="amber">Amber</option>
+						<option value="cyan">Cyan</option>
+						<option value="violet">Violet</option>
+						<option value="rose">Rose</option>
+						<option value="white">White</option>
+					</select>
+				</label>
+			{/if}
+
+			{#if settings.theme === 'terminal'}
+				<label class="row">
+					<span class="label">
+						Background dots
+						<span class="hint hh-muted">The dot grid behind the page.</span>
+					</span>
+					<select class="hh-input control" name="dots" bind:value={settings.dots}>
+						<option value="off">Off</option>
+						<option value="faint">Faint</option>
+						<option value="medium">Medium</option>
+						<option value="strong">Strong</option>
+					</select>
+				</label>
+
+				<label class="row">
+					<span class="label">
+						Player artwork
+						<span class="hint hh-muted">
+							How the cover meets the panel under it: dissolved into dots at its foot, faded
+							plainly, crossed by scanlines, or drawn in two tones, the cover's colour and black.
+						</span>
+					</span>
+					<select class="hh-input control" name="playerArt" bind:value={settings.playerArt}>
+						<option value="dither">Dots</option>
+						<option value="plain">Plain</option>
+						<option value="scanlines">Scanlines</option>
+						<option value="duotone">Duotone</option>
+					</select>
+				</label>
+			{/if}
 
 			<label class="row">
 				<span class="label">
@@ -507,7 +641,8 @@
 				<span class="label">
 					Font
 					<span class="hint hh-muted">
-						The typeface across the interface. Figures and labels stay in the mono face.
+						The typeface across the interface. Figures and labels stay in the mono face. The first
+						is the theme's own.
 					</span>
 					<!-- In the face chosen, before it is saved; see `[data-font]` in app.css. -->
 					<span class="font-sample" data-font={settings.font} aria-hidden="true">
@@ -515,7 +650,9 @@
 					</span>
 				</span>
 				<select class="hh-input control" name="font" bind:value={settings.font}>
-					<option value="manrope">Manrope</option>
+					<option value="manrope">
+						{settings.theme === 'terminal' ? 'JetBrains Mono' : settings.theme === 'phosphor' ? 'Barlow' : 'Manrope'}
+					</option>
 					<option value="inter">Inter</option>
 					<option value="geist">Geist</option>
 					<option value="plex">IBM Plex Sans</option>
@@ -562,21 +699,24 @@
 				<input type="checkbox" name="showQualityBadge" bind:checked={settings.showQualityBadge} />
 			</label>
 
-			<label class="row">
-				<span class="label">
-					Aurora
-					<span class="hint hh-muted">
-						A glow in the artwork's colours behind the glass. Moving, it drifts slowly, and the glass
-						redraws its blur as it does; still or off costs nothing, for older or low-powered
-						hardware and for battery.
+			<!-- Terminal and Phosphor have no glass and no room behind it for a glow. -->
+			{#if settings.theme !== 'terminal' && settings.theme !== 'phosphor'}
+				<label class="row">
+					<span class="label">
+						Aurora
+						<span class="hint hh-muted">
+							A glow in the artwork's colours behind the glass. Moving, it drifts slowly, and the glass
+							redraws its blur as it does; still or off costs nothing, for older or low-powered
+							hardware and for battery.
+						</span>
 					</span>
-				</span>
-				<select class="hh-input control" name="aurora" bind:value={settings.aurora}>
-					<option value="moving">Moving</option>
-					<option value="still">Still</option>
-					<option value="off">Off</option>
-				</select>
-			</label>
+					<select class="hh-input control" name="aurora" bind:value={settings.aurora}>
+						<option value="moving">Moving</option>
+						<option value="still">Still</option>
+						<option value="off">Off</option>
+					</select>
+				</label>
+			{/if}
 		</section>
 
 		<section class="hh-card hh-glass group" hidden={shown !== 'playback'}>
@@ -1382,6 +1522,171 @@
 		</section>
 	{/if}
 
+	{#if data.mcp}
+		{@const mcp = data.mcp}
+		{@const made = form && 'mcpToken' in form ? form.mcpToken : null}
+		{#if mcp.admin}
+			<section class="hh-card hh-glass group" id="assistants-server" hidden={shown !== 'ai'}>
+				<div class="group-head">
+					<h2>AI assistants on this server</h2>
+					<p class="hh-muted">
+						Shown to administrators of {data.serverLabel || 'the music server'}. On, every account here can
+						make tokens for an AI assistant on this tab. Off, the endpoint answers as one that does not exist,
+						and tokens already made open nothing until it is on again.
+					</p>
+				</div>
+				<form
+					method="POST"
+					action="?/saveMcp"
+					use:enhance={() => {
+						mcpBusy = 'switch';
+						return async ({ update }) => {
+							await update({ reset: false });
+							await invalidateAll();
+							mcpBusy = null;
+						};
+					}}
+				>
+					<label class="row switch">
+						<span class="label">
+							Allow AI assistants (MCP)
+							<span class="hint hh-muted">
+								{mcp.admin.fromEnvironment
+									? 'Set by HEDDOHON_MCP in the environment.'
+									: 'What an assistant reads goes to whoever runs its model. Saved with the setup in setup.json, and taken at once.'}
+							</span>
+						</span>
+						<input type="checkbox" name="mcp" checked={mcp.on} disabled={mcp.admin.fromEnvironment} />
+					</label>
+					{#if form && 'mcpSwitchError' in form && form.mcpSwitchError}
+						<p class="hh-muted note-inline" role="alert">{form.mcpSwitchError}</p>
+					{:else if form && 'mcpSaved' in form && form.mcpSaved}
+						<p class="hh-muted note-inline" role="status">Saved.</p>
+					{/if}
+					{#if !mcp.admin.fromEnvironment}
+						<button class="hh-button" type="submit" disabled={mcpBusy === 'switch'}>
+							{mcpBusy === 'switch' ? 'Saving…' : 'Save'}
+						</button>
+					{/if}
+				</form>
+			</section>
+		{/if}
+
+		{#if mcp.on || mcp.tokens.length > 0}
+			<section class="hh-card hh-glass group" id="assistants" hidden={shown !== 'ai'}>
+				<div class="group-head">
+					<h2>AI assistants</h2>
+					<p class="hh-muted">
+						An assistant that speaks the Model Context Protocol (MCP), such as Claude Code, can search your
+						library and read your favourites, playlists and history here with a token, and, if the token
+						allows it, make and change playlists, favourites and ratings. It acts as your account on
+						{data.serverLabel || 'the music server'}, and what it reads goes to whoever runs its model.
+					</p>
+				</div>
+	
+				{#if !mcp.on}
+					<p class="hh-muted note-inline">
+						AI assistants are turned off on this server, so these tokens open nothing. They work again if it
+						is turned back on, unless you withdraw them.
+					</p>
+				{/if}
+	
+				{#if form && 'mcpError' in form && form.mcpError}
+					<p class="hh-muted note-inline" role="alert">{form.mcpError}</p>
+				{/if}
+	
+				{#if made}
+					<div class="made-token" role="status">
+						<p>The token for “{made.name}”, shown this once:</p>
+						<input
+							class="hh-input secret"
+							readonly
+							value={made.token}
+							aria-label="The new token"
+							onfocus={(event) => event.currentTarget.select()}
+						/>
+						<p class="hh-muted">To add it to Claude Code:</p>
+						<textarea
+							class="hh-input secret"
+							readonly
+							rows="3"
+							aria-label="The command that adds it to Claude Code"
+							onfocus={(event) => event.currentTarget.select()}
+							value={`claude mcp add --transport http heddohon ${mcp.endpoint} --header "Authorization: Bearer ${made.token}"`}
+						></textarea>
+						<p class="hh-muted">
+							Another client takes the address <code>{mcp.endpoint}</code> and the header
+							<code>Authorization: Bearer</code> followed by the token.
+						</p>
+					</div>
+				{/if}
+	
+				{#if mcp.on && mcp.tokens.length < mcp.max}
+					<form method="POST" action="?/makeMcpToken" use:enhance={mcpSubmit('make')}>
+						<div class="token-row">
+							<input
+								class="hh-input"
+								name="name"
+								maxlength={mcp.maxName}
+								autocomplete="off"
+								aria-label="What the token is for"
+								placeholder="Claude Code on my laptop"
+							/>
+							<button class="hh-button" type="submit" disabled={mcpBusy === 'make'}>
+								{mcpBusy === 'make' ? 'Making…' : 'Make a token'}
+							</button>
+						</div>
+						<label class="row switch">
+							<span class="label">
+								May change the library
+								<span class="hint hh-muted">
+									Make, rename and delete playlists, and set favourites and ratings. Off, the token reads and
+									changes nothing.
+								</span>
+							</span>
+							<input type="checkbox" name="writes" checked />
+						</label>
+					</form>
+				{/if}
+	
+				{#if mcp.tokens.length > 0}
+					<ul class="shares">
+						{#each mcp.tokens as token (token.id)}
+							<li class="share assistant">
+								<span class="share-text">
+									<span class="share-title hh-truncate">{token.name}</span>
+									<span class="share-sub hh-truncate hh-muted">
+										{token.writes ? 'Reads and changes' : 'Reads only'} · made
+										<span class="hh-numeric">{shortDate(token.createdAt)}</span> ·
+										{#if token.lastUsedAt}last used <span class="hh-numeric">{shortDate(token.lastUsedAt)}</span>{:else}not used yet{/if}
+									</span>
+								</span>
+								<form method="POST" action="?/withdrawMcpToken" use:enhance={mcpSubmit(token.id)}>
+									<input type="hidden" name="id" value={token.id} />
+									<button
+										class="hh-button danger withdraw"
+										type="submit"
+										disabled={mcpBusy === token.id}
+										aria-label="Withdraw the token {token.name}"
+									>
+										{mcpBusy === token.id ? 'Withdrawing…' : 'Withdraw'}
+									</button>
+								</form>
+							</li>
+						{/each}
+					</ul>
+				{/if}
+	
+				<p class="hh-muted note">
+					The server keeps a fingerprint of each token rather than the token, so it cannot be shown again.
+					Withdrawing one stops it at once. Every token ends when you sign in with a changed password, and when
+					{data.serverLabel || 'the music server'} stops accepting this account. An account holds up to
+					{mcp.max}.
+				</p>
+			</section>
+		{/if}
+	{/if}
+
 	<!-- Kept while sharing is off if the account still has links, so they can
 	     be withdrawn before the operator turns it back on. -->
 	{#if data.sharing || data.shares.length > 0}
@@ -1638,6 +1943,218 @@
 			{:else if backupDone}
 				<p class="hh-muted note-inline" role="status">{backupDone}</p>
 			{/if}
+		</section>
+	{/if}
+
+	{#if report}
+		<section class="hh-card hh-glass group" id="library-report" hidden={shown !== 'storage'}>
+			<div class="group-head">
+				<h2>Library report</h2>
+				<p class="hh-muted">
+					What the library on {data.serverLabel || 'the music server'} is made of, by format and resolution,
+					and what it lacks: albums in more than one format, the same album held twice, tracks without
+					ReplayGain, a genre or a year. Read from the whole library, a page of tracks at a time, and kept
+					for a day.
+				</p>
+			</div>
+
+			{#if report.state === 'running'}
+				<p class="hh-muted note-inline" role="status">Reading the library: {report.tracks.toLocaleString()} tracks so far.</p>
+			{:else}
+				<button class="hh-button" type="button" onclick={() => reportRequest('POST')}>
+					{report.state === 'done' ? 'Make it again' : 'Make a report'}
+				</button>
+			{/if}
+			{#if reportError}
+				<p class="hh-muted note-inline" role="alert">{reportError}</p>
+			{:else if report.state === 'failed'}
+				<p class="hh-muted note-inline" role="alert">{report.detail}</p>
+			{/if}
+
+			{#if report.state === 'done'}
+				{@const r = report.report}
+				{#if r.tracks === 0}
+					<p class="hh-muted note-inline">
+						The music server listed no tracks. A Subsonic server other than Navidrome may not list its whole
+						library this way.
+					</p>
+				{:else}
+					<dl class="report-figures hh-numeric">
+						<div><dt>Tracks</dt><dd>{r.tracks.toLocaleString()}</dd></div>
+						<div><dt>Albums</dt><dd>{r.albums.toLocaleString()}</dd></div>
+						<div><dt>Artists</dt><dd>{r.artists.toLocaleString()}</dd></div>
+						<div><dt>Length</dt><dd>{formatLongDuration(r.seconds)}</dd></div>
+						<div><dt>Size</dt><dd>{formatBytes(r.bytes)}</dd></div>
+						<div><dt>Lossless</dt><dd>{percent(r.lossless, r.tracks)}</dd></div>
+						<div><dt>Hi-res</dt><dd>{percent(r.hiRes, r.tracks)}</dd></div>
+					</dl>
+
+					<div class="report-tables">
+						<table>
+							<caption>Formats</caption>
+							<thead><tr><th scope="col">Format</th><th scope="col">Tracks</th><th scope="col">Size</th></tr></thead>
+							<tbody>
+								{#each r.formats as entry (entry.format)}
+									<tr><td>{entry.format}</td><td class="hh-numeric">{entry.tracks.toLocaleString()}</td><td class="hh-numeric">{formatBytes(entry.bytes)}</td></tr>
+								{/each}
+							</tbody>
+						</table>
+						{#if r.resolutions.length > 0}
+							<table>
+								<caption>Lossless, by resolution</caption>
+								<thead><tr><th scope="col">Resolution</th><th scope="col">Tracks</th></tr></thead>
+								<tbody>
+									{#each r.resolutions as entry (entry.label)}
+										<tr><td>{entry.label}</td><td class="hh-numeric">{entry.tracks.toLocaleString()}</td></tr>
+									{/each}
+								</tbody>
+							</table>
+						{/if}
+					</div>
+
+					<ul class="report-lacks hh-numeric">
+						<li>{r.withoutReplayGain.toLocaleString()} tracks without ReplayGain</li>
+						<li>{r.withoutGenre.toLocaleString()} without a genre</li>
+						<li>{r.withoutYear.toLocaleString()} without a year</li>
+					</ul>
+
+					{#if r.mixedCount > 0}
+						<details>
+							<summary>{r.mixedCount === 1 ? "1 album" : `${r.mixedCount.toLocaleString()} albums`} in more than one format{r.mixedCount > r.mixed.length ? `, the first ${r.mixed.length}` : ''}</summary>
+							<ul class="report-list">
+								{#each r.mixed as album (album.id)}
+									<li><a href="/albums/{album.id}">{album.name}</a><span class="hh-muted"> · {album.artist ?? 'Unknown artist'} · {album.formats.join(', ')}</span></li>
+								{/each}
+							</ul>
+						</details>
+					{/if}
+					{#if r.duplicateCount > 0}
+						<details>
+							<summary>{r.duplicateCount === 1 ? "1 album" : `${r.duplicateCount.toLocaleString()} albums`} held more than once{r.duplicateCount > r.duplicates.length ? `, the first ${r.duplicates.length}` : ''}</summary>
+							<ul class="report-list">
+								{#each r.duplicates as group, index (index)}
+									<li>
+										{group.name}<span class="hh-muted"> · {group.artist ?? 'Unknown artist'}:</span>
+										{#each group.albums as album, i (album.id)}{i > 0 ? ', ' : ' '}<a href="/albums/{album.id}">{album.formats.join('/')} ({album.tracks})</a>{/each}
+									</li>
+								{/each}
+							</ul>
+						</details>
+					{/if}
+					{#if r.withoutReplayGainAlbums.length > 0}
+						<details>
+							<summary>Albums with tracks without ReplayGain{r.withoutReplayGainAlbums.length >= 50 ? ', the first 50' : ''}</summary>
+							<ul class="report-list">
+								{#each r.withoutReplayGainAlbums as album (album.id)}
+									<li><a href="/albums/{album.id}">{album.name}</a><span class="hh-muted"> · {album.artist ?? 'Unknown artist'}</span></li>
+								{/each}
+							</ul>
+						</details>
+					{/if}
+					<p class="hh-muted note">
+						Made {shortDate(r.madeAt)}. Covers are not checked: the music server gives every album a cover
+						whether or not there is art behind it. Caching every cover, above, reads them all.
+					</p>
+				{/if}
+			{/if}
+		</section>
+	{/if}
+
+	<!--
+		The two values of the deployment an administrator can change from here.
+		Everything else about it is in its environment.
+	-->
+	{#if data.server}
+		{@const server = data.server}
+		<section class="hh-card hh-glass group" id="server" hidden={shown !== 'storage'}>
+			<div class="group-head">
+				<h2>This server</h2>
+			</div>
+
+			<p class="hh-muted note">
+				Shown to an administrator of {data.serverLabel || 'the music server'}. Both take effect at once,
+				for every account, and are saved in <code>setup.json</code> in the data directory. A value set in
+				the server's environment is shown and cannot be changed here.
+			</p>
+
+			<form
+				method="POST"
+				action="?/saveServer"
+				use:enhance={() =>
+					async ({ update }) => {
+						await update({ reset: false });
+					}}
+			>
+				<label class="row">
+					<span class="label">
+						Addresses
+						<span class="hint hh-muted">
+							Where this server is opened, one to a line: <code>http://192.168.1.10:3000</code>,
+							<code>https://music.example.com</code>. Sign-in and every change are accepted from these
+							and refused from any other site. An <code>https://</code> address reached through a proxy
+							that passes the host on works without being listed.
+						</span>
+					</span>
+					{#if server.fromEnvironment.origin}
+						<span class="hh-muted control">Set by ORIGIN in the environment.</span>
+					{:else}
+						<textarea
+							class="hh-input control addresses"
+							name="origins"
+							rows={Math.max(2, server.origins.length + 1)}
+							spellcheck="false"
+							autocomplete="off"
+							placeholder="http://192.168.1.10:3000">{server.origins.join('\n')}</textarea>
+					{/if}
+				</label>
+
+				{#if server.withoutSecure.length > 0}
+					<div class="plain-http" role="note">
+						<strong>Sign-in on plain http.</strong>
+						On {server.withoutSecure.join(' and ')} the sign-in cookie is sent without
+						<code>Secure</code>, since a browser does not send a <code>Secure</code> cookie back over
+						<code>http://</code>. Anyone who can read that network's traffic can read the cookie, and the
+						password as it is typed. Use an <code>https://</code> address where there is one. Setting
+						<code>HEDDOHON_COOKIE_SECURE=true</code> in the environment ends this, and sign-in on
+						{server.withoutSecure.length === 1 ? 'that address' : 'those addresses'} with it.
+					</div>
+				{/if}
+
+				<label class="row">
+					<span class="label">
+						Cover cache size
+						<span class="hint hh-muted">
+							In megabytes. Covers past it are removed, the least recently used first. 0 switches the
+							cache off.
+						</span>
+					</span>
+					{#if server.fromEnvironment.coverCache}
+						<span class="hh-muted control">
+							{server.coverCacheMb.toLocaleString()} MB, set by HEDDOHON_COVER_CACHE_MB in the environment.
+						</span>
+					{:else}
+						<input
+							class="hh-input control"
+							name="coverCacheMb"
+							type="number"
+							min="0"
+							max={server.maxCoverCacheMb}
+							step="1"
+							inputmode="numeric"
+							value={server.coverCacheMb}
+						/>
+					{/if}
+				</label>
+
+				{#if form && 'serverError' in form && form.serverError}
+					<p class="hh-muted note-inline" role="alert">{form.serverError}</p>
+				{:else if form && 'serverSaved' in form && form.serverSaved}
+					<p class="hh-muted note-inline" role="status">Saved.</p>
+				{/if}
+				{#if !(server.fromEnvironment.origin && server.fromEnvironment.coverCache)}
+					<button class="hh-button" type="submit">Save</button>
+				{/if}
+			</form>
 		</section>
 	{/if}
 
@@ -2146,6 +2663,30 @@
 		font-size: 0.875rem;
 	}
 
+	/* What an administrator has to know of a saved http address: set off by an
+	   edge in the accent, and said in words, not by a colour. */
+	.plain-http {
+		margin: var(--space-3) 0;
+		padding: var(--space-3) var(--space-4);
+		border: 1px solid var(--border-strong);
+		border-left: 3px solid var(--accent);
+		border-radius: var(--r-sm);
+		background: var(--bg-sunken);
+		color: var(--text-default);
+		font-size: 0.875rem;
+		line-height: 1.55;
+	}
+
+	.plain-http strong {
+		color: var(--text-strong);
+	}
+
+	.addresses {
+		font-family: var(--font-mono);
+		font-size: 0.8125rem;
+		resize: vertical;
+	}
+
 	.shares {
 		list-style: none;
 		margin: 0;
@@ -2200,6 +2741,106 @@
 	.withdraw:disabled {
 		opacity: 0.6;
 		cursor: progress;
+	}
+
+	.report-figures {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(8rem, 1fr));
+		gap: var(--space-3);
+		margin: var(--space-4) 0;
+	}
+
+	.report-figures div {
+		display: grid;
+		gap: 0.15rem;
+	}
+
+	.report-figures dt {
+		color: var(--text-muted);
+		font-size: 0.75rem;
+	}
+
+	.report-figures dd {
+		margin: 0;
+		color: var(--text-strong);
+		font-size: 1.125rem;
+	}
+
+	.report-tables {
+		display: flex;
+		flex-wrap: wrap;
+		gap: var(--space-5);
+		margin-bottom: var(--space-4);
+	}
+
+	.report-tables table {
+		border-collapse: collapse;
+		font-size: 0.8125rem;
+	}
+
+	.report-tables caption {
+		text-align: left;
+		padding-bottom: var(--space-2);
+		color: var(--text-muted);
+	}
+
+	.report-tables th,
+	.report-tables td {
+		padding: 0.25rem var(--space-4) 0.25rem 0;
+		text-align: left;
+		border-bottom: 1px solid var(--border-hairline);
+	}
+
+	.report-tables th {
+		color: var(--text-muted);
+		font-weight: 500;
+	}
+
+	.report-lacks {
+		margin: 0 0 var(--space-3);
+		padding-left: 1.2rem;
+		font-size: 0.875rem;
+	}
+
+	.report-list {
+		margin: var(--space-2) 0 var(--space-3);
+		padding-left: 1.2rem;
+		font-size: 0.8125rem;
+		max-height: 18rem;
+		overflow-y: auto;
+	}
+
+	details summary {
+		cursor: pointer;
+		font-size: 0.875rem;
+		padding: 0.25rem 0;
+	}
+
+	/* A token has no cover. */
+	.share.assistant {
+		grid-template-columns: minmax(0, 1fr) auto;
+	}
+
+	.made-token {
+		display: grid;
+		gap: var(--space-2);
+		margin: var(--space-3) 0;
+		padding: var(--space-3) var(--space-4);
+		border: 1px solid var(--border-strong);
+		border-left: 3px solid var(--accent);
+		border-radius: var(--r-sm);
+		background: var(--bg-sunken);
+		font-size: 0.875rem;
+	}
+
+	.made-token p {
+		margin: 0;
+	}
+
+	.secret {
+		font-family: var(--font-mono);
+		font-size: 0.8125rem;
+		resize: none;
 	}
 
 	/* More specific than `.row form` above, which makes a form a block. */
@@ -2279,5 +2920,15 @@
 		.row.switch {
 			grid-template-columns: minmax(0, 1fr) auto;
 		}
+	}
+
+	/* ── Terminal ────────────────────────────────────────────────────────────── */
+
+	/* The tab that is open: the accent, on a rule of it. The other themes light
+	   the label, and this one has no glow to do it with. */
+	:global([data-theme='terminal']) .tab.active {
+		border-radius: 0;
+		color: var(--accent);
+		box-shadow: inset 0 -2px 0 var(--accent);
 	}
 </style>

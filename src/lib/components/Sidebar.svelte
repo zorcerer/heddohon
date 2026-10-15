@@ -89,6 +89,8 @@
 	function stretch(from: { x: number; y: number }, to: { x: number; y: number }) {
 		const duration = motion(DUR.travel);
 		if (!markerEl || duration === 0) return;
+		// Terminal's marker is a block the size of its target, which travels as it is.
+		if (document.documentElement.dataset.theme === 'terminal') return;
 		const along = Math.abs(to.x - from.x) > Math.abs(to.y - from.y) ? '2.2 1' : '1 2.2';
 		markerEl.animate([{ scale: '1 1' }, { scale: along, offset: 0.35 }, { scale: '1 1' }], {
 			duration,
@@ -354,5 +356,63 @@
 		.rail {
 			display: none;
 		}
+	}
+
+	/* ── Terminal ────────────────────────────────────────────────────────────── */
+
+	/*
+	 * The destination is a filled block in the accent with its glyph in the dark
+	 * tone, as a selection is drawn in a terminal. The sliding marker is that
+	 * block, behind the glyphs, and travels without the stretch.
+	 */
+	:global([data-theme='terminal']) .mark {
+		background: none;
+		border-color: transparent;
+	}
+
+	:global([data-theme='terminal']) .link {
+		position: relative;
+		z-index: 1;
+	}
+
+	:global([data-theme='terminal']) .link:hover {
+		color: var(--text-strong);
+	}
+
+	:global([data-theme='terminal']) .link:active {
+		background: var(--bg-hover);
+	}
+
+	/* The glyph darkens once the block is most of the way there: at once, it was
+	   a dark glyph on the dark pane for the length of the slide. */
+	:global([data-theme='terminal']) .link.active {
+		color: var(--accent-contrast);
+		transition: color 0s linear 180ms;
+	}
+
+	:global([data-theme='terminal']) .link.active::before {
+		display: none;
+	}
+
+	/* Until the marker has a position (the server-rendered page), and for
+	   Settings, which is outside the list, the link draws the block itself. */
+	:global([data-theme='terminal']) .rail:not(.measured) .link.active,
+	:global([data-theme='terminal']) .foot .link.active {
+		background: var(--accent);
+		transition: none;
+	}
+
+	:global([data-theme='terminal']) .marker {
+		left: 0;
+		width: 100%;
+		height: 2.75rem;
+		border-radius: var(--r-sm);
+		translate: 0 calc(var(--marker-y) - 1.375rem);
+	}
+
+	:global([data-theme='terminal']) .marker.settled {
+		transition:
+			translate var(--dur-state) var(--ease-out),
+			opacity var(--dur-hover) var(--ease-out);
 	}
 </style>

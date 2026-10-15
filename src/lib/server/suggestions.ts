@@ -13,7 +13,7 @@
  *
  * `memo.ts` has how entries are held and shared.
  */
-import type { Album, Artist } from '$lib/types';
+import type { Album, Artist, ExternalLink } from '$lib/types';
 import type { LibraryContext } from './library';
 import { Memo } from './memo';
 
@@ -62,6 +62,44 @@ export function similarArtists(
 		{ accountId, credential },
 		`artist\u0000${artistId}\u0000${limit}`,
 		() => backend.getSimilarArtists(credential, artistId, limit),
+		ttlFor
+	);
+}
+
+/** At most this many links under a page; Jellyfin with every provider plugin has a dozen. */
+const MAX_LINKS = 8;
+
+/**
+ * Pages about an album or an artist elsewhere, held with the shelves: on
+ * Navidrome the Last.fm address comes from the same agent, and changes as
+ * rarely.
+ *
+ * The music server's administrator writes these, as they do a station's home
+ * page, so only http and https addresses without a user name become links,
+ * once each, and the browser opens them with no referrer (`ExternalLinks`).
+ */
+export function externalLinks(
+	{ backend, credential, accountId }: LibraryContext,
+	kind: 'album' | 'artist',
+	id: string
+): Promise<ExternalLink[]> {
+	return suggestions.get(
+		{ accountId, credential },
+		`links\u0000${kind}\u0000${id}`,
+		async () => {
+			const seen = new Set<string>();
+			const links: ExternalLink[] = [];
+			for (const link of await backend.getExternalLinks(credential, kind, id)) {
+				const url = URL.canParse(link.url) ? new URL(link.url) : null;
+				if (!url || (url.protocol !== 'https:' && url.protocol !== 'http:') || url.username || url.password) continue;
+				const label = link.label.trim().slice(0, 40);
+				if (!label || seen.has(url.href)) continue;
+				seen.add(url.href);
+				links.push({ label, url: url.href });
+				if (links.length === MAX_LINKS) break;
+			}
+			return links;
+		},
 		ttlFor
 	);
 }

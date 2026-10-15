@@ -54,7 +54,9 @@
 	function subtitle(playlist: PageData['playlists'][number]): string {
 		return [
 			playlist.songCount ? `${playlist.songCount} tracks` : null,
-			formatLongDuration(playlist.duration) || null
+			formatLongDuration(playlist.duration) || null,
+			// Another user's is public, or it would not be listed.
+			playlist.editable ? (playlist.isPublic ? 'public' : null) : playlist.owner ? `by ${playlist.owner}` : 'shared'
 		]
 			.filter(Boolean)
 			.join(' · ');

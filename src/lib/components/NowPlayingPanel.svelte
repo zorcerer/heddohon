@@ -17,6 +17,8 @@
 	import { SLEEP_MINUTES, player } from '$lib/client/player.svelte';
 	import { audioOutputs } from '$lib/client/output.svelte';
 	import { handOff } from '$lib/client/handoff';
+	import { artworkColor } from '$lib/client/artwork';
+	import { contextMenu } from '$lib/client/context-menu.svelte';
 	import { formatBytes, formatDuration } from '$lib/client/format';
 	import { lyricsWindow } from '$lib/client/lyrics.svelte';
 	import { playlistPicker } from '$lib/client/playlists.svelte';
@@ -35,6 +37,7 @@
 		skipGlyph,
 		turnGlyph
 	} from '$lib/client/motion';
+	import { scramble } from '$lib/client/scramble';
 	import { flip } from 'svelte/animate';
 	import Cover from './Cover.svelte';
 	import FavouriteButton from './FavouriteButton.svelte';
@@ -74,6 +77,34 @@
 	const song = $derived(player.current);
 
 	/*
+	 * Duotone's second tone (Terminal, `data-art="duotone"`): the colour of the
+	 * cover in the player, whatever the accent is and whatever page is open.
+	 * The room's tint is held to 18 to 38 percent saturation so the interface
+	 * reads over it. Laid over a picture in grey that range gave every album
+	 * nearly one tan, so it is spread over 40 to 75 percent here. A cover with
+	 * no hue of its own gets a light grey, and stays a picture in grey.
+	 *
+	 * Read only where it is drawn. Read in every theme, it fetched the cover of
+	 * the track the queue was restored with on every page, for nothing.
+	 */
+	let duotone = $state<string | null>(null);
+	$effect(() => {
+		const coverArt = song?.coverArt ?? null;
+		const drawn = page.data.settings?.theme === 'terminal' && page.data.settings?.playerArt === 'duotone';
+		if (!drawn) return;
+		let current = true;
+		void artworkColor(coverArt).then((color) => {
+			if (!current) return;
+			duotone = color
+				? `hsl(${color.hue.toFixed(1)} ${(40 + (color.saturation - 18) * 1.75).toFixed(1)}% 64%)`
+				: 'hsl(0 0% 78%)';
+		});
+		return () => {
+			current = false;
+		};
+	});
+
+	/*
 	 * The title, artist and album slide in from the side the queue moved to
 	 * when the track changes, as the artwork above them crossfades: from the
 	 * right for the next track, from the left for the previous one
@@ -93,6 +124,13 @@
 			const direction = untrack(() => player.direction);
 			arrivedFor = key;
 			if (first || !changed || prefersReducedMotion()) return;
+			// Terminal has its own: the title resolves in place, and nothing slides.
+			// Only in the theme's mono face; see `scramble.ts`.
+			const root = document.documentElement.dataset;
+			if (root.theme === 'terminal') {
+				const title = node.querySelector<HTMLElement>('.title');
+				return title && root.font === 'manrope' ? scramble(title, DUR.state) : undefined;
+			}
 			const animation = node.animate(
 				[
 					{ opacity: 0, translate: `${direction * 1.25}rem 0`, filter: 'blur(3px)' },
@@ -313,7 +351,17 @@
 							class:dragged={drag?.from === index}
 							style:translate={rowShift(index)}
 						>
-							<div class="row" class:current={index === player.index} class:past={index < player.index}>
+							<!-- The menu is a second way to what the row's buttons do. -->
+							<!-- svelte-ignore a11y_no_static_element_interactions -->
+							<div class="row" class:current={index === player.index} class:past={index < player.index}
+								oncontextmenu={(event) =>
+									contextMenu.open(event, {
+										kind: 'song',
+										song: track,
+										play: () => void player.jumpTo(index),
+										remove: { label: 'Remove from the queue', run: () => player.removeAt(index) }
+									})}
+							>
 								<!-- Dragged by pointer or finger, or moved one place at a time
 								     with the arrow keys while it has focus. -->
 								<button
@@ -363,6 +411,7 @@
 		{:else}
 			<a
 				class="art layer"
+				style:--duotone={duotone}
 				{...pullHandlers}
 				draggable="false"
 				ondragstart={(event) => event.preventDefault()}
@@ -393,7 +442,7 @@
 		<div class="head">
 			<div class="text" {@attach arrive(song?.id ?? null)}>
 				{#if song}
-					<h2 class="title hh-clamp-2">{song.title}</h2>
+					<h2 class="title hh-clamp-2" data-text={song.title}>{song.title}</h2>
 					<p class="artist hh-truncate">
 						{#if song.artistId}
 							<a href="/artists/{song.artistId}">{song.artist ?? 'Unknown artist'}</a>
@@ -1702,5 +1751,365 @@
 		.below {
 			display: grid;
 		}
+	}
+
+	/* ── Terminal ────────────────────────────────────────────────────────────── */
+
+	/*
+	 * How the artwork meets the panel, by the account's choice (`playerArt` in
+	 * Settings, on the root as `data-art`). Each is drawn by the layer that
+	 * carries the grain in the other themes, inside the mask on `.art` that ends
+	 * the picture.
+	 *
+	 * Dots, the default: the artwork dissolves into the dot grid. The layer is a
+	 * sheet of the pane's colour with a hole every 7px, faded in over the last
+	 * third of its height, so the picture is whole at the top, then seen through
+	 * the holes, then gone. The colours of the cover are untouched.
+	 */
+	:global([data-theme='terminal']) .art::after {
+		background: radial-gradient(circle, transparent 2px, var(--bg-surface) 2.7px) 0 0 / 7px 7px;
+		-webkit-mask-image: linear-gradient(to bottom, transparent 64%, #000 96%);
+		mask-image: linear-gradient(to bottom, transparent 64%, #000 96%);
+	}
+
+	/* Plain: the fade alone, as Liquid has it, without the grain. */
+	:global([data-theme='terminal'][data-art='plain']) .art::after {
+		background: none;
+	}
+
+	/* Scanlines: a line of the pane's colour at 62 percent on every third row,
+	   over the whole picture. */
+	:global([data-theme='terminal'][data-art='scanlines']) .art::after {
+		background: repeating-linear-gradient(
+			to bottom,
+			transparent 0 2px,
+			color-mix(in srgb, var(--bg-surface) 62%, transparent) 2px 3px
+		);
+		-webkit-mask-image: none;
+		mask-image: none;
+	}
+
+	/*
+	 * Duotone: the picture in grey, multiplied by the cover's own colour
+	 * (`--duotone`, set on `.art` by the script), so its lights are that colour
+	 * and its darks stay black. Until the cover is read the layer is clear and
+	 * the picture is in grey alone; the colour then fades in over it.
+	 * The filter is on the cover's own box, under the layer, and the mask on
+	 * `.art` keeps the blend inside it.
+	 */
+	:global([data-theme='terminal'][data-art='duotone']) .art :global(.cover) {
+		filter: grayscale(1) contrast(1.08);
+	}
+
+	:global([data-theme='terminal'][data-art='duotone']) .art::after {
+		background: var(--duotone, transparent);
+		transition: background-color var(--dur-colour) var(--ease-colour);
+		mix-blend-mode: multiply;
+		-webkit-mask-image: none;
+		mask-image: none;
+	}
+
+	/*
+	 * The track as three labelled lines. The labels are drawn by the stylesheet
+	 * beside text that already says what it is to a screen reader (a heading, and
+	 * links to the artist and the album). Only for a track of the library:
+	 * `.rounds` is there for one and not for a station or an empty player.
+	 */
+	:global([data-theme='terminal']) .head:has(.rounds) .title,
+	:global([data-theme='terminal']) .head:has(.rounds) .artist,
+	:global([data-theme='terminal']) .head:has(.rounds) .album {
+		position: relative;
+		padding-left: 3.5rem;
+	}
+
+	:global([data-theme='terminal']) .head:has(.rounds) .title::before,
+	:global([data-theme='terminal']) .head:has(.rounds) .artist::before,
+	:global([data-theme='terminal']) .head:has(.rounds) .album::before {
+		position: absolute;
+		left: 0;
+		color: var(--text-muted);
+		font-size: 0.8125rem;
+		font-weight: 400;
+		letter-spacing: 0;
+	}
+
+	/* Each with an empty alternative text, so it is drawn and not read into the
+	   heading's or the link's line; the plain declaration is for Safari before
+	   17.4. */
+	:global([data-theme='terminal']) .head:has(.rounds) .title::before {
+		content: 'title';
+		content: 'title' / '';
+		top: 0.2rem;
+	}
+
+	:global([data-theme='terminal']) .head:has(.rounds) .artist::before {
+		content: 'artist';
+		content: 'artist' / '';
+	}
+
+	:global([data-theme='terminal']) .head:has(.rounds) .album::before {
+		content: 'album';
+		content: 'album' / '';
+	}
+
+	:global([data-theme='terminal']) .title {
+		font-size: 1.0625rem;
+		line-height: 1.35;
+		letter-spacing: -0.01em;
+	}
+
+	:global([data-theme='terminal']) .artist,
+	:global([data-theme='terminal']) .album {
+		font-size: 0.8125rem;
+	}
+
+	:global([data-theme='terminal']) .artist a {
+		color: var(--accent);
+	}
+
+	:global([data-theme='terminal']) .album {
+		-webkit-line-clamp: 1;
+		line-clamp: 1;
+	}
+
+	/* The two actions beside the title, as square keys with a hairline. */
+	:global([data-theme='terminal']) .round,
+	:global([data-theme='terminal']) .round :global(button) {
+		width: 2.5rem;
+		height: 2.5rem;
+		border-radius: var(--r-sm);
+		background: none;
+		color: var(--text-strong);
+	}
+
+	:global([data-theme='terminal']) .times > :first-child {
+		color: var(--text-strong);
+	}
+
+	/*
+	 * The transport as one row of five keys that share their edges, the middle
+	 * one filled. A press changes the key's ground; nothing scales.
+	 */
+	:global([data-theme='terminal']) .transport {
+		display: grid;
+		grid-template-columns: repeat(5, minmax(0, 1fr));
+		gap: 0;
+		padding: 0;
+		border: 1px solid var(--border-strong);
+		border-radius: var(--r-md);
+		overflow: hidden;
+	}
+
+	:global([data-theme='terminal']) .edge,
+	:global([data-theme='terminal']) .step,
+	:global([data-theme='terminal']) .play {
+		height: 2.75rem;
+		padding: 0;
+		border-radius: 0;
+		scale: none;
+	}
+
+	:global([data-theme='terminal']) .transport > :global(button + button) {
+		border-left: 1px solid var(--border-strong);
+	}
+
+	:global([data-theme='terminal']) .step :global(svg),
+	:global([data-theme='terminal']) .play :global(svg) {
+		width: 1.25rem;
+		height: 1.25rem;
+	}
+
+	:global([data-theme='terminal']) .edge:active:not(:disabled),
+	:global([data-theme='terminal']) .step:active:not(:disabled),
+	:global([data-theme='terminal']) .tool:active:not(:disabled) {
+		scale: none;
+		background: var(--bg-hover);
+	}
+
+	:global([data-theme='terminal']) .play,
+	:global([data-theme='terminal']) .play:hover {
+		background: var(--accent);
+		color: var(--accent-contrast);
+	}
+
+	:global([data-theme='terminal']) .play:hover,
+	:global([data-theme='terminal']) .play:active:not(:disabled) {
+		scale: none;
+		background: var(--accent-strong);
+	}
+
+	/* The count on the queue button, squared like everything else here. */
+	:global([data-theme='terminal']) .count {
+		border-radius: var(--r-pill);
+		animation: none;
+	}
+
+	:global([data-theme='terminal']) .queue-list > li.dragged {
+		box-shadow: inset 0 0 0 1px var(--accent);
+	}
+
+	/* The track that is playing, in the queue: the accent, where the other
+	   themes light it. */
+	:global([data-theme='terminal']) .row.current .row-title {
+		color: var(--accent);
+		font-weight: 700;
+	}
+
+	/* ── Phosphor ────────────────────────────────────────────────────────── */
+
+	/*
+	 * The title block is the display: smoked glass, the dot-matrix face lit in
+	 * the accent, the artist in the indicator colour, and the control grid drawn
+	 * over all of it (`::after`), as it sits in front of the phosphor.
+	 */
+	:global([data-theme='phosphor']) .text {
+		position: relative;
+		flex: 1;
+		padding: 0.625rem 0.75rem 0.7rem;
+		border-radius: var(--r-sm);
+		background: var(--vfd-glass);
+		box-shadow: var(--vfd-bezel);
+		overflow: hidden;
+	}
+
+	:global([data-theme='phosphor']) .text::after {
+		content: '';
+		position: absolute;
+		inset: 0;
+		background: var(--vfd-mesh);
+		pointer-events: none;
+	}
+
+	:global([data-theme='phosphor']) .title,
+	:global([data-theme='phosphor']) .artist,
+	:global([data-theme='phosphor']) .album {
+		font-family: var(--font-readout);
+		font-weight: 400;
+		letter-spacing: 0.04em;
+		text-transform: uppercase;
+	}
+
+	:global([data-theme='phosphor']) .title {
+		font-size: 1.25rem;
+		line-height: 1.3;
+		color: var(--accent);
+		text-shadow: var(--glow-text);
+	}
+
+	:global([data-theme='phosphor']) .artist,
+	:global([data-theme='phosphor']) .artist a {
+		font-size: 0.875rem;
+		color: var(--led);
+		text-shadow: var(--glow-led);
+	}
+
+	:global([data-theme='phosphor']) .album {
+		font-size: 0.8125rem;
+		color: color-mix(in srgb, var(--accent) 70%, transparent);
+		-webkit-line-clamp: 1;
+		line-clamp: 1;
+	}
+
+	/* The two actions beside the display, as rubber keys stacked to its height. */
+	:global([data-theme='phosphor']) .rounds {
+		flex-direction: column;
+		padding: 0.1875rem;
+	}
+
+	:global([data-theme='phosphor']) .round,
+	:global([data-theme='phosphor']) .round :global(button) {
+		width: 2.5rem;
+		height: 2.5rem;
+		border: 0;
+		border-radius: var(--r-md);
+		background: var(--key-face);
+		box-shadow: var(--key-edge);
+		color: var(--text-strong);
+	}
+
+	:global([data-theme='phosphor']) .round:has(:global(button)) {
+		background: none;
+		box-shadow: none;
+	}
+
+	/* The elapsed time is the display's readout; the time left stays unlit. */
+	:global([data-theme='phosphor']) .times {
+		font-size: 0.875rem;
+	}
+
+	:global([data-theme='phosphor']) .times > :first-child {
+		color: var(--accent);
+		text-shadow: var(--glow-text);
+	}
+
+	/*
+	 * The transport as five rubber keys, the middle one widest, with a lamp
+	 * under its glyph that is lit while the track plays. A press sinks a key
+	 * into its well; nothing scales.
+	 */
+	:global([data-theme='phosphor']) .transport {
+		display: grid;
+		grid-template-columns: 1fr 1.2fr 1.6fr 1.2fr 1fr;
+		gap: 0.625rem;
+		padding: 0.25rem 0.1875rem;
+	}
+
+	:global([data-theme='phosphor']) .edge,
+	:global([data-theme='phosphor']) .step,
+	:global([data-theme='phosphor']) .play {
+		height: 3rem;
+		padding: 0;
+		border-radius: var(--r-md);
+		background: var(--key-face);
+		box-shadow: var(--key-edge);
+		scale: none;
+	}
+
+	:global([data-theme='phosphor']) .edge:active:not(:disabled),
+	:global([data-theme='phosphor']) .step:active:not(:disabled),
+	:global([data-theme='phosphor']) .play:active:not(:disabled) {
+		scale: none;
+		background: var(--key-face-down);
+		box-shadow: var(--key-edge-down);
+	}
+
+	:global([data-theme='phosphor']) .step :global(svg),
+	:global([data-theme='phosphor']) .play :global(svg) {
+		width: 1.375rem;
+		height: 1.375rem;
+	}
+
+	:global([data-theme='phosphor']) .play {
+		padding-bottom: 0.5rem;
+	}
+
+	:global([data-theme='phosphor']) .play::after {
+		content: '';
+		position: absolute;
+		left: 50%;
+		bottom: 0.5rem;
+		width: 1.375rem;
+		height: 3px;
+		margin-left: -0.6875rem;
+		border-radius: 2px;
+		background: color-mix(in srgb, var(--led) 16%, #16120e);
+	}
+
+	/* The pause glyph is the one shown while the track plays. */
+	:global([data-theme='phosphor']) .play:has(.glyph.on:last-child)::after {
+		background: var(--led);
+		box-shadow:
+			0 0 2px var(--led),
+			0 0 8px color-mix(in srgb, var(--led) 70%, transparent);
+	}
+
+	:global([data-theme='phosphor']) .edge.on {
+		filter: var(--glow-icon);
+	}
+
+	:global([data-theme='phosphor']) .count {
+		border-radius: var(--r-pill);
+		font-family: var(--font-readout);
+		font-size: 0.6875rem;
 	}
 </style>

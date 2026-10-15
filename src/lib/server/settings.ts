@@ -2,10 +2,47 @@
  * Per-account preferences and playback state. Stored on the server, not in
  * localStorage, so they follow the account to every browser.
  */
+import { config } from './config';
 import { now, store } from './db';
 import type { AlbumSort } from '$lib/types';
 
-export type ThemeName = 'dark' | 'light';
+/**
+ * A value of `data-theme`. Settings shows `dark` as Liquid and `light` as
+ * Paper, the names they took after they were stored under these.
+ */
+export type ThemeName = 'terminal' | 'dark' | 'light' | 'phosphor';
+
+/**
+ * The accents Terminal and Phosphor offer beside the artwork's own colour. A
+ * fixed list and not a colour picked freely: each is written into the HTML by
+ * name, and each holds 4.5:1 on the theme's ground and under its dark label.
+ * Phosphor draws each as a phosphor of that colour (`phosphor.css`).
+ */
+const ACCENTS = ['artwork', 'green', 'amber', 'cyan', 'violet', 'rose', 'white'] as const;
+
+/**
+ * Terminal's colour schemes: its own, and nine editor themes whose grounds,
+ * text tones and six accents are in `terminal-schemes.css`. A fixed list for
+ * the reason the accents are one: the name is written into the HTML.
+ */
+const SCHEMES = [
+	'heddohon',
+	'nord',
+	'dracula',
+	'gruvbox',
+	'catppuccin',
+	'tokyo-night',
+	'solarized',
+	'one-dark',
+	'monokai',
+	'everforest'
+] as const;
+
+/** How strongly Terminal draws the dot grid behind the page. */
+const DOTS = ['off', 'faint', 'medium', 'strong'] as const;
+
+/** How Terminal draws the player's artwork where it meets the panel under it. */
+const PLAYER_ART = ['dither', 'plain', 'scanlines', 'duotone'] as const;
 
 /**
  * Themes were once named after the Nord palette. Accounts from before the
@@ -27,6 +64,27 @@ const TRANSCODE_BITRATES = [96, 128, 192, 256, 320] as const;
 
 export interface UserSettings {
 	theme: ThemeName;
+	/**
+	 * Where Terminal and Phosphor take their accent from: the cover of what is
+	 * playing, as Liquid and Paper always do, or one fixed colour. See
+	 * `[data-accent]` in terminal.css and phosphor.css.
+	 */
+	accent: (typeof ACCENTS)[number];
+	/**
+	 * Terminal's colours: the theme's own (`heddohon`) or a named scheme, which
+	 * changes the grounds, the text and what each fixed accent is. The accent
+	 * from the artwork is the same in all of them.
+	 */
+	scheme: (typeof SCHEMES)[number];
+	/** The dot grid behind the page in Terminal. See `[data-dots]` in terminal.css. */
+	dots: (typeof DOTS)[number];
+	/**
+	 * The player's artwork in Terminal: dissolved into the dot grid at its foot
+	 * (`dither`), faded as Liquid fades it (`plain`), crossed by scanlines, or
+	 * in two tones, the accent and black. See `[data-art]` in
+	 * `NowPlayingPanel.svelte`.
+	 */
+	playerArt: (typeof PLAYER_ART)[number];
 	/** 0…1, applied to the audio element. */
 	volume: number;
 	/**
@@ -104,10 +162,38 @@ export interface UserSettings {
  * stylesheet loads: `theme-color` in the served page and the manifest's
  * colours.
  */
-export const THEME_GROUND: Record<ThemeName, string> = { dark: '#0b0c0f', light: '#f0e7d5' };
+export const THEME_GROUND: Record<ThemeName, string> = {
+	terminal: '#08090a',
+	dark: '#0b0c0f',
+	light: '#f0e7d5',
+	phosphor: '#0a0b0c'
+};
 
-export const DEFAULT_SETTINGS: UserSettings = {
-	theme: 'dark',
+/** The same for Terminal under a colour scheme: `--bg-base` of each in `terminal-schemes.css`. */
+const SCHEME_GROUND: Record<UserSettings['scheme'], string> = {
+	heddohon: THEME_GROUND.terminal,
+	nord: '#2e3440',
+	dracula: '#282a36',
+	gruvbox: '#282828',
+	catppuccin: '#1e1e2e',
+	'tokyo-night': '#1a1b26',
+	solarized: '#002b36',
+	'one-dark': '#282c34',
+	monokai: '#272822',
+	everforest: '#2d353b'
+};
+
+/** The ground the page is drawn on, for `theme-color`: the scheme's in Terminal, the theme's otherwise. */
+export function groundOf(settings: Pick<UserSettings, 'theme' | 'scheme'>): string {
+	return settings.theme === 'terminal' ? SCHEME_GROUND[settings.scheme] : THEME_GROUND[settings.theme];
+}
+
+const DEFAULT_SETTINGS: UserSettings = {
+	theme: 'terminal',
+	scheme: 'heddohon',
+	accent: 'artwork',
+	dots: 'faint',
+	playerArt: 'duotone',
 	volume: 0.85,
 	transition: 'gapless',
 	crossfadeSeconds: 4,
@@ -131,6 +217,38 @@ export const DEFAULT_SETTINGS: UserSettings = {
 	installCardDismissed: false
 };
 
+/**
+ * What an account that has saved nothing is given: the defaults above, in the
+ * theme the deployment starts accounts in (`HEDDOHON_DEFAULT_THEME`). Pages
+ * without an account are drawn from it too.
+ */
+/**
+ * The settings as shipped, with no deployment behind them: for the setup
+ * page, which is drawn before there is a configuration to ask for a theme.
+ */
+export function shippedSettings(): UserSettings {
+	return { ...DEFAULT_SETTINGS };
+}
+
+export function defaultSettings(): UserSettings {
+	return { ...DEFAULT_SETTINGS, theme: config().defaultTheme };
+}
+
+/**
+ * Settings stored before Terminal existed, which have no `dots`. `dark` in
+ * them was the one dark theme and the default, written with every save
+ * whatever the account had changed, so it is not a choice of Liquid over
+ * Terminal: such an account moves to the deployment's default theme. Paper was
+ * chosen, and stays. The next save writes `dots`, and the theme stored from
+ * then on is the account's own.
+ */
+function fromBeforeTerminal(stored: unknown): unknown {
+	if (typeof stored !== 'object' || stored === null) return stored;
+	const raw = stored as Record<string, unknown>;
+	if (Object.prototype.hasOwnProperty.call(raw, 'dots') || raw.theme !== 'dark') return stored;
+	return { ...raw, theme: config().defaultTheme };
+}
+
 /** The sorts the album list implements, so a stored preference cannot name another. */
 const ALBUM_SORTS = [
 	'recentlyAdded',
@@ -150,7 +268,7 @@ function clamp(value: number, min: number, max: number, fallback: number): numbe
 type FlagKey = { [K in keyof UserSettings]: UserSettings[K] extends boolean ? K : never }[keyof UserSettings];
 
 /** Returns valid settings from any input. The client payload is not trusted. */
-function sanitizeSettings(input: unknown, base: UserSettings = DEFAULT_SETTINGS): UserSettings {
+function sanitizeSettings(input: unknown, base: UserSettings = defaultSettings()): UserSettings {
 	const raw = (typeof input === 'object' && input !== null ? input : {}) as Record<string, unknown>;
 	const pick = <T extends string>(key: keyof UserSettings, allowed: readonly T[], fallback: T): T => {
 		const value = raw[key];
@@ -164,13 +282,18 @@ function sanitizeSettings(input: unknown, base: UserSettings = DEFAULT_SETTINGS)
 	return {
 		theme: pick(
 			'theme',
-			['dark', 'light'] as const,
+			['terminal', 'dark', 'light', 'phosphor'] as const,
 			// `hasOwnProperty`, not a bare index: `{ theme: 'constructor' }` would
 			// return a function from the prototype chain.
 			Object.prototype.hasOwnProperty.call(LEGACY_THEMES, String(raw.theme))
 				? LEGACY_THEMES[String(raw.theme)]
 				: base.theme
 		),
+		// All four allowlisted like the theme: interpolated into the served HTML.
+		scheme: pick('scheme', SCHEMES, base.scheme),
+		accent: pick('accent', ACCENTS, base.accent),
+		dots: pick('dots', DOTS, base.dots),
+		playerArt: pick('playerArt', PLAYER_ART, base.playerArt),
 		volume: clamp(Number(raw.volume ?? base.volume), 0, 1, base.volume),
 		transition: pick('transition', ['off', 'gapless', 'crossfade'] as const, base.transition),
 		crossfadeSeconds: clamp(Number(raw.crossfadeSeconds ?? base.crossfadeSeconds), 1, 12, base.crossfadeSeconds),
@@ -221,9 +344,9 @@ export async function getSettings(accountId: string): Promise<UserSettings> {
 	const row = await database.get<{ data: string }>('SELECT data FROM settings WHERE account_id = ?', accountId);
 	let settings: UserSettings;
 	try {
-		settings = row ? sanitizeSettings(JSON.parse(row.data)) : { ...DEFAULT_SETTINGS };
+		settings = row ? sanitizeSettings(fromBeforeTerminal(JSON.parse(row.data))) : defaultSettings();
 	} catch {
-		settings = { ...DEFAULT_SETTINGS };
+		settings = defaultSettings();
 	}
 	if (database.kind === 'postgres' && epoch === settingsEpoch) {
 		settingsCache.set(accountId, { settings, until: now() + SETTINGS_CACHE_MS });

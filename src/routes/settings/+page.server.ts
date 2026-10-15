@@ -1,6 +1,8 @@
 import { fail } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
-import { config } from '$lib/server/config';
+import { config, parseOrigins, saveSetup } from '$lib/server/config';
+import { decidedByEnvironment, MAX_COVER_CACHE_MB, serverValues } from '$lib/server/setup';
+import { addressesWithoutSecure } from '$lib/server/origin';
 import { destroyAllSessions, endSessions, listSessions } from '$lib/server/auth';
 import { getSettings, saveSettings } from '$lib/server/settings';
 import { cacheStats, clearCache } from '$lib/server/covercache';
@@ -20,6 +22,8 @@ import { describeShares, revokeAllShares, revokeShare } from '$lib/server/shares
 import { clearHistory, importPlays, recentPlays } from '$lib/server/history';
 import { getProfile } from '$lib/server/listening';
 import { pluginHeard, pluginOffered, requestImport } from '$lib/server/plugin';
+import { reportStatus } from '$lib/server/libraryreport';
+import { createMcpToken, listMcpTokens, MAX_MCP_TOKEN_NAME, MAX_MCP_TOKENS, revokeMcpToken } from '$lib/server/mcp';
 
 /**
  * How long the import action waits for the Navidrome plugin to send the whole
@@ -52,7 +56,7 @@ async function scrobblerFailure(locals: App.Locals, err: unknown, step: string) 
 	return fail(502, { scrobblerError: 'The music server did not complete that. Try again.' });
 }
 
-export const load: PageServerLoad = async ({ locals }) => {
+export const load: PageServerLoad = async ({ locals, url }) => {
 	const session = locals.session!;
 	const cfg = config();
 
@@ -73,7 +77,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 	// Independent reads, started together. Awaited in turn, the page waited for
 	// the sum of a directory scan, two upstream calls and two database reads.
 	const offered = offeredIntegrations();
-	const [coverCache, coverFillKeeper, isAdmin, settings, sessions, shares, history, linked, upstream, profile] = await Promise.all([
+	const [coverCache, coverFillKeeper, isAdmin, settings, sessions, shares, history, linked, upstream, profile, mcpTokens] = await Promise.all([
 		cacheStats(),
 		filledBy(session.account.backend),
 		/*
@@ -93,7 +97,8 @@ export const load: PageServerLoad = async ({ locals }) => {
 		// Waited for only where it decides what the page offers, below.
 		offered.listenbrainz && scrobblers ? scrobblerLinks : null,
 		// What the account shows the others here, where that is offered; see `listening.ts`.
-		cfg.listeners && cfg.remoteControl ? getProfile(session.account.id) : null
+		cfg.listeners && cfg.remoteControl ? getProfile(session.account.id) : null,
+		listMcpTokens(session.account.id)
 	]);
 
 	/*
@@ -108,6 +113,8 @@ export const load: PageServerLoad = async ({ locals }) => {
 	return {
 		coverCache,
 		coverFill: fillStatus(session.account.id),
+		// The library report, for an administrator; see `libraryreport.ts`.
+		libraryReport: isAdmin === true ? reportStatus(session.account.id) : null,
 		// Whether the fill is repeated daily, by this administrator or another.
 		coverFillDaily: coverFillKeeper !== null,
 		isAdmin,
@@ -134,12 +141,145 @@ export const load: PageServerLoad = async ({ locals }) => {
 		 * off, and the page says nothing of it.
 		 */
 		plugin: pluginOffered(session.account.backend) ? { heard: pluginHeard() } : null,
+		/*
+		 * What an administrator of the music server can change about this
+		 * deployment without its environment: the addresses it is opened at and
+		 * the size of the cover cache. Null to any other account. `fromEnvironment`
+		 * says which of the two the environment gives, and the form then shows
+		 * without offering to change.
+		 */
+		server:
+			isAdmin === true
+				? {
+						origins: cfg.origins,
+						// The saved addresses a sign-in cookie goes out on without Secure.
+						withoutSecure: addressesWithoutSecure(cfg.origins, cfg.cookieSecure),
+						coverCacheMb: Math.round(cfg.coverCacheBytes / (1024 * 1024)),
+						maxCoverCacheMb: MAX_COVER_CACHE_MB,
+						fromEnvironment: decidedByEnvironment()
+					}
+				: null,
 		// As the `listeners` event carries it, which replaces it once the stream is open.
-		profile: profile && { id: profile.handle, name: profile.name, shown: profile.shown, avatar: profile.avatarAt }
+		profile: profile && { id: profile.handle, name: profile.name, shown: profile.shown, avatar: profile.avatarAt },
+		/*
+		 * The AI tab: the account's tokens for an AI assistant and the address
+		 * its client is given, where the endpoint is on, and for an
+		 * administrator of the music server the switch that turns it on.
+		 * Kept while it is off if the account still has tokens, so they can be
+		 * withdrawn before it is turned back on. Null, the tab is not shown.
+		 */
+		mcp:
+			cfg.mcp || mcpTokens.length > 0 || isAdmin === true
+				? {
+						on: cfg.mcp,
+						endpoint: `${url.origin}/api/mcp`,
+						tokens: mcpTokens,
+						max: MAX_MCP_TOKENS,
+						maxName: MAX_MCP_TOKEN_NAME,
+						// Whether this account may switch it, and whether the environment decides it instead.
+						admin: isAdmin === true ? { fromEnvironment: decidedByEnvironment().mcp } : null
+					}
+				: null
 	};
 };
 
 export const actions: Actions = {
+	/**
+	 * Makes a token for an AI assistant's client; see `mcp.ts`. The token is
+	 * in this answer alone and is not kept.
+	 */
+	makeMcpToken: async ({ locals, request }) => {
+		const session = locals.session;
+		if (!session) return fail(401, { error: 'Not signed in' });
+		if (!config().mcp) return fail(404, { mcpError: 'AI assistants are not turned on for this server.' });
+		const form = await request.formData();
+		const name = String(form.get('name') ?? '');
+		if (name.length > 300) return fail(400, { mcpError: `A name is at most ${MAX_MCP_TOKEN_NAME} characters.` });
+		const made = await createMcpToken(session.account.id, name, form.get('writes') === 'on');
+		if (made === 'full') {
+			return fail(409, { mcpError: `An account holds at most ${MAX_MCP_TOKENS} tokens. Withdraw one to make another.` });
+		}
+		return { mcpToken: { token: made.token, id: made.summary.id, name: made.summary.name } };
+	},
+
+	/**
+	 * Turns the MCP endpoint on or off for the deployment, for an
+	 * administrator of the music server, as `saveServer` changes the address.
+	 * Saved in `setup.json` and taken with the next request. Off, the tokens
+	 * stay, each listed to its account, and open nothing until it is on again.
+	 */
+	saveMcp: async ({ locals, request }) => {
+		const session = locals.session;
+		if (!session) return fail(401, { error: 'Not signed in' });
+		if ((await backendFor(session.account.backend).isAdmin(session.credential)) !== true) {
+			return fail(403, { mcpSwitchError: 'Only an administrator of the music server can change this.' });
+		}
+		if (decidedByEnvironment().mcp) return fail(409, { mcpSwitchError: 'HEDDOHON_MCP in the environment decides this.' });
+		const on = (await request.formData()).get('mcp') === 'on';
+		// Off is the default, so it is saved as no value.
+		saveSetup({ HEDDOHON_MCP: on ? 'true' : '' });
+		log.warn('mcp-switched', { by: session.account.username, on });
+		return { mcpSaved: true };
+	},
+
+	/** Withdraws one of the account's tokens, by the id the list shows. */
+	withdrawMcpToken: async ({ locals, request }) => {
+		const session = locals.session;
+		if (!session) return fail(401, { error: 'Not signed in' });
+		const id = (await request.formData()).get('id');
+		if (typeof id !== 'string' || id.length > 64 || !(await revokeMcpToken(session.account.id, id))) {
+			return fail(404, { mcpError: 'That token was already withdrawn.' });
+		}
+		return { mcpWithdrawn: true };
+	},
+
+	/**
+	 * Saves the addresses the deployment is opened at and the size of the
+	 * cover cache, for an administrator of the music server. Both take effect
+	 * with the next request, without a restart.
+	 *
+	 * The list has to go on accepting the address this was sent from. Saved
+	 * without it, every write from that address would be refused as
+	 * cross-origin, the one that puts it back among them.
+	 */
+	saveServer: async ({ locals, request }) => {
+		const session = locals.session;
+		if (!session) return fail(401, { error: 'Not signed in' });
+		if ((await backendFor(session.account.backend).isAdmin(session.credential)) !== true) {
+			return fail(403, { serverError: 'Only an administrator of the music server can change these.' });
+		}
+		const form = await request.formData();
+		const text = (name: string) => {
+			const value = form.get(name);
+			return typeof value === 'string' ? value : undefined;
+		};
+		const checked = serverValues({ origin: text('origins'), coverCacheMb: text('coverCacheMb') });
+		if ('field' in checked) return fail(400, { serverError: checked.message });
+
+		if (checked.values.ORIGIN !== undefined) {
+			const next = parseOrigins(checked.values.ORIGIN);
+			const here = request.headers.get('origin');
+			// With no address saved for a host, the server takes it to be https there.
+			const assumed = `https://${request.headers.get('host') ?? ''}`;
+			const sameHostSaved = next.some((origin) => here !== null && new URL(origin).host === new URL(here).host);
+			if (here && !next.includes(here) && (here !== assumed || sameHostSaved)) {
+				return fail(400, {
+					serverError: `The address you are on now, ${here}, has to stay in the list. Saved without it, every change made from here would be refused, this one included.`
+				});
+			}
+		}
+
+		saveSetup(checked.values);
+		try {
+			config();
+		} catch (err) {
+			log.error('server-settings-invalid', { detail: reason(err) });
+			return fail(500, { serverError: 'Saved, but the configuration is not valid. See the server log.' });
+		}
+		log.warn('server-settings-saved', { by: session.account.username, changed: Object.keys(checked.values).join(',') || 'nothing' });
+		return { serverSaved: true };
+	},
+
 	save: async ({ locals, request }) => {
 		const session = locals.session;
 		if (!session) return fail(401, { error: 'Not signed in' });
@@ -149,6 +289,12 @@ export const actions: Actions = {
 
 		const settings = await saveSettings(session.account.id, {
 			theme: form.get('theme'),
+			// These four are on the form only in Terminal, and aurora only
+			// outside it. One left off the form keeps its stored value.
+			scheme: form.get('scheme'),
+			accent: form.get('accent'),
+			dots: form.get('dots'),
+			playerArt: form.get('playerArt'),
 			transition: form.get('transition'),
 			crossfadeSeconds: Number(form.get('crossfadeSeconds')),
 			crossfadeWithinAlbum: bool('crossfadeWithinAlbum'),

@@ -40,7 +40,7 @@ export async function library<T>(
 				await destroyAllSessions(event.locals.session.account.id);
 				error(401, 'Your music server credentials are no longer valid. Please sign in again.');
 			}
-			error(err.kind === 'not_found' ? 404 : 502, err.message);
+			error(err.kind === 'not_found' ? 404 : err.kind === 'forbidden' ? 403 : 502, err.message);
 		}
 		throw err;
 	}

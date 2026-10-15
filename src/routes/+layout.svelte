@@ -1,5 +1,8 @@
 <script lang="ts">
 	import '$lib/styles/app.css';
+	import '$lib/styles/terminal.css';
+	import '$lib/styles/terminal-schemes.css';
+	import '$lib/styles/phosphor.css';
 	import { tick, untrack } from 'svelte';
 	import { afterNavigate, beforeNavigate, onNavigate, preloadCode, pushState } from '$app/navigation';
 	import { navigating, page, updated } from '$app/state';
@@ -18,7 +21,7 @@
 		supportsViewTransitions
 	} from '$lib/client/sleeve-transition.svelte';
 	import { handOff } from '$lib/client/handoff';
-	import { glideFrom } from '$lib/client/glide';
+	import { glideEnd, glideFrom } from '$lib/client/glide';
 	import { DUR } from '$lib/client/motion';
 	import { sheetDrag } from '$lib/client/sheet.svelte';
 	import { morphSheet, sheetMorph } from '$lib/client/sheet-morph.svelte';
@@ -32,8 +35,10 @@
 	import ListeningNow from '$lib/components/ListeningNow.svelte';
 	import Reactions from '$lib/components/Reactions.svelte';
 	import TogetherDialog from '$lib/components/TogetherDialog.svelte';
+	import ContextMenu from '$lib/components/ContextMenu.svelte';
 	import PlaylistPicker from '$lib/components/PlaylistPicker.svelte';
 	import ShareDialog from '$lib/components/ShareDialog.svelte';
+	import PathStrip from '$lib/components/PathStrip.svelte';
 	import Sidebar from '$lib/components/Sidebar.svelte';
 	import type { LayoutData, Snapshot } from './$types';
 	import type { Song } from '$lib/types';
@@ -226,6 +231,14 @@
 	// The font as well, for the same reason.
 	$effect(() => {
 		document.documentElement.dataset.font = data.settings.font;
+	});
+
+	// And Terminal's colour scheme, accent, dot grid and artwork.
+	$effect(() => {
+		document.documentElement.dataset.scheme = data.settings.scheme;
+		document.documentElement.dataset.accent = data.settings.accent;
+		document.documentElement.dataset.dots = data.settings.dots;
+		document.documentElement.dataset.art = data.settings.playerArt;
 	});
 
 	/*
@@ -613,6 +626,9 @@
 			if (was === null || !content || player.sheetLayout || !player.viewportKnown || prefersReducedMotion()) {
 				panelArriving = false;
 				panelIn = open;
+				// Whatever a slide still had held or moving, when the screen
+				// turned narrow or less motion was asked for part-way through it.
+				if (was !== null) glideEnd();
 				return;
 			}
 			const carry = glideFrom(content);
@@ -804,6 +820,7 @@
 		-->
 		<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 		<main class="content" class:rising tabindex="0" bind:this={content}>
+			<PathStrip />
 			{@render children()}
 		</main>
 
@@ -849,6 +866,7 @@
 			</div>
 		</div>
 
+		<ContextMenu />
 		<PlaylistPicker />
 		<DevicesDialog />
 		{#if data.together}
@@ -1522,6 +1540,62 @@
 			width: 100%;
 			opacity: 0.6;
 			animation: none;
+		}
+	}
+
+	/* ── Terminal ────────────────────────────────────────────────────────────── */
+
+	/*
+	 * The page is a third pane, between the rail and the player, with the path
+	 * strip (`PathStrip.svelte`) along its top. It stays see-through to the dot
+	 * grid: nothing is behind it but the room. The layers that cover it during a
+	 * navigation take its corners.
+	 */
+	@media (min-width: 60.0625rem) {
+		:global([data-theme='terminal']) .content {
+			border: 1px solid var(--border-strong);
+			border-radius: var(--r-xl);
+		}
+
+		:global([data-theme='terminal']) .app .page-veil,
+		:global([data-theme='terminal']) .app .wait-veil {
+			border-radius: var(--r-xl);
+		}
+	}
+
+	/* The line that sweeps while a page loads, without its glow. */
+	:global([data-theme='terminal']) .nav-progress span {
+		box-shadow: none;
+	}
+
+	/* The page arrives without the rise: the rows of its lists print in instead
+	   (`terminal.css`). */
+	:global([data-theme='terminal']) .content.rising > :global(*) {
+		animation: none;
+	}
+
+	/* ── Phosphor ────────────────────────────────────────────────────────────── */
+
+	/*
+	 * The page is a pane of the same metal as the rail and the player, with the
+	 * path strip along its top as a display. The layers that cover it during a
+	 * navigation take its corners.
+	 */
+	@media (min-width: 60.0625rem) {
+		:global([data-theme='phosphor']) .content {
+			border: 1px solid var(--border-hairline);
+			border-radius: var(--r-xl);
+			background:
+				linear-gradient(to bottom, rgb(255 255 255 / 0.03), transparent 10rem),
+				var(--bg-surface);
+			box-shadow:
+				inset 0 1px 0 var(--glass-sheen),
+				var(--float-shadow);
+		}
+
+		:global([data-theme='phosphor']) .app .page-veil,
+		:global([data-theme='phosphor']) .app .wait-veil {
+			border-radius: var(--r-xl);
 		}
 	}
 </style>

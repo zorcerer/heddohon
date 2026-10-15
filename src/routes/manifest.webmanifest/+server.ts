@@ -17,11 +17,13 @@ import { THEME_GROUND } from '$lib/server/settings';
  * splash screen and bars are painted in before the page is read. Fetched
  * without a cookie, it cannot know the account's theme, so the page asks for
  * it by theme (`?theme=light`, written by `hooks.server.ts`). Without that it
- * is the dark theme's.
+ * is the theme the deployment starts accounts in, which the sign-in page is
+ * drawn in too.
  */
 export const GET: RequestHandler = ({ url }) => {
-	const { appName } = config();
-	const ground = THEME_GROUND[url.searchParams.get('theme') === 'light' ? 'light' : 'dark'];
+	const { appName, defaultTheme } = config();
+	const asked = url.searchParams.get('theme');
+	const ground = THEME_GROUND[asked === 'terminal' || asked === 'dark' || asked === 'light' || asked === 'phosphor' ? asked : defaultTheme];
 	const manifest = {
 		id: '/',
 		name: appName,

@@ -331,6 +331,145 @@ describe('settings', () => {
 		await user.json('/api/settings', 'PATCH', { theme: 'dark' });
 	});
 
+	test('Terminal\'s scheme, accent, dot grid and player artwork are each one of those offered, and are in the first byte of the page', async () => {
+		const fresh = await (await user.json('/api/settings', 'PATCH', {})).json();
+		assert.deepEqual([fresh.scheme, fresh.accent, fresh.dots, fresh.playerArt], ['heddohon', 'artwork', 'faint', 'duotone']);
+		try {
+			const saved = await (
+				await user.json('/api/settings', 'PATCH', { theme: 'terminal', scheme: 'tokyo-night', accent: 'green', dots: 'off', playerArt: 'duotone' })
+			).json();
+			assert.deepEqual([saved.theme, saved.scheme, saved.accent, saved.dots, saved.playerArt], ['terminal', 'tokyo-night', 'green', 'off', 'duotone']);
+			const { html } = await user.page('/albums');
+			assert.match(html, /<html[^>]* data-theme="terminal" data-scheme="tokyo-night" data-accent="green" data-dots="off" data-art="duotone"/);
+			// The bar a phone draws around the page is the scheme's ground.
+			assert.match(html, /name="theme-color" content="#1a1b26"/);
+
+			const bogus = await (
+				await user.json('/api/settings', 'PATCH', { scheme: '"><script>alert(3)</script>', accent: '"><script>alert(1)</script>', dots: '#fff', playerArt: '"><script>alert(2)</script>' })
+			).json();
+			assert.deepEqual([bogus.scheme, bogus.accent, bogus.dots, bogus.playerArt], ['tokyo-night', 'green', 'off', 'duotone'], 'a value that is not offered keeps the one stored');
+			assert.ok(!(await user.page('/albums')).html.includes('<script>alert('));
+			// Outside Terminal the scheme is kept and the ground is the theme's.
+			await user.json('/api/settings', 'PATCH', { theme: 'dark' });
+			assert.match((await user.page('/albums')).html, /name="theme-color" content="#0b0c0f"/);
+		} finally {
+			await user.json('/api/settings', 'PATCH', { theme: 'dark', scheme: 'heddohon', accent: 'artwork', dots: 'faint', playerArt: 'duotone' });
+		}
+	});
+
+	test('Phosphor is offered, takes the accent, and is in the first byte of the page with its ground', async () => {
+		try {
+			const saved = await (await user.json('/api/settings', 'PATCH', { theme: 'phosphor', accent: 'amber' })).json();
+			assert.deepEqual([saved.theme, saved.accent], ['phosphor', 'amber']);
+			const { html } = await user.page('/albums');
+			assert.match(html, /<html[^>]* data-theme="phosphor"[^>]* data-accent="amber"/);
+			assert.match(html, /name="theme-color" content="#0a0b0c"/);
+			assert.match(html, /rel="manifest" href="\/manifest\.webmanifest\?theme=phosphor"/);
+			const manifest = await (await fetch(`${app.url}/manifest.webmanifest?theme=phosphor`)).json();
+			assert.deepEqual([manifest.theme_color, manifest.background_color], ['#0a0b0c', '#0a0b0c']);
+		} finally {
+			await user.json('/api/settings', 'PATCH', { theme: 'dark', accent: 'artwork' });
+		}
+
+		const phosphor = await startApp({ subsonicUrl: subsonic.url, jellyfinUrl: jellyfin.url, env: { HEDDOHON_DEFAULT_THEME: 'Phosphor' } });
+		try {
+			assert.match((await new Client(phosphor.url).page('/login')).html, /data-theme="phosphor"/);
+		} finally {
+			await phosphor.stop();
+		}
+	});
+
+	test('an account starts in the deployment\'s theme, Terminal unless it is set, and the sign-in page is drawn in it', async () => {
+		const colours = async (base, query) => {
+			const manifest = await (await fetch(`${base}/manifest.webmanifest${query}`)).json();
+			return [manifest.theme_color, manifest.background_color];
+		};
+		// Without the variable, which the harness otherwise sets.
+		const terminal = await startApp({ subsonicUrl: subsonic.url, jellyfinUrl: jellyfin.url, env: { HEDDOHON_DEFAULT_THEME: '' } });
+		try {
+			assert.match((await new Client(terminal.url).page('/login')).html, /data-theme="terminal"/);
+			const client = new Client(terminal.url);
+			await client.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' });
+			assert.equal((await (await client.json('/api/settings', 'PATCH', {})).json()).theme, 'terminal');
+			const head = async () => (await client.page('/albums')).html.split('</head>')[0];
+			assert.match(await head(), /data-theme="terminal"/);
+			assert.match(await head(), /name="theme-color" content="#08090a"/);
+			assert.match(await head(), /rel="manifest" href="\/manifest\.webmanifest"/);
+			assert.deepEqual(await colours(terminal.url, ''), ['#08090a', '#08090a']);
+
+			// Another theme is asked for by name, since the manifest is fetched without a cookie.
+			await client.json('/api/settings', 'PATCH', { theme: 'dark' });
+			assert.match(await head(), /rel="manifest" href="\/manifest\.webmanifest\?theme=dark"/);
+			assert.deepEqual(await colours(terminal.url, '?theme=dark'), ['#0b0c0f', '#0b0c0f']);
+			assert.deepEqual(await colours(terminal.url, '?theme=%22%3E'), ['#08090a', '#08090a'], 'anything else is the default theme\'s');
+		} finally {
+			await terminal.stop();
+		}
+
+		const paper = await startApp({ subsonicUrl: subsonic.url, jellyfinUrl: jellyfin.url, env: { HEDDOHON_DEFAULT_THEME: 'Paper' } });
+		try {
+			assert.match((await new Client(paper.url).page('/login')).html, /data-theme="light"/);
+			assert.deepEqual(await colours(paper.url, ''), ['#f0e7d5', '#f0e7d5']);
+			assert.deepEqual(await colours(paper.url, '?theme=terminal'), ['#08090a', '#08090a']);
+		} finally {
+			await paper.stop();
+		}
+	});
+
+	test('settings saved before Terminal existed move to the default theme once, and a choice made since is kept', async () => {
+		const { default: Database } = await import('better-sqlite3');
+		const dataDir = mkdtempSync(join(tmpdir(), 'heddohon-e2e-themes-'));
+		const start = (theme) =>
+			startApp({ subsonicUrl: subsonic.url, jellyfinUrl: jellyfin.url, dataDir, env: { HEDDOHON_DEFAULT_THEME: theme } });
+		/** The stored settings as a release before Terminal wrote them: no `dots`, no `accent`, and a theme. */
+		const storeOld = (theme) => {
+			const db = new Database(join(dataDir, 'heddohon.db'));
+			const row = db.prepare('SELECT account_id, data FROM settings').get();
+			const { dots: _dots, accent: _accent, ...old } = JSON.parse(row.data);
+			db.prepare('UPDATE settings SET data = ? WHERE account_id = ?').run(JSON.stringify({ ...old, theme }), row.account_id);
+			db.close();
+		};
+		const client = new Client('');
+		const theme = async (app) => {
+			client.base = app.url;
+			return (await (await client.json('/api/settings', 'GET')).json()).theme;
+		};
+
+		let app = await start('terminal');
+		try {
+			client.base = app.url;
+			await client.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' });
+			await client.json('/api/settings', 'PATCH', { volume: 0.5 });
+			await app.stop({ keepData: true });
+
+			// `dark` was the one dark theme and was written with every save, so it is not a choice of Liquid.
+			storeOld('dark');
+			app = await start('terminal');
+			assert.equal(await theme(app), 'terminal');
+			assert.equal((await (await client.json('/api/settings', 'GET')).json()).volume, 0.5, 'the rest of the settings are as stored');
+			// Chosen now, and stored with `dots`: it stays.
+			await client.json('/api/settings', 'PATCH', { theme: 'dark' });
+			assert.equal(await theme(app), 'dark');
+			await app.stop({ keepData: true });
+			app = await start('terminal');
+			assert.equal(await theme(app), 'dark', 'Liquid chosen since is kept across a restart');
+			await app.stop({ keepData: true });
+
+			// Paper was chosen over the default, and is left alone.
+			storeOld('light');
+			app = await start('terminal');
+			assert.equal(await theme(app), 'light');
+			await app.stop({ keepData: true });
+
+			// A deployment that starts accounts in Liquid moves nobody.
+			storeOld('dark');
+			app = await start('liquid');
+			assert.equal(await theme(app), 'dark');
+		} finally {
+			await app.stop();
+		}
+	});
+
 	test('the font is one of the six offered, and is in the first byte of the page', async () => {
 		const geist = await (await user.json('/api/settings', 'PATCH', { font: 'geist' })).json();
 		assert.equal(geist.font, 'geist');
@@ -675,6 +814,35 @@ describe('held album details and suggestions', () => {
 			subsonic.state.similarAlbums = 0;
 			subsonic.state.alikeAlbums = 0;
 		}
+	});
+});
+
+describe('links elsewhere', () => {
+	test('an artist and an album page link MusicBrainz and Last.fm, and nothing that is not a web page', async () => {
+		await asFreshAccount('elsewhere', async (client) => {
+			const artist = await client.page('/artists/ar0');
+			// Streamed, so the links arrive as data rather than markup.
+			assert.match(artist.html, /https:\/\/musicbrainz\.org\/artist\/b09c8a50-7bfa-434f-a2cf-f9bf9f6f91a5/, explain('the MusicBrainz link is missing'));
+			assert.match(artist.html, /https:\/\/www\.last\.fm\/music\/Artist\+0000/);
+
+			const album = await client.page('/albums/al4');
+			assert.match(album.html, /https:\/\/musicbrainz\.org\/release\/de5c6a49-a5ec-41d9-9117-a128898fa099/, explain('the album link is missing'));
+			assert.doesNotMatch(album.html, /javascript:alert/);
+			await client.page('/albums/al4');
+			assert.equal(subsonic.calls.get('getAlbumInfo2'), 1, 'the links were not held');
+
+			const bare = await client.page('/albums/al5');
+			assert.doesNotMatch(bare.html, /Elsewhere|musicbrainz\.org/);
+		});
+	});
+
+	test('on Jellyfin, from the item\'s ExternalUrls, without one that carries a password', async () => {
+		const client = new Client(app.url);
+		await client.signIn({ username: 'jfuser', password: 'jfpass', backend: 'jellyfin' });
+		const { html } = await client.page('/albums/b2');
+		assert.match(html, /https:\/\/musicbrainz\.org\/release\/11111111-2222-3333-4444-555555555555/, explain('the MusicBrainz link is missing'));
+		assert.match(html, /MusicBrainz Release Group/);
+		assert.doesNotMatch(html, /MusicBrainz Album|someone:secret/);
 	});
 });
 
@@ -1212,9 +1380,10 @@ describe('playback on another browser', () => {
 			assert.equal((await new Client(app.url).request('/api/search?q=Artist%200003')).status, 401);
 			const client = await signedIn('seconduser', 'secondpass');
 			const found = await (await client.request('/api/search?q=Artist%200003')).json();
-			assert.deepEqual(Object.keys(found), ['songs']);
+			// The albums and artists are for Terminal's command line.
+			assert.deepEqual(Object.keys(found), ['songs', 'albums', 'artists']);
 			assert.equal(found.songs[0].id, 's3a');
-			assert.deepEqual(await (await client.request('/api/search?q=a')).json(), { songs: [] });
+			assert.deepEqual(await (await client.request('/api/search?q=a')).json(), { songs: [], albums: [], artists: [] });
 		});
 	});
 	describe('listening now', () => {
@@ -1817,6 +1986,42 @@ describe('your listening', () => {
 			assert.match(html, /href="\/albums\/al1"/);
 			// Both artists were first played in the period.
 			assert.match(html.split('New to you')[1] ?? '', /Artist 0001[\s\S]*Artist 0002/);
+		});
+	});
+
+	test('each figure is set against the span before the period, where something was kept in it', async () => {
+		await asFreshAccount('compared', async (client) => {
+			await client.json('/api/settings', 'PATCH', { reportPlayback: false });
+			const daysAgo = (days) => new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+			// Two plays in the 30 days before the last 30, by two artists.
+			subsonic.state.played.set('s3a', daysAgo(40));
+			subsonic.state.played.set('s4a', daysAgo(45));
+			try {
+				// Nothing kept before: no figure is compared.
+				for (const id of ['s1a', 's1a', 's2a', 's2b']) await play(client, id);
+				assert.doesNotMatch((await client.page('/stats')).html, /the 30 days before/);
+
+				const imported = await client.request('/settings?/importHistory', {
+					method: 'POST',
+					headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json', 'x-sveltekit-action': 'true' },
+					body: ''
+				});
+				assert.equal((await imported.json()).type, 'success', explain('the import failed'));
+
+				const { html } = await client.page('/stats');
+				const compared = (label) => new RegExp(`class="label[^"]*">${label}</span>[\\s\\S]*?class="[^"]*change[^"]*">([^<]+)<`).exec(html)?.[1];
+				// Four plays against two, three tracks against two, two artists against two.
+				assert.equal(figure(html, 'Plays'), '4');
+				assert.equal(compared('Plays'), '+100% on the 30 days before');
+				assert.equal(compared('Tracks'), '+50% on the 30 days before');
+				assert.equal(compared('Artists'), 'The same as the 30 days before');
+				// Everything kept has nothing before it.
+				const all = (await client.page('/stats?period=all')).html;
+				assert.equal(figure(all, 'Plays'), '6');
+				assert.doesNotMatch(all, /class="[^"]*change[^"]*">[^<]*(before|last year)/);
+			} finally {
+				subsonic.state.played.clear();
+			}
 		});
 	});
 
@@ -3095,6 +3300,10 @@ describe('a backup of the database', () => {
 		const { default: Database } = await import('better-sqlite3');
 		const before = await (await user.request('/api/settings')).json();
 		await user.json('/api/settings', 'PATCH', { volume: 0.37 });
+		// A token, as one is kept: this app has the MCP endpoint off, so none can be made here.
+		const live = new Database(join(app.dataDir, 'heddohon.db'));
+		const owner = live.prepare("SELECT id FROM accounts WHERE username = 'testuser'").get().id;
+		live.prepare("INSERT INTO mcp_tokens (id, token_digest, account_id, name, writes, created_at) VALUES ('backup-token', 'digest', ?, 'Backup', 1, 0)").run(owner);
 		try {
 			const { response, files } = await backup();
 			assert.equal(response.headers.get('content-type'), 'application/zip');
@@ -3114,6 +3323,7 @@ describe('a backup of the database', () => {
 				assert.equal(copy.pragma('integrity_check', { simple: true }), 'ok');
 				assert.equal(rows('sessions'), 0, 'sign-ins are in the copy');
 				assert.equal(rows('login_attempts'), 0);
+				assert.equal(rows('mcp_tokens'), 0, 'MCP tokens are in the copy');
 				const account = copy.prepare("SELECT id, credential FROM accounts WHERE backend = 'subsonic' AND username = 'testuser'").get();
 				assert.ok(account, 'the account is not in the copy');
 				assert.doesNotMatch(account.credential, /testpass/, 'the credential is not sealed');
@@ -3122,7 +3332,7 @@ describe('a backup of the database', () => {
 
 				const manifest = JSON.parse(files.get('backup.json').toString());
 				assert.equal(manifest.from, 'sqlite');
-				assert.deepEqual(manifest.leftOut, ['sessions', 'login_attempts']);
+				assert.deepEqual(manifest.leftOut, ['sessions', 'mcp_tokens', 'login_attempts']);
 				assert.equal(manifest.tables.accounts, rows('accounts'));
 				assert.equal(manifest.tables.plays, rows('plays'));
 			} finally {
@@ -3138,6 +3348,8 @@ describe('a backup of the database', () => {
 			assert.match(app.output(), /backup-made/, 'the log does not say a backup was made');
 		} finally {
 			await user.json('/api/settings', 'PATCH', { volume: before.volume });
+			live.prepare("DELETE FROM mcp_tokens WHERE id = 'backup-token'").run();
+			live.close();
 		}
 	});
 
@@ -4728,5 +4940,552 @@ describe('plays from other apps, through the Navidrome plugin', () => {
 			.filter((file) => statSync(file).isFile());
 		assert.ok(files.some((file) => file.endsWith('.db')), `files: ${files}`);
 		for (const file of files) assert.ok(!readFileSync(file).includes(TOKEN), `the token is in ${file}`);
+	});
+});
+
+describe('an AI assistant, through the MCP endpoint', () => {
+	let on;
+
+	before(async () => {
+		// The session tests above end every older session of the shared client.
+		assert.equal((await user.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' })).status, 303);
+		on = await startApp({
+			subsonicUrl: subsonic.url,
+			jellyfinUrl: jellyfin.url,
+			// Everything the server can write, for the test that looks for a token in it.
+			env: { HEDDOHON_MCP: 'true', HEDDOHON_LOG_LEVEL: 'debug' }
+		});
+	});
+
+	after(async () => {
+		await on?.stop();
+	});
+
+	const told = (message) => `${message}\n--- app output ---\n${on.output()}`;
+
+	/** A form action of the settings page, with what it answered out of devalue's flat form. */
+	async function action(client, name, fields = {}) {
+		const response = await client.request(`/settings?/${name}`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json', 'x-sveltekit-action': 'true' },
+			body: new URLSearchParams(fields).toString()
+		});
+		const result = await response.json();
+		const flat = JSON.parse(result.data);
+		const revive = (at) => {
+			const value = flat[at];
+			if (Array.isArray(value)) return value.map(revive);
+			if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, to]) => [key, revive(to)]));
+			return value;
+		};
+		return { type: result.type, status: result.status, data: revive(0) };
+	}
+
+	/** Makes a token from Settings, as a person does, and returns it. */
+	async function makeToken(client, { name = 'Test assistant', writes = true } = {}) {
+		const made = await action(client, 'makeMcpToken', writes ? { name, writes: 'on' } : { name });
+		assert.equal(made.type, 'success', told(`no token was made: ${JSON.stringify(made)}`));
+		assert.match(made.data.mcpToken.token, /^hhmcp_[\w-]{43}$/);
+		return made.data.mcpToken;
+	}
+
+	let id = 0;
+	/** One JSON-RPC message as a client posts it: no `Origin`, the token as a bearer. */
+	const post = (token, message, { origin = null, headers = {}, url = on.url } = {}) =>
+		fetch(`${url}/api/mcp`, {
+			method: 'POST',
+			headers: {
+				'content-type': 'application/json',
+				accept: 'application/json, text/event-stream',
+				...(origin ? { origin } : {}),
+				...(token ? { authorization: `Bearer ${token}` } : {}),
+				...headers
+			},
+			body: typeof message === 'string' ? message : JSON.stringify(message)
+		});
+	const rpc = async (token, method, params = {}, options) => {
+		const response = await post(token, { jsonrpc: '2.0', id: ++id, method, params }, options);
+		assert.equal(response.status, 200, told(`${method} answered ${response.status}`));
+		const body = await response.json();
+		assert.equal(body.id, id);
+		return body;
+	};
+	/** A tool's answer: what it returned, or its message where it failed. */
+	const call = async (token, name, args = {}) => {
+		const { result, error } = await rpc(token, 'tools/call', { name, arguments: args });
+		if (error) return { error };
+		const text = result.content[0].text;
+		return result.isError ? { failed: text } : JSON.parse(text);
+	};
+
+	let client;
+	let token;
+
+	test('is not there unless turned on', async () => {
+		// The shared app has no HEDDOHON_MCP.
+		const response = await post('hhmcp_anything', { jsonrpc: '2.0', id: 1, method: 'initialize' }, { url: app.url });
+		assert.equal(response.status, 404);
+		assert.deepEqual(await response.json(), { error: 'not_found' });
+		const page = (await user.page('/settings?tab=ai')).html;
+		assert.ok(!page.includes('?/makeMcpToken'), 'Settings offers tokens on a server without the endpoint');
+		// An administrator is shown the switch, off.
+		assert.match(page, /Allow AI assistants[\s\S]*?<input type="checkbox" name="mcp"(?![^>]*checked)/);
+
+		client = new Client(on.url);
+		assert.equal((await client.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' })).status, 303);
+		const fromEnvironment = (await client.page('/settings?tab=ai')).html;
+		assert.ok(fromEnvironment.includes('?/makeMcpToken'));
+		assert.ok(fromEnvironment.includes('Set by HEDDOHON_MCP in the environment.'));
+	});
+
+	test('is turned on and off by an administrator under Settings, where the environment does not decide it', async () => {
+		const switchTo = (client, on) => action(client, 'saveMcp', on ? { mcp: 'on' } : {});
+		const ping = (url, token = 'hhmcp_nothing') => post(token, { jsonrpc: '2.0', id: 1, method: 'ping' }, { url });
+		try {
+			// The shared app has no HEDDOHON_MCP in its environment.
+			assert.equal((await switchTo(user, true)).type, 'success');
+			assert.equal((await ping(app.url)).status, 401, 'switched on, the endpoint is not there');
+			const made = await makeToken(user, { name: 'Switched' });
+			assert.equal((await ping(app.url, made.token)).status, 200);
+
+			assert.equal((await switchTo(user, false)).type, 'success');
+			assert.equal((await ping(app.url, made.token)).status, 404, 'switched off, a token still opens it');
+			// The token stays listed, to be withdrawn.
+			assert.ok((await user.page('/settings?tab=ai')).html.includes('Switched'));
+			assert.match(app.output(), /mcp-switched/);
+
+			subsonic.state.admin = false;
+			try {
+				assert.equal((await switchTo(user, true)).status, 403);
+				assert.equal((await ping(app.url)).status, 404);
+			} finally {
+				subsonic.state.admin = true;
+			}
+			// Where the environment sets it, Settings does not change it.
+			assert.equal((await switchTo(client, false)).status, 409);
+			assert.equal((await ping(on.url)).status, 401);
+			assert.equal((await action(user, 'withdrawMcpToken', { id: made.id })).type, 'success');
+		} finally {
+			await switchTo(user, false);
+		}
+	});
+
+	test('takes a token made under Settings, and neither a session nor anything else in its place', async () => {
+		({ token } = await makeToken(client));
+		const initialize = { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'test', version: '1' } } };
+		for (const [label, bearer, headers] of [
+			['nothing', null, {}],
+			['a made-up token', `hhmcp_${'A'.repeat(43)}`, {}],
+			['the token without its prefix', token.slice(6), {}]
+		]) {
+			const response = await post(bearer, initialize, { headers });
+			assert.equal(response.status, 401, label);
+			assert.deepEqual(await response.json(), { error: 'not_authenticated' }, label);
+		}
+		// A signed-in browser's own request, its cookie and its own Origin, is not a client.
+		const browser = await client.request('/api/mcp', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(initialize) });
+		assert.equal(browser.status, 401);
+
+		const { result } = await rpc(token, 'initialize', initialize.params);
+		assert.equal(result.protocolVersion, '2025-06-18');
+		assert.equal(result.serverInfo.name, 'heddohon');
+		assert.deepEqual(result.capabilities, { tools: { listChanged: false } });
+		// A version it does not know is answered with the newest.
+		assert.equal((await rpc(token, 'initialize', { protocolVersion: '1999-01-01' })).result.protocolVersion, '2025-11-25');
+		assert.deepEqual((await rpc(token, 'ping')).result, {});
+	});
+
+	test('answers a client that sends no Origin, and refuses one from another origin', async () => {
+		const ping = { jsonrpc: '2.0', id: 1, method: 'ping' };
+		assert.equal((await post(token, ping)).status, 200);
+		assert.equal((await post(token, ping, { origin: on.url })).status, 200);
+		const elsewhere = await post(token, ping, { origin: 'https://evil.example' });
+		assert.equal(elsewhere.status, 403);
+		assert.deepEqual(await elsewhere.json(), { error: 'cross_origin_forbidden' });
+		// Spelled another way, the path goes through the checks every route does,
+		// and a client's request without `Origin` is refused there.
+		const spelled = await fetch(`${on.url}/api/%6Dcp`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+			body: JSON.stringify(ping)
+		});
+		assert.equal(spelled.status, 403);
+	});
+
+	test('keeps to the transport: one message a request, and no stream', async () => {
+		const auth = { authorization: `Bearer ${token}` };
+		assert.equal((await fetch(`${on.url}/api/mcp`, { headers: auth })).status, 405);
+		assert.equal((await fetch(`${on.url}/api/mcp`, { method: 'DELETE', headers: auth })).status, 405);
+		// Without the token, those are refused as everything else is.
+		assert.equal((await fetch(`${on.url}/api/mcp`)).status, 401);
+		assert.equal((await post(token, { jsonrpc: '2.0', method: 'notifications/initialized' })).status, 202);
+		assert.equal((await post(token, [{ jsonrpc: '2.0', id: 1, method: 'ping' }])).status, 400);
+		assert.equal((await post(token, '{not json')).status, 400);
+		assert.equal((await post(token, { jsonrpc: '2.0', id: 1, method: 'ping' }, { headers: { 'mcp-protocol-version': '1999-01-01' } })).status, 400);
+		// With its own Origin: without one, SvelteKit's own check refuses a body a form could send, with 403.
+		assert.equal((await post(token, { jsonrpc: '2.0', id: 1, method: 'ping' }, { origin: on.url, headers: { 'content-type': 'text/plain' } })).status, 415);
+		assert.equal((await rpc(token, 'resources/list')).error.code, -32601);
+	});
+
+	test('reads the library through the tools it lists', async () => {
+		const { tools } = (await rpc(token, 'tools/list')).result;
+		const names = tools.map((tool) => tool.name);
+		for (const name of ['search', 'get_album', 'get_playlist', 'get_favourites', 'create_playlist', 'set_rating']) {
+			assert.ok(names.includes(name), `${name} is not listed: ${names}`);
+		}
+		const search = tools.find((tool) => tool.name === 'search');
+		assert.equal(search.annotations.readOnlyHint, true);
+		assert.deepEqual(search.inputSchema.required, ['query']);
+		assert.equal(tools.find((tool) => tool.name === 'delete_playlist').annotations.destructiveHint, true);
+
+		const found = await call(token, 'search', { query: 'Artist 0003' });
+		assert.ok(found.songs.some((song) => song.id === 's3a' && song.artist === 'Artist 0003' && song.quality === 'flac 16-bit 44.1kHz'), JSON.stringify(found));
+		// Nothing a page needs and an assistant does not: no cover ids, no nulls.
+		assert.ok(!JSON.stringify(found).includes('coverArt') && !JSON.stringify(found).includes('null'), JSON.stringify(found));
+
+		const album = await call(token, 'get_album', { id: 'al3' });
+		assert.equal(album.name, 'Album 3');
+		assert.deepEqual(album.tracks.map((track) => track.id), ['s3a', 's3b']);
+
+		subsonic.state.playlistEntries = ['s1a', 's2a', 's1a'];
+		const playlist = await call(token, 'get_playlist', { id: 'pl1' });
+		assert.deepEqual(playlist.entries.map((entry) => [entry.position, entry.id]), [[0, 's1a'], [1, 's2a'], [2, 's1a']]);
+		subsonic.state.playlistEntries = ['s1a', 's2a'];
+
+		assert.deepEqual(await call(token, 'get_album', { id: 'al99999' }), { failed: 'The music server has nothing with that id for this account.' });
+		assert.deepEqual(await call(token, 'search', { query: 'x' }), { failed: 'query must be 2 to 200 characters' });
+		assert.deepEqual(await call(token, 'list_albums', { sort: 'loudest' }), {
+			failed: 'sort must be one of recentlyAdded, recentlyPlayed, mostPlayed, alphabetical, byArtist, byYear, random, starred'
+		});
+		assert.equal((await call(token, 'play_everything')).error.code, -32602);
+	});
+
+	test('writes to the music server, and the pages show it at once', async () => {
+		subsonic.state.starred.delete('s5a');
+		// Read once, so the favourites are held (`listings.ts`) when the write lands.
+		assert.ok(!(await call(token, 'get_favourites')).songs?.some((song) => song.id === 's5a'));
+		assert.deepEqual(await call(token, 'set_favourite', { kind: 'song', id: 's5a', favourite: true }), { id: 's5a', favourite: true });
+		assert.ok(subsonic.state.starred.has('s5a'));
+		assert.ok((await call(token, 'get_favourites')).songs.some((song) => song.id === 's5a' && song.favourite));
+
+		assert.deepEqual(await call(token, 'set_rating', { id: 's5a', rating: 4 }), { id: 's5a', rating: 4 });
+		assert.equal(subsonic.state.ratings.get('s5a'), 4);
+		assert.deepEqual(await call(token, 'set_rating', { id: 's5a', rating: 6 }), { failed: 'rating must be a whole number from 0 to 5' });
+		subsonic.state.ratings.delete('s5a');
+		subsonic.state.starred.delete('s5a');
+
+		subsonic.state.playlistUpdates.length = 0;
+		assert.deepEqual(await call(token, 'add_to_playlist', { id: 'pl1', songIds: ['s7a', 's8a'] }), { id: 'pl1', added: 2 });
+		assert.deepEqual(await call(token, 'remove_from_playlist', { id: 'pl1', positions: [0, 2, 2] }), { id: 'pl1', removed: 2 });
+		assert.deepEqual(subsonic.state.playlistUpdates, [
+			{ id: 'pl1', add: ['s7a', 's8a'], remove: [] },
+			{ id: 'pl1', add: [], remove: [2, 0] }
+		]);
+		assert.deepEqual(await call(token, 'add_to_playlist', { id: 'pl1', songIds: [] }), { failed: 'songIds must hold at least one song id' });
+		assert.equal(subsonic.state.playlistUpdates.length, 2);
+	});
+
+	test('with a token that only reads, is offered no write and takes none', async () => {
+		const reader = (await makeToken(client, { name: 'Reads only', writes: false })).token;
+		const { tools } = (await rpc(reader, 'tools/list')).result;
+		assert.ok(tools.length >= 10);
+		assert.ok(tools.every((tool) => tool.annotations.readOnlyHint), tools.map((tool) => tool.name).join());
+		const starred = new Map(subsonic.state.starred);
+		assert.equal((await call(reader, 'set_favourite', { kind: 'song', id: 's6a', favourite: true })).error.code, -32602);
+		assert.deepEqual(subsonic.state.starred, starred);
+		assert.ok(!(await rpc(reader, 'initialize')).result.instructions.includes('removed by position'));
+	});
+
+	test('lists its tokens under Settings, where each is withdrawn', async () => {
+		const page = (await client.page('/settings?tab=account')).html;
+		assert.ok(page.includes('Test assistant') && page.includes('Reads only'), 'the tokens are not listed');
+		assert.ok(!page.includes(token), 'the page shows a token after it was made');
+
+		const withdrawn = await makeToken(client, { name: 'Withdrawn' });
+		assert.equal((await post(withdrawn.token, { jsonrpc: '2.0', id: 1, method: 'ping' })).status, 200);
+		assert.equal((await action(client, 'withdrawMcpToken', { id: withdrawn.id })).type, 'success');
+		assert.equal((await post(withdrawn.token, { jsonrpc: '2.0', id: 1, method: 'ping' })).status, 401);
+		assert.equal((await action(client, 'withdrawMcpToken', { id: withdrawn.id })).status, 404);
+		// Another account's token is out of reach.
+		const other = new Client(on.url);
+		assert.equal((await other.signIn({ username: 'seconduser', password: 'secondpass', backend: 'subsonic' })).status, 303);
+		const theirs = await makeToken(other, { name: 'Theirs' });
+		assert.equal((await action(client, 'withdrawMcpToken', { id: theirs.id })).status, 404);
+		assert.equal((await post(theirs.token, { jsonrpc: '2.0', id: 1, method: 'ping' })).status, 200);
+	});
+
+	test('ends with the account\'s sessions, as when the password changes', async () => {
+		subsonic.state.username = 'mcpuser';
+		subsonic.state.password = 'mcppass';
+		try {
+			const listener = new Client(on.url);
+			assert.equal((await listener.signIn({ username: 'mcpuser', password: 'mcppass', backend: 'subsonic' })).status, 303);
+			const { token: theirs } = await makeToken(listener);
+			assert.equal((await post(theirs, { jsonrpc: '2.0', id: 1, method: 'ping' })).status, 200);
+
+			// The music server rejects the stored credential: the token ends with the sessions.
+			subsonic.state.password = 'changed';
+			assert.deepEqual(await call(theirs, 'list_playlists'), {
+				failed: 'The music server no longer accepts this account. Sign in to Heddohon again and make a new token under Settings.'
+			});
+			assert.equal((await post(theirs, { jsonrpc: '2.0', id: 1, method: 'ping' })).status, 401);
+
+			// A sign-in with the new password, which `storeAccount` takes for a
+			// changed one, ends a token made before it.
+			const again = new Client(on.url);
+			assert.equal((await again.signIn({ username: 'mcpuser', password: 'changed', backend: 'subsonic' })).status, 303);
+			const { token: next } = await makeToken(again);
+			subsonic.state.password = 'changed-again';
+			const third = new Client(on.url);
+			assert.equal((await third.signIn({ username: 'mcpuser', password: 'changed-again', backend: 'subsonic' })).status, 303);
+			assert.equal((await post(next, { jsonrpc: '2.0', id: 1, method: 'ping' })).status, 401);
+		} finally {
+			subsonic.state.username = 'testuser';
+			subsonic.state.password = 'testpass';
+		}
+	});
+
+	test('leaves no token in the database or the log', async () => {
+		assert.ok(!on.output().includes(token), 'the token is in the log');
+		const files = readdirSync(on.dataDir, { recursive: true })
+			.map((name) => join(on.dataDir, name))
+			.filter((file) => statSync(file).isFile());
+		assert.ok(files.some((file) => file.endsWith('.db')), `files: ${files}`);
+		for (const file of files) assert.ok(!readFileSync(file).includes(token), `the token is in ${file}`);
+	});
+});
+
+describe('whose a playlist is, and who sees it', () => {
+	// The session tests above end every older session of the shared client.
+	before(async () => {
+		assert.equal((await user.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' })).status, 303);
+	});
+
+	const listed = async (client) => (await (await client.request('/api/playlists')).json()).playlists;
+	const patch = (client, id, body) => client.json(`/api/playlists/${id}`, 'PATCH', body);
+	const share = (client, id) => client.json('/api/shares', 'POST', { kind: 'playlist', id });
+
+	test('on Navidrome lists the account\'s own and the public ones, never another\'s private one', async () => {
+		const playlists = await listed(user);
+		assert.deepEqual(
+			playlists.map(({ id, editable, isPublic, owner }) => ({ id, editable, isPublic, owner })),
+			[
+				{ id: 'pl1', editable: true, isPublic: false, owner: 'testuser' },
+				{ id: 'pl2', editable: false, isPublic: true, owner: 'seconduser' }
+			]
+		);
+	});
+
+	test('makes the account\'s own public and private again', async () => {
+		try {
+			const made = await patch(user, 'pl1', { public: true });
+			assert.equal(made.status, 200, explain('making it public failed'));
+			assert.deepEqual(await made.json(), { id: 'pl1', public: true });
+			assert.equal(subsonic.state.playlistPublic, true);
+			assert.equal((await listed(user))[0].isPublic, true);
+			assert.match((await user.page('/playlists/pl1')).html, /Make private/);
+			assert.equal((await patch(user, 'pl1', { public: 'yes' })).status, 400);
+		} finally {
+			await patch(user, 'pl1', { public: false });
+		}
+		assert.equal(subsonic.state.playlistPublic, false);
+	});
+
+	test('another user\'s is read only, cannot be shared, and a refused change signs nobody out', async () => {
+		const page = (await user.page('/playlists/pl2')).html;
+		assert.match(page, /By seconduser, read only/);
+		assert.doesNotMatch(page, /Make public|Make private|>\s*Rename\s*</);
+
+		const refused = await patch(user, 'pl2', { name: 'Mine now' });
+		assert.equal(refused.status, 403);
+		// Navidrome's code 50 was taken for a rejected password, which ended every
+		// session of the account.
+		assert.equal((await user.request('/api/settings')).status, 200, 'a refused change signed the account out');
+		assert.equal((await share(user, 'pl2')).status, 403);
+	});
+
+	test('on Jellyfin, which names no owner, tells its own from another\'s public one', async () => {
+		const client = new Client(app.url);
+		assert.equal((await client.signIn({ username: 'jfuser', password: 'jfpass', backend: 'jellyfin' })).status, 303);
+		const playlists = await listed(client);
+		assert.deepEqual(
+			playlists.map(({ id, editable, isPublic }) => ({ id, editable, isPublic })),
+			[
+				{ id: 'jpl', editable: true, isPublic: true },
+				{ id: 'jother', editable: false, isPublic: true }
+			]
+		);
+		// Held: the picker lists them each time it opens.
+		const asked = jellyfin.calls.get('GET /Playlists/jpl/Users');
+		await listed(client);
+		assert.equal(jellyfin.calls.get('GET /Playlists/jpl/Users'), asked, 'whose a playlist is was asked again');
+		try {
+			assert.equal((await patch(client, 'jpl', { public: false })).status, 200);
+			assert.equal(jellyfin.state.playlistPublic, false);
+			// A change made here shows at once.
+			assert.equal((await listed(client)).find((playlist) => playlist.id === 'jpl').isPublic, false);
+		} finally {
+			jellyfin.state.playlistPublic = true;
+		}
+		// Taken for the account's own while Jellyfin named no owner.
+		assert.equal((await share(client, 'jother')).status, 403);
+		assert.equal((await patch(client, 'jother', { public: false })).status, 403);
+		assert.equal((await client.request('/api/settings')).status, 200, 'a refused change signed the account out');
+	});
+});
+
+describe('daily mixes', () => {
+	const play = (client, songId) => client.json('/api/playback', 'POST', { songId, event: 'stop', position: 100, completed: true });
+	const mix = async (client, n) => {
+		const response = await client.json('/api/tracks', 'POST', { source: 'daily', id: String(n) });
+		return { status: response.status, songs: response.ok ? (await response.json()).songs : null };
+	};
+	const artistOf = (id) => Number(/^s(\d+)/.exec(id)[1]);
+
+	test('are none for an account with nothing played, until it plays something', async () => {
+		subsonic.state.mixSize = 20;
+		try {
+			await asFreshAccount('mixnone', async (client) => {
+				assert.equal((await mix(client, 1)).status, 404);
+				assert.equal((await client.page('/mixes/1')).response.status, 404);
+				// The same day: the empty answer was not kept for it.
+				for (const id of ['s20a', 's20a']) await play(client, id);
+				assert.equal((await mix(client, 1)).status, 200, 'the first plays of the day made no mix until the next day');
+			});
+		} finally {
+			subsonic.state.mixSize = 0;
+		}
+	});
+
+	test('are made from the artists played most, leave out what was just played, and hold all day', async () => {
+		subsonic.state.mixSize = 20;
+		try {
+			await asFreshAccount('mixer', async (client) => {
+				// Artist 5 played most, then 9, then 12.
+				for (const id of ['s5a', 's5a', 's5b', 's9a', 's9a', 's12a']) assert.equal((await play(client, id)).status, 200);
+				subsonic.calls.reset();
+
+				const first = await mix(client, 1);
+				assert.equal(first.status, 200, explain('the first mix was not made'));
+				const ids = first.songs.map((song) => song.id);
+				assert.ok(ids.length >= 10 && ids.length <= 40, `${ids.length} songs`);
+				for (const played of ['s5a', 's5b', 's9a', 's12a']) assert.ok(!ids.includes(played), `${played} was played today and is in the mix`);
+				// What is like artist 5 is artists 6 onwards in the mock.
+				assert.ok(ids.every((id) => artistOf(id) > 5 && artistOf(id) <= 25), ids.join());
+				const perArtist = Object.values(Object.groupBy(ids, artistOf)).map((list) => list.length);
+				assert.ok(Math.max(...perArtist) <= 3, 'more than three songs of one artist');
+				// One mix for each of the three artists. What is like 9 overlaps what is
+				// like 5, and the songs mix 1 has go to the end of mix 2.
+				const second = await mix(client, 2);
+				const third = await mix(client, 3);
+				assert.equal(second.status, 200);
+				assert.equal(third.status, 200);
+				assert.equal((await mix(client, 4)).status, 404);
+				const inFirst = new Set(ids);
+				const repeats = second.songs.map((song) => inFirst.has(song.id));
+				assert.ok(repeats.indexOf(true) === -1 || !repeats.slice(repeats.indexOf(true)).includes(false), 'a song of mix 1 came before a new one in mix 2');
+				assert.ok(!inFirst.has(second.songs[0].id), 'mix 2 starts with a song of mix 1');
+
+				// Held: asked again, the music server is not.
+				const made = subsonic.calls.get('getSimilarSongs');
+				assert.deepEqual((await mix(client, 1)).songs.map((song) => song.id), ids);
+				assert.equal(subsonic.calls.get('getSimilarSongs'), made);
+
+				const page = (await client.page('/mixes/1')).html;
+				assert.match(page, /Daily mix 1/);
+				assert.match(page, /Made today from Artist 0005/);
+
+				// The next day, they are made again.
+				const { default: Database } = await import('better-sqlite3');
+				const database = new Database(join(app.dataDir, 'heddohon.db'));
+				try {
+					database.prepare("UPDATE daily_mixes SET made_on = '2000-01-01'").run();
+				} finally {
+					database.close();
+				}
+				assert.equal((await mix(client, 1)).status, 200);
+				assert.ok(subsonic.calls.get('getSimilarSongs') > made, 'yesterday\'s mixes were served today');
+			});
+		} finally {
+			subsonic.state.mixSize = 0;
+		}
+	});
+
+	test('on a Navidrome that finds nothing alike, are filled from the artist\'s genre', async () => {
+		subsonic.state.songGenre = 'Jazz';
+		try {
+			await asFreshAccount('mixgenre', async (client) => {
+				for (const id of ['s7a', 's7a']) await play(client, id);
+				const made = await mix(client, 1);
+				assert.equal(made.status, 200, explain('no mix without similar songs'));
+				assert.ok(made.songs.every((song) => artistOf(song.id) >= 100), made.songs.map((song) => song.id).join());
+				const perArtist = Object.values(Object.groupBy(made.songs, (song) => artistOf(song.id))).map((list) => list.length);
+				assert.deepEqual(perArtist, [3, 3, 3, 3, 3, 3], 'not three of each of the six artists');
+			});
+		} finally {
+			subsonic.state.songGenre = null;
+		}
+	});
+});
+
+describe('the library report', () => {
+	// The session tests above end every older session of the shared client.
+	before(async () => {
+		assert.equal((await user.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' })).status, 303);
+	});
+
+	async function made(client) {
+		const deadline = Date.now() + 10_000;
+		for (;;) {
+			const status = await (await client.request('/api/library-report')).json();
+			if (status.state !== 'running') return status;
+			assert.ok(Date.now() < deadline, 'the report was not made in 10s');
+			await new Promise((done) => setTimeout(done, 100));
+		}
+	}
+
+	test('is an administrator\'s', async () => {
+		subsonic.state.admin = false;
+		try {
+			assert.equal((await user.request('/api/library-report', { method: 'POST' })).status, 403);
+			assert.doesNotMatch((await user.page('/settings?tab=storage')).html, /Library report/);
+		} finally {
+			subsonic.state.admin = true;
+		}
+		assert.match((await user.page('/settings?tab=storage')).html, /Library report/);
+	});
+
+	test('counts the whole library by format, and finds albums in two formats and held twice', async () => {
+		subsonic.state.lossy.add(3);
+		subsonic.state.copied.add(4);
+		try {
+			const started = await user.request('/api/library-report', { method: 'POST' });
+			assert.equal(started.status, 200, explain('the report did not start'));
+			const status = await made(user);
+			assert.equal(status.state, 'done', explain(JSON.stringify(status)));
+			const r = status.report;
+			// 250 artists of two songs each, in one page of 500 and an empty one.
+			assert.equal(r.tracks, 500);
+			assert.equal(r.artists, 250);
+			assert.deepEqual(r.formats.map(({ format, tracks }) => ({ format, tracks })), [
+				{ format: 'flac', tracks: 499 },
+				{ format: 'mp3', tracks: 1 }
+			]);
+			assert.equal(r.lossless, 499);
+			assert.deepEqual(r.resolutions, [{ label: '16-bit 44.1kHz', tracks: 499 }]);
+			assert.deepEqual(r.mixed.map((album) => [album.id, album.formats]), [['al3', ['flac', 'mp3']]]);
+			assert.equal(r.duplicateCount, 1);
+			assert.deepEqual(r.duplicates[0].albums.map((album) => album.id).sort(), ['al4', 'al4-copy']);
+			// The mock sends no ReplayGain, genre or year.
+			assert.equal(r.withoutReplayGain, 500);
+			assert.equal(r.withoutReplayGainAlbums.length, 50);
+
+			const page = (await user.page('/settings?tab=storage')).html;
+			assert.match(page, /Formats/);
+			assert.match(page, /1 album in more than one format/);
+		} finally {
+			subsonic.state.lossy.clear();
+			subsonic.state.copied.clear();
+		}
 	});
 });

@@ -1,21 +1,28 @@
-# Runs on every push and pull request.
-#
-# `check` is the gate every commit has to pass: `npm run check`,
-# which is `svelte-kit sync` followed by `svelte-check --fail-on-warnings`, so a
-# warning fails the job as well as an error.
+# `check` runs on every pull request and on every push to `dev` and `main`:
+# `npm run check`, which is `svelte-kit sync` followed by
+# `svelte-check --fail-on-warnings`, so a warning fails the job as well as an
+# error. It takes about 25 seconds.
 #
 # `test` builds the app and runs it against the mock music servers in
 # `tests/`: the HTTP suite (`test:e2e`), the curl suite (`tests/e2e/run.sh`,
 # which needs the curl and jq the runner image ships with) and the browser
-# suite (`test:browser`) in Chromium. The image itself is built by the release
-# workflow in zorcerer/heddohon.
+# suite (`test:browser`) in Chromium. It takes about 12 minutes, and runs on a
+# merge: a push to `dev` or `main`. It does not run for a pull request or
+# for a push to any other branch. Until 2026-10-13 it ran for both, so each
+# commit pushed to a pull request ran it twice. A branch is tested before it
+# is merged by running the three suites where it was written, or by starting
+# this workflow on it by hand (Actions, check, Run workflow), which runs both
+# jobs. The image itself is built by the release workflow in
+# zorcerer/heddohon, which calls this one and publishes only once both pass.
 name: check
 
 on:
   push:
+    branches: [dev, main]
   pull_request:
   # Called by `release.yml`, which publishes only once these pass.
   workflow_call:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -44,6 +51,8 @@ jobs:
       - run: npm run check
 
   test:
+    # On a merge, a release and a run started by hand. Not for a pull request.
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -64,6 +73,10 @@ jobs:
       # the regressions each security review added, on fixed ports 3322, 3323,
       # 4533 and 8096.
       - run: tests/e2e/run.sh
+
+      # The image's entrypoint, in the image's base: who the server ends up
+      # running as, and that it can write its data directory.
+      - run: tests/docker/entrypoint.sh
 
       # The version installed is the one package-lock.json pins.
       - run: npx playwright install --with-deps chromium

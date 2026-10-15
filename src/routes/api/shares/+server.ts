@@ -57,7 +57,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 		if (kind === 'album') await backend.getAlbum(session.credential, id);
 		else if (kind === 'playlist') {
 			const playlist = await backend.getPlaylist(session.credential, id);
-			if (!ownsPlaylist(playlist, session.account.username)) error(403, 'Only your own playlists can be shared');
+			if (!ownsPlaylist(playlist)) error(403, 'Only your own playlists can be shared');
 		}
 		else if (!(await backend.getSongs(session.credential, [id]))[0]) error(404, missing);
 	} catch (err) {

@@ -46,9 +46,57 @@ function hardenedAdapter(): Adapter {
 					''
 				].join('\n')
 			);
+			/*
+			 * The saved addresses (`src/lib/server/origin.ts`). For a request
+			 * that arrives on one, the adapter is told that address in the two
+			 * headers it can be set to trust, as a reverse proxy would tell it.
+			 *
+			 * Only where the operator has set none of `ORIGIN`, `PROTOCOL_HEADER`
+			 * and `HOST_HEADER`: with any of them the address is theirs to give.
+			 * The header names are set here, before the adapter's module reads
+			 * them, which is why this import is the first in the entry. Whatever
+			 * a client sent under those names is removed from every request.
+			 */
+			await writeFile(
+				join('build', 'saved-origin.js'),
+				[
+					'// Written by hardenedAdapter in vite.config.ts; see src/lib/server/origin.ts.',
+					"const PROTOCOL = 'x-heddohon-protocol';",
+					"const HOST = 'x-heddohon-host';",
+					'const active = !process.env.ORIGIN && !process.env.PROTOCOL_HEADER && !process.env.HOST_HEADER;',
+					'if (active) {',
+					'\tprocess.env.PROTOCOL_HEADER = PROTOCOL;',
+					'\tprocess.env.HOST_HEADER = HOST;',
+					'}',
+					'export function savedOrigin(req, res, next) {',
+					'\tif (active) {',
+					'\t\tdelete req.headers[PROTOCOL];',
+					'\t\tdelete req.headers[HOST];',
+					'\t\tconst host = req.headers.host;',
+					'\t\tconst saved = globalThis.__heddohonSavedOrigins;',
+					'\t\tif (host && Array.isArray(saved)) {',
+					'\t\t\tfor (const origin of saved) {',
+					'\t\t\t\ttry {',
+					'\t\t\t\t\tconst url = new URL(origin);',
+					'\t\t\t\t\t// A default port is the same host with or without it.',
+					"\t\t\t\t\tif (new URL(url.protocol + '//' + host).host !== url.host) continue;",
+					'\t\t\t\t\treq.headers[PROTOCOL] = url.protocol.slice(0, -1);',
+					'\t\t\t\t\treq.headers[HOST] = url.host;',
+					'\t\t\t\t\tbreak;',
+					'\t\t\t\t} catch {',
+					'\t\t\t\t\t// A Host that is not one. The adapter refuses it.',
+					'\t\t\t\t}',
+					'\t\t\t}',
+					'\t\t}',
+					'\t}',
+					'\tnext();',
+					'}',
+					''
+				].join('\n')
+			);
 			await writeFile(
 				entry,
-				`import { securityHeaders } from './security-headers.js';\n${source.replace(hook, '.use(securityHeaders, handler)')}`
+				`import { savedOrigin } from './saved-origin.js';\nimport { securityHeaders } from './security-headers.js';\n${source.replace(hook, '.use(securityHeaders, savedOrigin, handler)')}`
 			);
 		}
 	};

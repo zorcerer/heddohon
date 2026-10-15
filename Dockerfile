@@ -74,10 +74,16 @@ COPY --from=builder /app/build ./build
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package.json ./package.json
 
-# The `node` user ships with the base image. Running unprivileged means a
-# compromise of the app process cannot write outside the mounted volume.
-RUN mkdir -p /data && chown -R node:node /data /app
-USER node
+# The server runs unprivileged, so a compromise of its process cannot write
+# outside the mounted volume. It is the entrypoint that gets it there: started
+# as root, it gives the data directory to the user the server will run as
+# (PUID and PGID, or whoever owns the directory, or the `node` user that ships
+# with the base image) and drops to that user before Node starts. A missing
+# host directory is created by Docker as root's, and with `USER node` here the
+# server could not write it until someone ran `chown` on the host. Started
+# with `--user`, the entrypoint has no root and runs the server as that user.
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN mkdir -p /data && chown -R node:node /data /app && chmod 0755 /usr/local/bin/docker-entrypoint.sh
 
 VOLUME ["/data"]
 EXPOSE 3000
@@ -85,4 +91,5 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
 	CMD curl -fsS "http://127.0.0.1:${PORT}/healthz" || exit 1
 
+ENTRYPOINT ["docker-entrypoint.sh"]
 CMD ["node", "build/index.js"]

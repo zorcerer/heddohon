@@ -11,9 +11,9 @@
  * What it holds is what the database holds: each account's music-server
  * credential and linked services sealed under `HEDDOHON_SECRET`, the digests
  * of shared links, settings, saved queues, listening history and profiles, of
- * every account. Sign-ins are left out. The secret is not in it, so the file
- * alone opens no account, and the server it is restored to needs the same
- * secret.
+ * every account. Sign-ins and MCP tokens are left out. The secret is not in
+ * it, so the file alone opens no account, and the server it is restored to
+ * needs the same secret.
  *
  * The copy is written to a directory of its own in the data directory, read
  * into memory, and removed. One runs at a time. A database past 512MB is
@@ -50,8 +50,9 @@ function readme(madeAt: string, kind: string): string {
 		'',
 		'heddohon.db is a SQLite database. It holds every account with its',
 		'music-server credential encrypted, settings, saved queues, shared links,',
-		'listening history, linked services and profiles. Sign-ins are left out, so',
-		'everyone signs in once after a restore.',
+		'listening history, linked services and profiles. Sign-ins and MCP tokens',
+		'are left out, so everyone signs in once after a restore, and an AI',
+		'assistant needs a new token.',
 		'',
 		'It opens only with the HEDDOHON_SECRET of the server it came from. The',
 		'secret is not in this archive. Keep a copy of it somewhere else.',
@@ -112,7 +113,7 @@ export async function makeBackup(): Promise<Backup> {
 			madeAt,
 			from: database.kind,
 			file: 'heddohon.db',
-			leftOut: ['sessions', 'login_attempts'],
+			leftOut: ['sessions', 'mcp_tokens', 'login_attempts'],
 			tables
 		};
 		const text = (value: string) => new TextEncoder().encode(value);

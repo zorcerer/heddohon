@@ -1,7 +1,7 @@
 import { json } from '@sveltejs/kit';
 import { version } from '$app/environment';
 import type { RequestHandler } from './$types';
-import { ConfigError, config } from '$lib/server/config';
+import { ConfigError, SetupRequired, config } from '$lib/server/config';
 import { log, reason } from '$lib/server/log';
 import { store } from '$lib/server/db';
 
@@ -19,6 +19,10 @@ export const GET: RequestHandler = async () => {
 	try {
 		cfg = config();
 	} catch (err) {
+		// Waiting for its first-run setup, which is not a fault: answered 200, so
+		// the container's HEALTHCHECK passes. Failed, an orchestrator restarts the
+		// container, and each start makes a new code for the setup page.
+		if (err instanceof SetupRequired) return json({ status: 'setup', build: version });
 		// The message names the variable and its value, usually the internal
 		// music-server address, which hooks.server.ts withholds from every other
 		// path. The probe once gave `HEDDOHON_SUBSONIC_URL=10.0.0.10:4533` to

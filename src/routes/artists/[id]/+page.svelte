@@ -6,6 +6,7 @@
 	import MixButton from '$lib/components/MixButton.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import MediaCard from '$lib/components/MediaCard.svelte';
+	import ExternalLinks from '$lib/components/ExternalLinks.svelte';
 	import MediaGrid from '$lib/components/MediaGrid.svelte';
 	import MediaShelf from '$lib/components/MediaShelf.svelte';
 	import SectionHeader from '$lib/components/SectionHeader.svelte';
@@ -103,7 +104,7 @@
 					Play all
 				</button>
 				<MixButton of="artist" id={artist.id} />
-				<FavouriteButton id={artist.id} kind="artist" starred={artist.starred} size={20} />
+				<FavouriteButton id={artist.id} kind="artist" starred={artist.starred} size={20} labelled />
 			</div>
 		</div>
 	</header>
@@ -135,6 +136,7 @@
 						subtitle={album.year ? String(album.year) : null}
 						coverArt={album.coverArt}
 						transitionId={album.id}
+						album={album}
 						onplay={() => playContainer('album', album.id)}
 					/>
 				{/each}
@@ -177,6 +179,12 @@
 					/>
 				{/each}
 			</MediaShelf>
+		{/if}
+	{/await}
+
+	{#await data.links then links}
+		{#if links.length > 0}
+			<ExternalLinks {links} />
 		{/if}
 	{/await}
 </div>
@@ -315,5 +323,18 @@
 		.actions {
 			justify-content: center;
 		}
+	}
+
+	/* ── Terminal ────────────────────────────────────────────────────────────── */
+
+	/* The spacing of the album page's actions: words between brackets want more
+	   room between them than buttons with a face. */
+	:global([data-theme='terminal']) .actions {
+		gap: var(--space-1) var(--space-4);
+		flex-wrap: wrap;
+	}
+
+	:global([data-theme='terminal']) .actions .hh-button--primary {
+		margin-inline-end: var(--space-1);
 	}
 </style>

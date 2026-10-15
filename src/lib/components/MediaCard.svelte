@@ -7,6 +7,7 @@
 	import { LAUNCH_MS, sleeveToken, sleeveTransition } from '$lib/client/sleeve-transition.svelte';
 	import { ambience } from '$lib/client/ambience.svelte';
 	import { warmAlbumCover } from '$lib/client/format';
+	import { contextMenu, type MenuAlbum } from '$lib/client/context-menu.svelte';
 
 	let {
 		href,
@@ -17,6 +18,7 @@
 		rounded = false,
 		transitionId = null,
 		onplay = null,
+		album = null,
 		detail
 	}: {
 		href: string;
@@ -30,6 +32,8 @@
 		transitionId?: string | null;
 		/** May return a promise; the button shows it is busy until it settles. */
 		onplay?: (() => unknown) | null;
+		/** The album the card is of, for the menu a right click opens on it. */
+		album?: MenuAlbum | null;
 	} = $props();
 
 	let launching = $state(false);
@@ -114,6 +118,7 @@
 	onpointerdown={warm}
 	onpointermove={tilt}
 	onpointerleave={untilt}
+	oncontextmenu={album ? (event) => contextMenu.open(event, { kind: 'album', album }) : undefined}
 >
 	<div class="art" bind:this={art}>
 		{#if rounded}
@@ -420,5 +425,41 @@
 		.play {
 			display: none;
 		}
+	}
+
+	/* ── Terminal ────────────────────────────────────────────────────────────── */
+
+	/*
+	 * A card under the pointer is outlined in the accent. The cover stays flat
+	 * and in place: the lift, the tilt, the glow under it and the light crossing
+	 * it are not drawn.
+	 */
+	:global([data-theme='terminal']) .art::before,
+	:global([data-theme='terminal']) .art :global(.cover::after) {
+		display: none;
+	}
+
+	:global([data-theme='terminal']) .card:hover .art,
+	:global([data-theme='terminal']) .card:active:not(.launching) .art {
+		transform: none;
+		scale: none;
+	}
+
+	:global([data-theme='terminal']) .card:hover .art :global(.cover),
+	:global([data-theme='terminal']) .card:focus-visible .art :global(.cover) {
+		box-shadow: 0 0 0 1px var(--accent);
+	}
+
+	:global([data-theme='terminal']) .play {
+		border-radius: var(--r-sm);
+		background: var(--accent);
+		color: var(--accent-contrast);
+		padding-left: 0;
+		transform: none;
+	}
+
+	:global([data-theme='terminal']) .title {
+		font-weight: 500;
+		letter-spacing: 0;
 	}
 </style>

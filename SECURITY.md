@@ -46,9 +46,11 @@ AutoEq](#headphone-corrections-from-autoeq), [Plays sent to Discord and
 ListenBrainz](#plays-sent-to-discord-and-listenbrainz) and [Internet
 radio](#internet-radio).
 
-One thing besides a browser sends Heddohon requests, and only where the
-operator sets a token for it: the Heddohon plugin running inside Navidrome. See
-[Plays from the Navidrome plugin](#plays-from-the-navidrome-plugin).
+Two things besides a browser send Heddohon requests, each only where the
+operator turns it on: the Heddohon plugin running inside Navidrome, with a
+token the operator sets (see [Plays from the Navidrome
+plugin](#plays-from-the-navidrome-plugin)), and an AI assistant's client, with
+a token an account makes (see [AI assistants (MCP)](#ai-assistants-mcp)).
 
 ## PostgreSQL
 
@@ -366,13 +368,66 @@ request from Navidrome to Heddohon. Heddohon makes no request to the plugin.
   import completes only when the plugin's requests reach the process that
   opened it.
 
+## AI assistants (MCP)
+
+With `HEDDOHON_MCP=true`, `/api/mcp` answers the Model Context Protocol over
+its Streamable HTTP transport, and Settings, AI, offers each account tokens
+for it. A client given one (Claude Code, for one) can read the account's
+library, favourites, playlists, history and listening statistics, and, if the
+token allows it, make, rename and delete playlists, change their entries, and
+set favourites and ratings. It is off by default: without it the route
+answers 404 and Settings does not offer tokens. Where the environment does not
+set the variable, the first-run setup saves it, and an account the music
+server lists as an administrator turns it on and off under Settings, AI
+(`?/saveMcp`, asked of the music server on each request, as for the saved
+addresses). The change is taken with the next request and logged as
+`mcp-switched` at `warn`. Turned off, tokens already made stay listed to their
+accounts and open nothing.
+
+- **The token is the one authority.** A client sends it as
+  `Authorization: Bearer`. It is `hhmcp_` and 256 random bits, shown once,
+  when it is made; the database keeps its HMAC digest under a key of its own,
+  as for a session. A session cookie does not open the route, and a token does
+  not open any other route.
+- **The route is served ahead of the origin check**, the one write path that
+  is. A client is not a browser and sends no `Origin`. An `Origin` that is
+  sent has to be the server's own, as the protocol asks against DNS
+  rebinding, and is refused with 403 otherwise. The route reads no cookie,
+  and a page on another site cannot send the `Authorization` header or the
+  `application/json` body the route requires without a preflight, which this
+  server does not answer. The exception matches the path exactly as sent:
+  the same route reached as `/api/%6Dcp` goes through the origin check and
+  the session gate like any other request, and then still needs the token.
+- **What a token reaches is its account's**, through that account's stored
+  credential on the music server, as a page
+  does. A token made without "May change the library" is not offered a tool
+  that writes, and a call to one is refused as a tool that does not exist.
+  Nothing plays audio through the route, and it reaches no other account, no
+  setting, no session and no shared link.
+- **Every token ends with the account's sessions**: a sign-in with a changed
+  password, a Jellyfin name given to another user, and a credential the music
+  server rejects, including during a tool call. The account withdraws one, or
+  sees when each was last used (to the minute), under Settings. A token has
+  no expiry of its own.
+- **Answers carry no upstream detail.** A failed call says that the music
+  server has nothing with that id, did not complete it, or no longer accepts
+  the account, in fixed words.
+- **What an assistant reads leaves this server** for whoever runs its model.
+  That is the reason the variable is off by default, and the Settings section
+  says so above the button that makes a token.
+- **Bounds:** 20 tokens an account, a name of 64 characters, and the bounds of
+  the matching pages and API routes for each argument (see [Input
+  bounds](#input-bounds)). One JSON-RPC message a request: a batch is refused.
+- **Left out of a backup** with the sessions, so a token withdrawn after the
+  backup was made does not work again on a server restored from it.
+
 ## Credentials at rest
 
 - Upstream credentials are sealed with **AES-256-GCM** before they reach the database.
 - Keys are derived with **scrypt** (N = 2¹⁵, r = 8, p = 1) from `HEDDOHON_SECRET`.
   Separate keys cover encryption, session digests, share-link digests,
-  known-device cookies, Last.fm link state, cast addresses and the comparison
-  of the Navidrome plugin's token.
+  known-device cookies, Last.fm link state, cast addresses, the comparison
+  of the Navidrome plugin's token and MCP token digests.
 - Each seal uses a fresh 12-byte random IV. The tag is verified on open, and a
   blob with a wrong version, part count, IV length or tag length is rejected.
 - Changing `HEDDOHON_SECRET` makes every stored credential unreadable and signs
@@ -381,6 +436,89 @@ request from Navidrome to Heddohon. Heddohon makes no request to the plugin.
 **Subsonic stores the password.** The protocol needs it on every request
 (`md5(password + salt)`), so the sealed value is the password itself.
 Jellyfin issues a token at sign-in and Heddohon discards the password.
+
+## First-run setup
+
+A deployment started without `HEDDOHON_SECRET`, or without the address of any
+music server, serves one page, `/setup`, and its endpoint, `/api/setup`. Every
+other page redirects to it and every other request is answered 503. A
+deployment that is set up serves neither: both are behind the session gate
+like any other route, and `/setup` sends a signed-in account to the home page.
+`HEDDOHON_SETUP=false` switches the page off, and a start without the two
+values is then the error it was before 0.7.0.
+
+- **The code.** At start, a deployment that is not set up makes a code of 20
+  characters from a 32-character alphabet (100 bits, from the system's random
+  source) and prints it to standard output, which is the container's log. It is
+  held in memory, is not written to the log files in the data directory, and is
+  replaced at every start. Every call to the endpoint carries it and is refused
+  with 401 without it. It is compared as SHA-256 digests in constant time.
+- **Wrong codes are not counted.** A count that dropped the code after some
+  number of wrong ones would let anyone who can reach the page lock the operator
+  out until a restart. At 100 bits the code is not found by guessing, and a wrong
+  one costs the server one hash. A request body over 16 KB is refused.
+- **What the code allows.** Asking one address whether a music server answers
+  there, and saving twelve values: the secret, the address and name of each music
+  server, the default theme, whether shared links, downloads, lyrics from
+  LRCLIB and AI assistants (MCP) are on, the size of the cover cache, and the addresses the deployment
+  is opened at (**Cross-origin writes**). The list is `SETUP_NAMES` in `config.ts`. The database, the
+  third-party addresses, `HEDDOHON_RADIO_PRIVATE` and the plugin's token are
+  read from the environment alone.
+- **The probe.** It sends one unauthenticated request (`ping` for Subsonic,
+  `/System/Info/Public` for Jellyfin) to an http or https address, does not
+  follow a redirect, reads at most 64 KB and waits at most 5 seconds. It answers
+  yes or no, and on yes the server's kind and version reduced to letters, digits
+  and `. + -`. Nothing else of what the address sent is returned, so it does not
+  read a host on the server's network. It does tell whoever has the code whether
+  something answers at an address and port.
+- **Cross-origin.** The endpoint is not held to the `Origin` check under
+  **Cross-origin writes**: that check needs `ORIGIN`, which a deployment being
+  set up behind a proxy has not been given. It accepts `application/json` alone,
+  which a page on another origin cannot send without a preflight that is not
+  answered, it reads no cookie, and the code is in every call.
+- **Saving.** The values are written to `setup.json` in the data directory, mode
+  0600, by a rename over the old file. The secret is 48 random bytes, made by the
+  server and shown once on the page. The setup then ends: the code is discarded
+  and the page and its endpoint are gone. An address is saved only where the
+  environment names no music server.
+- **Precedence.** A variable in the environment takes precedence over a saved
+  value. A `setup.json` that cannot be read or parsed is a configuration error
+  and not an empty file, so the setup is not offered again over a deployment
+  that has accounts. Deleting the file offers it again, behind a new code.
+- **The health probe** answers 200 with `"status": "setup"` while the setup is
+  waiting. A failing probe would have an orchestrator restart the container,
+  and each start makes a new code.
+
+**The secret saved by the setup is in the data directory, beside the database
+it protects.** Anyone who can read that directory, or a backup of the whole
+directory, can decrypt the stored music-server credentials (**Credentials at
+rest**):
+
+| Music server | What is read with the secret and the database |
+| --- | --- |
+| Navidrome, Subsonic | The password of every account that has signed in, in full. The protocol needs it with each request, so the password is what is sealed. |
+| Jellyfin | An access token for each account, and not its password, which is discarded at sign-in. The token opens that account on the Jellyfin server until it is revoked there. |
+
+The same holds for a secret set in the environment once someone has both it
+and the database; the setup's secret differs in that one directory holds both.
+The last step of the setup says all of this, and gives the line to move the
+secret to the environment (`HEDDOHON_SECRET=...`). The ZIP made under
+**Database backup** does not contain `setup.json`.
+
+**Taking the secret out of the file.** The same step has a button that
+removes the secret from `setup.json`, for an operator who has copied it. It
+calls the setup's endpoint with a token of 192 bits that the server made with
+the secret and gave to that page alone. The token is good once and for 30
+minutes, and for those minutes the endpoint answers that call and no other;
+outside them it is behind the session gate. The server keeps the secret in
+memory until it stops, so nobody is signed out. Started again without
+`HEDDOHON_SECRET` in its environment, it asks for the setup again and makes a
+new secret, and the credentials sealed under the old one cannot be read:
+every account signs in again.
+
+The code and the saved addresses cross the network as the sign-in password
+does: in the clear on a deployment reached over plain http. Do the setup on the
+local network or behind TLS.
 
 ## Database backup
 
@@ -399,9 +537,10 @@ server runs on, a `backup.json` with the row count of each table, and a
   queues, listening history and profiles. Whoever holds the file can read every
   account's user name, settings and listening history.
 - **What it does not hold.** `HEDDOHON_SECRET`, so the file alone opens no
-  credential and forges no link. Sign-ins and the sign-in throttle, so a
-  session ended after the backup was made does not work again on a server
-  restored from it; everyone signs in once. Covers and logs.
+  credential and forges no link. Sign-ins, MCP tokens and the sign-in
+  throttle, so a session or a token ended after the backup was made does not
+  work again on a server restored from it; everyone signs in once. Covers and
+  logs.
 - **A write, by its method.** It is a POST, so the cross-origin check applies
   and a link on another site cannot start one in an administrator's browser.
   The answer is `private, no-store`.
@@ -453,7 +592,16 @@ logged. Links, settings and the queue are kept; see [Known gaps](#known-gaps).
 **`Secure` flag.** `HEDDOHON_COOKIE_SECURE=auto` (the default) turns it on for
 `https` requests, when `NODE_ENV=production`, or when the host is not loopback.
 The shipped image sets `NODE_ENV=production`, so a deployment reached over plain
-http needs `HEDDOHON_COOKIE_SECURE=false`.
+http needs `HEDDOHON_COOKIE_SECURE=false`, with one exception. A request that
+arrives on a saved `http://` address (**Cross-origin writes**) whose host is
+on the local network gets its cookie without `Secure`: a browser does not send
+a `Secure` cookie back over plain http, so nobody could sign in there. The
+local network is a private, loopback, link-local or carrier-grade NAT address,
+`localhost`, a name with no dot, and names ending `.local`, `.lan`,
+`.internal` or `.home.arpa`. A saved `http://` address on any other name
+keeps `Secure`, and `HEDDOHON_COOKIE_SECURE=true` keeps it everywhere. A
+session cookie without `Secure` crosses that network in the clear, as the
+password does when it is typed.
 
 **Settings lists the account's sessions** that have not expired, most recently
 used first: when each signed in and was last used (to the minute), and a label
@@ -540,6 +688,15 @@ or removes, or a new order, is what the link serves from then on: at once for
 an edit made in Heddohon, and within five minutes for one made elsewhere (see
 below). The share dialog says so. A link without a kind, made before albums
 and playlists could be shared, is a song link.
+
+**Only an account's own playlist can be linked to.** Navidrome and Jellyfin
+list another user's public playlist to every account. A link to one would
+serve that user's name and tracks to anyone, which that user could neither see
+nor withdraw, so making one is refused with 403 and an existing one stops
+opening. Navidrome names a playlist's owner. Jellyfin 12.1.0 names none, and a
+playlist is taken for the account's own when `/Playlists/{id}/Users` answers
+it, which Jellyfin does for the owner alone. Until 2026-10-15 a Jellyfin
+playlist was taken for the account's own whoever had made it.
 
 **What a link is to is held for five minutes.** The album, playlist or song is
 read with the owner's credential when a link is first used and held in memory
@@ -837,14 +994,52 @@ the user name another account already goes by.
 SvelteKit's CSRF check covers form content types only, and every state-changing
 call in Heddohon is JSON. An explicit origin check covers them:
 
-- **It applies to every mutating request, on every path.** A check scoped to
-  `/api/` was bypassable, because SvelteKit routes on the decoded path:
+- **It applies to every mutating request, on every path but `/api/mcp`**
+  (below). A check scoped to `/api/` was bypassable, because SvelteKit routes
+  on the decoded path:
   `PATCH /%61pi/settings` reached `/api/settings` without matching the prefix.
 - **A missing `Origin` is refused.** Browsers always send it on non-GET/HEAD
   requests. Scripted calls need `-H "origin: <your site>"`. The Navidrome
-  plugin sends it too; its route is checked like the rest.
+  plugin sends it too; its route is checked like the rest. The one exception
+  is the MCP endpoint, whose client sends none and which takes a token in
+  place of a cookie; see [AI assistants (MCP)](#ai-assistants-mcp).
 
 `SameSite=Lax` is a second layer underneath.
+
+**The address a request is served on.** Both checks compare `Origin` with the
+address the server takes itself to be at. That is `ORIGIN` where the
+environment sets it. Otherwise it is `https://` and the request's `Host`,
+which is wrong for a deployment opened over plain http on a local network,
+and every write there is refused. So an address can be saved, by the
+first-run setup or by an administrator under Settings, Storage:
+
+- A request whose `Host` is the host of a saved address is served as from
+  that address, scheme included. The built server tells the adapter so in two
+  headers of its own (`x-heddohon-protocol`, `x-heddohon-host`), the way a
+  reverse proxy would, and removes whatever a client sent under those names.
+  Where the operator sets `ORIGIN`, `PROTOCOL_HEADER` or `HOST_HEADER`, the
+  saved list is not used.
+- No check is relaxed. SvelteKit's and this one both run as before, against
+  that address. A saved address is matched against `Host`, which names the
+  server the request was sent to, so a page on another site is refused
+  whatever is saved: it sends the deployment's `Host` and its own `Origin`.
+- The list is changed only by an account the music server lists as an
+  administrator, and a change that leaves out the address it was sent from is
+  refused, since every later write from there would be.
+- The setup's last step and the administrator's form name each saved address
+  on which the sign-in cookie goes out without `Secure` (**Sessions**).
+
+**Forwarded headers.** `X-Forwarded-For`, `X-Forwarded-Host`,
+`X-Forwarded-Proto`, `X-Real-IP` and `Forwarded` are read from no request.
+Nothing in Heddohon is allowed or refused by where a request says it comes
+from: it has no list of addresses that are let through, and a request that
+claims to be from `127.0.0.1` is treated as any other. The local network in
+the cookie rule is the host of an address the operator saved, and not the
+client's. The one use of a client address is the sign-in throttle, which
+takes the connection's own unless the operator sets adapter-node's
+`ADDRESS_HEADER`; set where the proxy does not overwrite that header, a
+client can name any address there and avoid the per-address count, and the
+count per username still applies (**Known gaps**).
 
 ## Sign-in throttling
 
@@ -1046,6 +1241,11 @@ Covers are cached under `$HEDDOHON_DATA_DIR/covers` (see
 | ListenBrainz token | 1 to 128 of `A-Z a-z 0-9 -` (ListenBrainz issues 36) |
 | Discord webhook address | 300 characters; `https://`, `discord.com` or `discordapp.com` (or their `ptb` and `canary` hosts), an id of 15 to 22 digits and a token of 40 to 100 of `A-Z a-z 0-9 _ -` |
 | Last.fm callback `uid` / `token` / `state` | 2048 / 256 / 64 characters |
+| MCP tokens per account | 20; a name of 64 characters, cut, with control and format characters removed |
+| MCP tool arguments | ids of 1 to 255 characters; a search of 2 to 200 characters and 50 of each kind; 200 albums, 1000 artists, 100 songs or 100 plays a page; 1000 songs or positions a playlist write; a playlist name of 200 characters; a rating from 0 to 5 |
+| MCP request | one JSON-RPC message, within the 512 KB body cap |
+| Library report | an account the music server lists as an administrator; one at a time on the server; kept in memory a day; 50 entries a list |
+| Daily mixes | 3 a day for an account, 40 songs each, made at most once a day from this server's history and kept in `daily_mixes` |
 | Navidrome plugin token | at least 32 characters, and not `HEDDOHON_SECRET` |
 | Navidrome plugin message | 100 plays, or a page of 2000 scrobbles; a user name and a song id of 1 to 255 characters; a time in whole seconds, at most 5 minutes ahead |
 | Scrobble history imports open at once | 4; closed after 2 minutes without a page |
@@ -1129,8 +1329,23 @@ Media responses carry their own stricter policy; see
 
 ## Container
 
-The image runs as the unprivileged `node` user and is multi-stage, keeping the
-build toolchain out of the runtime layer. Secrets are supplied at run time, and
+The server runs as an unprivileged user, and the image is multi-stage, keeping
+the build toolchain out of the runtime layer.
+
+The container starts as root for its entrypoint alone (`docker-entrypoint.sh`),
+which gives the data directory to the user the server will run as and drops to
+that user before Node starts: `PUID` and `PGID` where set, otherwise the
+directory's owner, otherwise `node` (1000:1000). Docker creates a missing
+bind-mount source owned by root, and an image that started unprivileged could
+not write it until someone ran `chown` on the host. The server is started
+through `setpriv` with its supplementary groups cleared, no inheritable
+capabilities and `no_new_privs` set, so it has no capability and cannot gain
+one through a set-uid file. The tree is given only when the directory itself
+is another user's. Root is used for the server only where `PUID=0` asks for it
+by number. Started with `--user` or `user:`, the entrypoint has no root: it
+runs the server as that user and changes nothing, as the image did before
+0.7.0, and the directory is then the operator's to give.
+`tests/docker/entrypoint.sh` checks each of these in the image's base. Secrets are supplied at run time, and
 `.dockerignore` excludes `.env`, `.git` and `node_modules`.
 
 ## Logging
@@ -1242,6 +1457,13 @@ session token and any `u`, `t`, `s` or `p` query parameter.
   statistics and shown to nobody else. See [Plays from the Navidrome
   plugin](#plays-from-the-navidrome-plugin). The variable unset, the route
   does not exist.
+- **Whoever holds an MCP token reads the account's library**, until the
+  account withdraws it or its sessions end: there is no expiry. A token that
+  may change the library can also delete the account's playlists. What an
+  assistant reads goes to whoever runs its model, and a client keeps the
+  token in its own configuration, in plain text for Claude Code. Calls are
+  not throttled beyond what the music server takes. See [AI assistants
+  (MCP)](#ai-assistants-mcp). Turned off, the route does not exist.
 - **Concurrent streams per account are uncapped.** Cap them at the proxy for wide exposure.
 - **Authentication is as strong as the upstream account.** There is no second
   factor or sign-in notification. Settings lists the account's sessions and
@@ -1279,6 +1501,20 @@ session token and any `u`, `t`, `s` or `p` query parameter.
     Settings holds every account's listening history and sealed credentials.
     It restores only with the `HEDDOHON_SECRET` it was made under, which is
     not in it.
+11. **After a first-run setup, move the secret to the environment.** The
+    setup saves it in `setup.json` in the data directory, where a copy of that
+    directory is enough to read the stored credentials. Set
+    `HEDDOHON_SECRET` to the value the last step shows, remove it from the
+    file, and restart. Where every value is set in the environment,
+    `HEDDOHON_SETUP=false` keeps the setup page from being served if one is
+    ever left out.
+12. **Turn on AI assistants only where the accounts may hand their library
+    to one.** Each account then decides for itself, and what an assistant
+    reads goes to its model's provider. An administrator of the music server
+    can turn it on under Settings, AI, unless `HEDDOHON_MCP` is set in the
+    environment; set it to `false` there to keep it off. Behind a proxy that
+    restricts paths, `/api/mcp` takes `POST`, and `GET` and `DELETE` answer
+    405.
 
 ## Audit history
 
@@ -1496,3 +1732,78 @@ The other three have a check that failed before the fix.
 | Low | The upstream timeout stopped when headers arrived, so a JSON answer that stalled or never ended was read with no deadline and no size limit | JSON bodies are read under a second `HEDDOHON_UPSTREAM_TIMEOUT_MS` and refused past 64 MB; streams keep no limit after their headers |
 | Low | The sign-in address counter was keyed on the full IPv6 address: 300 attempts from one /64 with a new address each were all allowed | IPv6 addresses are counted by their /64, for sign-in and Quick Connect |
 | Info | The error page SvelteKit builds when an endpoint fails went out without a Content-Security-Policy; its text is fixed and it has no script | HTML without a policy is given `default-src 'none'` with inline styles only |
+
+### 13 October 2026
+
+Review of the first-run setup (`setup.ts`, `/setup`, `/api/setup`, the saved
+values in `config.ts`) before it was merged. Each finding has a check in
+`tests/e2e/setup.test.mjs`.
+
+| Severity | Finding | Fix |
+| --- | --- | --- |
+| Low | Ten wrong codes dropped the code until a restart, so anyone who could reach the page could lock the operator out of the setup | Wrong codes are not counted; the code is 100 bits |
+| Low | The probe read the whole answer and then cut it to 64 KB, so an address that never stopped sending was read until the 5-second timeout, at whatever rate it sent | Reading stops at 64 KB |
+| Info | The page's data said which of the secret and the music server was missing, before the code | Told with the first right code |
+| Info | A music-server address was saved where the environment already named one, and would have taken effect if that variable were later removed | Saved only where the environment names none |
+
+The same day, the saved addresses and the cover cache's size were added to
+what the setup and an administrator can save. Checked in
+`tests/e2e/setup.test.mjs`: a write from another site is refused with an
+address saved, with the server's own two headers forged, and as a form; a
+saved `http://` address on a public name keeps `Secure`; a host nothing was
+saved for is taken to be `https` as before; and an account that is not an
+administrator cannot change either. A first version of this change switched
+SvelteKit's own check of `Origin` off and rewrote the request's address in
+the hook. It was not merged: the address is given to the adapter instead, and
+both checks stay.
+
+Looked at and left as it is: the probe tells whoever has the code whether
+something answers at an address and port, which is what entering a music
+server's address is; and the secret the setup makes is kept in the data
+directory, which **First-run setup** and the last step of the setup state.
+
+### 15 October 2026
+
+Found while adding public and private playlists, with a check each in
+`tests/e2e/app.test.mjs` (**whose a playlist is, and who sees it**).
+
+| Severity | Finding | Fix |
+| --- | --- | --- |
+| Medium | On Jellyfin a link could be made to another user's public playlist, which served that user's name and tracks to anyone, out of their reach to withdraw. Jellyfin 12.1.0 lists another user's public playlist to every account and names no owner, and a playlist without one was taken for the sharer's own | Refused with 403; a playlist is the account's own when `/Playlists/{id}/Users` answers it, which Jellyfin does for the owner alone |
+| Low | Navidrome's error 50 ("not authorized for the given operation") was taken for a rejected password. A change to another user's playlist through a path that ends sessions on one (a rating, an MCP tool) signed the account out everywhere and withdrew its MCP tokens | A refusal of its own (`forbidden`), answered 403, which ends nothing; Jellyfin's 403 likewise |
+| Info | Navidrome 0.64.2 lists an administrator every user's private playlists, and the playlists page showed them | Left out: an account sees its own playlists and the public ones |
+
+The same day, a pass over the whole app as an outside tester would make
+it, against the test rig's Navidrome 0.64.2 and Jellyfin 12.1.0, two
+accounts each. Found and fixed with it: an account's first visit of the day,
+before it had played anything, kept an empty set of daily mixes for the rest
+of the day; and Jellyfin's playlists were asked whose they are twice per
+playlist each time the add-to-playlist list opened (held ten minutes now).
+Looked at and found holding:
+
+- `next` after sign-in, in twelve forms (`//host`, `/\host`, encoded
+  slashes and backslashes, a tab, `javascript:`, CR and LF, a full-width
+  dot): every one lands on a path of this site.
+- The origin check against `null`, a trailing slash, a capital scheme, a
+  missing port and a suffixed host; a form action posted as `text/plain`
+  from another site; `x-heddohon-host` and `x-heddohon-protocol`,
+  `X-Forwarded-*` and `Host` sent by the client on a deployment with a saved
+  address. All refused.
+- Ids with `../`, `&u=`, CR and LF, and 300 characters on the stream, cover,
+  download and lyrics routes: passed to the music server as one encoded
+  value, or refused. An answer that is not audio or an image (Navidrome's
+  error, which names its version) is sent as `application/octet-stream`
+  with `nosniff` and the sandbox, to the signed-in account alone.
+- One Navidrome account against another's private playlist (read, add,
+  make public, delete, link), link, session handle, MCP token and library
+  report; the same on Jellyfin against a public playlist. Each refused, and
+  none signs the account out. Jellyfin 12.1.0 itself names another user's
+  private playlist to `/Items?Ids=`; Heddohon reads a playlist's tracks
+  through `/Playlists/{id}/Items`, which refuses, so neither the page nor a
+  link opens it.
+- Radio addresses as `::ffff:7f00:1`, `0:0:0:0:0:ffff:a00:1`,
+  `::ffff:a9fe:a9fe`, `0x7f.1`, `2130706433`, `127.1`, `::` and `fd00::1`:
+  each taken for private. The connection is made to the address checked.
+- A cast address after its session signs out: 404. The hardening headers
+  on media, `/api/mcp`, `/healthz` and JSON answers; no `Server` or
+  `X-Powered-By`.

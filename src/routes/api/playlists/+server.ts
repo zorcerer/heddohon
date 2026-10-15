@@ -37,7 +37,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 		const id = await backendFor(session.account.backend).createPlaylist(session.credential, name, songIds);
 		return json({ id, name, added: songIds.length }, { status: 201 });
 	} catch (err) {
-		if (err instanceof UpstreamError) error(err.status === 404 ? 404 : 502, err.message);
+		if (err instanceof UpstreamError) error(err.kind === 'forbidden' ? 403 : err.status === 404 ? 404 : 502, err.message);
 		throw err;
 	}
 };

@@ -33,6 +33,8 @@ still lands on it. Each one opens that section in the wiki.
 
 ## [The Navidrome plugin](https://github.com/zorcerer/heddohon/wiki/Configuration#the-navidrome-plugin)
 
+## [AI assistants (MCP)](https://github.com/zorcerer/heddohon/wiki/Configuration#ai-assistants-mcp)
+
 ## [Logging](https://github.com/zorcerer/heddohon/wiki/Configuration#logging)
 
 ### [Working out why something is slow](https://github.com/zorcerer/heddohon/wiki/Configuration#working-out-why-something-is-slow)

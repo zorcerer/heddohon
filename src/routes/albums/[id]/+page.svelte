@@ -8,6 +8,7 @@
 	import { page } from '$app/state';
 	import { shareComposer } from '$lib/client/share.svelte';
 	import MediaCard from '$lib/components/MediaCard.svelte';
+	import ExternalLinks from '$lib/components/ExternalLinks.svelte';
 	import MediaGrid from '$lib/components/MediaGrid.svelte';
 	import QualityBadge from '$lib/components/QualityBadge.svelte';
 	import RatingStars from '$lib/components/RatingStars.svelte';
@@ -197,7 +198,7 @@
 						<span class="label">Share</span>
 					</button>
 				{/if}
-				<FavouriteButton id={album.id} kind="album" starred={album.starred} size={20} />
+				<FavouriteButton id={album.id} kind="album" starred={album.starred} size={20} labelled />
 			</div>
 		</div>
 	</header>
@@ -226,6 +227,7 @@
 							subtitle={other.year ? String(other.year) : null}
 							coverArt={other.coverArt}
 							transitionId={other.id}
+							album={other}
 							onplay={() => playContainer('album', other.id)}
 						/>
 					{/each}
@@ -253,11 +255,18 @@
 							subtitle={suggestion.artist}
 							coverArt={suggestion.coverArt}
 							transitionId={suggestion.id}
+							album={suggestion}
 							onplay={() => playContainer('album', suggestion.id)}
 						/>
 					{/each}
 				</MediaGrid>
 			</section>
+		{/if}
+	{/await}
+
+	{#await data.links then links}
+		{#if links.length > 0}
+			<ExternalLinks {links} />
 		{/if}
 	{/await}
 </div>
@@ -487,6 +496,57 @@
 		.actions .hh-button :global(svg) {
 			width: 1.25rem !important;
 			height: 1.25rem !important;
+		}
+	}
+
+	/* ── Terminal ────────────────────────────────────────────────────────────── */
+
+	/* The cover lies flat: no tilt under the pointer, and no light or shadow
+	   following it. */
+	:global([data-theme='terminal']) .holder,
+	:global([data-theme='terminal']) .holder.tilting {
+		transform: none;
+	}
+
+	:global([data-theme='terminal']) .holder::before,
+	:global([data-theme='terminal']) .sheen {
+		display: none;
+	}
+
+	:global([data-theme='terminal']) .actions {
+		gap: var(--space-1) var(--space-4);
+	}
+
+	:global([data-theme='terminal']) .actions .hh-button {
+		padding: 0.5rem 0.125rem;
+	}
+
+	:global([data-theme='terminal']) .actions .hh-button--primary {
+		padding: 0.5rem 1rem;
+		margin-inline-end: var(--space-1);
+	}
+
+	/* On a phone the actions are glyphs alone, where brackets around each would
+	   be seven pairs in a row. */
+	@media (max-width: 36rem) {
+		:global([data-theme='terminal']) .actions {
+			gap: var(--space-2);
+		}
+
+		:global([data-theme='terminal']) .actions :global(.hh-button) {
+			padding: 0;
+			border: 1px solid var(--border-strong);
+		}
+
+		:global([data-theme='terminal']) .actions :global(.hh-button)::before,
+		:global([data-theme='terminal']) .actions :global(.hh-button)::after {
+			content: none;
+		}
+
+		:global([data-theme='terminal']) .actions .hh-button--primary {
+			margin-inline-end: 0;
+			border-color: transparent;
+			border-radius: var(--r-md);
 		}
 	}
 </style>

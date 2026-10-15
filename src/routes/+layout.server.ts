@@ -1,12 +1,39 @@
 import type { LayoutServerLoad } from './$types';
 import { backendFor } from '$lib/server/backends';
-import { config } from '$lib/server/config';
+import { SetupRequired, config } from '$lib/server/config';
 import { radioEnabled } from '$lib/server/radio';
-import { DEFAULT_SETTINGS } from '$lib/server/settings';
+import { defaultSettings, shippedSettings } from '$lib/server/settings';
 import { APP_VERSION } from '$lib/server/version';
 
 export const load: LayoutServerLoad = async ({ locals, url }) => {
-	const cfg = config();
+	let cfg;
+	try {
+		cfg = config();
+	} catch (err) {
+		if (!(err instanceof SetupRequired)) throw err;
+		// The setup page, the one page a deployment that is not set up serves:
+		// drawn bare, as the sign-in page is, with everything off.
+		return {
+			appName: 'Heddohon',
+			appVersion: APP_VERSION,
+			sharing: false,
+			downloads: false,
+			remoteControl: false,
+			together: false,
+			listeners: false,
+			autoeq: false,
+			folders: false,
+			radio: false,
+			ratings: false,
+			account: null,
+			serverLabel: '',
+			settings: shippedSettings(),
+			sessionExpiresAt: null,
+			isLoginPage: true,
+			isSharePage: false,
+			isScreenPage: false
+		};
+	}
 	const session = locals.session;
 
 	return {
@@ -34,7 +61,7 @@ export const load: LayoutServerLoad = async ({ locals, url }) => {
 		// The upstream URL is never included — the browser only learns the label.
 		serverLabel:
 			cfg.upstreams.find((upstream) => upstream.kind === session?.account.backend)?.label ?? '',
-		settings: locals.settings ?? DEFAULT_SETTINGS,
+		settings: locals.settings ?? defaultSettings(),
 		sessionExpiresAt: session?.expiresAt ?? null,
 		isLoginPage: url.pathname === '/login',
 		// A shared link and a listen-together link each open on a page of their

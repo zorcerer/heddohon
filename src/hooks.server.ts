@@ -1,8 +1,9 @@
-import { isRedirect, redirect, type Handle, type HandleServerError, type RequestEvent } from '@sveltejs/kit';
-import { version } from '$app/environment';
+import { isRedirect, redirect, type Handle, type HandleServerError, type RequestEvent, type ServerInit } from '@sveltejs/kit';
+import { building, version } from '$app/environment';
 import { resolveSession } from '$lib/server/auth';
-import { getSettings, DEFAULT_SETTINGS, THEME_GROUND } from '$lib/server/settings';
-import { ConfigError, config } from '$lib/server/config';
+import { getSettings, defaultSettings, groundOf } from '$lib/server/settings';
+import { ConfigError, SetupRequired, config } from '$lib/server/config';
+import { announceSetup, forgetPending } from '$lib/server/setup';
 import { FALLBACK_HTML_CSP, SECURITY_HEADERS } from '$lib/headers';
 import {
 	isEnabled,
@@ -113,6 +114,7 @@ function announce(): void {
 			remoteControl: cfg.remoteControl ? 'on' : 'off',
 			listeners: cfg.listeners && cfg.remoteControl ? 'on' : 'off',
 			navidromePlugin: cfg.navidromePluginToken === null ? 'off' : 'on',
+			mcp: cfg.mcp ? 'on' : 'off',
 			database: cfg.database.kind === 'postgres' ? `postgres=${cfg.database.label}` : 'sqlite',
 			sessionHours: cfg.sessionMaxHours,
 			cookieSecure: String(cfg.cookieSecure),
@@ -121,8 +123,121 @@ function announce(): void {
 			upstreams: cfg.upstreams.map((up) => `${up.kind}=${new URL(up.url).host}`).join(',') || 'none'
 		});
 	} catch (err) {
+		if (err instanceof SetupRequired) {
+			// Not a fault. The line above is owed once the setup has been saved.
+			announced = false;
+			return;
+		}
 		log.error('started-misconfigured', { detail: reason(err) });
 	}
+}
+
+/**
+ * A deployment started without its secret or its music server prints the
+ * code for its setup page as it starts, so the code is in the container's log
+ * before anyone opens the page. See `lib/server/setup.ts`.
+ */
+export const init: ServerInit = () => {
+	if (building) return;
+	try {
+		announceSetup();
+	} catch {
+		// A misconfiguration. The first request reports it.
+	}
+};
+
+/** The paths of the setup. Everything else waits for it. */
+const SETUP_PAGE = '/setup';
+const SETUP_API = '/api/setup';
+
+/**
+ * A request to a deployment that is not set up. The setup page, its one
+ * endpoint and the health probe are served; every other page goes to the
+ * setup page, and every other request is told why it was not served.
+ *
+ * The endpoint is not held to the origin check below. That check compares
+ * `Origin` with the address this server believes it is served on, which comes
+ * from `ORIGIN`, and a deployment being set up behind a proxy has not been
+ * given one yet. The endpoint takes JSON alone, which no page on another
+ * origin can send without a preflight this server does not answer, it reads no
+ * cookie, and every call carries the code from this server's own log.
+ */
+async function setupRequest(event: RequestEvent, resolve: Parameters<Handle>[0]['resolve']): Promise<Response> {
+	announceSetup();
+	const path = event.url.pathname;
+	const method = event.request.method;
+
+	if (path === '/healthz' || (path === SETUP_PAGE && (method === 'GET' || method === 'HEAD'))) {
+		const response = await resolve(event, {
+			// Terminal, the theme a deployment starts in: there is no account, and
+			// no configuration to ask for another default.
+			transformPageChunk: ({ html }) =>
+				html
+					.replace('data-theme="dark"', 'data-theme="terminal"')
+					.replace('name="theme-color" content="#0b0c0f"', 'name="theme-color" content="#08090a"')
+					// The manifest is made from the configuration, which is what is
+					// missing. The setup page is not one to install.
+					.replace('<link rel="manifest" href="/manifest.webmanifest" />', '')
+		});
+		harden(response.headers);
+		return response;
+	}
+
+	if (path === SETUP_API && method === 'POST') {
+		if (!event.request.headers.get('content-type')?.toLowerCase().startsWith('application/json')) {
+			return sealed(JSON.stringify({ error: 'json_required' }), 415, 'application/json');
+		}
+		const response = await resolve(event);
+		harden(response.headers);
+		return response;
+	}
+
+	const wantsPage =
+		(method === 'GET' || method === 'HEAD') &&
+		!path.startsWith('/api/') &&
+		!event.request.headers.get('accept')?.includes('application/json');
+	if (wantsPage) return sealedRedirect(event, SETUP_PAGE);
+	const response = sealed(JSON.stringify({ error: 'setup_required' }), 503, 'application/json');
+	waiting.add(response);
+	return response;
+}
+
+/** The MCP endpoint; see `routes/api/mcp`. */
+const MCP_PATH = '/api/mcp';
+
+/**
+ * A request to the MCP endpoint, from an AI assistant's client.
+ *
+ * Served ahead of the origin check and the session gate. A client is not a
+ * browser and sends no `Origin`, and its authority is the token in its
+ * `Authorization` header (`lib/server/mcp.ts`), which the route checks before
+ * anything else. No cookie is read for it: `locals` holds no session. A page
+ * on another origin cannot send that header, or the JSON the route requires,
+ * without a preflight this server does not answer, so a signed-in visitor's
+ * browser cannot be made to call it.
+ *
+ * An `Origin` that is sent is checked as for any write, which is what the
+ * protocol asks of a server against DNS rebinding. Matched on the path as
+ * sent, with no prefix: `/api/%6Dcp` reaches the route through the checks
+ * below like any other request, and the route then reads the token alone.
+ */
+async function mcpRequest(event: RequestEvent, resolve: Parameters<Handle>[0]['resolve']): Promise<Response> {
+	if (!config().mcp) return sealed(JSON.stringify({ error: 'not_found' }), 404, 'application/json');
+	const origin = event.request.headers.get('origin');
+	if (origin !== null && origin !== event.url.origin) {
+		log.warn('cross-origin-blocked', {
+			method: event.request.method,
+			path: MCP_PATH,
+			origin,
+			expected: event.url.origin
+		});
+		return sealed(JSON.stringify({ error: 'cross_origin_forbidden' }), 403, 'application/json');
+	}
+	event.locals.session = null;
+	event.locals.settings = null;
+	const response = await resolve(event);
+	harden(response.headers);
+	return response;
 }
 
 /**
@@ -134,6 +249,13 @@ const slowMs = (() => {
 	const raw = Number(process.env.HEDDOHON_LOG_SLOW_MS);
 	return Number.isFinite(raw) && raw >= 0 ? raw : 2000;
 })();
+
+/**
+ * Responses that say the deployment is waiting for its setup. A 503, and not
+ * a fault: left out of the error log, which a browser tab left open on the app
+ * would otherwise fill while the setup is done.
+ */
+const waiting = new WeakSet<Response>();
 
 /**
  * The per-request line is written at debug only.
@@ -155,7 +277,7 @@ export const handle: Handle = async (input) => {
 		let failure: string | undefined;
 		try {
 			const response = await handleRequest(input);
-			status = response.status;
+			status = waiting.has(response) ? 200 : response.status;
 			return response;
 		} catch (err) {
 			if (isRedirect(err)) status = err.status;
@@ -194,6 +316,9 @@ const handleRequest: Handle = async ({ event, resolve }) => {
 		// Fail closed on anything that is not a ConfigError.
 		if (!(err instanceof ConfigError)) throw err;
 
+		// Not set up yet, with nothing else wrong: the setup page.
+		if (err instanceof SetupRequired) return setupRequest(event, resolve);
+
 		if (event.url.pathname === '/healthz') {
 			// The probe must work on a broken deployment: it reports
 			// `misconfigured` and fails the container's HEALTHCHECK. The CSRF
@@ -216,6 +341,25 @@ const handleRequest: Handle = async ({ event, resolve }) => {
 			'text/plain; charset=utf-8'
 		);
 	}
+
+	/*
+	 * The one call that comes after the setup, from the page that finished it:
+	 * taking the secret out of the saved file (`forget` in `/api/setup`).
+	 * Served for the half hour its token is good and as the setup's endpoint
+	 * is served: JSON alone, with the token as its authority, and ahead of the
+	 * check of `Origin`, which a deployment given a wrong `ORIGIN` fails for
+	 * every write. At any other time the path is behind the session gate.
+	 */
+	if (event.url.pathname === SETUP_API && event.request.method === 'POST' && forgetPending()) {
+		if (!event.request.headers.get('content-type')?.toLowerCase().startsWith('application/json')) {
+			return sealed(JSON.stringify({ error: 'json_required' }), 415, 'application/json');
+		}
+		const response = await resolve(event);
+		harden(response.headers);
+		return response;
+	}
+
+	if (event.url.pathname === MCP_PATH) return mcpRequest(event, resolve);
 
 	/*
 	 * Cross-origin write protection.
@@ -282,30 +426,38 @@ const handleRequest: Handle = async ({ event, resolve }) => {
 		return sealedRedirect(event, '/');
 	}
 
-	const theme = event.locals.settings?.theme ?? DEFAULT_SETTINGS.theme;
+	// Without an account (sign-in, a shared link) the page is drawn from the
+	// deployment's defaults.
+	const shown = event.locals.settings ?? defaultSettings();
+	const theme = shown.theme;
 	const response = await resolve(event, {
 		// The theme is known on the server, so the first byte of HTML carries the
 		// right palette.
 		transformPageChunk: ({ html }) =>
 			html
 				.replace('data-theme="dark"', `data-theme="${theme}"`)
-				// The bars a phone paints around the page take the theme's ground
-				// too. The manifest is fetched without a cookie, so it is asked for
-				// by theme.
-				.replace(
-					'name="theme-color" content="#0b0c0f"',
-					`name="theme-color" content="${THEME_GROUND[theme]}"`
-				)
+				// The bars a phone paints around the page take the ground too: the
+				// theme's, or in Terminal the colour scheme's. The manifest is fetched
+				// without a cookie, so it is asked for by theme, and an installed app
+				// opens on the theme's own ground whatever the scheme.
+				.replace('name="theme-color" content="#0b0c0f"', `name="theme-color" content="${groundOf(shown)}"`)
 				.replace(
 					'href="/manifest.webmanifest"',
-					theme === 'light'
-						? 'href="/manifest.webmanifest?theme=light"'
-						: 'href="/manifest.webmanifest"'
+					theme === defaultSettings().theme
+						? 'href="/manifest.webmanifest"'
+						: `href="/manifest.webmanifest?theme=${theme}"`
 				)
+				// Terminal's colour scheme, accent, dot grid and how it draws the
+				// player's artwork, which the stylesheet reads from the root like the
+				// theme.
+				.replace('data-scheme="heddohon"', `data-scheme="${shown.scheme}"`)
+				.replace('data-accent="artwork"', `data-accent="${shown.accent}"`)
+				.replace('data-dots="faint"', `data-dots="${shown.dots}"`)
+				.replace('data-art="duotone"', `data-art="${shown.playerArt}"`)
 				// The scale and the font likewise: applied after hydration, they
 				// would resize the page in front of the reader.
-				.replace('data-scale="100"', `data-scale="${event.locals.settings?.uiScale ?? DEFAULT_SETTINGS.uiScale}"`)
-				.replace('data-font="manrope"', `data-font="${event.locals.settings?.font ?? DEFAULT_SETTINGS.font}"`)
+				.replace('data-scale="100"', `data-scale="${shown.uiScale}"`)
+				.replace('data-font="manrope"', `data-font="${shown.font}"`)
 	});
 
 	harden(response.headers);

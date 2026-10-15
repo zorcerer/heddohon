@@ -129,6 +129,7 @@
 						subtitle={album.artist}
 						coverArt={album.coverArt}
 						transitionId={album.id}
+						album={album}
 						onplay={() => playContainer('album', album.id)}
 					/>
 				{/each}
@@ -212,5 +213,15 @@
 	.empty p {
 		max-width: 40ch;
 		margin: 0;
+	}
+
+	/* ── Terminal ────────────────────────────────────────────────────────────── */
+
+	/* The tab that is open: the accent, on a rule of it. The other themes light
+	   the label, and this one has no glow to do it with. */
+	:global([data-theme='terminal']) .tab.active {
+		border-radius: 0;
+		color: var(--accent);
+		box-shadow: inset 0 -2px 0 var(--accent);
 	}
 </style>

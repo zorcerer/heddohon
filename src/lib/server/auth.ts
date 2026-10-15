@@ -10,6 +10,7 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import type { Cookies } from '@sveltejs/kit';
 import type { BackendKind } from '$lib/types';
 import { config } from './config';
+import { isLocalHost } from './origin';
 import {
 	constantTimeEquals,
 	deviceDigest,
@@ -31,6 +32,8 @@ import { dropIntegrations } from './integrations';
 import { clearAccountState } from './settings';
 import { clearProfile, hideProfile } from './listening';
 import { forgetSharedItems, revokeAllShares } from './shares';
+import { revokeMcpTokens } from './mcp';
+import { clearMixes } from './mixes';
 import { foldName } from './names';
 import { endPartiesOf } from './together';
 
@@ -180,6 +183,7 @@ async function storeAccount(
 		await destroyAllSessions(existing.id);
 		const links = await revokeAllShares(existing.id);
 		await clearAccountState(existing.id);
+		await clearMixes(existing.id);
 		await clearProfile(existing.id);
 		await dropKeeper(kind, existing.id);
 		await dropIntegrations(existing.id);
@@ -357,6 +361,12 @@ async function capSessions(accountId: string): Promise<void> {
 export function cookieSecure(url: URL): boolean {
 	const setting = config().cookieSecure;
 	if (setting !== 'auto') return setting;
+	// The one case `auto` leaves a cookie without Secure in production: the
+	// request arrived on an `http://` address the operator saved, and that
+	// address is on the local network. A Secure cookie is never sent back over
+	// plain http, so nobody could sign in there, which is where a first run
+	// happens. An address on a public name stays Secure whatever is saved.
+	if (url.protocol === 'http:' && config().origins.includes(url.origin) && isLocalHost(url.hostname)) return false;
 	if (url.protocol === 'https:') return true;
 	if (process.env.NODE_ENV === 'production') return true;
 
@@ -571,6 +581,10 @@ export async function destroyAllSessions(accountId: string): Promise<void> {
 		accountId
 	);
 	const result = await database.run('DELETE FROM sessions WHERE account_id = ?', accountId);
+	// An MCP token signs in as the account does, under the same credential, so
+	// it ends with the sessions: kept, it would hand a reused name's library to
+	// its previous holder's assistant.
+	await revokeMcpTokens(accountId);
 	cutSessionStreams(ending.map((row) => row.token_digest));
 	forgetAccount(accountId);
 	forgetListings(accountId);

@@ -5,6 +5,7 @@ import type {
 	Artist,
 	ArtistDetail,
 	BackendKind,
+	ExternalLink,
 	Folder,
 	Genre,
 	Playlist,
@@ -211,6 +212,15 @@ export interface MediaBackend {
 	 */
 	getInstantMix(cred: StoredCredential, kind: MixSeed, id: string, limit: number): Promise<Song[]>;
 
+	/**
+	 * Pages about an album or an artist elsewhere, for the foot of its page.
+	 * Subsonic: the MusicBrainz id and Last.fm address of `getAlbumInfo2` and
+	 * `getArtistInfo2`, which Navidrome fills from the tags and its Last.fm
+	 * agent. Jellyfin: the item's `ExternalUrls`, which it builds from its
+	 * provider ids. Empty is a normal answer.
+	 */
+	getExternalLinks(cred: StoredCredential, kind: 'album' | 'artist', id: string): Promise<ExternalLink[]>;
+
 	/** Every genre with at least one album, sorted by name. */
 	getGenres(cred: StoredCredential): Promise<Genre[]>;
 	/** Albums in one genre, by name, a page at a time. */
@@ -260,6 +270,8 @@ export interface MediaBackend {
 	/** Creates a playlist, optionally seeded with tracks. Returns the new id. */
 	createPlaylist(cred: StoredCredential, name: string, songIds: string[]): Promise<string>;
 	renamePlaylist(cred: StoredCredential, id: string, name: string): Promise<void>;
+	/** Makes a playlist of this account's visible to every account on the music server, or to this one alone. */
+	setPlaylistPublic(cred: StoredCredential, id: string, isPublic: boolean): Promise<void>;
 	addToPlaylist(cred: StoredCredential, id: string, songIds: string[]): Promise<void>;
 	/**
 	 * Removes entries by their position in the playlist. Subsonic removes by
@@ -290,6 +302,14 @@ export interface MediaBackend {
 	 * nothing, or leaves `played` out, returns an empty list.
 	 */
 	getPlayedSongs(cred: StoredCredential): Promise<{ song: Song; playedAt: number }[]>;
+
+	/**
+	 * Every track in the library, a page at a time, to `onPage`, for the
+	 * library report (`libraryreport.ts`). The same listing `getPlayedSongs`
+	 * reads: `search3` with an empty query on Subsonic, which a server other
+	 * than Navidrome may answer with nothing, and `/Items` on Jellyfin.
+	 */
+	forEachSong(cred: StoredCredential, onPage: (songs: Song[]) => void): Promise<void>;
 
 	/** Byte-exact original file. Never transcoded. */
 	openStream(

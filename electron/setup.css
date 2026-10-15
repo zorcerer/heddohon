@@ -1,12 +1,18 @@
+/*
+ * The setup and sign-in windows, in the colours and shapes of Terminal, the
+ * app's default theme: its ground and pane, hairlines, a 6px radius and a
+ * mono face. The device's own mono face, since nothing of the app is loaded
+ * before a server is chosen.
+ */
 :root {
 	color-scheme: dark;
-	--ground: #0b0c0f;
-	--panel: #14171c;
-	--edge: #2a2f38;
-	--text: #e8eaee;
-	--muted: #9aa3b0;
+	--ground: #08090a;
+	--panel: #0d0e10;
+	--edge: #2a2e33;
+	--text: #e6e8ea;
+	--muted: #8a9097;
 	--accent: #9fc6d3;
-	--danger: #e5796f;
+	--danger: #ff8b8b;
 }
 
 * {
@@ -20,7 +26,7 @@ body {
 	place-items: center;
 	background: var(--ground);
 	color: var(--text);
-	font: 15px/1.5 system-ui, sans-serif;
+	font: 14px/1.5 ui-monospace, 'SFMono-Regular', Menlo, Consolas, 'Liberation Mono', monospace;
 }
 
 main {
@@ -31,17 +37,17 @@ main {
 	justify-items: start;
 	background: var(--panel);
 	border: 1px solid var(--edge);
-	border-radius: 18px;
+	border-radius: 6px;
 }
 
 img {
-	border-radius: 16px;
+	border-radius: 6px;
 }
 
 h1 {
 	margin: 0.25rem 0 0;
 	font-size: 1.6rem;
-	letter-spacing: -0.015em;
+	letter-spacing: -0.02em;
 }
 
 p {
@@ -65,17 +71,16 @@ form {
 }
 
 label {
-	font-size: 0.75rem;
-	letter-spacing: 0.12em;
-	text-transform: uppercase;
-	color: var(--accent);
+	font-size: 0.8125rem;
+	text-transform: lowercase;
+	color: var(--muted);
 }
 
 input {
 	width: 100%;
 	padding: 0.7rem 0.8rem;
 	border: 1px solid var(--edge);
-	border-radius: 10px;
+	border-radius: 4px;
 	background: var(--ground);
 	color: var(--text);
 	font: inherit;
@@ -89,9 +94,9 @@ input:focus {
 button {
 	padding: 0.7rem 1rem;
 	border: 0;
-	border-radius: 10px;
+	border-radius: 4px;
 	background: var(--accent);
-	color: #0b0c0f;
+	color: #08090a;
 	font: inherit;
 	font-weight: 600;
 	cursor: pointer;
@@ -105,7 +110,7 @@ button:disabled {
 #problem {
 	padding: 0.6rem 0.8rem;
 	border: 1px solid color-mix(in srgb, var(--danger) 50%, transparent);
-	border-radius: 10px;
+	border-radius: 4px;
 	background: color-mix(in srgb, var(--danger) 12%, transparent);
 	font-size: 0.875rem;
 }
@@ -135,7 +140,7 @@ textarea {
 	width: 100%;
 	padding: 0.6rem 0.8rem;
 	border: 1px solid var(--edge);
-	border-radius: 10px;
+	border-radius: 4px;
 	background: var(--ground);
 	color: var(--text);
 	font: 13px/1.5 ui-monospace, monospace;

@@ -21,7 +21,6 @@ import { openJson, randomToken, shareDigest } from './crypto';
 import { now, store, type ShareRow } from './db';
 import { log, reason } from './log';
 import { Memo } from './memo';
-import { foldName } from './names';
 
 /** The lifetimes a link can be given, in days. Anything else is refused. */
 const SHARE_LIFETIMES_DAYS = [1, 7, 30] as const;
@@ -239,15 +238,16 @@ export function sharedItem(share: ResolvedShare, credential: StoredCredential): 
 }
 
 /**
- * Whether a playlist is the sharer's own, and so one it may link to.
+ * Whether a playlist is the sharer's own, and so one it may link to. Read
+ * under the sharer's credential, so `editable` is the sharer's.
  *
  * Navidrome lists another user's public playlist to every account, and a link
  * to one served that user's name and tracks to anyone, which that user could
- * neither see nor withdraw. Jellyfin reports no owner (`owner` is null) and
- * lists only playlists the account may open.
+ * neither see nor withdraw. Jellyfin 12.1.0 does the same and names no owner,
+ * which was taken for the sharer's own until `editable` was read from it.
  */
-export function ownsPlaylist(playlist: Playlist, username: string): boolean {
-	return playlist.owner === null || foldName(playlist.owner) === foldName(username);
+export function ownsPlaylist(playlist: Playlist): boolean {
+	return playlist.editable;
 }
 
 async function readSharedItem(share: ResolvedShare, credential: StoredCredential): Promise<SharedItem | null> {
@@ -265,7 +265,7 @@ async function readSharedItem(share: ResolvedShare, credential: StoredCredential
 		}
 		if (share.kind === 'playlist') {
 			const playlist = await backend.getPlaylist(credential, share.itemId);
-			if (!ownsPlaylist(playlist, share.sharedBy)) return null;
+			if (!ownsPlaylist(playlist)) return null;
 			return {
 				kind: 'playlist',
 				title: playlist.name,

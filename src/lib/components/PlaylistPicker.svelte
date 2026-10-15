@@ -315,4 +315,23 @@
 		opacity: 0.5;
 		cursor: not-allowed;
 	}
+
+	/* ── Terminal ────────────────────────────────────────────────────────────── */
+
+	/* The playlists as lines of a listing, as a track list's rows are in this
+	   theme: hover is a flat step of the ground, and the name stays where it is. */
+	:global([data-theme='terminal']) .row::before {
+		background: var(--bg-hover);
+		scale: none;
+		transition: opacity var(--dur-hover) var(--ease-out);
+	}
+
+	:global([data-theme='terminal']) .row:hover:not(:disabled) .name {
+		translate: none;
+	}
+
+	/* The one just added to is told by its check and by the accent on its name. */
+	:global([data-theme='terminal']) .row.added .name {
+		color: var(--accent);
+	}
 </style>

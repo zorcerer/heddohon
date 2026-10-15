@@ -1,0 +1,368 @@
+/*
+ * Phosphor, after the vacuum fluorescent displays of Japanese car and hi-fi
+ * units of the late 1980s.
+ *
+ * Opaque panes of dark metal with a lit top edge, seams in place of
+ * hairlines, buttons drawn as rubber keys, and the readouts (figures, the
+ * path, the player's title and times) in a dot-matrix face lit in the accent,
+ * which glows as a phosphor does. A second colour, `--led`, is the indicator
+ * lamps' and the artist's in the player, as the orange segments of such a
+ * display are.
+ *
+ * It has no glass: every glass token is set to what an opaque pane is, as
+ * Terminal's are. Every rule here is under `[data-theme='phosphor']`; the
+ * components follow Liquid's rules otherwise, and their states that Liquid
+ * draws with `--glow-text` and `--glow-icon` glow in the accent here.
+ */
+
+@import '@fontsource/barlow/400.css';
+@import '@fontsource/barlow/500.css';
+@import '@fontsource/barlow/600.css';
+@import '@fontsource/barlow-condensed/500.css';
+@import '@fontsource/barlow-condensed/600.css';
+/*
+ * The Latin subsets of the dot-matrix face only. Its Japanese subset is about
+ * 120 files, which every image would carry; a title in another script falls
+ * back to Barlow.
+ */
+@import '@fontsource/dotgothic16/latin-400.css';
+@import '@fontsource/dotgothic16/latin-ext-400.css';
+
+/* ── Tokens ──────────────────────────────────────────────────────────────── */
+
+:root[data-theme='phosphor'] {
+	--bg-base: #0a0b0c;
+	--bg-sunken: #060708;
+	--bg-surface: #131416;
+	--bg-raised: #1a1b1e;
+	--bg-hover: #222327;
+	--bg-active: #2b2c31;
+
+	/* The faint tone holds 5.0:1 on a pane. */
+	--text-strong: #eceef1;
+	--text-default: #c4c8cd;
+	--text-muted: #959ba3;
+	--text-faint: #80868e;
+
+	/* A seam between two panes is darker than both, as a gap is. */
+	--border-hairline: #050506;
+	--border-strong: #2c2e33;
+
+	/*
+	 * The artwork's hue at a phosphor's saturation and lightness. Light at any
+	 * hue, so the label on it (`--accent-contrast`) and the accent as text on a
+	 * pane both hold 4.5:1 whatever the cover. `[data-accent]` below replaces
+	 * it.
+	 */
+	--accent: hsl(var(--art-h) min(calc(var(--art-s) + 55%), 100%) 78%);
+	--accent-strong: hsl(var(--art-h) min(calc(var(--art-s) + 55%), 100%) 87%);
+	--accent-quiet: hsl(var(--art-h) min(calc(var(--art-s) + 30%), 70%) 20%);
+	--accent-contrast: #050607;
+	/* The indicator colour, 150 degrees round from the accent: amber beside a
+	   blue or cyan cover, cyan beside a warm one. */
+	--led: hsl(calc(var(--art-h) + 150) 100% 72%);
+
+	--positive: #8ff0a4;
+	--danger: #ff8b8b;
+	--highres: var(--accent-strong);
+
+	--shadow-mid: 0 6px 14px -8px rgb(0 0 0 / 0.75);
+	--shadow-high: 0 18px 40px -20px rgb(0 0 0 / 0.85);
+	--float-shadow: 0 3px 10px rgb(0 0 0 / 0.5);
+
+	--glass-base: 100%;
+	--glass-tint: 0%;
+	--glass-blur: none;
+	--glass-blur-deep: none;
+	--glass-base-deep: 100%;
+	--glass-edge: var(--border-hairline);
+	/* The lit top edge of a pane or a key. */
+	--glass-sheen: rgb(255 255 255 / 0.075);
+	--control-face: var(--bg-raised);
+	--control-blur: none;
+	--field-face: var(--bg-sunken);
+	--field-face-focus: #030405;
+	--field-blur: none;
+	--field-edge: var(--border-hairline);
+	--text-muted-through: var(--text-muted);
+	--text-faint-through: var(--text-faint);
+	--ambience-strength: 0%;
+
+	/*
+	 * What Liquid lights with the room's colour is lit in the accent: a tight
+	 * layer for the lit glyph and two wider ones for the bloom.
+	 */
+	--text-shade: none;
+	--glow-color: var(--accent);
+	--glow-text:
+		0 0 1px color-mix(in srgb, var(--accent) 90%, transparent),
+		0 0 5px color-mix(in srgb, var(--accent) 55%, transparent),
+		0 0 14px color-mix(in srgb, var(--accent) 25%, transparent);
+	--glow-icon: drop-shadow(0 0 4px color-mix(in srgb, var(--accent) 65%, transparent));
+	--glow-led:
+		0 0 1px color-mix(in srgb, var(--led) 90%, transparent),
+		0 0 5px color-mix(in srgb, var(--led) 55%, transparent),
+		0 0 14px color-mix(in srgb, var(--led) 25%, transparent);
+
+	--display-weight: 600;
+	--display-tracking: 0.005em;
+	--font-readout: 'DotGothic16', 'Barlow', system-ui, sans-serif;
+	--font-label: 'Barlow Condensed', 'Barlow', system-ui, sans-serif;
+	--font-mono: var(--font-readout);
+
+	--r-xl: 0.375rem;
+	--r-lg: 0.375rem;
+	--r-md: 0.3125rem;
+	--r-sm: 0.25rem;
+	--r-pill: 0.1875rem;
+
+	/*
+	 * The display's glass: a smoked filter over a near-black ground, with the
+	 * accent's haze behind it. The mesh is the control grid that sits in front
+	 * of the phosphor, 1px every 3px, with the filter's reflection over it.
+	 */
+	--vfd-glass:
+		radial-gradient(ellipse at 30% 40%, color-mix(in srgb, var(--accent) 7%, transparent), transparent 65%),
+		linear-gradient(180deg, #03090b, #010405);
+	--vfd-mesh:
+		repeating-linear-gradient(0deg, rgb(0 0 0 / 0.4) 0 1px, transparent 1px 3px),
+		repeating-linear-gradient(90deg, rgb(0 0 0 / 0.3) 0 1px, transparent 1px 3px),
+		linear-gradient(176deg, rgb(255 255 255 / 0.07) 0, rgb(255 255 255 / 0.02) 42%, transparent 43%);
+	--vfd-bezel: inset 0 0 0 1px #000, inset 0 3px 7px rgb(0 0 0 / 0.9), 0 1px 0 rgb(255 255 255 / 0.07);
+
+	/* A rubber key: lit on its top edge, set in a dark well with a lit rim. */
+	--key-face: linear-gradient(180deg, #36373c 0%, #25262a 36%, #1b1c1f 100%);
+	--key-edge:
+		inset 0 1px 0 rgb(255 255 255 / 0.16), inset 0 -2px 2px rgb(0 0 0 / 0.5), inset 0 0 0 1px rgb(0 0 0 / 0.45),
+		0 0 0 2px #070708, 0 0 0 3px rgb(255 255 255 / 0.045), 0 3px 5px rgb(0 0 0 / 0.6);
+	--key-face-down: linear-gradient(180deg, #18191b, #222326);
+	--key-edge-down:
+		inset 0 2px 5px rgb(0 0 0 / 0.8), 0 0 0 2px #070708, 0 0 0 3px rgb(255 255 255 / 0.045);
+
+	color-scheme: dark;
+}
+
+/*
+ * The fixed accents, as phosphors: each sets the accent and the indicator
+ * colour outright. `--art-*` follow for whatever else reads the room's hue,
+ * with `!important` since `artwork.ts` writes them as inline styles.
+ */
+:root[data-theme='phosphor'][data-accent='green'] {
+	--accent: #b4ff8a;
+	--accent-strong: #d4ffbe;
+	--accent-quiet: #1f4a14;
+	--led: #ffb872;
+	--art-h: 98 !important;
+	--art-s: 40% !important;
+	--art-l: 52% !important;
+}
+
+:root[data-theme='phosphor'][data-accent='amber'] {
+	--accent: #ffc46b;
+	--accent-strong: #ffdca3;
+	--accent-quiet: #5a3a10;
+	--led: #8ff5dc;
+	--art-h: 36 !important;
+	--art-s: 40% !important;
+	--art-l: 52% !important;
+}
+
+:root[data-theme='phosphor'][data-accent='cyan'] {
+	--accent: #8ff5dc;
+	--accent-strong: #c2fff0;
+	--accent-quiet: #0f4a40;
+	--led: #ffb872;
+	--art-h: 165 !important;
+	--art-s: 40% !important;
+	--art-l: 52% !important;
+}
+
+:root[data-theme='phosphor'][data-accent='violet'] {
+	--accent: #c9b0ff;
+	--accent-strong: #e0d2ff;
+	--accent-quiet: #3a2c66;
+	--led: #ffb872;
+	--art-h: 258 !important;
+	--art-s: 40% !important;
+	--art-l: 52% !important;
+}
+
+:root[data-theme='phosphor'][data-accent='rose'] {
+	--accent: #ffa3bd;
+	--accent-strong: #ffc8d6;
+	--accent-quiet: #5c2434;
+	--led: #8ff5dc;
+	--art-h: 345 !important;
+	--art-s: 40% !important;
+	--art-l: 52% !important;
+}
+
+:root[data-theme='phosphor'][data-accent='white'] {
+	--accent: #e9f2f0;
+	--accent-strong: #ffffff;
+	--accent-quiet: #3a3e44;
+	--led: #ffb872;
+	--art-h: 165 !important;
+	--art-s: 0% !important;
+	--art-l: 60% !important;
+}
+
+/*
+ * The theme's own faces stand where Manrope is the choice, on the root and on
+ * the sample in Settings. Any other choice of font is kept for the text; the
+ * readouts stay in the dot-matrix face.
+ */
+[data-theme='phosphor'][data-font='manrope'],
+[data-theme='phosphor'] [data-font='manrope'] {
+	--font-display: 'Barlow Condensed', 'Barlow', system-ui, sans-serif;
+	--font-ui: 'Barlow', system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+
+/* ── The page ────────────────────────────────────────────────────────────── */
+
+[data-theme='phosphor'] {
+	background-color: var(--bg-base);
+}
+
+[data-theme='phosphor'] ::selection {
+	background: var(--accent);
+	color: var(--accent-contrast);
+}
+
+/* The room: the ground, lit from above. The artwork's pools are not drawn. */
+[data-theme='phosphor'] .hh-ambience {
+	background:
+		radial-gradient(120% 60% at 50% 0%, #15171a 0%, transparent 60%),
+		linear-gradient(var(--bg-base), var(--bg-base));
+}
+
+[data-theme='phosphor'] .aurora {
+	display: none;
+}
+
+/* ── Panes ───────────────────────────────────────────────────────────────── */
+
+/* Dark metal, its top lit and fading over the first 10rem. */
+[data-theme='phosphor'] .hh-glass,
+[data-theme='phosphor'] .hh-tint-morph {
+	background-color: var(--bg-surface);
+	background-image: linear-gradient(to bottom, rgb(255 255 255 / 0.03), transparent 10rem);
+	background-size: auto;
+	-webkit-backdrop-filter: none;
+	backdrop-filter: none;
+}
+
+[data-theme='phosphor'] .hh-tint-morph {
+	transition: none;
+}
+
+[data-theme='phosphor'] .hh-tint-morph::before,
+[data-theme='phosphor'] .hh-tint-morph::after {
+	display: none;
+}
+
+[data-theme='phosphor'] .hh-float {
+	box-shadow:
+		inset 0 1px 0 var(--glass-sheen),
+		var(--float-shadow);
+}
+
+[data-theme='phosphor'] .hh-card {
+	box-shadow: inset 0 1px 0 var(--glass-sheen);
+}
+
+/* ── Controls ────────────────────────────────────────────────────────────── */
+
+/*
+ * A button is a rubber key, its label in the faceplate's condensed capitals.
+ * A press sinks it into its well, on the frame it lands; the ripple of the
+ * other themes is kept, the ring is not, since it would replace the edge.
+ */
+[data-theme='phosphor'] .hh-button {
+	border: 0;
+	background: var(--key-face);
+	-webkit-backdrop-filter: none;
+	backdrop-filter: none;
+	box-shadow: var(--key-edge);
+	color: var(--text-strong);
+	font-family: var(--font-label);
+	font-weight: 600;
+	letter-spacing: 0.1em;
+	text-transform: uppercase;
+}
+
+[data-theme='phosphor'] .hh-button:hover {
+	border-color: transparent;
+}
+
+[data-theme='phosphor'] .hh-button:active {
+	background: var(--key-face-down);
+	box-shadow: var(--key-edge-down);
+}
+
+[data-theme='phosphor'] .hh-button.pressed {
+	animation: press-ripple var(--dur-travel) var(--ease-out);
+}
+
+/* The one key with its legend lit: in the accent, glowing. */
+[data-theme='phosphor'] .hh-button--primary,
+[data-theme='phosphor'] .hh-button--primary:hover {
+	background: var(--key-face);
+	color: var(--accent);
+	text-shadow: var(--glow-text);
+}
+
+[data-theme='phosphor'] .hh-button--primary:active {
+	background: var(--key-face-down);
+	box-shadow: var(--key-edge-down);
+}
+
+[data-theme='phosphor'] .hh-button--ghost {
+	background: transparent;
+	box-shadow: none;
+}
+
+[data-theme='phosphor'] .hh-button--ghost:active {
+	background: var(--bg-hover);
+	box-shadow: none;
+}
+
+/* A field is recessed into the plate. */
+[data-theme='phosphor'] .hh-input {
+	box-shadow:
+		inset 0 2px 4px rgb(0 0 0 / 0.7),
+		0 1px 0 rgb(255 255 255 / 0.05);
+}
+
+[data-theme='phosphor'] .hh-input:focus {
+	box-shadow:
+		inset 0 2px 4px rgb(0 0 0 / 0.7),
+		0 0 0 1px var(--accent),
+		0 0 10px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+/* The labels printed on the faceplate. */
+[data-theme='phosphor'] .hh-eyebrow {
+	font-family: var(--font-label);
+	font-size: 0.75rem;
+	font-weight: 600;
+	letter-spacing: 0.18em;
+	color: var(--text-muted);
+}
+
+/* Figures in the dot-matrix face, unlit: a readout lights only where it is
+   the one that counts (the player, the playing row). */
+[data-theme='phosphor'] .hh-numeric {
+	font-family: var(--font-readout);
+	font-size: 0.875rem;
+	letter-spacing: 0.02em;
+}
+
+/* ── Dialogs ─────────────────────────────────────────────────────────────── */
+
+/* The page behind a dialog is dimmed and left sharp. */
+:root[data-theme='phosphor'] dialog::backdrop {
+	-webkit-backdrop-filter: none;
+	backdrop-filter: none;
+	background: rgb(0 0 0 / 0.62);
+}

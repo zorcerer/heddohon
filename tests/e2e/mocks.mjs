@@ -183,10 +183,14 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 		alikeAsked: null,
 		/** The songs in playlist `pl1`, in order; `createPlaylist` with its id replaces them. */
 		playlistEntries: ['s1a', 's2a'],
+		/** Each `updatePlaylist` call's playlist, songs added and positions removed, in order. Answered with success and applied to nothing. */
+		playlistUpdates: [],
 		/** The last Subsonic call, and whether it came as a form POST. */
 		lastRequest: null,
 		/** Who `getPlaylist` names as the owner of `pl1`; null for the signed-in user. */
 		playlistOwner: null,
+		/** Whether `pl1` is public; `updatePlaylist` with `public` sets it. */
+		playlistPublic: false,
 		/** Entries of `pl1` counted in `songCount` but left out of the list, as Navidrome does for a missing file. */
 		hiddenEntries: 0,
 		/** The last request that wrote a playlist, which a verifying read may follow. */
@@ -197,6 +201,11 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 		 * as Navidrome does without an external agent.
 		 */
 		mixSize: 0,
+		/** A genre every song carries, and `getSongsByGenre` answers for with 30 songs; null for none. */
+		songGenre: null,
+		/** Artist indexes whose second song is an MP3, and whose second song is on a second copy of the album. */
+		lossy: new Set(),
+		copied: new Set(),
 		/**
 		 * Navidrome's own API (`/auth/login`, `/api/lastfm/link`,
 		 * `/api/listenbrainz/link`). Null makes this a Subsonic server that is
@@ -230,7 +239,12 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 		samplingRate: 44100,
 		size: 20_000_000,
 		starred: state.starred.get(`s${i}${side}`),
-		userRating: state.ratings.get(`s${i}${side}`)
+		userRating: state.ratings.get(`s${i}${side}`),
+		...(state.songGenre ? { genre: state.songGenre } : {}),
+		// For the library report: the second song of an album an MP3, or on a
+		// second copy of the album.
+		...(side === 'b' && state.lossy.has(i) ? { suffix: 'mp3', bitRate: 320, bitDepth: undefined, size: 7_000_000 } : {}),
+		...(side === 'b' && state.copied.has(i) ? { albumId: `al${i}-copy` } : {})
 	});
 	const album = (i, id = `al${i}`) => ({
 		id,
@@ -329,7 +343,8 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 		};
 
 		const password = p.get('u') === state.username ? state.password : state.others.get(p.get('u'));
-		const expected = createHash('md5').update(password + p.get('s')).digest('hex');
+		// As text: with no user and no salt the sum is a number, which the hash refuses.
+		const expected = createHash('md5').update(`${password}${p.get('s')}`).digest('hex');
 		if (password === undefined || p.get('t') !== expected) return send(failed(40, 'Wrong username or password'));
 
 		switch (method) {
@@ -358,10 +373,22 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 					ok({
 						artistInfo2: {
 							biography: 'Artist 0000 is a mock artist. '.repeat(12).trim(),
+							musicBrainzId: 'b09c8a50-7bfa-434f-a2cf-f9bf9f6f91a5',
+							lastFmUrl: 'https://www.last.fm/music/Artist+0000',
 							similarArtist: [1, 2, 3, 4, 5, 6].map((i) => artist(i))
 						}
 					})
 				);
+			// Album 4 has a MusicBrainz id, in capitals, and an address that is not
+			// a web page. The others have neither.
+			case 'getAlbumInfo2':
+				if (p.get('id') !== 'al4') return send(ok({ albumInfo: {} }));
+				return send(ok({ albumInfo: { musicBrainzId: 'DE5C6A49-A5EC-41D9-9117-A128898FA099', lastFmUrl: 'javascript:alert(1)' } }));
+			case 'getSongsByGenre': {
+				if (!state.songGenre || p.get('genre') !== state.songGenre) return send(ok({ songsByGenre: {} }));
+				// Five songs each of six artists, for the cap on one artist in a mix.
+				return send(ok({ songsByGenre: { song: Array.from({ length: 30 }, (_, k) => song(100 + (k % 6), String.fromCharCode(97 + Math.floor(k / 6)))) } }));
+			}
 			case 'getSimilarSongs': {
 				const from = index(p.get('id'));
 				const songs = Array.from({ length: state.mixSize }, (_, k) => song((from + k + 1) % artistCount, 'a'));
@@ -487,9 +514,25 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 				return send(ok({ internetRadioStations: { internetRadioStation: state.radio } }));
 			case 'getGenres':
 				return send(ok({ genres: { genre: GENRES } }));
+			// `pl1` is the signed-in user's. `pl2` and `pl3` are another user's,
+			// public and private: Navidrome 0.64.2 lists both to an administrator,
+			// and a private one of another's to nobody else.
 			case 'getPlaylists':
-				return send(ok({ playlists: { playlist: [{ id: 'pl1', name: 'Mock Playlist', songCount: 2, duration: 360, owner: state.username }] } }));
+				return send(
+					ok({
+						playlists: {
+							playlist: [
+								{ id: 'pl1', name: 'Mock Playlist', songCount: 2, duration: 360, owner: state.username, public: state.playlistPublic },
+								{ id: 'pl2', name: 'Their Public Playlist', songCount: 1, duration: 180, owner: 'seconduser', public: true },
+								{ id: 'pl3', name: 'Their Private Playlist', songCount: 1, duration: 180, owner: 'seconduser', public: false }
+							]
+						}
+					})
+				);
 			case 'getPlaylist': {
+				if (p.get('id') === 'pl2') {
+					return send(ok({ playlist: { id: 'pl2', name: 'Their Public Playlist', songCount: 1, duration: 180, owner: 'seconduser', public: true, entry: [song(3, 'a')] } }));
+				}
 				if (p.get('id') !== 'pl1') return send(failed(70, 'Playlist not found'));
 				const entry = state.playlistEntries.map((id) => song(index(id), id.slice(-1)));
 				return send(
@@ -500,6 +543,7 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 							songCount: entry.length + state.hiddenEntries,
 							duration: 180 * entry.length,
 							owner: state.playlistOwner ?? state.username,
+							public: state.playlistPublic,
 							entry
 						}
 					})
@@ -512,6 +556,14 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 				state.playlistEntries = p.getAll('songId');
 				return send(ok({}));
 			}
+			// Another user's playlist is refused, with the code Navidrome 0.64.2 answers.
+			case 'updatePlaylist':
+				if (p.get('playlistId') === 'pl2' || p.get('playlistId') === 'pl3') {
+					return send(failed(50, 'User is not authorized for the given operation'));
+				}
+				if (p.has('public')) state.playlistPublic = p.get('public') === 'true';
+				state.playlistUpdates.push({ id: p.get('playlistId'), add: p.getAll('songIdToAdd'), remove: p.getAll('songIndexToRemove').map(Number) });
+				return send(ok({}));
 			case 'getRandomSongs':
 				if (p.has('genre') || p.has('fromYear')) {
 					state.alikeAsked = { genre: p.get('genre'), fromYear: p.get('fromYear'), toYear: p.get('toYear') };
@@ -607,7 +659,19 @@ export async function startJellyfin() {
 	];
 	const albums = [
 		{ Id: 'b1', Name: 'First', Type: 'MusicAlbum', IsFolder: true, AlbumArtists: [{ Id: 'a1', Name: 'Artist A' }] },
-		{ Id: 'b2', Name: 'Second', Type: 'MusicAlbum', IsFolder: true, AlbumArtists: [{ Id: 'a2', Name: 'Artist B' }] },
+		{
+			Id: 'b2',
+			Name: 'Second',
+			Type: 'MusicAlbum',
+			IsFolder: true,
+			AlbumArtists: [{ Id: 'a2', Name: 'Artist B' }],
+			// As Jellyfin builds them from the provider ids, and one no page should link.
+			ExternalUrls: [
+				{ Name: 'MusicBrainz Album', Url: 'https://musicbrainz.org/release/11111111-2222-3333-4444-555555555555' },
+				{ Name: 'MusicBrainz Release Group', Url: 'https://musicbrainz.org/release-group/66666666-7777-8888-9999-000000000000' },
+				{ Name: 'Signed in', Url: 'https://someone:secret@elsewhere.example/' }
+			]
+		},
 		{ Id: 'b3', Name: 'Third', Type: 'MusicAlbum', IsFolder: true, AlbumArtists: [{ Id: 'a2', Name: 'Artist B' }] },
 		{ Id: 'b4', Name: 'Compilation', Type: 'MusicAlbum', IsFolder: true, AlbumArtists: [{ Id: 'a3', Name: 'Various Artists' }] }
 	];
@@ -650,7 +714,8 @@ export async function startJellyfin() {
 	 * Jellyfin keeps plays on songs only, so its albums carry none.
 	 */
 	/** Item ids the user has made a favourite, which every item it answers with carries in `UserData`. */
-	const state = { played: [], favourites: new Set() };
+	/** `playlistPublic`: whether `jpl` is public, as a new Jellyfin playlist is. */
+	const state = { played: [], favourites: new Set(), playlistPublic: true };
 
 	/** An item as Jellyfin answers with it for this user: with its favourite state. */
 	const withUserData = (item) =>
@@ -739,6 +804,29 @@ export async function startJellyfin() {
 		}
 		// A playlist of three tracks, each entry with an id of its own, which is
 		// what Jellyfin moves and removes entries by.
+		// The playlists: `jpl` this user's, `jother` another user's public one.
+		// Jellyfin 12.1.0 says whose a playlist is only by answering its owner
+		// on `/Playlists/{id}/Users` and anyone else with 403.
+		if (url.pathname === '/Items' && types === 'Playlist') {
+			return send({ Items: [{ Id: 'jpl', Name: 'Jellyfin Playlist', Type: 'Playlist' }, { Id: 'jother', Name: 'Their Playlist', Type: 'Playlist' }] });
+		}
+		if (url.pathname === '/Items/jother') return send({ Id: 'jother', Name: 'Their Playlist', Type: 'Playlist' });
+		if (req.method === 'GET' && url.pathname === '/Playlists/jpl/Users') return send([]);
+		if (req.method === 'GET' && url.pathname === '/Playlists/jother/Items') return send({ Items: [trackItem(1)] });
+		if (req.method === 'GET' && url.pathname === '/Playlists/jother') return send({ OpenAccess: true, Shares: [] });
+		if (url.pathname.startsWith('/Playlists/jother')) return send({}, 403);
+		if (req.method === 'GET' && url.pathname === '/Playlists/jpl') return send({ OpenAccess: state.playlistPublic, Shares: [] });
+		if (req.method === 'POST' && url.pathname === '/Playlists/jpl') {
+			let raw = '';
+			req.on('data', (chunk) => (raw += chunk));
+			req.on('end', () => {
+				const sent = JSON.parse(raw || '{}');
+				if (typeof sent.IsPublic === 'boolean') state.playlistPublic = sent.IsPublic;
+				res.statusCode = 204;
+				res.end();
+			});
+			return;
+		}
 		if (url.pathname === '/Items/jpl') return send({ Id: 'jpl', Name: 'Jellyfin Playlist', Type: 'Playlist' });
 		// Artists and albums by id, each with its type, as the adapter checks it.
 		const item = [...artists, ...albums].find((entry) => url.pathname === `/Items/${entry.Id}`);
