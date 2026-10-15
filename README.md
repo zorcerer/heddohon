@@ -6,82 +6,47 @@
   <a href="https://github.com/zorcerer/heddohon/releases"><img src="https://img.shields.io/github/v/release/zorcerer/heddohon?sort=semver" alt="Release"></a>
   <a href="https://github.com/zorcerer/heddohon/actions/workflows/release.yml"><img src="https://img.shields.io/github/actions/workflow/status/zorcerer/heddohon/release.yml?label=build" alt="Build"></a>
   <a href="https://hub.docker.com/r/zorcererd/heddohon"><img src="https://img.shields.io/docker/pulls/zorcererd/heddohon" alt="Docker pulls"></a>
-  <a href="https://hub.docker.com/r/zorcererd/heddohon"><img src="https://img.shields.io/docker/image-size/zorcererd/heddohon?sort=semver" alt="Docker image size"></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/zorcerer/heddohon" alt="License"></a>
 </p>
 
-Heddohon is a web music player you host yourself. It signs in to your music
-server from its own backend and proxies the audio and artwork, so the browser
-only ever talks to Heddohon and your upstream credentials stay on the server.
-
-```
- browser ──► Heddohon ──► Navidrome / Jellyfin
-```
-
-The website, with screenshots and the install steps, is
+Heddohon is a web music player you host yourself, in front of the Navidrome,
+Subsonic or Jellyfin server you already run. Screenshots and a tour are on
 [heddohon.app](https://heddohon.app).
 
-## Features
+## What it does differently
 
-- **Original files** up to FLAC 24/192, with optional transcoding to MP3, Opus or AAC.
-- **Four themes:** Terminal, Liquid, Paper and Phosphor, each coloured by the artwork.
-- **Play anything from the keyboard in Terminal:** Cmd+K or Ctrl+K anywhere (or `:`, `;`, or the button at the top right of the page) opens a command line. Type `play kind of blue` and the best match starts; `queue artist:miles`, `mix`, `seek 1:30`, `vol 60` and `cd albums` work the same way, with albums, artists and songs suggested as you type.
-- **Library:** albums, artists, genres, playlists (your own public or private, and others' public ones), favourites and folders, with synced lyrics, recommendations, and links to MusicBrainz, Last.fm and TheAudioDB where your server has them.
-- **Instant mix** from a track, an album or an artist, and **daily mixes** made each day from what you play most.
-- **Internet radio** from the stations Navidrome lists.
-- **Shared links** to songs, albums and playlists that play without an account, and listening together live.
-- **A phone layout**, an installable app, and desktop apps for Linux and Windows. The Android APK is experimental and needs Android 14 or later.
-- **Synced across devices:** the queue and settings follow the account, and one browser can control another.
-- **Listening now:** accounts that turn it on see what each other is playing, under a display name and a picture.
-- **Crossfade, a 10-band equaliser** with AutoEq headphone corrections, ReplayGain and a sleep timer.
-- **Scrobbling** to Last.fm and ListenBrainz.
-- **Listening history and statistics**, kept on your own server. With the [plugin for Navidrome](https://github.com/zorcerer/heddohon-navidrome-plugin), they cover the plays made in other apps too.
-- **AI assistants** that speak MCP, such as Claude Code, search the library and edit playlists, favourites and ratings with a token each account makes. Off until the setup, an administrator under Settings or `HEDDOHON_MCP=true` turns it on.
-- **Casting** to Chromecast and AirPlay, and a full-screen view for a TV.
-- **A library report** for administrators: formats, resolutions, albums in two formats or held twice, missing ReplayGain.
-- **SQLite or PostgreSQL.**
+**Your music server stays private.** The browser only talks to Heddohon, which
+fetches every byte from the music server and keeps the credentials on the
+server. The music server needs no public address.
 
-<table>
-  <tr>
-    <td width="50%"><img src="docs/assets/lyrics.jpg" alt="Synced lyrics in the now-playing panel, the current line highlighted"></td>
-    <td width="50%"><img src="docs/assets/recommendations.jpg" alt="An album page with more from the artist below the track list"></td>
-  </tr>
-  <tr>
-    <td align="center">Synced lyrics</td>
-    <td align="center">More from the artist</td>
-  </tr>
-  <tr>
-    <td colspan="2"><img src="docs/assets/listening.jpg" alt="Your listening over the last 30 days: 577 plays, 35 hours, a chart of plays by the hour of the day and one by the day of the week, and the top artists and albums"></td>
-  </tr>
-  <tr>
-    <td colspan="2" align="center">Your listening: the history summed up, by 30 days, 90 days, the year or everything kept</td>
-  </tr>
-  <tr>
-    <td colspan="2"><img src="docs/assets/share.jpg" alt="A shared song, playing in the browser without an account"></td>
-  </tr>
-  <tr>
-    <td colspan="2" align="center">A shared song, for anyone with the link</td>
-  </tr>
-  <tr>
-    <td colspan="2" align="center">
-      <img src="docs/assets/phone-album.jpg" width="280" alt="An album page on a phone, with what is playing and four tabs in one panel at the foot of the screen">
-      &nbsp;
-      <img src="docs/assets/phone-player.jpg" width="280" alt="The full player on a phone, with the cover filling the top of the screen">
-    </td>
-  </tr>
-  <tr>
-    <td colspan="2" align="center">On a phone: the player and the tabs in one panel, and the full player pulled up from it</td>
-  </tr>
-</table>
+**Play for people who aren't in the room.** Send a link, and everyone who opens
+it hears what you play, as you play it, without an account.
 
-<sub>Music in the screenshots: songs and cover art by Josh Woodward
-([joshwoodward.com](https://www.joshwoodward.com/)), including "The Nest",
-"Insomnia", "I Will Not Let You Let Me Down", "Only Whispering" and
-"California Lullabye", under
-[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/); J.S. Bach, The Art of
-the Fugue, played by Kimiko Ishizaka, dedicated to the public domain
-([CC0](https://creativecommons.org/publicdomain/zero/1.0/)). The plays that
-Your listening counts are generated for the screenshot.</sub>
+**Share a song, an album or a playlist with anyone.** The link plays the
+original file without an account, until it expires or you withdraw it.
+
+**Your listening, kept on your server.** Every play is recorded: top artists
+and albums, the hours you listen, what you played on this day in earlier years,
+and daily mixes made from it.
+
+**One player across your devices.** The queue and settings follow the account,
+and one browser can control another.
+
+**Play anything from the keyboard.** In Terminal, Cmd+K or Ctrl+K opens a
+command line: `play` and the name of an album, an artist or a song starts the
+best match. Queueing, mixes,
+seeking and the volume work the same way.
+
+**Four themes, coloured by the artwork.** Terminal, Liquid, Paper and Phosphor.
+
+## Also
+
+- Original files up to FLAC 24/192, or transcoded to MP3, Opus or AAC.
+- Crossfade, ReplayGain, a sleep timer and an equaliser with AutoEq headphone corrections.
+- Synced lyrics, instant mixes, internet radio, and casting to Chromecast and AirPlay.
+- Scrobbling to Last.fm and ListenBrainz.
+- Desktop apps for Linux and Windows, and an experimental Android app (Android 14 and later).
+- AI assistants that speak MCP, such as Claude Code.
 
 ## Quick start
 
@@ -91,67 +56,42 @@ docker compose up -d
 docker compose logs heddohon
 ```
 
-The log shows a setup code. Open `http://localhost:3000`, enter it, and give
-the address of your Navidrome, Subsonic or Jellyfin server. The page makes the
-secret, saves the address Heddohon is opened at, and sign-in works from there.
-[SECURITY.md](SECURITY.md#first-run-setup) says what that page can do and where
-the secret is then kept.
+The log shows a setup code. Open `http://localhost:3000`, enter the code and
+the address of your music server, and sign in with your account on it.
 
-To configure it by environment variables instead, and never see the setup page:
+On the internet, run it behind a reverse proxy with TLS and go through the
+[operator checklist](SECURITY.md#operator-checklist).
 
-```bash
-cp .env.example .env
-echo "HEDDOHON_SECRET=$(openssl rand -base64 48)" >> .env
-echo "HEDDOHON_SUBSONIC_URL=http://10.0.0.10:4533" >> .env
-docker compose up -d
-```
-
-To expose it publicly, put it behind TLS and read [SECURITY.md](SECURITY.md).
-The data directory is given to the user the server runs as when the container
-starts (`PUID` and `PGID`, or its owner), so a folder Docker created needs no
-`chown`.
-
-Images are `ghcr.io/zorcerer/heddohon` and `zorcererd/heddohon`, for
-`linux/amd64` and `linux/arm64` (a Raspberry Pi 4 or 5 on a 64-bit OS, an ARM
-NAS, an Ampere server); 32-bit ARM is not built. Without Docker, on Node 22
-or later: `npm ci && npm run build && node build/index.js`.
-
-On Unraid, Heddohon is listed in Community Applications, from the template in
-[`templates/heddohon.xml`](templates/heddohon.xml):
+Configuration by environment variables, Unraid, running without Docker, and the
+image tags are in [Configuration](https://github.com/zorcerer/heddohon/wiki/Configuration).
+The Android app is on each [release](https://github.com/zorcerer/heddohon/releases/latest),
+and [Obtainium](https://apps.obtainium.imranr.dev/redirect?r=obtainium://add/https://github.com/zorcerer/heddohon)
+keeps it updated.
 
 <a href="https://ca.unraid.net/apps/heddohon-0bp7lm80vkr69w"><img src="https://img.shields.io/badge/Install%20on-Unraid-F15A2C?style=for-the-badge&logo=unraid&logoColor=white" alt="Install on Unraid from Community Applications"></a>
-
-`latest` is the newest release. `dev` is built once a day from the `dev`
-branch, when it has changed and passed the test suites, ahead of the next
-release, for trying what is coming; it can break, and a database it has
-migrated may not open in the release before it.
-
-The Android app is an APK on each release. [Obtainium](https://obtainium.imranr.dev)
-installs it from there and updates it from each later release. On a phone with
-Obtainium installed, this adds Heddohon to it:
-
-<a href="https://apps.obtainium.imranr.dev/redirect?r=obtainium://add/https://github.com/zorcerer/heddohon"><img src="https://img.shields.io/badge/Add%20to-Obtainium-D2BCFD?style=for-the-badge&logo=obtainium&logoColor=white" alt="Add Heddohon to Obtainium"></a>
 
 ## Documentation
 
 | | |
 | --- | --- |
 | [Configuration](https://github.com/zorcerer/heddohon/wiki/Configuration) | Environment variables, reverse proxies, PostgreSQL, Unraid |
-| [Apps](https://github.com/zorcerer/heddohon/wiki/Apps) | The desktop app for Linux and Windows, the Android app, and running them behind a sign-in |
+| [Apps](https://github.com/zorcerer/heddohon/wiki/Apps) | The desktop and Android apps |
 | [Security](SECURITY.md) | Threat model, known gaps, reporting a vulnerability |
-| [Audio](https://github.com/zorcerer/heddohon/wiki/Audio) | Formats, transcoding, and what high resolution means in a browser |
-| [Architecture](https://github.com/zorcerer/heddohon/wiki/Architecture) | How the server, the client and the music server fit together |
-| [Design notes](https://github.com/zorcerer/heddohon/wiki/Design-notes) | Why the interface looks and behaves as it does |
 | [Contributing](CONTRIBUTING.md) | Reporting bugs, suggesting features, and sending pull requests |
+
+More in the [wiki](https://github.com/zorcerer/heddohon/wiki): audio, architecture and design notes.
 
 ## AI disclosure
 
 Written with agentic assistance from Claude. The code and security posture have been
-reviewed by me and by multiple AI-assisted audits, documented in [SECURITY.md](SECURITY.md)
+reviewed by me and by multiple AI-assisted audits, documented in [SECURITY.md](SECURITY.md).
 
 ## License
 
-[MIT](LICENSE)
+[MIT](LICENSE). Music in the header image: Josh Woodward
+([CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)) and J.S. Bach's The
+Art of the Fugue played by Kimiko Ishizaka
+([CC0](https://creativecommons.org/publicdomain/zero/1.0/)).
 
 <p align="center">
   <a href="https://ko-fi.com/zorcerer"><img src="https://ko-fi.com/img/githubbutton_sm.svg" alt="Support Heddohon on Ko-fi"></a>
