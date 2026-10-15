@@ -1,11 +1,17 @@
 import { config } from '../config';
 import { isEnabled, log, reason } from '../log';
 
+/**
+ * A music server's refusal or failure. `auth` is the credential itself
+ * refused, which ends the account's sessions wherever it is caught.
+ * `forbidden` is a credential that works asking for something it may not do,
+ * such as changing another user's playlist, and ends nothing.
+ */
 export class UpstreamError extends Error {
 	constructor(
 		message: string,
 		readonly status: number,
-		readonly kind: 'auth' | 'not_found' | 'unavailable' | 'protocol' | 'conflict' = 'unavailable'
+		readonly kind: 'auth' | 'forbidden' | 'not_found' | 'unavailable' | 'protocol' | 'conflict' = 'unavailable'
 	) {
 		super(message);
 		this.name = 'UpstreamError';

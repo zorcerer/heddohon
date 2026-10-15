@@ -81,7 +81,13 @@ function endpoint(cred: StoredCredential, method: string, params: UpstreamParams
 }
 
 /**
- * Subsonic error codes: 40 = bad credentials, 70 = not found.
+ * Subsonic error codes: 40 to 44 = bad credentials, 50 = not allowed, 70 = not
+ * found.
+ *
+ * 50 is a credential that works and a call it may not make. Navidrome answers
+ * it to a change to another user's public playlist ("User is not authorized
+ * for the given operation", 0.64.2). It was taken for bad credentials, so an
+ * account that tried that was signed out everywhere.
  *
  * The server's text goes to the log and the error carries a fixed one: routes
  * pass an error's message to the browser, and Navidrome's text for an internal
@@ -92,7 +98,7 @@ function throwForSubsonicError(code: number, message: string): never {
 	if (code === 40 || code === 41 || code === 42 || code === 43 || code === 44) {
 		throw new UpstreamError('Invalid username or password', 401, 'auth');
 	}
-	if (code === 50) throw new UpstreamError('Not authorised', 403, 'auth');
+	if (code === 50) throw new UpstreamError('Not allowed', 403, 'forbidden');
 	if (code === 70) throw new UpstreamError('Not found', 404, 'not_found');
 	throw new UpstreamError(`The music server reported error ${code}`, 502, 'protocol');
 }
@@ -352,7 +358,7 @@ function albumsFromSongs(
 	return [...seen.values()].slice(0, options.limit);
 }
 
-function toPlaylist(raw: Record<string, any>): Playlist {
+function toPlaylist(raw: Record<string, any>, username: string): Playlist {
 	const changed = raw.changed ? Date.parse(raw.changed) : NaN;
 	const created = raw.created ? Date.parse(raw.created) : NaN;
 	return {
@@ -364,6 +370,8 @@ function toPlaylist(raw: Record<string, any>): Playlist {
 		coverArt: raw.coverArt ? String(raw.coverArt) : null,
 		owner: raw.owner ?? null,
 		isPublic: Boolean(raw.public),
+		// A server that names no owner (Subsonic before Navidrome) lists the account's own alone.
+		editable: !raw.owner || String(raw.owner).toLowerCase() === username.toLowerCase(),
 		createdAt: Number.isFinite(created) ? created : null,
 		changedAt: Number.isFinite(changed) ? changed : null
 	};
@@ -766,14 +774,19 @@ export const subsonicBackend: MediaBackend = {
 
 	async getPlaylists(cred) {
 		const body = await call<{ playlists?: { playlist?: unknown } }>(cred, 'getPlaylists.view');
-		return asArray(body.playlists?.playlist as Record<string, any>[]).map(toPlaylist);
+		// Navidrome lists an administrator every user's playlists, private ones
+		// included (0.64.2), and leaves it to the client to keep to the ones the
+		// account may see: its own and the public ones.
+		return asArray(body.playlists?.playlist as Record<string, any>[])
+			.map((raw) => toPlaylist(raw, cred.username))
+			.filter((playlist) => playlist.editable || playlist.isPublic);
 	},
 
 	async getPlaylist(cred, id): Promise<PlaylistDetail> {
 		const body = await call<{ playlist?: Record<string, any> }>(cred, 'getPlaylist.view', { id });
 		const raw = body.playlist;
 		if (!raw) throw new UpstreamError('Playlist not found', 404, 'not_found');
-		return { ...toPlaylist(raw), songs: asArray(raw.entry as Record<string, any>[]).map(toSong) };
+		return { ...toPlaylist(raw, cred.username), songs: asArray(raw.entry as Record<string, any>[]).map(toSong) };
 	},
 
 	async getSongs(cred, ids) {
@@ -921,10 +934,15 @@ export const subsonicBackend: MediaBackend = {
 		const listing = await call<{ playlists?: { playlist?: unknown } }>(cred, 'getPlaylists.view');
 		const matches = asArray(listing.playlists?.playlist as Record<string, any>[])
 			.filter((entry) => entry.name === name)
-			.map(toPlaylist)
+			.map((raw) => toPlaylist(raw, cred.username))
+			.filter((playlist) => playlist.editable)
 			.sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
 		if (matches[0]) return matches[0].id;
 		throw new UpstreamError('The music server created the playlist but did not return it', 502, 'protocol');
+	},
+
+	async setPlaylistPublic(cred, id, isPublic) {
+		await call(cred, 'updatePlaylist.view', { playlistId: id, public: String(isPublic) });
 	},
 
 	async renamePlaylist(cred, id, name) {
@@ -1001,6 +1019,21 @@ export const subsonicBackend: MediaBackend = {
 			// play as the request arrives.
 			time: report.event === 'stop' ? report.at : undefined
 		});
+	},
+
+	async forEachSong(cred, onPage) {
+		for (let offset = 0; ; offset += PLAYED_PAGE) {
+			const body = await call<{ searchResult3?: Record<string, any> }>(cred, 'search3.view', {
+				query: '',
+				songCount: PLAYED_PAGE,
+				songOffset: offset,
+				albumCount: 0,
+				artistCount: 0
+			});
+			const songs = asArray(body.searchResult3?.song as Record<string, any>[]);
+			onPage(songs.map(toSong));
+			if (songs.length < PLAYED_PAGE) return;
+		}
 	},
 
 	async getPlayedSongs(cred) {

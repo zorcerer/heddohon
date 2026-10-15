@@ -6,11 +6,12 @@ import { mapLimited } from '$lib/server/backends/http';
 import { remembered } from '$lib/server/listings';
 import { albumDetail, albumsByArtist, folderDetail } from '$lib/server/details';
 import type { LibraryContext } from '$lib/server/library';
+import { dailyMixes } from '$lib/server/mixes';
 import type { MixSeed, Song } from '$lib/types';
 
-type Source = 'album' | 'playlist' | 'artist' | 'genre' | 'folder' | 'starred' | 'random' | 'mix';
+type Source = 'album' | 'playlist' | 'artist' | 'genre' | 'folder' | 'starred' | 'random' | 'mix' | 'daily';
 
-const SOURCES: Source[] = ['album', 'playlist', 'artist', 'genre', 'folder', 'starred', 'random', 'mix'];
+const SOURCES: Source[] = ['album', 'playlist', 'artist', 'genre', 'folder', 'starred', 'random', 'mix', 'daily'];
 
 /**
  * Albums one play of an artist reads, one upstream call each. Navidrome's
@@ -41,7 +42,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 		error(400, `source must be one of ${SOURCES.join(', ')}`);
 	}
 	const id = typeof body?.id === 'string' && body.id.length < 256 ? body.id : null;
-	const needsId = ['album', 'playlist', 'artist', 'genre', 'mix'].includes(source as Source);
+	const needsId = ['album', 'playlist', 'artist', 'genre', 'mix', 'daily'].includes(source as Source);
 	if (needsId && !id) {
 		error(400, 'id is required for this source');
 	}
@@ -112,6 +113,13 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 				// 100 tracks, about five hours. A mix is ranked by likeness to its
 				// seed, so its tail is the least like it.
 				songs = await backend.getInstantMix(cred, of as MixSeed, id!, 100);
+				break;
+			}
+			// Today's daily mix by its place, 1 to 3; see `mixes.ts`.
+			case 'daily': {
+				const mix = (await dailyMixes(ctx)).find((entry) => String(entry.n) === id);
+				if (!mix) error(404, 'There is no such mix today');
+				songs = mix.songs;
 				break;
 			}
 			case 'starred':

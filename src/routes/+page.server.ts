@@ -3,6 +3,7 @@ import { forgottenAlbums } from '$lib/server/history';
 import { libraryContext, librarySettled } from '$lib/server/library';
 import { remembered } from '$lib/server/listings';
 import { log, reason } from '$lib/server/log';
+import { dailyMixes, summary } from '$lib/server/mixes';
 
 /** Favourite songs shown on the home page. */
 const FAVOURITES_SHOWN = 8;
@@ -38,6 +39,18 @@ export const load: PageServerLoad = async ({ locals }) => {
 			return [];
 		});
 
+	/*
+	 * Streamed: made at the first visit of the day, which reads the music
+	 * server a dozen times, and read from the database after that. See
+	 * `mixes.ts`. A failure leaves the shelf out.
+	 */
+	const mixes = dailyMixes({ backend, credential, accountId })
+		.then((made) => made.map(summary))
+		.catch((err) => {
+			log.warn('section-failed', { section: 'daily-mixes', detail: reason(err) });
+			return [];
+		});
+
 	// From this server's history, without an upstream call. A failed read leaves
 	// the shelf out.
 	const rediscover = forgottenAlbums(accountId, REDISCOVER_SHOWN).catch((err) => {
@@ -57,6 +70,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 		mostPlayed: shelves.mostPlayed ?? [],
 		recentlyPlayed: shelves.recentlyPlayed ?? [],
 		favouriteSongs,
+		mixes,
 		rediscover: await rediscover,
 		discover: shelves.discover ?? []
 	};

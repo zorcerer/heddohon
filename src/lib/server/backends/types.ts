@@ -260,6 +260,8 @@ export interface MediaBackend {
 	/** Creates a playlist, optionally seeded with tracks. Returns the new id. */
 	createPlaylist(cred: StoredCredential, name: string, songIds: string[]): Promise<string>;
 	renamePlaylist(cred: StoredCredential, id: string, name: string): Promise<void>;
+	/** Makes a playlist of this account's visible to every account on the music server, or to this one alone. */
+	setPlaylistPublic(cred: StoredCredential, id: string, isPublic: boolean): Promise<void>;
 	addToPlaylist(cred: StoredCredential, id: string, songIds: string[]): Promise<void>;
 	/**
 	 * Removes entries by their position in the playlist. Subsonic removes by
@@ -290,6 +292,14 @@ export interface MediaBackend {
 	 * nothing, or leaves `played` out, returns an empty list.
 	 */
 	getPlayedSongs(cred: StoredCredential): Promise<{ song: Song; playedAt: number }[]>;
+
+	/**
+	 * Every track in the library, a page at a time, to `onPage`, for the
+	 * library report (`libraryreport.ts`). The same listing `getPlayedSongs`
+	 * reads: `search3` with an empty query on Subsonic, which a server other
+	 * than Navidrome may answer with nothing, and `/Items` on Jellyfin.
+	 */
+	forEachSong(cred: StoredCredential, onPage: (songs: Song[]) => void): Promise<void>;
 
 	/** Byte-exact original file. Never transcoded. */
 	openStream(

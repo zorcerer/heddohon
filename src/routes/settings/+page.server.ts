@@ -22,6 +22,7 @@ import { describeShares, revokeAllShares, revokeShare } from '$lib/server/shares
 import { clearHistory, importPlays, recentPlays } from '$lib/server/history';
 import { getProfile } from '$lib/server/listening';
 import { pluginHeard, pluginOffered, requestImport } from '$lib/server/plugin';
+import { reportStatus } from '$lib/server/libraryreport';
 import { createMcpToken, listMcpTokens, MAX_MCP_TOKEN_NAME, MAX_MCP_TOKENS, revokeMcpToken } from '$lib/server/mcp';
 
 /**
@@ -112,6 +113,8 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 	return {
 		coverCache,
 		coverFill: fillStatus(session.account.id),
+		// The library report, for an administrator; see `libraryreport.ts`.
+		libraryReport: isAdmin === true ? reportStatus(session.account.id) : null,
 		// Whether the fill is repeated daily, by this administrator or another.
 		coverFillDaily: coverFillKeeper !== null,
 		isAdmin,

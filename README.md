@@ -25,8 +25,9 @@ The website, with screenshots and the install steps, is
 
 - **Original files** up to FLAC 24/192, with optional transcoding to MP3, Opus or AAC.
 - **Four themes:** Terminal, Liquid, Paper and Phosphor, each coloured by the artwork.
-- **Library:** albums, artists, genres, playlists, favourites and folders, with synced lyrics and recommendations.
-- **Instant mix** from a track, an album or an artist.
+- **A command line in Terminal:** `:` or Ctrl+K, then `play kind of blue`, `queue artist:miles`, `seek 1:30`, `cd albums`.
+- **Library:** albums, artists, genres, playlists (your own public or private, and others' public ones), favourites and folders, with synced lyrics and recommendations.
+- **Instant mix** from a track, an album or an artist, and **daily mixes** made each day from what you play most.
 - **Internet radio** from the stations Navidrome lists.
 - **Shared links** to songs, albums and playlists that play without an account, and listening together live.
 - **A phone layout**, an installable app, and desktop apps for Linux and Windows. The Android APK is experimental.
@@ -37,6 +38,7 @@ The website, with screenshots and the install steps, is
 - **Listening history and statistics**, kept on your own server. With the [plugin for Navidrome](https://github.com/zorcerer/heddohon-navidrome-plugin), they cover the plays made in other apps too.
 - **AI assistants** that speak MCP, such as Claude Code, search the library and edit playlists, favourites and ratings with a token each account makes. Off until the setup, an administrator under Settings or `HEDDOHON_MCP=true` turns it on.
 - **Casting** to Chromecast and AirPlay, and a full-screen view for a TV.
+- **A library report** for administrators: formats, resolutions, albums in two formats or held twice, missing ReplayGain.
 - **SQLite or PostgreSQL.**
 
 <table>

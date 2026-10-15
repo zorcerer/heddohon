@@ -18,6 +18,7 @@ import type { LibraryContext } from './library';
 import { albumDetail, artistDetail, forgetDetails } from './details';
 import { forgetListings, remembered } from './listings';
 import { forgetSharedItems } from './shares';
+import { dailyMixes } from './mixes';
 import { listeningStats, periodStart, recentPlays, STATS_PERIODS, type StatsPeriod } from './history';
 
 /** A call's arguments that are not what the tool takes. The message is for the assistant. */
@@ -174,6 +175,8 @@ function playlist(item: Playlist): Record<string, unknown> {
 		seconds: item.duration,
 		owner: item.owner,
 		public: item.isPublic,
+		// Whether this account may change it: another user's public playlist is listed too.
+		readOnly: !item.editable,
 		changed: iso(item.changedAt)
 	});
 }
@@ -336,7 +339,7 @@ export const TOOLS: Tool[] = [
 	{
 		name: 'list_playlists',
 		title: 'List playlists',
-		description: 'The playlists this account can see.',
+		description: 'Your playlists, and the public ones of other accounts, which are marked readOnly and cannot be changed.',
 		inputSchema: object({}),
 		writes: false,
 		async run({ backend, credential }) {
@@ -350,6 +353,18 @@ export const TOOLS: Tool[] = [
 		inputSchema: object({ id: ID }, ['id']),
 		writes: false,
 		run: async ({ backend, credential }, args) => playlistWithSongs(await backend.getPlaylist(credential, id(args)))
+	},
+	{
+		name: 'get_daily_mixes',
+		title: "Get today's daily mixes",
+		description:
+			"Up to three mixes made today from the artists you have played most in the last 30 days and music like theirs you have not played in the last three days. The same all day; new ones tomorrow.",
+		inputSchema: object({}),
+		writes: false,
+		async run(ctx) {
+			const mixes = await dailyMixes(ctx);
+			return { mixes: mixes.map((mix) => ({ n: mix.n, title: mix.title, from: mix.artists, songs: mix.songs.map(song) })) };
+		}
 	},
 	{
 		name: 'get_history',
@@ -462,6 +477,22 @@ export const TOOLS: Tool[] = [
 			await backend.renamePlaylist(credential, playlistId, name);
 			forgetSharedItems(accountId);
 			return { id: playlistId, name };
+		}
+	},
+	{
+		name: 'set_playlist_public',
+		title: 'Make a playlist public or private',
+		description:
+			'Makes one of your own playlists visible to every account on the music server (public true), or to you alone (public false).',
+		inputSchema: object({ id: ID, public: { type: 'boolean' } }, ['id', 'public']),
+		writes: true,
+		idempotent: true,
+		async run({ backend, credential, accountId }, args) {
+			const playlistId = id(args);
+			const isPublic = flag(args, 'public');
+			await backend.setPlaylistPublic(credential, playlistId, isPublic);
+			forgetSharedItems(accountId);
+			return { id: playlistId, public: isPublic };
 		}
 	},
 	{

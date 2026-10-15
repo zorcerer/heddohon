@@ -1,5 +1,9 @@
 <script lang="ts">
 	import { page } from '$app/state';
+	import CommandLine from './CommandLine.svelte';
+
+	/** Whether Terminal's command line is open in the strip, in place of the path. */
+	let commanding = $state(false);
 
 	/*
 	 * Terminal's line along the top of the page: where this is, written as a
@@ -14,7 +18,7 @@
 	/** The name of what a detail page shows, from whichever loader ran. */
 	const named = $derived.by(() => {
 		const data = page.data as Record<string, { name?: unknown } | undefined>;
-		for (const key of ['album', 'artist', 'playlist', 'genre', 'folder']) {
+		for (const key of ['album', 'artist', 'playlist', 'genre', 'folder', 'mix']) {
 			const name = data[key]?.name;
 			if (typeof name === 'string' && name) return name;
 		}
@@ -52,18 +56,21 @@
 </script>
 
 <nav class="strip" aria-label="Where this page is">
-	<!--
-		The last part is the page itself and is text, not a link. As a link to
-		the page it is on, it navigated without loading anything, and a heart
-		pressed since the page loaded went back to what the page had loaded.
-	-->
-	<span class="path hh-truncate">
-		{#if segments.length === 0}<span class="here" aria-current="page">~</span>{:else}<a href="/">~</a>{/if}{#each segments as segment, index (index)}<span
-				class="slash"
-				aria-hidden="true">/</span
-			>{#if index === segments.length - 1}<span class="here" aria-current="page">{segment.label}</span>{:else}<a href={segment.href}>{segment.label}</a>{/if}{/each}
-	</span>
-	<span class="whose">{whose}</span>
+	{#if !commanding}
+		<!--
+			The last part is the page itself and is text, not a link. As a link to
+			the page it is on, it navigated without loading anything, and a heart
+			pressed since the page loaded went back to what the page had loaded.
+		-->
+		<span class="path hh-truncate">
+			{#if segments.length === 0}<span class="here" aria-current="page">~</span>{:else}<a href="/">~</a>{/if}{#each segments as segment, index (index)}<span
+					class="slash"
+					aria-hidden="true">/</span
+				>{#if index === segments.length - 1}<span class="here" aria-current="page">{segment.label}</span>{:else}<a href={segment.href}>{segment.label}</a>{/if}{/each}
+		</span>
+		<span class="whose">{whose}</span>
+	{/if}
+	<span class="command" class:commanding><CommandLine bind:open={commanding} /></span>
 </nav>
 
 <style>
@@ -113,6 +120,22 @@
 
 	.slash {
 		color: var(--text-faint);
+	}
+
+	/* The command line is Terminal's: Phosphor shows the strip without it. */
+	.command {
+		display: none;
+	}
+
+	:global([data-theme='terminal']) .command {
+		display: flex;
+		align-items: center;
+		gap: var(--space-3);
+		min-width: 0;
+	}
+
+	:global([data-theme='terminal']) .command.commanding {
+		flex: 1;
 	}
 
 	.whose {

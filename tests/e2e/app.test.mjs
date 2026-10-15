@@ -1351,9 +1351,10 @@ describe('playback on another browser', () => {
 			assert.equal((await new Client(app.url).request('/api/search?q=Artist%200003')).status, 401);
 			const client = await signedIn('seconduser', 'secondpass');
 			const found = await (await client.request('/api/search?q=Artist%200003')).json();
-			assert.deepEqual(Object.keys(found), ['songs']);
+			// The albums and artists are for Terminal's command line.
+			assert.deepEqual(Object.keys(found), ['songs', 'albums', 'artists']);
 			assert.equal(found.songs[0].id, 's3a');
-			assert.deepEqual(await (await client.request('/api/search?q=a')).json(), { songs: [] });
+			assert.deepEqual(await (await client.request('/api/search?q=a')).json(), { songs: [], albums: [], artists: [] });
 		});
 	});
 	describe('listening now', () => {
@@ -5222,5 +5223,240 @@ describe('an AI assistant, through the MCP endpoint', () => {
 			.filter((file) => statSync(file).isFile());
 		assert.ok(files.some((file) => file.endsWith('.db')), `files: ${files}`);
 		for (const file of files) assert.ok(!readFileSync(file).includes(token), `the token is in ${file}`);
+	});
+});
+
+describe('whose a playlist is, and who sees it', () => {
+	// The session tests above end every older session of the shared client.
+	before(async () => {
+		assert.equal((await user.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' })).status, 303);
+	});
+
+	const listed = async (client) => (await (await client.request('/api/playlists')).json()).playlists;
+	const patch = (client, id, body) => client.json(`/api/playlists/${id}`, 'PATCH', body);
+	const share = (client, id) => client.json('/api/shares', 'POST', { kind: 'playlist', id });
+
+	test('on Navidrome lists the account\'s own and the public ones, never another\'s private one', async () => {
+		const playlists = await listed(user);
+		assert.deepEqual(
+			playlists.map(({ id, editable, isPublic, owner }) => ({ id, editable, isPublic, owner })),
+			[
+				{ id: 'pl1', editable: true, isPublic: false, owner: 'testuser' },
+				{ id: 'pl2', editable: false, isPublic: true, owner: 'seconduser' }
+			]
+		);
+	});
+
+	test('makes the account\'s own public and private again', async () => {
+		try {
+			const made = await patch(user, 'pl1', { public: true });
+			assert.equal(made.status, 200, explain('making it public failed'));
+			assert.deepEqual(await made.json(), { id: 'pl1', public: true });
+			assert.equal(subsonic.state.playlistPublic, true);
+			assert.equal((await listed(user))[0].isPublic, true);
+			assert.match((await user.page('/playlists/pl1')).html, /Make private/);
+			assert.equal((await patch(user, 'pl1', { public: 'yes' })).status, 400);
+		} finally {
+			await patch(user, 'pl1', { public: false });
+		}
+		assert.equal(subsonic.state.playlistPublic, false);
+	});
+
+	test('another user\'s is read only, cannot be shared, and a refused change signs nobody out', async () => {
+		const page = (await user.page('/playlists/pl2')).html;
+		assert.match(page, /By seconduser, read only/);
+		assert.doesNotMatch(page, /Make public|Make private|>\s*Rename\s*</);
+
+		const refused = await patch(user, 'pl2', { name: 'Mine now' });
+		assert.equal(refused.status, 403);
+		// Navidrome's code 50 was taken for a rejected password, which ended every
+		// session of the account.
+		assert.equal((await user.request('/api/settings')).status, 200, 'a refused change signed the account out');
+		assert.equal((await share(user, 'pl2')).status, 403);
+	});
+
+	test('on Jellyfin, which names no owner, tells its own from another\'s public one', async () => {
+		const client = new Client(app.url);
+		assert.equal((await client.signIn({ username: 'jfuser', password: 'jfpass', backend: 'jellyfin' })).status, 303);
+		const playlists = await listed(client);
+		assert.deepEqual(
+			playlists.map(({ id, editable, isPublic }) => ({ id, editable, isPublic })),
+			[
+				{ id: 'jpl', editable: true, isPublic: true },
+				{ id: 'jother', editable: false, isPublic: true }
+			]
+		);
+		// Held: the picker lists them each time it opens.
+		const asked = jellyfin.calls.get('GET /Playlists/jpl/Users');
+		await listed(client);
+		assert.equal(jellyfin.calls.get('GET /Playlists/jpl/Users'), asked, 'whose a playlist is was asked again');
+		try {
+			assert.equal((await patch(client, 'jpl', { public: false })).status, 200);
+			assert.equal(jellyfin.state.playlistPublic, false);
+			// A change made here shows at once.
+			assert.equal((await listed(client)).find((playlist) => playlist.id === 'jpl').isPublic, false);
+		} finally {
+			jellyfin.state.playlistPublic = true;
+		}
+		// Taken for the account's own while Jellyfin named no owner.
+		assert.equal((await share(client, 'jother')).status, 403);
+		assert.equal((await patch(client, 'jother', { public: false })).status, 403);
+		assert.equal((await client.request('/api/settings')).status, 200, 'a refused change signed the account out');
+	});
+});
+
+describe('daily mixes', () => {
+	const play = (client, songId) => client.json('/api/playback', 'POST', { songId, event: 'stop', position: 100, completed: true });
+	const mix = async (client, n) => {
+		const response = await client.json('/api/tracks', 'POST', { source: 'daily', id: String(n) });
+		return { status: response.status, songs: response.ok ? (await response.json()).songs : null };
+	};
+	const artistOf = (id) => Number(/^s(\d+)/.exec(id)[1]);
+
+	test('are none for an account with nothing played, until it plays something', async () => {
+		subsonic.state.mixSize = 20;
+		try {
+			await asFreshAccount('mixnone', async (client) => {
+				assert.equal((await mix(client, 1)).status, 404);
+				assert.equal((await client.page('/mixes/1')).response.status, 404);
+				// The same day: the empty answer was not kept for it.
+				for (const id of ['s20a', 's20a']) await play(client, id);
+				assert.equal((await mix(client, 1)).status, 200, 'the first plays of the day made no mix until the next day');
+			});
+		} finally {
+			subsonic.state.mixSize = 0;
+		}
+	});
+
+	test('are made from the artists played most, leave out what was just played, and hold all day', async () => {
+		subsonic.state.mixSize = 20;
+		try {
+			await asFreshAccount('mixer', async (client) => {
+				// Artist 5 played most, then 9, then 12.
+				for (const id of ['s5a', 's5a', 's5b', 's9a', 's9a', 's12a']) assert.equal((await play(client, id)).status, 200);
+				subsonic.calls.reset();
+
+				const first = await mix(client, 1);
+				assert.equal(first.status, 200, explain('the first mix was not made'));
+				const ids = first.songs.map((song) => song.id);
+				assert.ok(ids.length >= 10 && ids.length <= 40, `${ids.length} songs`);
+				for (const played of ['s5a', 's5b', 's9a', 's12a']) assert.ok(!ids.includes(played), `${played} was played today and is in the mix`);
+				// What is like artist 5 is artists 6 onwards in the mock.
+				assert.ok(ids.every((id) => artistOf(id) > 5 && artistOf(id) <= 25), ids.join());
+				const perArtist = Object.values(Object.groupBy(ids, artistOf)).map((list) => list.length);
+				assert.ok(Math.max(...perArtist) <= 3, 'more than three songs of one artist');
+				// One mix for each of the three artists. What is like 9 overlaps what is
+				// like 5, and the songs mix 1 has go to the end of mix 2.
+				const second = await mix(client, 2);
+				const third = await mix(client, 3);
+				assert.equal(second.status, 200);
+				assert.equal(third.status, 200);
+				assert.equal((await mix(client, 4)).status, 404);
+				const inFirst = new Set(ids);
+				const repeats = second.songs.map((song) => inFirst.has(song.id));
+				assert.ok(repeats.indexOf(true) === -1 || !repeats.slice(repeats.indexOf(true)).includes(false), 'a song of mix 1 came before a new one in mix 2');
+				assert.ok(!inFirst.has(second.songs[0].id), 'mix 2 starts with a song of mix 1');
+
+				// Held: asked again, the music server is not.
+				const made = subsonic.calls.get('getSimilarSongs');
+				assert.deepEqual((await mix(client, 1)).songs.map((song) => song.id), ids);
+				assert.equal(subsonic.calls.get('getSimilarSongs'), made);
+
+				const page = (await client.page('/mixes/1')).html;
+				assert.match(page, /Daily mix 1/);
+				assert.match(page, /Made today from Artist 0005/);
+
+				// The next day, they are made again.
+				const { default: Database } = await import('better-sqlite3');
+				const database = new Database(join(app.dataDir, 'heddohon.db'));
+				try {
+					database.prepare("UPDATE daily_mixes SET made_on = '2000-01-01'").run();
+				} finally {
+					database.close();
+				}
+				assert.equal((await mix(client, 1)).status, 200);
+				assert.ok(subsonic.calls.get('getSimilarSongs') > made, 'yesterday\'s mixes were served today');
+			});
+		} finally {
+			subsonic.state.mixSize = 0;
+		}
+	});
+
+	test('on a Navidrome that finds nothing alike, are filled from the artist\'s genre', async () => {
+		subsonic.state.songGenre = 'Jazz';
+		try {
+			await asFreshAccount('mixgenre', async (client) => {
+				for (const id of ['s7a', 's7a']) await play(client, id);
+				const made = await mix(client, 1);
+				assert.equal(made.status, 200, explain('no mix without similar songs'));
+				assert.ok(made.songs.every((song) => artistOf(song.id) >= 100), made.songs.map((song) => song.id).join());
+				const perArtist = Object.values(Object.groupBy(made.songs, (song) => artistOf(song.id))).map((list) => list.length);
+				assert.deepEqual(perArtist, [3, 3, 3, 3, 3, 3], 'not three of each of the six artists');
+			});
+		} finally {
+			subsonic.state.songGenre = null;
+		}
+	});
+});
+
+describe('the library report', () => {
+	// The session tests above end every older session of the shared client.
+	before(async () => {
+		assert.equal((await user.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' })).status, 303);
+	});
+
+	async function made(client) {
+		const deadline = Date.now() + 10_000;
+		for (;;) {
+			const status = await (await client.request('/api/library-report')).json();
+			if (status.state !== 'running') return status;
+			assert.ok(Date.now() < deadline, 'the report was not made in 10s');
+			await new Promise((done) => setTimeout(done, 100));
+		}
+	}
+
+	test('is an administrator\'s', async () => {
+		subsonic.state.admin = false;
+		try {
+			assert.equal((await user.request('/api/library-report', { method: 'POST' })).status, 403);
+			assert.doesNotMatch((await user.page('/settings?tab=storage')).html, /Library report/);
+		} finally {
+			subsonic.state.admin = true;
+		}
+		assert.match((await user.page('/settings?tab=storage')).html, /Library report/);
+	});
+
+	test('counts the whole library by format, and finds albums in two formats and held twice', async () => {
+		subsonic.state.lossy.add(3);
+		subsonic.state.copied.add(4);
+		try {
+			const started = await user.request('/api/library-report', { method: 'POST' });
+			assert.equal(started.status, 200, explain('the report did not start'));
+			const status = await made(user);
+			assert.equal(status.state, 'done', explain(JSON.stringify(status)));
+			const r = status.report;
+			// 250 artists of two songs each, in one page of 500 and an empty one.
+			assert.equal(r.tracks, 500);
+			assert.equal(r.artists, 250);
+			assert.deepEqual(r.formats.map(({ format, tracks }) => ({ format, tracks })), [
+				{ format: 'flac', tracks: 499 },
+				{ format: 'mp3', tracks: 1 }
+			]);
+			assert.equal(r.lossless, 499);
+			assert.deepEqual(r.resolutions, [{ label: '16-bit 44.1kHz', tracks: 499 }]);
+			assert.deepEqual(r.mixed.map((album) => [album.id, album.formats]), [['al3', ['flac', 'mp3']]]);
+			assert.equal(r.duplicateCount, 1);
+			assert.deepEqual(r.duplicates[0].albums.map((album) => album.id).sort(), ['al4', 'al4-copy']);
+			// The mock sends no ReplayGain, genre or year.
+			assert.equal(r.withoutReplayGain, 500);
+			assert.equal(r.withoutReplayGainAlbums.length, 50);
+
+			const page = (await user.page('/settings?tab=storage')).html;
+			assert.match(page, /Formats/);
+			assert.match(page, /1 album in more than one format/);
+		} finally {
+			subsonic.state.lossy.clear();
+			subsonic.state.copied.clear();
+		}
 	});
 });

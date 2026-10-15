@@ -33,6 +33,7 @@ import { clearAccountState } from './settings';
 import { clearProfile, hideProfile } from './listening';
 import { forgetSharedItems, revokeAllShares } from './shares';
 import { revokeMcpTokens } from './mcp';
+import { clearMixes } from './mixes';
 import { foldName } from './names';
 import { endPartiesOf } from './together';
 
@@ -182,6 +183,7 @@ async function storeAccount(
 		await destroyAllSessions(existing.id);
 		const links = await revokeAllShares(existing.id);
 		await clearAccountState(existing.id);
+		await clearMixes(existing.id);
 		await clearProfile(existing.id);
 		await dropKeeper(kind, existing.id);
 		await dropIntegrations(existing.id);
