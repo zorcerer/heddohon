@@ -862,7 +862,14 @@ plays, as it plays, without an account. What it is limited to:
   stream in progress is cut with the host's session.
 - **Listeners send reactions only.** One of five emoji, from a listener whose
   event stream is open, at most one a second. There are no names or messages.
-- **Bounds:** 50 listeners a session, 200 sessions in the process, one per
+  A reaction names its listener by the id sent to that listener's page
+  alone; the others are shown a separate tag, which a reaction cannot be sent
+  with.
+- **Bounds:** 50 listeners without an account a session, four streams per
+  signed-in account and, where `getClientAddress()` tells visitors apart (see
+  [Sign-in throttling](#sign-in-throttling)), four per address without an
+  account. The host's own browser is always let in, and signed-in accounts are
+  not counted in the 50. 200 sessions in the process, one per
   host session. The host's reports carry text for the listeners' page
   (title, artist, album, 300 characters each), shown as text.
 - **The token is kept out of the log,** as share tokens are.
@@ -882,7 +889,7 @@ nothing.
 - **Joining is a press, and it shows a name.** The page says "Join as
   <name>" and that the name is shown. Until then the visitor's stream is a
   listener's. `POST /together/<token>/join` needs the session, and names a
-  stream the same account opened: listener ids go to everyone with a
+  stream the same account opened: listener ids once went to everyone with a
   reaction, so a stream is not joined by its id alone. The name is the
   account's user name on the music server. The host sees the members whose
   page is open; everyone with the link sees the name on the tracks a member
@@ -1228,7 +1235,7 @@ Covers are cached under `$HEDDOHON_DATA_DIR/covers` (see
 | "Listening now" list | 100 accounts; sent at most once in 250 ms |
 | Cast addresses per request | 1 to 1000 track ids |
 | Cast address lifetime | 6 hours, never past the session |
-| Listen-together session | 12 hours, never past the host's session; 50 listeners; 200 sessions a process |
+| Listen-together session | 12 hours, never past the host's session; 50 listeners without an account, 4 streams per account or per address; 200 sessions a process |
 | Listen-together reaction | one of five emoji, one a second per listener |
 | Listen-together addition | a track id of 1 to 255 characters; one every 2 seconds per member; 50 waiting per member, 500 per party |
 | Listen-together queue report | 1000 tracks; titles and artists kept for the first 50, 300 characters each, cut |
@@ -1398,6 +1405,11 @@ session token and any `u`, `t`, `s` or `p` query parameter.
 - **`GET /api/cover/[id]`** writes to the cache and sits outside the origin check.
 - **The scrypt salt** is a constant shared by every deployment.
 - **A cover that misses the cache** is read into memory before its size is checked.
+- **A listen-together link can still be filled for visitors without an
+  account** by someone holding it from many addresses, or from one address
+  where `getClientAddress()` does not tell visitors apart (behind a proxy
+  without `ADDRESS_HEADER`). The host and signed-in accounts still
+  get in; ending the party and starting another gives a new link.
 - **File permissions:** the data directory uses the default umask, and `/app` is
   writable by the `node` user.
 
@@ -1807,3 +1819,18 @@ Looked at and found holding:
 - A cast address after its session signs out: 404. The hardening headers
   on media, `/api/mcp`, `/healthz` and JSON answers; no `Server` or
   `X-Powered-By`.
+
+Reported by the maintainer later the same day, with a check each in
+`tests/e2e/app.test.mjs`:
+
+| Severity | Finding | Fix |
+| --- | --- | --- |
+| Medium | Anyone with a listen-together link could lock everyone out of it, the host included. The 50-listener cap was checked before who was connecting, and `/together/<token>/events` is public: one visitor holding 50 streams open was refused to every listener and member, and to the host's own browser after its next reload, until the party ended. The host's removal works per account, and the visitor had none | The host's browser is always let in. A signed-in account holds up to four streams and is not counted in the 50, which are for visitors without an account, four per address where the address tells visitors apart. What remains is under [Known gaps](#known-gaps) |
+| Low | A reaction was accepted for any listener id, and every reaction showed its sender's id to the whole party: anyone in it could react as another listener and spend that listener's one a second | The id is sent to the listener's own page alone; the party is shown a separate tag, which a reaction is not accepted with |
+
+Asked about at the same time and found holding: a radio station's redirect.
+Redirects are followed by hand, at most three, and every hop, a playlist's
+entry included, goes through the same address check as the station's own
+address. The connection's DNS lookup is the guarded one, so the address
+checked is the address connected to, and a hop served from a public address
+leads only to public ones.
