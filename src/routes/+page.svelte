@@ -64,8 +64,27 @@
 	const rediscovering = $derived(data.rediscover.length > 0);
 	const remembering = $derived((onThisDay?.albums.length ?? 0) > 0);
 
-	// The numbered sections above Favourites.
+	/*
+	 * Whether the daily mixes have arrived with any, for the numbers of the
+	 * sections after them. Streamed, so Favourites and Something different can
+	 * be drawn first and take the next number when the mixes arrive.
+	 */
+	let mixing = $state(false);
+	$effect(() => {
+		let current = true;
+		mixing = false;
+		data.mixes.then((mixes) => {
+			if (current) mixing = mixes.length > 0;
+		});
+		return () => {
+			current = false;
+		};
+	});
+
+	// The numbered album shelves, ahead of the daily mixes.
 	const albumShelves = $derived(shelves.length + Number(rediscovering) + Number(remembering));
+	// Every numbered section above Favourites.
+	const aboveFavourites = $derived(albumShelves + Number(mixing));
 </script>
 
 <svelte:head>
@@ -142,12 +161,12 @@
 	{/if}
 
 	<!--
-		Streamed, and unnumbered: it can arrive after the numbered shelves are
-		drawn. See mixes.ts.
+		Streamed, and numbered after the album shelves; the sections below it
+		take the next numbers when it arrives. See mixes.ts.
 	-->
 	{#await data.mixes then mixes}
 		{#if mixes.length > 0}
-			<MediaShelf title="Made for you" eyebrow="Daily mixes, new each day">
+			<MediaShelf title="Made for you" eyebrow="Daily mixes, new each day" index={albumShelves + 1}>
 				{#each mixes as mix (mix.n)}
 					<MediaCard
 						href="/mixes/{mix.n}"
@@ -165,7 +184,7 @@
 	{#await data.favouriteSongs then favouriteSongs}
 		{#if favouriteSongs.length > 0}
 			<section>
-				<SectionHeader title="Favourites" href="/favourites" index={albumShelves + 1} />
+				<SectionHeader title="Favourites" href="/favourites" index={aboveFavourites + 1} />
 				<TrackList songs={favouriteSongs} variant="artwork" showAlbum showQuality={false} columns />
 			</section>
 		{/if}
@@ -175,7 +194,7 @@
 				<SectionHeader
 					title="Something different"
 					eyebrow="Picked at random"
-					index={albumShelves + (favouriteSongs.length > 0 ? 2 : 1)}
+					index={aboveFavourites + (favouriteSongs.length > 0 ? 2 : 1)}
 				/>
 				<TrackList songs={data.discover} variant="artwork" showAlbum showQuality={false} columns />
 			</section>
