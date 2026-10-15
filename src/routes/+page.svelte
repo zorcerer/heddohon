@@ -141,6 +141,26 @@
 		<OnThisDayShelf albums={onThisDay.albums} today={onThisDay.today} index={shelves.length + Number(rediscovering) + 1} />
 	{/if}
 
+	<!--
+		Streamed, and unnumbered: it can arrive after the numbered shelves are
+		drawn. See mixes.ts.
+	-->
+	{#await data.mixes then mixes}
+		{#if mixes.length > 0}
+			<MediaShelf title="Made for you" eyebrow="Daily mixes, new each day">
+				{#each mixes as mix (mix.n)}
+					<MediaCard
+						href="/mixes/{mix.n}"
+						title={mix.title}
+						subtitle={mix.subtitle}
+						coverArt={mix.coverArt}
+						onplay={() => playContainer('daily', String(mix.n))}
+					/>
+				{/each}
+			</MediaShelf>
+		{/if}
+	{/await}
+
 	<!-- Streamed: the page does not wait for the favourites. See the loader. -->
 	{#await data.favouriteSongs then favouriteSongs}
 		{#if favouriteSongs.length > 0}

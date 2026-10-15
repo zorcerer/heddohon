@@ -14,7 +14,7 @@
 	/** The name of what a detail page shows, from whichever loader ran. */
 	const named = $derived.by(() => {
 		const data = page.data as Record<string, { name?: unknown } | undefined>;
-		for (const key of ['album', 'artist', 'playlist', 'genre', 'folder']) {
+		for (const key of ['album', 'artist', 'playlist', 'genre', 'folder', 'mix']) {
 			const name = data[key]?.name;
 			if (typeof name === 'string' && name) return name;
 		}

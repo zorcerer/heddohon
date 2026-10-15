@@ -18,6 +18,7 @@ import type { LibraryContext } from './library';
 import { albumDetail, artistDetail, forgetDetails } from './details';
 import { forgetListings, remembered } from './listings';
 import { forgetSharedItems } from './shares';
+import { dailyMixes } from './mixes';
 import { listeningStats, periodStart, recentPlays, STATS_PERIODS, type StatsPeriod } from './history';
 
 /** A call's arguments that are not what the tool takes. The message is for the assistant. */
@@ -352,6 +353,18 @@ export const TOOLS: Tool[] = [
 		inputSchema: object({ id: ID }, ['id']),
 		writes: false,
 		run: async ({ backend, credential }, args) => playlistWithSongs(await backend.getPlaylist(credential, id(args)))
+	},
+	{
+		name: 'get_daily_mixes',
+		title: "Get today's daily mixes",
+		description:
+			"Up to three mixes made today from the artists you have played most in the last 30 days and music like theirs you have not played in the last three days. The same all day; new ones tomorrow.",
+		inputSchema: object({}),
+		writes: false,
+		async run(ctx) {
+			const mixes = await dailyMixes(ctx);
+			return { mixes: mixes.map((mix) => ({ n: mix.n, title: mix.title, from: mix.artists, songs: mix.songs.map(song) })) };
+		}
 	},
 	{
 		name: 'get_history',

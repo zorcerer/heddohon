@@ -122,6 +122,15 @@ CREATE TABLE IF NOT EXISTS plays (
 );
 CREATE INDEX IF NOT EXISTS plays_account_idx ON plays(account_id, played_at);
 
+-- The account's daily mixes, made at its first visit of the day and kept
+-- until the next; see mixes.ts. data is the mixes as JSON, songs included.
+CREATE TABLE IF NOT EXISTS daily_mixes (
+  account_id  TEXT PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
+  made_on     TEXT NOT NULL,
+  made_at     INTEGER NOT NULL,
+  data        TEXT NOT NULL
+);
+
 -- Tokens an AI assistant's client reaches the MCP endpoint with. Only the
 -- HMAC digest of a token is kept, as with sessions; see mcp.ts. The id is the
 -- handle the owner withdraws a token by.

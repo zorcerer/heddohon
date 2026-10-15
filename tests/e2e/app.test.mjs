@@ -5285,9 +5285,15 @@ describe('whose a playlist is, and who sees it', () => {
 				{ id: 'jother', editable: false, isPublic: true }
 			]
 		);
+		// Held: the picker lists them each time it opens.
+		const asked = jellyfin.calls.get('GET /Playlists/jpl/Users');
+		await listed(client);
+		assert.equal(jellyfin.calls.get('GET /Playlists/jpl/Users'), asked, 'whose a playlist is was asked again');
 		try {
 			assert.equal((await patch(client, 'jpl', { public: false })).status, 200);
 			assert.equal(jellyfin.state.playlistPublic, false);
+			// A change made here shows at once.
+			assert.equal((await listed(client)).find((playlist) => playlist.id === 'jpl').isPublic, false);
 		} finally {
 			jellyfin.state.playlistPublic = true;
 		}
@@ -5295,5 +5301,99 @@ describe('whose a playlist is, and who sees it', () => {
 		assert.equal((await share(client, 'jother')).status, 403);
 		assert.equal((await patch(client, 'jother', { public: false })).status, 403);
 		assert.equal((await client.request('/api/settings')).status, 200, 'a refused change signed the account out');
+	});
+});
+
+describe('daily mixes', () => {
+	const play = (client, songId) => client.json('/api/playback', 'POST', { songId, event: 'stop', position: 100, completed: true });
+	const mix = async (client, n) => {
+		const response = await client.json('/api/tracks', 'POST', { source: 'daily', id: String(n) });
+		return { status: response.status, songs: response.ok ? (await response.json()).songs : null };
+	};
+	const artistOf = (id) => Number(/^s(\d+)/.exec(id)[1]);
+
+	test('are none for an account with nothing played, until it plays something', async () => {
+		subsonic.state.mixSize = 20;
+		try {
+			await asFreshAccount('mixnone', async (client) => {
+				assert.equal((await mix(client, 1)).status, 404);
+				assert.equal((await client.page('/mixes/1')).response.status, 404);
+				// The same day: the empty answer was not kept for it.
+				for (const id of ['s20a', 's20a']) await play(client, id);
+				assert.equal((await mix(client, 1)).status, 200, 'the first plays of the day made no mix until the next day');
+			});
+		} finally {
+			subsonic.state.mixSize = 0;
+		}
+	});
+
+	test('are made from the artists played most, leave out what was just played, and hold all day', async () => {
+		subsonic.state.mixSize = 20;
+		try {
+			await asFreshAccount('mixer', async (client) => {
+				// Artist 5 played most, then 9, then 12.
+				for (const id of ['s5a', 's5a', 's5b', 's9a', 's9a', 's12a']) assert.equal((await play(client, id)).status, 200);
+				subsonic.calls.reset();
+
+				const first = await mix(client, 1);
+				assert.equal(first.status, 200, explain('the first mix was not made'));
+				const ids = first.songs.map((song) => song.id);
+				assert.ok(ids.length >= 10 && ids.length <= 40, `${ids.length} songs`);
+				for (const played of ['s5a', 's5b', 's9a', 's12a']) assert.ok(!ids.includes(played), `${played} was played today and is in the mix`);
+				// What is like artist 5 is artists 6 onwards in the mock.
+				assert.ok(ids.every((id) => artistOf(id) > 5 && artistOf(id) <= 25), ids.join());
+				const perArtist = Object.values(Object.groupBy(ids, artistOf)).map((list) => list.length);
+				assert.ok(Math.max(...perArtist) <= 3, 'more than three songs of one artist');
+				// One mix for each of the three artists. What is like 9 overlaps what is
+				// like 5, and the songs mix 1 has go to the end of mix 2.
+				const second = await mix(client, 2);
+				const third = await mix(client, 3);
+				assert.equal(second.status, 200);
+				assert.equal(third.status, 200);
+				assert.equal((await mix(client, 4)).status, 404);
+				const inFirst = new Set(ids);
+				const repeats = second.songs.map((song) => inFirst.has(song.id));
+				assert.ok(repeats.indexOf(true) === -1 || !repeats.slice(repeats.indexOf(true)).includes(false), 'a song of mix 1 came before a new one in mix 2');
+				assert.ok(!inFirst.has(second.songs[0].id), 'mix 2 starts with a song of mix 1');
+
+				// Held: asked again, the music server is not.
+				const made = subsonic.calls.get('getSimilarSongs');
+				assert.deepEqual((await mix(client, 1)).songs.map((song) => song.id), ids);
+				assert.equal(subsonic.calls.get('getSimilarSongs'), made);
+
+				const page = (await client.page('/mixes/1')).html;
+				assert.match(page, /Daily mix 1/);
+				assert.match(page, /Made today from Artist 0005/);
+
+				// The next day, they are made again.
+				const { default: Database } = await import('better-sqlite3');
+				const database = new Database(join(app.dataDir, 'heddohon.db'));
+				try {
+					database.prepare("UPDATE daily_mixes SET made_on = '2000-01-01'").run();
+				} finally {
+					database.close();
+				}
+				assert.equal((await mix(client, 1)).status, 200);
+				assert.ok(subsonic.calls.get('getSimilarSongs') > made, 'yesterday\'s mixes were served today');
+			});
+		} finally {
+			subsonic.state.mixSize = 0;
+		}
+	});
+
+	test('on a Navidrome that finds nothing alike, are filled from the artist\'s genre', async () => {
+		subsonic.state.songGenre = 'Jazz';
+		try {
+			await asFreshAccount('mixgenre', async (client) => {
+				for (const id of ['s7a', 's7a']) await play(client, id);
+				const made = await mix(client, 1);
+				assert.equal(made.status, 200, explain('no mix without similar songs'));
+				assert.ok(made.songs.every((song) => artistOf(song.id) >= 100), made.songs.map((song) => song.id).join());
+				const perArtist = Object.values(Object.groupBy(made.songs, (song) => artistOf(song.id))).map((list) => list.length);
+				assert.deepEqual(perArtist, [3, 3, 3, 3, 3, 3], 'not three of each of the six artists');
+			});
+		} finally {
+			subsonic.state.songGenre = null;
+		}
 	});
 });

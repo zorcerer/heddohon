@@ -201,6 +201,8 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 		 * as Navidrome does without an external agent.
 		 */
 		mixSize: 0,
+		/** A genre every song carries, and `getSongsByGenre` answers for with 30 songs; null for none. */
+		songGenre: null,
 		/**
 		 * Navidrome's own API (`/auth/login`, `/api/lastfm/link`,
 		 * `/api/listenbrainz/link`). Null makes this a Subsonic server that is
@@ -234,7 +236,8 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 		samplingRate: 44100,
 		size: 20_000_000,
 		starred: state.starred.get(`s${i}${side}`),
-		userRating: state.ratings.get(`s${i}${side}`)
+		userRating: state.ratings.get(`s${i}${side}`),
+		...(state.songGenre ? { genre: state.songGenre } : {})
 	});
 	const album = (i, id = `al${i}`) => ({
 		id,
@@ -367,6 +370,11 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 						}
 					})
 				);
+			case 'getSongsByGenre': {
+				if (!state.songGenre || p.get('genre') !== state.songGenre) return send(ok({ songsByGenre: {} }));
+				// Five songs each of six artists, for the cap on one artist in a mix.
+				return send(ok({ songsByGenre: { song: Array.from({ length: 30 }, (_, k) => song(100 + (k % 6), String.fromCharCode(97 + Math.floor(k / 6)))) } }));
+			}
 			case 'getSimilarSongs': {
 				const from = index(p.get('id'));
 				const songs = Array.from({ length: state.mixSize }, (_, k) => song((from + k + 1) % artistCount, 'a'));
