@@ -61,8 +61,8 @@ docker compose logs heddohon
 The log shows a setup code. Open `http://localhost:3000`, enter the code and
 the address of your music server, and sign in with your account on it.
 
-On the internet, run it behind a reverse proxy with TLS and go through the
-[operator checklist](SECURITY.md#operator-checklist).
+[SETUP.md](SETUP.md) has the rest in order: moving the secret out of the data
+directory, and putting Heddohon on the internet behind a reverse proxy.
 
 Configuration by environment variables, Unraid, running without Docker, and the
 image tags are in [Configuration](https://github.com/zorcerer/heddohon/wiki/Configuration).
@@ -76,6 +76,7 @@ keeps it updated.
 
 | | |
 | --- | --- |
+| [Setup](SETUP.md) | Starting it, the setup page, and putting it on the internet |
 | [Configuration](https://github.com/zorcerer/heddohon/wiki/Configuration) | Environment variables, reverse proxies, PostgreSQL, Unraid |
 | [Apps](https://github.com/zorcerer/heddohon/wiki/Apps) | The desktop and Android apps |
 | [Security](SECURITY.md) | Threat model, known gaps, reporting a vulnerability |
