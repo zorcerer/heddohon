@@ -22,7 +22,10 @@ android {
 
 	defaultConfig {
 		applicationId 'app.heddohon.android'
-		minSdk 23
+		// Android 14, the oldest version Google still patches (the October 2026
+		// bulletin covers 14 to 17). The app opens an account's library, so a phone
+		// without security updates is left out.
+		minSdk 34
 		targetSdk 35
 		versionCode releaseCode
 		versionName releaseName
@@ -66,9 +69,7 @@ android {
 
 dependencies {
 	// Trusted Web Activities: `TwaLauncher`, and the Custom Tab it falls back to.
-	// Held at 2.7.3: 2.7.4 declares minSdk 24, and the manifest merge fails
-	// against this app's 23 (Android 6). Raising `minSdk` lets it move on.
-	implementation 'com.google.androidbrowserhelper:androidbrowserhelper:2.7.3'
+	implementation 'com.google.androidbrowserhelper:androidbrowserhelper:2.7.4'
 
 	testImplementation 'junit:junit:4.13.2'
 }
