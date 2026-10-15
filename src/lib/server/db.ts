@@ -443,6 +443,20 @@ class PostgresStore implements Store {
 pg.types.setTypeParser(20, (value) => Number(value));
 
 let opening: Promise<Store> | null = null;
+/** Closes what `open` opened: the SQLite handle, or the PostgreSQL pool. */
+let closeOpen: (() => Promise<void>) | null = null;
+
+/**
+ * Closes the database as the server shuts down (`hooks.server.ts`), so the
+ * SQLite write-ahead log is checkpointed and PostgreSQL's connections end
+ * cleanly. A database that was never opened has nothing to close.
+ */
+export async function closeStore(): Promise<void> {
+	const close = closeOpen;
+	closeOpen = null;
+	opening = null;
+	await close?.();
+}
 
 /** The database, opened (and on PostgreSQL, created and imported into) once. */
 export function store(): Promise<Store> {
@@ -462,7 +476,9 @@ async function open(): Promise<Store> {
 	const database = cfg.database;
 	if (database.kind === 'sqlite') {
 		// config() has created the directory and proved it writable.
-		return new SqliteStore(openSqlite(sqliteFile()));
+		const handle = openSqlite(sqliteFile());
+		closeOpen = async () => void handle.close();
+		return new SqliteStore(handle);
 	}
 
 	/*
@@ -518,6 +534,7 @@ async function open(): Promise<Store> {
 			detail: 'the connection to PostgreSQL is not encrypted; set HEDDOHON_DATABASE_SSL=require or verify-full if it crosses a network'
 		});
 	}
+	closeOpen = () => pool.end();
 	return new PostgresStore(pool);
 }
 

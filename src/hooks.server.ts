@@ -17,6 +17,7 @@ import {
 } from '$lib/server/log';
 import { logKeepDays } from '$lib/server/logfile';
 import { keepCoversFilled } from '$lib/server/coverfill';
+import { closeStore } from '$lib/server/db';
 
 /**
  * Routes reachable without a session.
@@ -144,7 +145,28 @@ export const init: ServerInit = () => {
 	} catch {
 		// A misconfiguration. The first request reports it.
 	}
+	exitOnShutdown();
 };
+
+/**
+ * Ends the process once adapter-node has stopped serving. On SIGTERM it
+ * closes the server, waits for open requests up to `SHUTDOWN_TIMEOUT` (3
+ * seconds in the image) and emits `sveltekit:shutdown`, but does not exit:
+ * the hourly cover fill, the database and anything else left in the event
+ * loop kept the process alive, and `docker stop` killed it after its timeout
+ * every time (exit 137). The database is closed first, so SQLite's
+ * write-ahead log is checkpointed.
+ */
+function exitOnShutdown() {
+	const marked = globalThis as { __heddohonExitOnShutdown?: boolean };
+	if (marked.__heddohonExitOnShutdown) return;
+	marked.__heddohonExitOnShutdown = true;
+	process.once('sveltekit:shutdown' as 'exit', () => {
+		void closeStore()
+			.catch((err) => log.error('database-close-failed', { detail: reason(err) }))
+			.finally(() => process.exit(0));
+	});
+}
 
 /** The paths of the setup. Everything else waits for it. */
 const SETUP_PAGE = '/setup';
