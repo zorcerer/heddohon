@@ -19,8 +19,10 @@ Subsonic or Jellyfin server you already run. Screenshots and a tour are on
 fetches every byte from the music server and keeps the credentials on the
 server. The music server needs no public address.
 
-**Play for people who aren't in the room.** Send a link, and everyone who opens
-it hears what you play, as you play it, without an account.
+**Listen together, like a Spotify Jam.** Send a link, and everyone who opens it
+hears what you play, as you play it, in their own browser and without an
+account. Friends with an account on your music server can add tracks to the
+shared queue.
 
 **Share a song, an album or a playlist with anyone.** The link plays the
 original file without an account, until it expires or you withdraw it.
