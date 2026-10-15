@@ -25,7 +25,7 @@ The website, with screenshots and the install steps, is
 
 - **Original files** up to FLAC 24/192, with optional transcoding to MP3, Opus or AAC.
 - **Four themes:** Terminal, Liquid, Paper and Phosphor, each coloured by the artwork.
-- **A command line in Terminal:** `:`, `;` or Ctrl+K (the button at the top right of the page), then `play kind of blue`, `queue artist:miles`, `seek 1:30`, `cd albums`.
+- **Play anything from the keyboard in Terminal:** Cmd+K or Ctrl+K anywhere (or `:`, `;`, or the button at the top right of the page) opens a command line. Type `play kind of blue` and the best match starts; `queue artist:miles`, `mix`, `seek 1:30`, `vol 60` and `cd albums` work the same way, with albums, artists and songs suggested as you type.
 - **Library:** albums, artists, genres, playlists (your own public or private, and others' public ones), favourites and folders, with synced lyrics, recommendations, and links to MusicBrainz, Last.fm and TheAudioDB where your server has them.
 - **Instant mix** from a track, an album or an artist, and **daily mixes** made each day from what you play most.
 - **Internet radio** from the stations Navidrome lists.
