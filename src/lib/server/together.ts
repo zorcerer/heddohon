@@ -23,6 +23,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { shareDigest } from './crypto';
 import type { AuthenticatedSession } from './auth';
 import { config } from './config';
+import { log } from './log';
 import { addressBucket, perVisitorAddress } from './ratelimit';
 import type { Song } from '$lib/types';
 
@@ -107,6 +108,8 @@ interface Listener {
 	 * without an account where the address tells visitors apart, otherwise null.
 	 */
 	source: string | null;
+	/** The address the stream came from, as `getClientAddress()` gave it. */
+	address: string;
 	send(event: string, data: unknown): void;
 	/** Ends the stream from this side. */
 	close(): void;
@@ -440,19 +443,54 @@ export function removedFrom(token: string, viewer: AuthenticatedSession | null):
  * The cap was once checked before anything about the viewer: one visitor with
  * the link held 50 streams open, and every listener, member and the host's
  * own browser after its next reload was refused until the party ended.
+ *
+ * The address is only as good as the deployment's: without `ADDRESS_HEADER`,
+ * `getClientAddress()` behind a proxy is the proxy's for every visitor. A
+ * loopback or private address is not counted (`perVisitorAddress`), and
+ * neither is one that came with a forwarding header adapter-node was not told
+ * to read (`visitorAddress` gives none for it), which is how a proxy on a
+ * public address shows itself. Counted,
+ * either would have let four visitors in to every party of the deployment.
+ * Without the per-address count, the 50 still hold and the host and the
+ * accounts still get in.
  */
-function admission(party: Party, as: Exclude<Standing, 'removed'>, viewer: AuthenticatedSession | null, address: string): { source: string | null } | null {
+function admission(
+	party: Party,
+	as: Exclude<Standing, 'removed'>,
+	viewer: AuthenticatedSession | null,
+	address: string
+): { source: string | null } | null {
 	if (as === 'host') return { source: null };
 	const holding = (source: string) => [...party.listeners.values()].filter((listener) => listener.source === source).length;
 	if (viewer) {
 		const source = `account:${viewer.account.id}`;
 		return holding(source) < MAX_STREAMS_PER_SOURCE ? { source } : null;
 	}
-	const anonymous = [...party.listeners.values()].filter((listener) => !listener.account && !listener.host).length;
-	if (anonymous >= MAX_LISTENERS) return null;
-	if (!perVisitorAddress(address)) return { source: null };
+	const anonymous = [...party.listeners.values()].filter((listener) => !listener.account && !listener.host);
+	if (anonymous.length >= MAX_LISTENERS) return null;
+	if (!perVisitorAddress(address)) {
+		warnOneAddress(anonymous, address);
+		return { source: null };
+	}
 	const source = `address:${addressBucket(address)}`;
 	return holding(source) < MAX_STREAMS_PER_SOURCE ? { source } : null;
+}
+
+let warnedOneAddress = false;
+
+/**
+ * Says once in the log when every visitor of a party arrives from one address
+ * that is not counted: a sign that the deployment is behind a proxy that
+ * adapter-node was not told about, so the per-address count is off.
+ */
+function warnOneAddress(anonymous: Listener[], address: string) {
+	if (warnedOneAddress || anonymous.length < MAX_STREAMS_PER_SOURCE) return;
+	if (!anonymous.every((listener) => listener.address === address)) return;
+	warnedOneAddress = true;
+	log.warn('together-one-address', {
+		detail:
+			'Every listen-together visitor arrives from one address, so streams are not counted per visitor. Behind a proxy, set ADDRESS_HEADER (and XFF_DEPTH) to the header it overwrites.'
+	});
 }
 
 /**
@@ -479,6 +517,7 @@ export function listen(
 		id: randomUUID(),
 		tag: randomUUID(),
 		source: admitted.source,
+		address,
 		send,
 		close,
 		lastReaction: 0,

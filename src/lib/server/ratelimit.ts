@@ -42,6 +42,24 @@ export interface RateVerdict {
 
 const ALLOWED: RateVerdict = { allowed: true, retryAfter: 0 };
 
+/** Headers a proxy adds with the visitor's address. */
+const FORWARDING = ['x-forwarded-for', 'forwarded', 'x-real-ip'];
+
+/**
+ * The address to count a visitor by: `getClientAddress()`, or '' where that
+ * is a proxy's. A request that carries a forwarding header ADDRESS_HEADER does
+ * not name came through a proxy adapter-node was not told about, and its
+ * address is the proxy's for every visitor even where it is public, which
+ * `perVisitorAddress` cannot tell from the address alone. '' counts nobody.
+ *
+ * On a deployment reached directly, a client can send such a header to stay
+ * out of the per-address counts. The other limits still apply to it.
+ */
+export function visitorAddress(event: { getClientAddress(): string; request: Request }): string {
+	if (!process.env.ADDRESS_HEADER && FORWARDING.some((name) => event.request.headers.has(name))) return '';
+	return event.getClientAddress();
+}
+
 /**
  * Whether `getClientAddress()` distinguishes one visitor from another.
  *

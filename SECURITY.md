@@ -866,10 +866,23 @@ plays, as it plays, without an account. What it is limited to:
   alone; the others are shown a separate tag, which a reaction cannot be sent
   with.
 - **Bounds:** 50 listeners without an account a session, four streams per
-  signed-in account and, where `getClientAddress()` tells visitors apart (see
-  [Sign-in throttling](#sign-in-throttling)), four per address without an
-  account. The host's own browser is always let in, and signed-in accounts are
-  not counted in the 50. 200 sessions in the process, one per
+  signed-in account, and four per address without an account (an IPv6
+  address by its /64). The host's own browser is always let in, and signed-in
+  accounts are not counted in the 50.
+- **The per-address count depends on the deployment.** The address is
+  adapter-node's `getClientAddress()`: the connection's own, or the header
+  named in `ADDRESS_HEADER`. Behind a proxy without `ADDRESS_HEADER`, every
+  visitor has the proxy's address, so the count is left off where that
+  address is loopback or private, or where the request carries
+  `X-Forwarded-For`, `Forwarded` or `X-Real-IP` while `ADDRESS_HEADER` is
+  unset; counted, it would let four visitors into every party. Left off, the
+  50 still hold. When five or more visitors of one party all arrive from one
+  such address, the log says so once (`together-one-address`). With
+  `ADDRESS_HEADER` set to a header the proxy appends to rather than
+  overwrites, or `XFF_DEPTH` set too low, a visitor writes their own address
+  there and the count does not apply to them. See the
+  [operator checklist](#operator-checklist).
+- 200 sessions in the process, one per
   host session. The host's reports carry text for the listeners' page
   (title, artist, album, 300 characters each), shown as text.
 - **The token is kept out of the log,** as share tokens are.
@@ -1036,17 +1049,22 @@ first-run setup or by an administrator under Settings, Storage:
 - The setup's last step and the administrator's form name each saved address
   on which the sign-in cookie goes out without `Secure` (**Sessions**).
 
-**Forwarded headers.** `X-Forwarded-For`, `X-Forwarded-Host`,
+**Forwarded headers.** The values of `X-Forwarded-For`, `X-Forwarded-Host`,
 `X-Forwarded-Proto`, `X-Real-IP` and `Forwarded` are read from no request.
 Nothing in Heddohon is allowed or refused by where a request says it comes
 from: it has no list of addresses that are let through, and a request that
 claims to be from `127.0.0.1` is treated as any other. The local network in
 the cookie rule is the host of an address the operator saved, and not the
-client's. The one use of a client address is the sign-in throttle, which
-takes the connection's own unless the operator sets adapter-node's
-`ADDRESS_HEADER`; set where the proxy does not overwrite that header, a
-client can name any address there and avoid the per-address count, and the
-count per username still applies (**Known gaps**).
+client's. A client address is used only to count: the sign-in throttle and
+the listen-together streams per address. It is the connection's own unless
+the operator sets adapter-node's `ADDRESS_HEADER`. Without it, a request that
+carries any of `X-Forwarded-For`, `Forwarded` or `X-Real-IP` came through a
+proxy, whose address every visitor shares, so it is counted by no address
+(`visitorAddress`); a client reaching the server directly can send one to stay
+out of those counts, and the count per username and the 50 listeners still
+apply. With `ADDRESS_HEADER` set where the proxy does not overwrite that
+header, a client can name any address there with the same effect
+(**Known gaps**).
 
 ## Sign-in throttling
 
@@ -1527,6 +1545,15 @@ session token and any `u`, `t`, `s` or `p` query parameter.
     environment; set it to `false` there to keep it off. Behind a proxy that
     restricts paths, `/api/mcp` takes `POST`, and `GET` and `DELETE` answer
     405.
+13. **Behind a proxy, tell adapter-node where the visitor's address is.**
+    Set `ADDRESS_HEADER` to a header the proxy sets itself (`X-Real-IP` from
+    nginx, or `X-Forwarded-For` with `XFF_DEPTH` set to the number of
+    proxies in front that add to it, counting each that the request passes
+    through). The sign-in throttle and the listen-together count per
+    address use it. Left unset, both fall back to limits that do not tell
+    visitors apart, and the log says `together-one-address` when a party
+    shows it. Set to a header the client controls, a visitor names any
+    address and both counts stop applying to them.
 
 ## Audit history
 
@@ -1834,3 +1861,10 @@ entry included, goes through the same address check as the station's own
 address. The connection's DNS lookup is the guarded one, so the address
 checked is the address connected to, and a hop served from a public address
 leads only to public ones.
+
+Raised by the maintainer on the fix above, and handled the same day:
+
+| Severity | Finding | Fix |
+| --- | --- | --- |
+| Low | Behind a proxy on a public address without `ADDRESS_HEADER`, every visitor had the proxy's address. The listen-together count would have let four visitors into every party, and the sign-in backstop already counted every visitor's failures together, 60 in 15 minutes for the whole deployment. A loopback or private proxy address was already left out | A request that carries `X-Forwarded-For`, `Forwarded` or `X-Real-IP` while `ADDRESS_HEADER` is unset is counted by no address, for both. The log says `together-one-address` when five visitors of a party share one uncounted address. `ADDRESS_HEADER` and `XFF_DEPTH` are item 13 of the operator checklist, with what a header the client controls does |
+| Info | IPv6 visitors could take a fresh address for each stream | Already counted by /64, as the sign-in throttle is; now checked for the listen-together count too |
