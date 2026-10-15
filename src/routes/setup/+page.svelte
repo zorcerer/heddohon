@@ -35,7 +35,16 @@
 	let origin = $state('');
 	let coverCacheMb = $state(512);
 	/** What the environment already decides, and so is not asked for. */
-	let decided = $state({ origin: false, coverCache: false });
+	let decided = $state({ origin: false, coverCache: false, database: false });
+	/** SQLite in the data directory, or a PostgreSQL server. */
+	let database = $state<{ kind: 'sqlite' | 'postgres'; url: string; user: string; password: string; ssl: 'off' | 'require' | 'verify-full'; probe: Probe }>({
+		kind: 'sqlite',
+		url: '',
+		user: '',
+		password: '',
+		ssl: 'off',
+		probe: { state: 'idle' }
+	});
 
 	/** The key made for the deployment, shown once on the last step. */
 	let secret = $state<string | null>(null);
@@ -126,6 +135,31 @@
 		}
 	}
 
+	/** The database choice as the server takes it; nothing of PostgreSQL's is sent for SQLite. */
+	function databaseChoice() {
+		if (decided.database || database.kind === 'sqlite') return { kind: 'sqlite' };
+		const { kind, url, user, password, ssl } = database;
+		return { kind, url, user, password, ssl };
+	}
+
+	async function testDatabase() {
+		if (database.probe.state === 'busy' || !database.url.trim()) return;
+		database.probe = { state: 'busy' };
+		try {
+			const { status, body } = await send({ action: 'database', database: databaseChoice() });
+			if (refused(status)) {
+				database.probe = { state: 'idle' };
+				return;
+			}
+			database.probe =
+				body.ok === true
+					? { state: 'ok', server: String(body.server ?? 'PostgreSQL') }
+					: { state: 'no', text: typeof body.message === 'string' ? body.message : 'That could not be checked.' };
+		} catch {
+			database.probe = { state: 'no', text: 'The server did not answer.' };
+		}
+	}
+
 	async function save(event: SubmitEvent) {
 		event.preventDefault();
 		if (busy) return;
@@ -145,7 +179,8 @@
 					lrclib,
 					mcp,
 					origin,
-					coverCacheMb
+					coverCacheMb,
+					database: databaseChoice()
 				}
 			});
 			if (refused(status)) return;
@@ -322,6 +357,80 @@
 							sign-in cookie is sent without <code>Secure</code>, since the browser would not send it back
 							otherwise.
 						</p>
+					</fieldset>
+				{/if}
+
+				{#if !decided.database}
+					<fieldset>
+						<legend>Database</legend>
+						<label class="check">
+							<input type="radio" bind:group={database.kind} value="sqlite" name="database" />
+							<span>
+								SQLite
+								<span class="hint hh-muted">A file in the data directory. Nothing to set up.</span>
+							</span>
+						</label>
+						<label class="check">
+							<input type="radio" bind:group={database.kind} value="postgres" name="database" />
+							<span>
+								PostgreSQL
+								<span class="hint hh-muted">A server of your own. The database has to exist; Heddohon makes its tables in a schema of its own.</span>
+							</span>
+						</label>
+						{#if database.kind === 'postgres'}
+							{@const reset = () => (database.probe = { state: 'idle' })}
+							<label class="field">
+								<span class="label">Address</span>
+								<input
+									class="hh-input"
+									bind:value={database.url}
+									oninput={reset}
+									name="database-url"
+									placeholder="postgres://10.0.0.10:5432/heddohon"
+									autocomplete="off"
+									spellcheck="false"
+									maxlength="2048"
+								/>
+							</label>
+							<label class="field">
+								<span class="label">User</span>
+								<input class="hh-input" bind:value={database.user} oninput={reset} name="database-user" autocomplete="off" spellcheck="false" maxlength="256" />
+							</label>
+							<label class="field">
+								<span class="label">Password</span>
+								<input class="hh-input" bind:value={database.password} oninput={reset} name="database-password" type="password" autocomplete="new-password" maxlength="1024" />
+								<span class="hint hh-muted">
+									Saved in <code>setup.json</code> with the rest. Set <code>HEDDOHON_DATABASE_PASSWORD</code> in the
+									environment to keep it out of the data directory.
+								</span>
+							</label>
+							<label class="field">
+								<span class="label">Encryption</span>
+								<select class="hh-input" bind:value={database.ssl} onchange={reset} name="database-ssl">
+									<option value="off">Off, on the same host or a trusted network</option>
+									<option value="require">Required, certificate not checked</option>
+									<option value="verify-full">Required, certificate checked</option>
+								</select>
+							</label>
+							<div class="probe">
+								<button
+									class="hh-button"
+									type="button"
+									onclick={testDatabase}
+									disabled={database.probe.state === 'busy' || !database.url.trim()}
+								>
+									{database.probe.state === 'busy' ? 'Connecting…' : 'Test the connection'}
+								</button>
+								<span class="result" class:ok={database.probe.state === 'ok'} class:no={database.probe.state === 'no'} aria-live="polite">
+									{#if database.probe.state === 'ok'}
+										<Icon name="check" size={14} />
+										{database.probe.server} takes the connection.
+									{:else if database.probe.state === 'no'}
+										{database.probe.text}
+									{/if}
+								</span>
+							</div>
+						{/if}
 					</fieldset>
 				{/if}
 

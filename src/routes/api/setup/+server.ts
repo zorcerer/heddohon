@@ -2,6 +2,7 @@ import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import {
 	checkCode,
+	checkDatabase,
 	decidedByEnvironment,
 	finishSetup,
 	forgetPending,
@@ -10,6 +11,7 @@ import {
 	setupPending,
 	type SetupInput
 } from '$lib/server/setup';
+import { closeStore } from '$lib/server/db';
 
 /** The body is a code, an address or two and a few choices. */
 const MAX_BODY = 16 * 1024;
@@ -22,6 +24,7 @@ const MAX_BODY = 16 * 1024;
  * - `check`: whether the code is right, what is missing, and what the
  *   environment already decides.
  * - `probe`: whether a music server answers at an address.
+ * - `database`: whether a PostgreSQL server takes the connection.
  * - `save`: saves the setup and ends it.
  *
  * One call comes after the setup, from the page that finished it and with
@@ -59,9 +62,18 @@ export const POST: RequestHandler = async ({ request }) => {
 			if (body.kind !== 'subsonic' && body.kind !== 'jellyfin') return json({ error: 'bad_request' }, { status: 400 });
 			return json(await probe(body.kind, body.url));
 		}
+		case 'database':
+			return json(await checkDatabase(body.database));
 		case 'save': {
 			const values = typeof body.values === 'object' && body.values !== null ? (body.values as SetupInput) : {};
+			const postgres = !decidedByEnvironment().database && (values.database as { kind?: unknown } | undefined)?.kind === 'postgres';
+			if (postgres) {
+				const reached = await checkDatabase(values.database);
+				if (!reached.ok) return json({ ok: false, field: 'database', message: reached.message }, { status: 400 });
+			}
 			const outcome = finishSetup(values);
+			// A SQLite file opened while the setup waited is not the database any more.
+			if (outcome.ok && postgres) await closeStore();
 			return json(outcome, { status: outcome.ok ? 200 : 400 });
 		}
 		default:

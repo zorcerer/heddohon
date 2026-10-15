@@ -15,6 +15,7 @@
  * a way to read a host on the server's network.
  */
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
+import pg from 'pg';
 import {
 	ConfigError,
 	SetupRequired,
@@ -234,6 +235,86 @@ export interface SetupInput {
 	origin?: unknown;
 	/** The cover cache's size in megabytes; 0 switches it off. */
 	coverCacheMb?: unknown;
+	/** SQLite, or a PostgreSQL server: `{ kind, url, user, password, ssl }`. */
+	database?: unknown;
+}
+
+/** The TLS modes a PostgreSQL connection can be given, as `HEDDOHON_DATABASE_SSL` names them. */
+const SSL_MODES = { off: 'disable', require: 'no-verify', 'verify-full': 'verify-full' } as const;
+type SslMode = keyof typeof SSL_MODES;
+
+/**
+ * The database choice, checked, as values to save: none for SQLite, which
+ * needs no setting, and none where the environment names a database. An
+ * error never repeats the address, which can hold a password.
+ */
+export function databaseValues(input: unknown): { values: Partial<Record<SetupName, string>> } | { field: 'database'; message: string } {
+	if (fromEnvironment('HEDDOHON_DATABASE_URL')) return { values: {} };
+	const choice = typeof input === 'object' && input !== null ? (input as Record<string, unknown>) : {};
+	if (choice.kind !== 'postgres') return { values: {} };
+	let url: URL;
+	try {
+		url = new URL(text(choice.url, MAX_ADDRESS));
+	} catch {
+		return { field: 'database', message: 'The PostgreSQL address is postgres://host:5432/database.' };
+	}
+	if ((url.protocol !== 'postgres:' && url.protocol !== 'postgresql:') || !url.hostname) {
+		return { field: 'database', message: 'The PostgreSQL address is postgres://host:5432/database.' };
+	}
+	const ssl: SslMode = typeof choice.ssl === 'string' && Object.hasOwn(SSL_MODES, choice.ssl) ? (choice.ssl as SslMode) : 'off';
+	const values: Partial<Record<SetupName, string>> = { HEDDOHON_DATABASE_URL: url.href, HEDDOHON_DATABASE_SSL: ssl };
+	const user = text(choice.user, 256);
+	const password = typeof choice.password === 'string' ? choice.password.slice(0, 1024) : '';
+	if (user) values.HEDDOHON_DATABASE_USER = user;
+	if (password) values.HEDDOHON_DATABASE_PASSWORD = password;
+	return { values };
+}
+
+/**
+ * Whether a PostgreSQL server takes the connection the setup would save: it
+ * connects as the database would, asks the version, and disconnects. Called
+ * by the page's test button and again before saving, so a deployment is not
+ * set up on a database it cannot open.
+ */
+export async function checkDatabase(input: unknown): Promise<{ ok: true; server: string } | { ok: false; message: string }> {
+	const checked = databaseValues(input);
+	if ('field' in checked) return { ok: false, message: checked.message };
+	const values = checked.values;
+	if (!values.HEDDOHON_DATABASE_URL) return { ok: false, message: 'Give the address of a PostgreSQL server.' };
+	const url = new URL(values.HEDDOHON_DATABASE_URL);
+	if (values.HEDDOHON_DATABASE_USER) url.username = values.HEDDOHON_DATABASE_USER;
+	if (values.HEDDOHON_DATABASE_PASSWORD) url.password = values.HEDDOHON_DATABASE_PASSWORD;
+	url.searchParams.set('sslmode', SSL_MODES[(values.HEDDOHON_DATABASE_SSL as SslMode) ?? 'off']);
+	const client = new pg.Client({
+		connectionString: url.toString(),
+		connectionTimeoutMillis: PROBE_TIMEOUT_MS,
+		query_timeout: PROBE_TIMEOUT_MS,
+		application_name: 'heddohon-setup'
+	});
+	// An error after the answer (the server closing) is not this check's.
+	client.on('error', () => undefined);
+	try {
+		await client.connect();
+		const result = await client.query<{ server_version: string }>('SHOW server_version');
+		return { ok: true, server: `PostgreSQL ${result.rows[0]?.server_version ?? ''}`.trim() };
+	} catch (err) {
+		return { ok: false, message: databaseRefusal(err) };
+	} finally {
+		await client.end().catch(() => undefined);
+	}
+}
+
+/** What a failed connection says, in the page's words. The driver's own message is kept for anything else. */
+function databaseRefusal(err: unknown): string {
+	const code = (err as { code?: string }).code;
+	if (code === '28P01' || code === '28000') return 'PostgreSQL refused the user name or password.';
+	if (code === '3D000') return 'PostgreSQL has no database by that name. Create it first.';
+	if (code === 'ECONNREFUSED') return 'Nothing is listening at that address and port.';
+	if (code === 'ENOTFOUND' || code === 'EAI_AGAIN') return 'That host name could not be found.';
+	const text = err instanceof Error ? err.message : String(err);
+	if (/timeout/i.test(text)) return 'PostgreSQL did not answer within five seconds.';
+	if (/ssl|tls|certificate/i.test(text)) return `The TLS setting does not match the server: ${text}`;
+	return `PostgreSQL could not be reached: ${text}`;
 }
 
 /** The most the cover cache may be set to, in megabytes: what `config.ts` holds the variable to. */
@@ -243,11 +324,12 @@ export const MAX_COVER_CACHE_MB = 65_536;
  * What of the setup the environment already decides. A value it gives is not
  * asked for, and would not be read if it were saved.
  */
-export function decidedByEnvironment(): { origin: boolean; coverCache: boolean; mcp: boolean } {
+export function decidedByEnvironment(): { origin: boolean; coverCache: boolean; mcp: boolean; database: boolean } {
 	return {
 		origin: fromEnvironment('ORIGIN'),
 		coverCache: fromEnvironment('HEDDOHON_COVER_CACHE_MB'),
-		mcp: fromEnvironment('HEDDOHON_MCP')
+		mcp: fromEnvironment('HEDDOHON_MCP'),
+		database: fromEnvironment('HEDDOHON_DATABASE_URL')
 	};
 }
 
@@ -281,7 +363,7 @@ export function serverValues(
 
 export type SetupOutcome =
 	| { ok: true; secret: string | null; forgetToken: string | null; withoutSecure: string[] }
-	| { ok: false; field: 'subsonicUrl' | 'jellyfinUrl' | 'server' | 'origin' | 'coverCacheMb'; message: string };
+	| { ok: false; field: 'subsonicUrl' | 'jellyfinUrl' | 'server' | 'origin' | 'coverCacheMb' | 'database'; message: string };
 
 const text = (value: unknown, max: number): string =>
 	typeof value === 'string' ? value.trim().slice(0, max) : '';
@@ -334,6 +416,11 @@ export function finishSetup(input: SetupInput): SetupOutcome {
 	const server = serverValues(input);
 	if ('field' in server) return { ok: false, ...server };
 	Object.assign(values, server.values);
+
+	// The caller has connected to a PostgreSQL server first (`checkDatabase`).
+	const database = databaseValues(input.database);
+	if ('field' in database) return { ok: false, ...database };
+	Object.assign(values, database.values);
 
 	let secret: string | null = null;
 	if (missing.secret) {

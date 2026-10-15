@@ -128,13 +128,13 @@ export class SetupRequired extends ConfigError {
 /**
  * What the setup may save, by the variable each stands in for. A short list:
  * the two values a deployment cannot start without, the choices a first run
- * is asked about, and the three an administrator can change afterwards under
- * Settings: the addresses the deployment is opened at (`ORIGIN`), the size of
- * the cover cache and the MCP endpoint (`HEDDOHON_MCP`). Everything that
- * names another host (the database, the third-party addresses), everything
- * that widens what the server will fetch
- * (`HEDDOHON_RADIO_PRIVATE`) and the plugin's token stay with the environment,
- * where only the operator's own hands reach.
+ * is asked about (the database among them: SQLite in the data directory, or
+ * a PostgreSQL server the setup has connected to), and the three an
+ * administrator can change afterwards under Settings: the addresses the
+ * deployment is opened at (`ORIGIN`), the size of the cover cache and the MCP
+ * endpoint (`HEDDOHON_MCP`). The third-party addresses, everything that widens
+ * what the server will fetch (`HEDDOHON_RADIO_PRIVATE`) and the plugin's token
+ * stay with the environment, where only the operator's own hands reach.
  */
 export const SETUP_NAMES = [
 	'HEDDOHON_SECRET',
@@ -148,6 +148,10 @@ export const SETUP_NAMES = [
 	'HEDDOHON_LYRICS_LRCLIB',
 	'HEDDOHON_MCP',
 	'HEDDOHON_COVER_CACHE_MB',
+	'HEDDOHON_DATABASE_URL',
+	'HEDDOHON_DATABASE_USER',
+	'HEDDOHON_DATABASE_PASSWORD',
+	'HEDDOHON_DATABASE_SSL',
 	'ORIGIN'
 ] as const;
 export type SetupName = (typeof SETUP_NAMES)[number];
