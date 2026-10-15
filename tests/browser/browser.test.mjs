@@ -3084,12 +3084,13 @@ describe('playback on another browser', () => {
 			await guest.locator('h1', { hasText: 'Song 17b' }).waitFor({ timeout: 5000 });
 			await guest.waitForFunction(() => /\?song=s17b$/.test(document.querySelector('audio.together-audio')?.getAttribute('src') ?? ''), null, { timeout: 5000 });
 
-			// The guest goes offline as the host goes back a track: the page hears of
+			// The guest goes offline as the host goes back to the first track: the page hears of
 			// the change and cannot fetch it. Back online, it loads the track again by
 			// itself; the element once stayed in its error, silent until a reload.
 			await guestContext.setOffline(true);
-			await hostPage.locator('aside.panel button.step').nth(0).click();
-			await guest.waitForFunction(() => document.querySelector('audio.together-audio')?.error, null, { timeout: 5000 });
+			// Picked on the album page: "previous" past 3 seconds into a track restarts it, and a slow runner got there.
+			await hostPage.getByRole('button', { name: 'Play Song 17a', exact: true }).click();
+			await guest.waitForFunction(() => document.querySelector('audio.together-audio')?.error, null, { timeout: 10000 });
 			await guestContext.setOffline(false);
 			await guest.waitForFunction(
 				() => {
