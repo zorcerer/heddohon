@@ -7,7 +7,7 @@
  * Each test starts an app of its own: the setup ends the state it tests.
  */
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { createServer, request as httpRequest } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -98,7 +98,7 @@ describe('a deployment that is not set up', () => {
 			for (let i = 0; i < 30; i++) await call(client, { action: 'check', code: `WRONG-WRONG-WRONG-${String(i).padStart(5, '0')}` });
 			const right = await call(client, { action: 'check', code });
 			assert.equal(right.status, 200);
-			assert.deepEqual(await right.json(), { ok: true, missing: { secret: true, upstream: true }, environment: { origin: true, coverCache: false, mcp: false } });
+			assert.deepEqual(await right.json(), { ok: true, missing: { secret: true, upstream: true }, environment: { origin: true, coverCache: false, mcp: false, database: false } });
 			// As typed: lower case, without the hyphens.
 			assert.equal((await call(client, { action: 'check', code: code.toLowerCase().replace(/-/g, ' ') })).status, 200);
 
@@ -172,6 +172,38 @@ describe('a deployment that is not set up', () => {
 			await app.stop();
 			await new Promise((done) => other.close(done));
 			other.closeAllConnections?.();
+		}
+	});
+
+	test('a PostgreSQL server is connected to before it is saved, and an address it refuses saves nothing', async () => {
+		const dataDir = mkdtempSync(join(tmpdir(), 'heddohon-setup-'));
+		const app = await unconfigured({}, dataDir);
+		try {
+			const code = codeOf(app);
+			const client = new Client(app.url);
+			const test = async (database) => (await call(client, { action: 'database', code, database })).json();
+
+			for (const url of ['', 'mysql://10.0.0.1/x', 'postgres:///nohost', 'not an address']) {
+				const answer = await test({ kind: 'postgres', url });
+				assert.equal(answer.ok, false, url);
+				assert.match(answer.message, /postgres:\/\/host:5432\/database/, url);
+			}
+			// Port 1 on this machine: nothing listens there. The password is in no answer.
+			const refused = await test({ kind: 'postgres', url: 'postgres://127.0.0.1:1/heddohon', user: 'u', password: 'hunter2-secret' });
+			assert.deepEqual(refused, { ok: false, message: 'Nothing is listening at that address and port.' });
+
+			const saved = await call(client, {
+				action: 'save',
+				code,
+				values: { subsonicUrl: subsonic.url, database: { kind: 'postgres', url: 'postgres://127.0.0.1:1/heddohon', password: 'hunter2-secret' } }
+			});
+			assert.equal(saved.status, 400);
+			assert.equal((await saved.json()).field, 'database');
+			assert.equal(existsSync(join(dataDir, 'setup.json')), false, 'a setup on an unreachable database was saved');
+			assert.equal((await call(client, { action: 'check', code })).status, 200, 'the setup ended');
+			assert.ok(!app.output().includes('hunter2-secret'), 'the password is in the log');
+		} finally {
+			await app.stop();
 		}
 	});
 
@@ -463,7 +495,7 @@ describe('the addresses a deployment is opened at', () => {
 			const host = new URL(here).host;
 			const client = new Client(here);
 			const code = codeOf(app);
-			assert.deepEqual((await (await call(client, { action: 'check', code })).json()).environment, { origin: false, coverCache: false, mcp: false });
+			assert.deepEqual((await (await call(client, { action: 'check', code })).json()).environment, { origin: false, coverCache: false, mcp: false, database: false });
 
 			for (const origin of ['https://a.example/path', 'ftp://a.example', 'https://user:pw@a.example', 'not an address']) {
 				const bad = await call(client, { action: 'save', code, values: { subsonicUrl: subsonic.url, origin } });

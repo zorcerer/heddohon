@@ -458,12 +458,21 @@ values is then the error it was before 0.7.0.
   out until a restart. At 100 bits the code is not found by guessing, and a wrong
   one costs the server one hash. A request body over 16 KB is refused.
 - **What the code allows.** Asking one address whether a music server answers
-  there, and saving twelve values: the secret, the address and name of each music
-  server, the default theme, whether shared links, downloads, lyrics from
-  LRCLIB and AI assistants (MCP) are on, the size of the cover cache, and the addresses the deployment
-  is opened at (**Cross-origin writes**). The list is `SETUP_NAMES` in `config.ts`. The database, the
-  third-party addresses, `HEDDOHON_RADIO_PRIVATE` and the plugin's token are
-  read from the environment alone.
+  there, connecting once to a PostgreSQL server to see whether it takes the
+  connection, and saving sixteen values: the secret, the address and name of
+  each music server, the default theme, whether shared links, downloads,
+  lyrics from LRCLIB and AI assistants (MCP) are on, the size of the cover
+  cache, the PostgreSQL address, user, password and TLS mode, and the
+  addresses the deployment is opened at (**Cross-origin writes**). The list is
+  `SETUP_NAMES` in `config.ts`. The third-party addresses,
+  `HEDDOHON_RADIO_PRIVATE` and the plugin's token are read from the
+  environment alone.
+- **The database test.** It connects with the address, user and password
+  given, asks `SHOW server_version`, and disconnects, within five seconds. The
+  answer is the version or why it failed, in words; the password is in no
+  answer and no log. Saving with PostgreSQL connects again first and saves
+  nothing if that fails. A saved password is in `setup.json` with the secret,
+  and `HEDDOHON_DATABASE_PASSWORD` in the environment keeps it out.
 - **The probe.** It sends one unauthenticated request (`ping` for Subsonic,
   `/System/Info/Public` for Jellyfin) to an http or https address, does not
   follow a redirect, reads at most 64 KB and waits at most 5 seconds. It answers
