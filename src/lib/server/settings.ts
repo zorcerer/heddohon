@@ -193,7 +193,7 @@ const DEFAULT_SETTINGS: UserSettings = {
 	scheme: 'heddohon',
 	accent: 'artwork',
 	dots: 'faint',
-	playerArt: 'dither',
+	playerArt: 'duotone',
 	volume: 0.85,
 	transition: 'gapless',
 	crossfadeSeconds: 4,
