@@ -1511,6 +1511,9 @@ session token and any `u`, `t`, `s` or `p` query parameter.
 
 ## Operator checklist
 
+The same steps in the order to do them, with less of the reasoning, are in
+[SETUP.md](SETUP.md).
+
 1. **Generate a secret** with `openssl rand -base64 48` (32 characters minimum).
    Changing it signs everyone out.
 2. **Set `ORIGIN`** to your public `https://` URL. A wrong value fails closed and
@@ -1566,6 +1569,11 @@ session token and any `u`, `t`, `s` or `p` query parameter.
     only where every request comes through the proxy: adapter-node answers
     500 to a request without it, and to one carrying fewer
     `X-Forwarded-For` entries than `XFF_DEPTH`.
+14. **Let Heddohon's security headers through the proxy.** A proxy that sets
+    `Content-Security-Policy`, `Referrer-Policy`, `Cross-Origin-Resource-Policy`
+    or `Permissions-Policy` on every site replaces Heddohon's: the nonce-based
+    script policy, `same-origin` referrers and the sandbox on media. Attach such
+    a header set to the sites that need it rather than to every site.
 
 ## Audit history
 
