@@ -2,7 +2,7 @@ import type { PageServerLoad } from './$types';
 import { library, libraryContext } from '$lib/server/library';
 import { log, reason } from '$lib/server/log';
 import { appearsOn, artistDetail } from '$lib/server/details';
-import { similarArtists } from '$lib/server/suggestions';
+import { externalLinks, similarArtists } from '$lib/server/suggestions';
 
 /**
  * How many cards the "You might like" shelf asks the music server for. The
@@ -25,6 +25,11 @@ export const load: PageServerLoad = async (event) => {
 		// A search on Subsonic (`subsonic.ts`), so streamed as well.
 		appearsOn: appearsOn(ctx, artist).catch((err) => {
 			log.warn('appears-on-failed', { artist: artist.id, detail: reason(err) });
+			return [];
+		}),
+		// Streamed, as on the album page.
+		links: externalLinks(ctx, 'artist', artist.id).catch((err) => {
+			log.warn('external-links-failed', { artist: artist.id, detail: reason(err) });
 			return [];
 		})
 	};

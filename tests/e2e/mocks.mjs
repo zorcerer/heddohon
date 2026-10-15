@@ -373,10 +373,17 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 					ok({
 						artistInfo2: {
 							biography: 'Artist 0000 is a mock artist. '.repeat(12).trim(),
+							musicBrainzId: 'b09c8a50-7bfa-434f-a2cf-f9bf9f6f91a5',
+							lastFmUrl: 'https://www.last.fm/music/Artist+0000',
 							similarArtist: [1, 2, 3, 4, 5, 6].map((i) => artist(i))
 						}
 					})
 				);
+			// Album 4 has a MusicBrainz id, in capitals, and an address that is not
+			// a web page. The others have neither.
+			case 'getAlbumInfo2':
+				if (p.get('id') !== 'al4') return send(ok({ albumInfo: {} }));
+				return send(ok({ albumInfo: { musicBrainzId: 'DE5C6A49-A5EC-41D9-9117-A128898FA099', lastFmUrl: 'javascript:alert(1)' } }));
 			case 'getSongsByGenre': {
 				if (!state.songGenre || p.get('genre') !== state.songGenre) return send(ok({ songsByGenre: {} }));
 				// Five songs each of six artists, for the cap on one artist in a mix.
@@ -652,7 +659,19 @@ export async function startJellyfin() {
 	];
 	const albums = [
 		{ Id: 'b1', Name: 'First', Type: 'MusicAlbum', IsFolder: true, AlbumArtists: [{ Id: 'a1', Name: 'Artist A' }] },
-		{ Id: 'b2', Name: 'Second', Type: 'MusicAlbum', IsFolder: true, AlbumArtists: [{ Id: 'a2', Name: 'Artist B' }] },
+		{
+			Id: 'b2',
+			Name: 'Second',
+			Type: 'MusicAlbum',
+			IsFolder: true,
+			AlbumArtists: [{ Id: 'a2', Name: 'Artist B' }],
+			// As Jellyfin builds them from the provider ids, and one no page should link.
+			ExternalUrls: [
+				{ Name: 'MusicBrainz Album', Url: 'https://musicbrainz.org/release/11111111-2222-3333-4444-555555555555' },
+				{ Name: 'MusicBrainz Release Group', Url: 'https://musicbrainz.org/release-group/66666666-7777-8888-9999-000000000000' },
+				{ Name: 'Signed in', Url: 'https://someone:secret@elsewhere.example/' }
+			]
+		},
 		{ Id: 'b3', Name: 'Third', Type: 'MusicAlbum', IsFolder: true, AlbumArtists: [{ Id: 'a2', Name: 'Artist B' }] },
 		{ Id: 'b4', Name: 'Compilation', Type: 'MusicAlbum', IsFolder: true, AlbumArtists: [{ Id: 'a3', Name: 'Various Artists' }] }
 	];

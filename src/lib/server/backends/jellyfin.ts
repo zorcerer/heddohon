@@ -47,6 +47,7 @@ import type {
 	Artist,
 	ArtistDetail,
 	AudioQuality,
+	ExternalLink,
 	Folder,
 	FolderRef,
 	Genre,
@@ -201,6 +202,8 @@ interface JellyfinItem {
 	ChildCount?: number;
 	DateCreated?: string;
 	Overview?: string;
+	/** With `Fields=ExternalUrls`: pages elsewhere, built from the provider ids. */
+	ExternalUrls?: { Name?: string; Url?: string }[];
 	/** On genres, with `Fields=ItemCounts`. */
 	AlbumCount?: number;
 	SongCount?: number;
@@ -936,6 +939,16 @@ export const jellyfinBackend: MediaBackend = {
 			limit
 		});
 		return (body.Items ?? []).map(toArtist);
+	},
+
+	async getExternalLinks(cred, kind, id): Promise<ExternalLink[]> {
+		const item = await call<JellyfinItem>(cred, `/Items/${seg(id)}`, { userId: creds(cred).userId, Fields: 'ExternalUrls' });
+		if (item.Type !== (kind === 'album' ? 'MusicAlbum' : 'MusicArtist')) throw new UpstreamError('Not found', 404, 'not_found');
+		// Named "MusicBrainz Album", "TheAudioDb Artist": the page already says
+		// which, so the last word goes. "MusicBrainz Release Group" keeps its own.
+		return (item.ExternalUrls ?? []).flatMap(({ Name, Url }) =>
+			Name && Url ? [{ label: Name.replace(/ (Album|Artist)$/, ''), url: Url }] : []
+		);
 	},
 
 	async getSimilarAlbums(cred, albumId, artistId, limit): Promise<Album[]> {

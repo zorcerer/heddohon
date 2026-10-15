@@ -6,6 +6,7 @@
 	import MixButton from '$lib/components/MixButton.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import MediaCard from '$lib/components/MediaCard.svelte';
+	import ExternalLinks from '$lib/components/ExternalLinks.svelte';
 	import MediaGrid from '$lib/components/MediaGrid.svelte';
 	import MediaShelf from '$lib/components/MediaShelf.svelte';
 	import SectionHeader from '$lib/components/SectionHeader.svelte';
@@ -178,6 +179,12 @@
 					/>
 				{/each}
 			</MediaShelf>
+		{/if}
+	{/await}
+
+	{#await data.links then links}
+		{#if links.length > 0}
+			<ExternalLinks {links} />
 		{/if}
 	{/await}
 </div>

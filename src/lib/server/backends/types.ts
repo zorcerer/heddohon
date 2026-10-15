@@ -5,6 +5,7 @@ import type {
 	Artist,
 	ArtistDetail,
 	BackendKind,
+	ExternalLink,
 	Folder,
 	Genre,
 	Playlist,
@@ -210,6 +211,15 @@ export interface MediaBackend {
 	 * A song's mix starts with the song itself.
 	 */
 	getInstantMix(cred: StoredCredential, kind: MixSeed, id: string, limit: number): Promise<Song[]>;
+
+	/**
+	 * Pages about an album or an artist elsewhere, for the foot of its page.
+	 * Subsonic: the MusicBrainz id and Last.fm address of `getAlbumInfo2` and
+	 * `getArtistInfo2`, which Navidrome fills from the tags and its Last.fm
+	 * agent. Jellyfin: the item's `ExternalUrls`, which it builds from its
+	 * provider ids. Empty is a normal answer.
+	 */
+	getExternalLinks(cred: StoredCredential, kind: 'album' | 'artist', id: string): Promise<ExternalLink[]>;
 
 	/** Every genre with at least one album, sorted by name. */
 	getGenres(cred: StoredCredential): Promise<Genre[]>;

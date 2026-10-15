@@ -239,3 +239,13 @@ export type RatingKind = 'song' | 'album';
 
 /** What an instant mix is made from. */
 export type MixSeed = 'song' | 'album' | 'artist';
+
+/**
+ * A page about an album or an artist on another site, as the music server
+ * records it: MusicBrainz, Last.fm, TheAudioDB. `url` is http or https
+ * (`suggestions.ts` drops anything else).
+ */
+export interface ExternalLink {
+	label: string;
+	url: string;
+}
