@@ -34,6 +34,8 @@
 	let ended = $state(false);
 	let joined = $state(false);
 	let listenerId: string | null = null;
+	/** What the party is shown as the sender of this page's reactions; the id is kept to this page. */
+	let listenerTag: string | null = null;
 	let skew = 0;
 	let audio = $state<HTMLAudioElement | null>(null);
 	let position = $state(0);
@@ -169,7 +171,7 @@
 	onMount(() => {
 		const source = new EventSource(`${base}/events`);
 		source.addEventListener('hello', (event) => {
-			listenerId = JSON.parse((event as MessageEvent).data).id;
+			({ id: listenerId, tag: listenerTag } = JSON.parse((event as MessageEvent).data));
 			void enrol();
 		});
 		source.addEventListener('queue', (event) => {
@@ -195,7 +197,7 @@
 		source.addEventListener('reaction', (event) => {
 			const message = JSON.parse((event as MessageEvent).data) as { emoji: string; from: string };
 			// This browser's own shows when it is pressed.
-			if (message.from !== listenerId) float(message.emoji);
+			if (message.from !== listenerTag) float(message.emoji);
 		});
 		source.addEventListener('ended', () => {
 			ended = true;

@@ -52,7 +52,7 @@ const ALLOWED: RateVerdict = { allowed: true, retryAfter: 0 };
  * presents a loopback or RFC1918 address, so those are not counted. A
  * deployment exposed directly sees public addresses and keeps the backstop.
  */
-function perVisitorAddress(address: string): boolean {
+export function perVisitorAddress(address: string): boolean {
 	if (process.env.ADDRESS_HEADER) return true;
 	if (!address) return false;
 
@@ -74,7 +74,7 @@ function perVisitorAddress(address: string): boolean {
  * full address, 300 attempts from one /64 were all allowed where one IPv4
  * address stopped at 60.
  */
-function addressBucket(address: string): string {
+export function addressBucket(address: string): string {
 	const plain = (address.startsWith('::ffff:') ? address.slice(7) : address).split('%')[0];
 	if (!plain.includes(':')) return plain;
 	const [head, tail] = plain.split('::');
