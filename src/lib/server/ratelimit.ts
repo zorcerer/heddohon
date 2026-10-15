@@ -45,18 +45,29 @@ const ALLOWED: RateVerdict = { allowed: true, retryAfter: 0 };
 /** Headers a proxy adds with the visitor's address. */
 const FORWARDING = ['x-forwarded-for', 'forwarded', 'x-real-ip'];
 
+let warnedForwarding = false;
+
 /**
- * The address to count a visitor by: `getClientAddress()`, or '' where that
- * is a proxy's. A request that carries a forwarding header ADDRESS_HEADER does
- * not name came through a proxy adapter-node was not told about, and its
- * address is the proxy's for every visitor even where it is public, which
- * `perVisitorAddress` cannot tell from the address alone. '' counts nobody.
+ * The address to count a visitor by: `getClientAddress()`, which is the
+ * connection's own unless the operator names a header in ADDRESS_HEADER.
  *
- * On a deployment reached directly, a client can send such a header to stay
- * out of the per-address counts. The other limits still apply to it.
+ * A forwarding header that ADDRESS_HEADER does not name is never read, nor
+ * taken as a sign of anything: anyone can send one. Taking its presence to
+ * mean "behind a proxy, count no address" let a client reaching the server
+ * directly send `X-Forwarded-For: x` and leave the sign-in backstop per
+ * address, which stops a password tried against many usernames. Behind a
+ * proxy adapter-node was not told about, every visitor then shares the
+ * proxy's address, and the counts are shared with it; it fails closed, and
+ * the log says once what to set.
  */
 export function visitorAddress(event: { getClientAddress(): string; request: Request }): string {
-	if (!process.env.ADDRESS_HEADER && FORWARDING.some((name) => event.request.headers.has(name))) return '';
+	if (!warnedForwarding && !process.env.ADDRESS_HEADER && FORWARDING.some((name) => event.request.headers.has(name))) {
+		warnedForwarding = true;
+		log.warn('address-header-unset', {
+			detail:
+				'A request arrived with a forwarding header and ADDRESS_HEADER is not set, so visitors are counted by the address of the connection. Behind a proxy, every visitor then shares its address for the sign-in and listen-together limits. Set ADDRESS_HEADER (and XFF_DEPTH) to the header the proxy overwrites.'
+		});
+	}
 	return event.getClientAddress();
 }
 

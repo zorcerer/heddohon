@@ -871,17 +871,18 @@ plays, as it plays, without an account. What it is limited to:
   accounts are not counted in the 50.
 - **The per-address count depends on the deployment.** The address is
   adapter-node's `getClientAddress()`: the connection's own, or the header
-  named in `ADDRESS_HEADER`. Behind a proxy without `ADDRESS_HEADER`, every
-  visitor has the proxy's address, so the count is left off where that
-  address is loopback or private, or where the request carries
-  `X-Forwarded-For`, `Forwarded` or `X-Real-IP` while `ADDRESS_HEADER` is
-  unset; counted, it would let four visitors into every party. Left off, the
-  50 still hold. When five or more visitors of one party all arrive from one
-  such address, the log says so once (`together-one-address`). With
-  `ADDRESS_HEADER` set to a header the proxy appends to rather than
-  overwrites, or `XFF_DEPTH` set too low, a visitor writes their own address
-  there and the count does not apply to them. See the
-  [operator checklist](#operator-checklist).
+  named in `ADDRESS_HEADER`. A forwarding header that `ADDRESS_HEADER` does
+  not name is never read, and its presence changes nothing, since anyone can
+  send one. Behind a proxy without `ADDRESS_HEADER`, every visitor has the
+  proxy's address: where that address is loopback or private the count is
+  left off, and the 50 still hold; where it is public, every visitor shares
+  its four, which fails closed. The log says `address-header-unset` once when
+  a request with a forwarding header arrives without `ADDRESS_HEADER`, and
+  `together-one-address` once when five or more visitors of one party arrive
+  from one uncounted address. With `ADDRESS_HEADER` set to a header the proxy
+  appends to rather than overwrites, or `XFF_DEPTH` set too low, a visitor
+  writes their own address there and the count does not apply to them. See
+  the [operator checklist](#operator-checklist).
 - 200 sessions in the process, one per
   host session. The host's reports carry text for the listeners' page
   (title, artist, album, 300 characters each), shown as text.
@@ -1049,22 +1050,25 @@ first-run setup or by an administrator under Settings, Storage:
 - The setup's last step and the administrator's form name each saved address
   on which the sign-in cookie goes out without `Secure` (**Sessions**).
 
-**Forwarded headers.** The values of `X-Forwarded-For`, `X-Forwarded-Host`,
-`X-Forwarded-Proto`, `X-Real-IP` and `Forwarded` are read from no request.
-Nothing in Heddohon is allowed or refused by where a request says it comes
-from: it has no list of addresses that are let through, and a request that
-claims to be from `127.0.0.1` is treated as any other. The local network in
-the cookie rule is the host of an address the operator saved, and not the
-client's. A client address is used only to count: the sign-in throttle and
-the listen-together streams per address. It is the connection's own unless
-the operator sets adapter-node's `ADDRESS_HEADER`. Without it, a request that
-carries any of `X-Forwarded-For`, `Forwarded` or `X-Real-IP` came through a
-proxy, whose address every visitor shares, so it is counted by no address
-(`visitorAddress`); a client reaching the server directly can send one to stay
-out of those counts, and the count per username and the 50 listeners still
-apply. With `ADDRESS_HEADER` set where the proxy does not overwrite that
-header, a client can name any address there with the same effect
-(**Known gaps**).
+**Forwarded headers.** `X-Forwarded-For`, `X-Forwarded-Host`,
+`X-Forwarded-Proto`, `X-Real-IP` and `Forwarded` are read from no request;
+their presence only writes `address-header-unset` to the log once. Nothing
+in Heddohon is allowed or refused
+by where a request says it comes from: it has no list of addresses that are
+let through, and a request that claims to be from `127.0.0.1` is treated as
+any other. The local network in the cookie rule is the host of an address the
+operator saved, and not the client's. A client address is used only to count:
+the sign-in throttle and the listen-together streams per address. It is the
+connection's own unless the operator sets adapter-node's `ADDRESS_HEADER`;
+set where the proxy does not overwrite that header, a client can name any
+address there and avoid the per-address counts, and the count per username
+and the 50 listeners still apply (**Known gaps**). The host and scheme a
+request is served on come from `ORIGIN`, or from adapter-node's
+`HOST_HEADER` and `PROTOCOL_HEADER` where the operator sets them. With none
+of the three set, a saved address is matched against `Host` and passed to
+the adapter in two headers of Heddohon's own, `x-heddohon-host` and
+`x-heddohon-protocol`, which are removed from every incoming request first
+(`savedOrigin` in `vite.config.ts`); otherwise `Host` with https assumed.
 
 ## Sign-in throttling
 
@@ -1550,10 +1554,18 @@ session token and any `u`, `t`, `s` or `p` query parameter.
     nginx, or `X-Forwarded-For` with `XFF_DEPTH` set to the number of
     proxies in front that add to it, counting each that the request passes
     through). The sign-in throttle and the listen-together count per
-    address use it. Left unset, both fall back to limits that do not tell
-    visitors apart, and the log says `together-one-address` when a party
-    shows it. Set to a header the client controls, a visitor names any
-    address and both counts stop applying to them.
+    address use it. Left unset, every visitor behind the proxy has its
+    address: on a loopback or private one the per-address counts are left
+    off, and on a public one everyone shares them (the sign-in backstop of 60
+    failures in 15 minutes, and four listen-together streams). The log says
+    `address-header-unset` either way. Set to a
+    header the client controls, a visitor names any address and both counts
+    stop applying to them. The same goes for `HOST_HEADER` and
+    `PROTOCOL_HEADER`: leave them unset unless the proxy overwrites them,
+    and set `ORIGIN` instead where the address is fixed. Set `ADDRESS_HEADER`
+    only where every request comes through the proxy: adapter-node answers
+    500 to a request without it, and to one carrying fewer
+    `X-Forwarded-For` entries than `XFF_DEPTH`.
 
 ## Audit history
 
@@ -1866,5 +1878,43 @@ Raised by the maintainer on the fix above, and handled the same day:
 
 | Severity | Finding | Fix |
 | --- | --- | --- |
-| Low | Behind a proxy on a public address without `ADDRESS_HEADER`, every visitor had the proxy's address. The listen-together count would have let four visitors into every party, and the sign-in backstop already counted every visitor's failures together, 60 in 15 minutes for the whole deployment. A loopback or private proxy address was already left out | A request that carries `X-Forwarded-For`, `Forwarded` or `X-Real-IP` while `ADDRESS_HEADER` is unset is counted by no address, for both. The log says `together-one-address` when five visitors of a party share one uncounted address. `ADDRESS_HEADER` and `XFF_DEPTH` are item 13 of the operator checklist, with what a header the client controls does |
+| Low | Behind a proxy on a public address without `ADDRESS_HEADER`, every visitor had the proxy's address. The listen-together count would have let four visitors into every party, and the sign-in backstop already counted every visitor's failures together, 60 in 15 minutes for the whole deployment. A loopback or private proxy address was already left out | First counted by no address when a forwarding header came without `ADDRESS_HEADER`, which the audit below undid: it fails closed now, and the log says `address-header-unset`. `ADDRESS_HEADER` and `XFF_DEPTH` are item 13 of the operator checklist, with what a header the client controls does |
 | Info | IPv6 visitors could take a fresh address for each stream | Already counted by /64, as the sign-in throttle is; now checked for the listen-together count too |
+
+A review of every request header the server reads, the same day, at the
+maintainer's request. Each use was traced to what it decides:
+
+| Severity | Finding | Fix |
+| --- | --- | --- |
+| Medium | Introduced the same day and fixed before a release: a request carrying `X-Forwarded-For`, `Forwarded` or `X-Real-IP` without `ADDRESS_HEADER` set was counted by no address. A client reaching the server directly could send one and leave the sign-in backstop per address, which is what stops one password tried against many usernames, and the listen-together count per address | The headers' presence changes no count. The connection's address is counted as before, failing closed behind an unconfigured public proxy, and the log says `address-header-unset` once |
+
+Found holding:
+
+- `Origin` on every write (`hooks.server.ts`), compared with the address the
+  request is served on, and on `/api/mcp` where one is sent. A DNS rebinding
+  page on plain http is served as `https://` its own host, which its `Origin`
+  never matches.
+- The saved addresses (`savedOrigin`): `x-heddohon-host` and
+  `x-heddohon-protocol` from a client are deleted before the adapter reads
+  them, and are only set for a `Host` that is exactly a saved host, to that
+  saved address. A forged `Host` changes the address of the forger's own
+  request alone: the cookie name and `Secure` it is answered with, never a
+  check against another site. With `ORIGIN`, `HOST_HEADER` or
+  `PROTOCOL_HEADER` set, the two headers are read by nothing.
+- `Authorization` on `/api/mcp` (an HMAC digest looked up) and on
+  `/api/plugin/navidrome` (compared in constant time).
+- `Range`, `If-None-Match` and `If-Modified-Since`, passed to the music
+  server as sent (a header value cannot carry a line break) or compared with
+  an ETag; the range this server serves itself is parsed strictly, and a
+  malformed one is ignored.
+- `Content-Length` on the avatar upload, checked again against the body
+  read, under adapter-node's 512 KB body limit.
+- `User-Agent`: a device label shown to the account's own browsers as text,
+  and on a shared link whether `x-robots-tag: noindex` is sent.
+- `Host` and `Origin` in the address form under Settings: a guard against
+  saving a list without the address the administrator is on, after the
+  write has passed the origin check.
+- `ADDRESS_HEADER` set and missing from a request (a visit that did not come
+  through the proxy): adapter-node answers 500 for the sign-in and the
+  listen-together stream; the operator checklist says to set it only where
+  every request comes through the proxy.

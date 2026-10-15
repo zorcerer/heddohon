@@ -446,13 +446,13 @@ export function removedFrom(token: string, viewer: AuthenticatedSession | null):
  *
  * The address is only as good as the deployment's: without `ADDRESS_HEADER`,
  * `getClientAddress()` behind a proxy is the proxy's for every visitor. A
- * loopback or private address is not counted (`perVisitorAddress`), and
- * neither is one that came with a forwarding header adapter-node was not told
- * to read (`visitorAddress` gives none for it), which is how a proxy on a
- * public address shows itself. Counted,
- * either would have let four visitors in to every party of the deployment.
- * Without the per-address count, the 50 still hold and the host and the
- * accounts still get in.
+ * loopback or private address is not counted (`perVisitorAddress`): it is
+ * usually a proxy on the same host or network, and counted it would let four
+ * visitors into every party. A public address is counted even when the
+ * request names another in a forwarding header, which anyone can send
+ * (`visitorAddress`); behind a public proxy left unconfigured that shares four
+ * among every visitor, and the log says what to set. The host and the
+ * accounts get in either way.
  */
 function admission(
 	party: Party,

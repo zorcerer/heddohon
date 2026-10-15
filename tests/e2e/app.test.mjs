@@ -3688,6 +3688,24 @@ describe('the security review of 2026-09-29', () => {
 		}
 	});
 
+	/*
+	 * A forwarding header the operator did not name is not read, and its
+	 * presence changes nothing: taken as a sign of a proxy, it once let a client
+	 * reaching the server directly leave the sign-in backstop per address.
+	 */
+	test('a forwarding header ADDRESS_HEADER does not name is ignored, and the log says to set it', async () => {
+		const attempt = (i, headers) =>
+			new Client(app.url).request('/login', {
+				method: 'POST',
+				headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'text/html', ...headers },
+				body: new URLSearchParams({ username: `forwarded${i}`, password: 'wrong', backend: 'subsonic', next: '/' }).toString()
+			});
+		const response = await attempt(0, { 'x-forwarded-for': '198.51.100.7', 'x-real-ip': '198.51.100.7', forwarded: 'for=198.51.100.7' });
+		assert.notEqual(response.status, 500, explain('a forwarding header broke the sign-in'));
+		assert.match(app.output(), /address-header-unset/);
+		assert.doesNotMatch(app.output(), /198\.51\.100\.7/, 'the address in the header was read');
+	});
+
 	test('a listen-together link takes four streams from one visitor\'s address', async () => {
 		const proxied = await startApp({
 			subsonicUrl: subsonic.url,
