@@ -4438,6 +4438,55 @@ describe('on a phone', () => {
 			assert.deepEqual(problems, []);
 		});
 
+		/*
+		 * Terminal's duotone: the dock's cover is in colour and the sheet's in
+		 * two tones. The flying cover went the whole way in colour, and the
+		 * sheet's turned to the tone in one frame as it landed.
+		 */
+		test('in duotone, the flying cover turns from the dock\'s colour to the sheet\'s two tones', async () => {
+			const settings = (patch) => phone.request.patch(`${app.url}/api/settings`, { data: patch, headers: { origin: app.url } });
+			await settings({ theme: 'terminal', playerArt: 'duotone' });
+			const { page, problems } = await phonePage('/');
+			const at = (time) =>
+				page.evaluate((time) => {
+					for (const animation of document.getAnimations()) {
+						animation.pause();
+						animation.currentTime = time;
+					}
+					const art = document.querySelector('aside.panel .stage .art');
+					const ghost = document.querySelector('.hh-cover-ghost');
+					const tone = ghost.querySelector('span');
+					return {
+						picture: getComputedStyle(ghost.querySelector('img')).filter,
+						tone: tone && getComputedStyle(tone).opacity,
+						fill: tone && getComputedStyle(tone).backgroundColor,
+						sheet: getComputedStyle(art, '::after').backgroundColor,
+						sheetPicture: getComputedStyle(art.querySelector('.cover')).filter
+					};
+				}, time);
+			try {
+				await playAlbum(page, 19);
+				await page.waitForFunction(() => {
+					const art = document.querySelector('aside.panel .art');
+					return art && /^rgb\(/.test(getComputedStyle(art, '::after').backgroundColor);
+				});
+				await tap(page, page.locator('#dock-open'));
+				await page.waitForFunction(() => document.querySelector('.hh-cover-ghost'));
+				const leaving = await at(0);
+				assert.match(leaving.picture, /^(none|grayscale\(0\) contrast\(1\))$/, 'the cover leaves the dock in grey');
+				assert.equal(leaving.tone, '0', 'the cover leaves the dock toned');
+				const landing = await at(479);
+				assert.match(landing.picture, /grayscale\((0\.99\d*|1)\)/);
+				assert.ok(Number(landing.tone) > 0.99, `the tone is at ${landing.tone} as the cover lands`);
+				assert.equal(landing.fill, landing.sheet, 'the flying cover takes another tone than the sheet\'s');
+				assert.match(landing.sheetPicture, /grayscale\(1\)/);
+			} finally {
+				await settings({ theme: 'dark', playerArt: 'dither' });
+				await page.close();
+			}
+			assert.deepEqual(problems, []);
+		});
+
 		test('the sheet closes into the dock, and leaves nothing behind', async () => {
 			const { page, problems } = await phonePage('/');
 			try {
