@@ -58,7 +58,7 @@ docker compose up -d
 docker compose logs heddohon
 ```
 
-The log shows a setup code. Open `http://localhost:3000`, enter the code and
+The log shows a setup code. Open `http://<server>:3000`, enter the code and
 the address of your music server, and sign in with your account on it.
 
 [SETUP.md](SETUP.md) has the rest in order: moving the secret out of the data
