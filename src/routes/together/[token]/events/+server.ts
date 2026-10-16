@@ -1,6 +1,7 @@
 import { error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { listen, togetherEnabled } from '$lib/server/together';
+import { visitorAddress } from '$lib/server/ratelimit';
 
 /** See `routes/api/remote/events`: the same keepalive, for the same proxies. */
 const KEEPALIVE_MS = 25_000;
@@ -11,7 +12,7 @@ const KEEPALIVE_MS = 25_000;
  * is full, and for an account the host removed. The host's own browser, known
  * by its session, is also sent the members and their additions.
  */
-export const GET: RequestHandler = async ({ params, request, locals }) => {
+export const GET: RequestHandler = async ({ params, request, locals, getClientAddress }) => {
 	if (!togetherEnabled()) error(404, 'Not found');
 	const encoder = new TextEncoder();
 	let leave: (() => void) | null = null;
@@ -45,6 +46,7 @@ export const GET: RequestHandler = async ({ params, request, locals }) => {
 			const joined = listen(
 				params.token,
 				locals.session,
+				visitorAddress({ getClientAddress, request }),
 				(event, data) => {
 					write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
 					if (event === 'ended') end();

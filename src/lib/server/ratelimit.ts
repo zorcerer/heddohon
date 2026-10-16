@@ -42,6 +42,35 @@ export interface RateVerdict {
 
 const ALLOWED: RateVerdict = { allowed: true, retryAfter: 0 };
 
+/** Headers a proxy adds with the visitor's address. */
+const FORWARDING = ['x-forwarded-for', 'forwarded', 'x-real-ip'];
+
+let warnedForwarding = false;
+
+/**
+ * The address to count a visitor by: `getClientAddress()`, which is the
+ * connection's own unless the operator names a header in ADDRESS_HEADER.
+ *
+ * A forwarding header that ADDRESS_HEADER does not name is never read, nor
+ * taken as a sign of anything: anyone can send one. Taking its presence to
+ * mean "behind a proxy, count no address" let a client reaching the server
+ * directly send `X-Forwarded-For: x` and leave the sign-in backstop per
+ * address, which stops a password tried against many usernames. Behind a
+ * proxy adapter-node was not told about, every visitor then shares the
+ * proxy's address, and the counts are shared with it; it fails closed, and
+ * the log says once what to set.
+ */
+export function visitorAddress(event: { getClientAddress(): string; request: Request }): string {
+	if (!warnedForwarding && !process.env.ADDRESS_HEADER && FORWARDING.some((name) => event.request.headers.has(name))) {
+		warnedForwarding = true;
+		log.warn('address-header-unset', {
+			detail:
+				'A request arrived with a forwarding header and ADDRESS_HEADER is not set, so visitors are counted by the address of the connection. Behind a proxy, every visitor then shares its address for the sign-in and listen-together limits. Set ADDRESS_HEADER (and XFF_DEPTH) to the header the proxy overwrites.'
+		});
+	}
+	return event.getClientAddress();
+}
+
 /**
  * Whether `getClientAddress()` distinguishes one visitor from another.
  *
@@ -52,7 +81,7 @@ const ALLOWED: RateVerdict = { allowed: true, retryAfter: 0 };
  * presents a loopback or RFC1918 address, so those are not counted. A
  * deployment exposed directly sees public addresses and keeps the backstop.
  */
-function perVisitorAddress(address: string): boolean {
+export function perVisitorAddress(address: string): boolean {
 	if (process.env.ADDRESS_HEADER) return true;
 	if (!address) return false;
 
@@ -74,7 +103,7 @@ function perVisitorAddress(address: string): boolean {
  * full address, 300 attempts from one /64 were all allowed where one IPv4
  * address stopped at 60.
  */
-function addressBucket(address: string): string {
+export function addressBucket(address: string): string {
 	const plain = (address.startsWith('::ffff:') ? address.slice(7) : address).split('%')[0];
 	if (!plain.includes(':')) return plain;
 	const [head, tail] = plain.split('::');

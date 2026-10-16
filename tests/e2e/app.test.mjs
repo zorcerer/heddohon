@@ -107,8 +107,8 @@ async function listen(client, path = '/api/remote/events') {
 			waiting.push(check);
 			check();
 		});
-	const { id } = await next('hello');
-	return { id, next, closed, cancel: () => reader.cancel().catch(() => undefined) };
+	const { id, tag } = await next('hello');
+	return { id, tag, next, closed, cancel: () => reader.cancel().catch(() => undefined) };
 }
 
 describe('how long a sign-in lasts', () => {
@@ -1148,11 +1148,40 @@ describe('playback on another browser', () => {
 				assert.equal((await react(one.id, '💩')).status, 400);
 				assert.equal((await react('nobody', '🔥')).status, 404);
 				assert.equal((await react(one.id, '🔥')).status, 200);
-				assert.equal((await two.next('reaction')).emoji, '🔥');
+				const seen = await two.next('reaction');
+				assert.equal(seen.emoji, '🔥');
+				// The party is shown a tag, which cannot be reacted with: the id is the page's own.
+				assert.equal(seen.from, one.tag);
+				assert.notEqual(one.tag, one.id);
+				assert.equal((await react(one.tag, '🎉')).status, 404, 'a reaction was sent with the tag everyone sees');
 				assert.equal((await react(one.id, '🎉')).status, 429);
 			} finally {
 				one.cancel();
 				two.cancel();
+				await client.json('/api/together', 'DELETE', {});
+			}
+		});
+
+		/*
+		 * The cap was checked before who was connecting: one visitor holding 50
+		 * streams refused every listener, member and the host's own browser.
+		 */
+		test('visitors without an account filling the party leave the host and the members their way in', async () => {
+			const { client, party } = await host();
+			const streams = [];
+			try {
+				for (let i = 0; i < 50; i++) streams.push(await listen(new Client(app.url), `${party.url}/events`));
+				assert.equal((await new Client(app.url).request(`${party.url}/events`)).status, 404, 'a 51st visitor was let in');
+				// Every one from 127.0.0.1, which is not counted per visitor, and the log says why.
+				assert.match(app.output(), /together-one-address/);
+				streams.push(await listen(client, `${party.url}/events`));
+				const second = await member(party);
+				streams.push(second.stream);
+				// An account holds up to four streams of its own.
+				for (let i = 0; i < 3; i++) streams.push(await listen(second.client, `${party.url}/events`));
+				assert.equal((await second.client.request(`${party.url}/events`)).status, 404, 'an account opened a fifth stream');
+			} finally {
+				for (const stream of streams) stream.cancel();
 				await client.json('/api/together', 'DELETE', {});
 			}
 		});
@@ -3656,6 +3685,57 @@ describe('the security review of 2026-09-29', () => {
 		} finally {
 			subsonic.state.stalled.clear();
 			await bounded.stop();
+		}
+	});
+
+	/*
+	 * A forwarding header the operator did not name is not read, and its
+	 * presence changes nothing: taken as a sign of a proxy, it once let a client
+	 * reaching the server directly leave the sign-in backstop per address.
+	 */
+	test('a forwarding header ADDRESS_HEADER does not name is ignored, and the log says to set it', async () => {
+		const attempt = (i, headers) =>
+			new Client(app.url).request('/login', {
+				method: 'POST',
+				headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'text/html', ...headers },
+				body: new URLSearchParams({ username: `forwarded${i}`, password: 'wrong', backend: 'subsonic', next: '/' }).toString()
+			});
+		const response = await attempt(0, { 'x-forwarded-for': '198.51.100.7', 'x-real-ip': '198.51.100.7', forwarded: 'for=198.51.100.7' });
+		assert.notEqual(response.status, 500, explain('a forwarding header broke the sign-in'));
+		assert.match(app.output(), /address-header-unset/);
+		assert.doesNotMatch(app.output(), /198\.51\.100\.7/, 'the address in the header was read');
+	});
+
+	test('a listen-together link takes four streams from one visitor\'s address', async () => {
+		const proxied = await startApp({
+			subsonicUrl: subsonic.url,
+			jellyfinUrl: jellyfin.url,
+			env: { ADDRESS_HEADER: 'x-real-ip' }
+		});
+		// With ADDRESS_HEADER set, a request without the header has no address and is refused.
+		const hostClient = new Client(proxied.url);
+		const request = hostClient.request.bind(hostClient);
+		hostClient.request = (path, options = {}) => request(path, { ...options, headers: { 'x-real-ip': '198.51.100.1', ...(options.headers ?? {}) } });
+		const open = [];
+		try {
+			await hostClient.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' });
+			const { party } = await (await hostClient.json('/api/together', 'POST', {})).json();
+			const stream = async (address) => {
+				const controller = new AbortController();
+				const response = await fetch(`${proxied.url}${party.url}/events`, { headers: { 'x-real-ip': address }, signal: controller.signal });
+				open.push(controller);
+				return response.status;
+			};
+			for (let i = 0; i < 4; i++) assert.equal(await stream('203.0.113.5'), 200, `stream ${i + 1} was refused`);
+			assert.equal(await stream('203.0.113.5'), 404, 'a fifth stream from one address was let in');
+			assert.equal(await stream('203.0.113.6'), 200, 'another address was refused');
+			// An IPv6 address by its /64, the block routed to one customer.
+			for (let i = 1; i <= 4; i++) assert.equal(await stream(`2001:db8:1:2::${i}`), 200, `IPv6 stream ${i} was refused`);
+			assert.equal(await stream('2001:db8:1:2:ffff::1'), 404, 'a fifth address of one /64 was let in');
+			assert.equal(await stream('2001:db8:1:3::1'), 200, 'the next /64 was refused');
+		} finally {
+			for (const controller of open) controller.abort();
+			await proxied.stop();
 		}
 	});
 

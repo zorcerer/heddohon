@@ -23,12 +23,19 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { shareDigest } from './crypto';
 import type { AuthenticatedSession } from './auth';
 import { config } from './config';
+import { log } from './log';
+import { addressBucket, perVisitorAddress } from './ratelimit';
 import type { Song } from '$lib/types';
 
 /** The longest a party lasts. It also ends with the host's session. */
 const PARTY_TTL_MS = 12 * 60 * 60 * 1000;
-/** Listeners one party takes. */
+/** Listeners without an account one party takes. */
 const MAX_LISTENERS = 50;
+/**
+ * Streams one account, or one visitor's address without an account, may hold
+ * open in a party: a phone, a laptop and a television, and one to spare.
+ */
+const MAX_STREAMS_PER_SOURCE = 4;
 /** Parties held at once across the process. */
 const MAX_PARTIES = 200;
 /** One reaction a second per listener. */
@@ -92,7 +99,17 @@ export interface AdditionEvent {
 }
 
 interface Listener {
+	/** Known to this listener's own page alone: it is what `react` and `join` take. */
 	id: string;
+	/** What everyone in the party is shown as the sender of a reaction. */
+	tag: string;
+	/**
+	 * Who it counts against: `account:<id>` signed in, `address:<bucket>`
+	 * without an account where the address tells visitors apart, otherwise null.
+	 */
+	source: string | null;
+	/** The address the stream came from, as `getClientAddress()` gave it. */
+	address: string;
 	send(event: string, data: unknown): void;
 	/** Ends the stream from this side. */
 	close(): void;
@@ -417,23 +434,90 @@ export function removedFrom(token: string, viewer: AuthenticatedSession | null):
 }
 
 /**
+ * Whether a stream may open, and who it counts against. The host's own
+ * browser is always let in. A signed-in account holds up to
+ * `MAX_STREAMS_PER_SOURCE` and is not counted in `MAX_LISTENERS`, which is for
+ * visitors without an account, each address holding up to
+ * `MAX_STREAMS_PER_SOURCE` of them where it tells one visitor from another.
+ *
+ * The cap was once checked before anything about the viewer: one visitor with
+ * the link held 50 streams open, and every listener, member and the host's
+ * own browser after its next reload was refused until the party ended.
+ *
+ * The address is only as good as the deployment's: without `ADDRESS_HEADER`,
+ * `getClientAddress()` behind a proxy is the proxy's for every visitor. A
+ * loopback or private address is not counted (`perVisitorAddress`): it is
+ * usually a proxy on the same host or network, and counted it would let four
+ * visitors into every party. A public address is counted even when the
+ * request names another in a forwarding header, which anyone can send
+ * (`visitorAddress`); behind a public proxy left unconfigured that shares four
+ * among every visitor, and the log says what to set. The host and the
+ * accounts get in either way.
+ */
+function admission(
+	party: Party,
+	as: Exclude<Standing, 'removed'>,
+	viewer: AuthenticatedSession | null,
+	address: string
+): { source: string | null } | null {
+	if (as === 'host') return { source: null };
+	const holding = (source: string) => [...party.listeners.values()].filter((listener) => listener.source === source).length;
+	if (viewer) {
+		const source = `account:${viewer.account.id}`;
+		return holding(source) < MAX_STREAMS_PER_SOURCE ? { source } : null;
+	}
+	const anonymous = [...party.listeners.values()].filter((listener) => !listener.account && !listener.host);
+	if (anonymous.length >= MAX_LISTENERS) return null;
+	if (!perVisitorAddress(address)) {
+		warnOneAddress(anonymous, address);
+		return { source: null };
+	}
+	const source = `address:${addressBucket(address)}`;
+	return holding(source) < MAX_STREAMS_PER_SOURCE ? { source } : null;
+}
+
+let warnedOneAddress = false;
+
+/**
+ * Says once in the log when every visitor of a party arrives from one address
+ * that is not counted: a sign that the deployment is behind a proxy that
+ * adapter-node was not told about, so the per-address count is off.
+ */
+function warnOneAddress(anonymous: Listener[], address: string) {
+	if (warnedOneAddress || anonymous.length < MAX_STREAMS_PER_SOURCE) return;
+	if (!anonymous.every((listener) => listener.address === address)) return;
+	warnedOneAddress = true;
+	log.warn('together-one-address', {
+		detail:
+			'Every listen-together visitor arrives from one address, so streams are not counted per visitor. Behind a proxy, set ADDRESS_HEADER (and XFF_DEPTH) to the header it overwrites.'
+	});
+}
+
+/**
  * Adds a listener's stream to the party behind a token. Null when there is no
- * such party, it is full, or the host removed the account. The listener is
- * sent its id, what plays, what is up next and the count. The host's browser
- * is also sent who is here and which additions it has yet to take or drop.
+ * such party, it is full for this viewer (see `admission`), or the host
+ * removed the account. The listener is sent its id, what plays, what is up
+ * next and the count. The host's browser is also sent who is here and which
+ * additions it has yet to take or drop.
  */
 export function listen(
 	token: string,
 	viewer: AuthenticatedSession | null,
+	address: string,
 	send: (event: string, data: unknown) => void,
 	close: () => void
 ): { id: string; leave(): void } | null {
 	const party = behind(token);
-	if (!party || party.listeners.size >= MAX_LISTENERS) return null;
+	if (!party) return null;
 	const as = standing(party, viewer);
 	if (as === 'removed') return null;
+	const admitted = admission(party, as, viewer, address);
+	if (!admitted) return null;
 	const listener: Listener = {
 		id: randomUUID(),
+		tag: randomUUID(),
+		source: admitted.source,
+		address,
 		send,
 		close,
 		lastReaction: 0,
@@ -443,7 +527,7 @@ export function listen(
 		session: null
 	};
 	party.listeners.set(listener.id, listener);
-	send('hello', { id: listener.id });
+	send('hello', { id: listener.id, tag: listener.tag });
 	send('state', { now: Date.now(), state: party.state });
 	send('queue', queueView(party));
 	if (listener.host) {
@@ -468,6 +552,10 @@ export function listen(
 /**
  * Relays a listener's reaction to everyone in the party. `unknown` for a
  * listener not in it, `limited` for a second reaction inside a second.
+ *
+ * The id is the listener's own, sent to its page alone; the party is shown
+ * the tag. The id was once the sender everyone was shown, and anyone could
+ * then react as another listener and spend that listener's second.
  */
 export function react(token: string, listenerId: string, emoji: string): 'ok' | 'unknown' | 'limited' {
 	const party = behind(token);
@@ -476,7 +564,7 @@ export function react(token: string, listenerId: string, emoji: string): 'ok' | 
 	const now = Date.now();
 	if (now - listener.lastReaction < REACTION_GAP_MS) return 'limited';
 	listener.lastReaction = now;
-	broadcast(party, 'reaction', { emoji, from: listenerId });
+	broadcast(party, 'reaction', { emoji, from: listener.tag });
 	return 'ok';
 }
 
@@ -485,8 +573,8 @@ export function react(token: string, listenerId: string, emoji: string): 'ok' | 
  * name and may add to the queue. `unknown` without such a stream, `refused`
  * for an account that may not be a member.
  *
- * The stream must be one the account opened. Listener ids go to everyone with
- * a reaction, and joining by id alone let a member put their name on a
+ * The stream must be one the account opened. Listener ids once went to
+ * everyone with a reaction, and joining by id alone let a member put their name on a
  * stranger's stream, which counted as the member being here and stayed open
  * when the host removed them.
  */

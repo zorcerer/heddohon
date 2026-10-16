@@ -22,7 +22,10 @@ android {
 
 	defaultConfig {
 		applicationId 'app.heddohon.android'
-		minSdk 23
+		// Android 14, the oldest version Google still patches (the October 2026
+		// bulletin covers 14 to 17). The app opens an account's library, so a phone
+		// without security updates is left out.
+		minSdk 34
 		targetSdk 35
 		versionCode releaseCode
 		versionName releaseName

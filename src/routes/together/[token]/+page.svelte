@@ -27,6 +27,9 @@
 	/** Past this, the audio is moved to where the host is. */
 	const DRIFT_S = 0.75;
 	const REACTION_MS = 2400;
+	/** The least time between two loads of a track whose load failed, so an offline page does not ask every second. */
+	const RELOAD_GAP_MS = 3000;
+	let lastReload = 0;
 
 	// Where it starts; the event stream keeps it current.
 	let current = $state<PartyState | null>(untrack(() => data.state));
@@ -34,6 +37,8 @@
 	let ended = $state(false);
 	let joined = $state(false);
 	let listenerId: string | null = null;
+	/** What the party is shown as the sender of this page's reactions; the id is kept to this page. */
+	let listenerTag: string | null = null;
 	let skew = 0;
 	let audio = $state<HTMLAudioElement | null>(null);
 	let position = $state(0);
@@ -83,13 +88,30 @@
 		if (element.getAttribute('src') !== src) {
 			element.src = src;
 			element.currentTime = expected();
+		} else if (element.error && element.networkState === HTMLMediaElement.NETWORK_NO_SOURCE) {
+			/*
+			 * The track's load failed: the connection dropped as the host moved
+			 * on, and the page was told of the new track and could not fetch it.
+			 * The element stays in that error and refuses every play() until it
+			 * is loaded again, and Join pressed again went through here to the
+			 * same refusal. Measured on Chromium and Firefox after 8 seconds
+			 * offline: silent until the page was reloaded.
+			 */
+			if (Date.now() - lastReload < RELOAD_GAP_MS) return;
+			lastReload = Date.now();
+			element.load();
+			element.currentTime = expected();
 		} else if (Math.abs(element.currentTime - expected()) > DRIFT_S) {
 			element.currentTime = expected();
 		}
 		if (current.playing && element.paused) {
-			await element.play().catch((err) => {
-				if (!(err instanceof DOMException && err.name === 'AbortError')) problem = 'This browser would not start the sound. Press Join again.';
-			});
+			await element
+				.play()
+				.then(() => (problem = null))
+				.catch((err) => {
+					// A failed load is loaded again on the next second; only a refusal of the browser's own is the visitor's to fix.
+					if (err instanceof DOMException && err.name === 'NotAllowedError') problem = 'This browser would not start the sound. Press Join again.';
+				});
 		} else if (!current.playing && !element.paused) {
 			element.pause();
 		}
@@ -169,7 +191,7 @@
 	onMount(() => {
 		const source = new EventSource(`${base}/events`);
 		source.addEventListener('hello', (event) => {
-			listenerId = JSON.parse((event as MessageEvent).data).id;
+			({ id: listenerId, tag: listenerTag } = JSON.parse((event as MessageEvent).data));
 			void enrol();
 		});
 		source.addEventListener('queue', (event) => {
@@ -195,7 +217,7 @@
 		source.addEventListener('reaction', (event) => {
 			const message = JSON.parse((event as MessageEvent).data) as { emoji: string; from: string };
 			// This browser's own shows when it is pressed.
-			if (message.from !== listenerId) float(message.emoji);
+			if (message.from !== listenerTag) float(message.emoji);
 		});
 		source.addEventListener('ended', () => {
 			ended = true;

@@ -458,12 +458,21 @@ values is then the error it was before 0.7.0.
   out until a restart. At 100 bits the code is not found by guessing, and a wrong
   one costs the server one hash. A request body over 16 KB is refused.
 - **What the code allows.** Asking one address whether a music server answers
-  there, and saving twelve values: the secret, the address and name of each music
-  server, the default theme, whether shared links, downloads, lyrics from
-  LRCLIB and AI assistants (MCP) are on, the size of the cover cache, and the addresses the deployment
-  is opened at (**Cross-origin writes**). The list is `SETUP_NAMES` in `config.ts`. The database, the
-  third-party addresses, `HEDDOHON_RADIO_PRIVATE` and the plugin's token are
-  read from the environment alone.
+  there, connecting once to a PostgreSQL server to see whether it takes the
+  connection, and saving sixteen values: the secret, the address and name of
+  each music server, the default theme, whether shared links, downloads,
+  lyrics from LRCLIB and AI assistants (MCP) are on, the size of the cover
+  cache, the PostgreSQL address, user, password and TLS mode, and the
+  addresses the deployment is opened at (**Cross-origin writes**). The list is
+  `SETUP_NAMES` in `config.ts`. The third-party addresses,
+  `HEDDOHON_RADIO_PRIVATE` and the plugin's token are read from the
+  environment alone.
+- **The database test.** It connects with the address, user and password
+  given, asks `SHOW server_version`, and disconnects, within five seconds. The
+  answer is the version or why it failed, in words; the password is in no
+  answer and no log. Saving with PostgreSQL connects again first and saves
+  nothing if that fails. A saved password is in `setup.json` with the secret,
+  and `HEDDOHON_DATABASE_PASSWORD` in the environment keeps it out.
 - **The probe.** It sends one unauthenticated request (`ping` for Subsonic,
   `/System/Info/Public` for Jellyfin) to an http or https address, does not
   follow a redirect, reads at most 64 KB and waits at most 5 seconds. It answers
@@ -862,7 +871,28 @@ plays, as it plays, without an account. What it is limited to:
   stream in progress is cut with the host's session.
 - **Listeners send reactions only.** One of five emoji, from a listener whose
   event stream is open, at most one a second. There are no names or messages.
-- **Bounds:** 50 listeners a session, 200 sessions in the process, one per
+  A reaction names its listener by the id sent to that listener's page
+  alone; the others are shown a separate tag, which a reaction cannot be sent
+  with.
+- **Bounds:** 50 listeners without an account a session, four streams per
+  signed-in account, and four per address without an account (an IPv6
+  address by its /64). The host's own browser is always let in, and signed-in
+  accounts are not counted in the 50.
+- **The per-address count depends on the deployment.** The address is
+  adapter-node's `getClientAddress()`: the connection's own, or the header
+  named in `ADDRESS_HEADER`. A forwarding header that `ADDRESS_HEADER` does
+  not name is never read, and its presence changes nothing, since anyone can
+  send one. Behind a proxy without `ADDRESS_HEADER`, every visitor has the
+  proxy's address: where that address is loopback or private the count is
+  left off, and the 50 still hold; where it is public, every visitor shares
+  its four, which fails closed. The log says `address-header-unset` once when
+  a request with a forwarding header arrives without `ADDRESS_HEADER`, and
+  `together-one-address` once when five or more visitors of one party arrive
+  from one uncounted address. With `ADDRESS_HEADER` set to a header the proxy
+  appends to rather than overwrites, or `XFF_DEPTH` set too low, a visitor
+  writes their own address there and the count does not apply to them. See
+  the [operator checklist](#operator-checklist).
+- 200 sessions in the process, one per
   host session. The host's reports carry text for the listeners' page
   (title, artist, album, 300 characters each), shown as text.
 - **The token is kept out of the log,** as share tokens are.
@@ -882,7 +912,7 @@ nothing.
 - **Joining is a press, and it shows a name.** The page says "Join as
   <name>" and that the name is shown. Until then the visitor's stream is a
   listener's. `POST /together/<token>/join` needs the session, and names a
-  stream the same account opened: listener ids go to everyone with a
+  stream the same account opened: listener ids once went to everyone with a
   reaction, so a stream is not joined by its id alone. The name is the
   account's user name on the music server. The host sees the members whose
   page is open; everyone with the link sees the name on the tracks a member
@@ -1030,16 +1060,24 @@ first-run setup or by an administrator under Settings, Storage:
   on which the sign-in cookie goes out without `Secure` (**Sessions**).
 
 **Forwarded headers.** `X-Forwarded-For`, `X-Forwarded-Host`,
-`X-Forwarded-Proto`, `X-Real-IP` and `Forwarded` are read from no request.
-Nothing in Heddohon is allowed or refused by where a request says it comes
-from: it has no list of addresses that are let through, and a request that
-claims to be from `127.0.0.1` is treated as any other. The local network in
-the cookie rule is the host of an address the operator saved, and not the
-client's. The one use of a client address is the sign-in throttle, which
-takes the connection's own unless the operator sets adapter-node's
-`ADDRESS_HEADER`; set where the proxy does not overwrite that header, a
-client can name any address there and avoid the per-address count, and the
-count per username still applies (**Known gaps**).
+`X-Forwarded-Proto`, `X-Real-IP` and `Forwarded` are read from no request;
+their presence only writes `address-header-unset` to the log once. Nothing
+in Heddohon is allowed or refused
+by where a request says it comes from: it has no list of addresses that are
+let through, and a request that claims to be from `127.0.0.1` is treated as
+any other. The local network in the cookie rule is the host of an address the
+operator saved, and not the client's. A client address is used only to count:
+the sign-in throttle and the listen-together streams per address. It is the
+connection's own unless the operator sets adapter-node's `ADDRESS_HEADER`;
+set where the proxy does not overwrite that header, a client can name any
+address there and avoid the per-address counts, and the count per username
+and the 50 listeners still apply (**Known gaps**). The host and scheme a
+request is served on come from `ORIGIN`, or from adapter-node's
+`HOST_HEADER` and `PROTOCOL_HEADER` where the operator sets them. With none
+of the three set, a saved address is matched against `Host` and passed to
+the adapter in two headers of Heddohon's own, `x-heddohon-host` and
+`x-heddohon-protocol`, which are removed from every incoming request first
+(`savedOrigin` in `vite.config.ts`); otherwise `Host` with https assumed.
 
 ## Sign-in throttling
 
@@ -1228,7 +1266,7 @@ Covers are cached under `$HEDDOHON_DATA_DIR/covers` (see
 | "Listening now" list | 100 accounts; sent at most once in 250 ms |
 | Cast addresses per request | 1 to 1000 track ids |
 | Cast address lifetime | 6 hours, never past the session |
-| Listen-together session | 12 hours, never past the host's session; 50 listeners; 200 sessions a process |
+| Listen-together session | 12 hours, never past the host's session; 50 listeners without an account, 4 streams per account or per address; 200 sessions a process |
 | Listen-together reaction | one of five emoji, one a second per listener |
 | Listen-together addition | a track id of 1 to 255 characters; one every 2 seconds per member; 50 waiting per member, 500 per party |
 | Listen-together queue report | 1000 tracks; titles and artists kept for the first 50, 300 characters each, cut |
@@ -1398,6 +1436,11 @@ session token and any `u`, `t`, `s` or `p` query parameter.
 - **`GET /api/cover/[id]`** writes to the cache and sits outside the origin check.
 - **The scrypt salt** is a constant shared by every deployment.
 - **A cover that misses the cache** is read into memory before its size is checked.
+- **A listen-together link can still be filled for visitors without an
+  account** by someone holding it from many addresses, or from one address
+  where `getClientAddress()` does not tell visitors apart (behind a proxy
+  without `ADDRESS_HEADER`). The host and signed-in accounts still
+  get in; ending the party and starting another gives a new link.
 - **File permissions:** the data directory uses the default umask, and `/app` is
   writable by the `node` user.
 
@@ -1518,6 +1561,28 @@ The same steps in the order to do them, with less of the reasoning, are in
     environment; set it to `false` there to keep it off. Behind a proxy that
     restricts paths, `/api/mcp` takes `POST`, and `GET` and `DELETE` answer
     405.
+13. **Behind a proxy, tell adapter-node where the visitor's address is.**
+    Set `ADDRESS_HEADER` to a header the proxy sets itself (`X-Real-IP` from
+    nginx, or `X-Forwarded-For` with `XFF_DEPTH` set to the number of
+    proxies in front that add to it, counting each that the request passes
+    through). The sign-in throttle and the listen-together count per
+    address use it. Left unset, every visitor behind the proxy has its
+    address: on a loopback or private one the per-address counts are left
+    off, and on a public one everyone shares them (the sign-in backstop of 60
+    failures in 15 minutes, and four listen-together streams). The log says
+    `address-header-unset` either way. Set to a
+    header the client controls, a visitor names any address and both counts
+    stop applying to them. The same goes for `HOST_HEADER` and
+    `PROTOCOL_HEADER`: leave them unset unless the proxy overwrites them,
+    and set `ORIGIN` instead where the address is fixed. Set `ADDRESS_HEADER`
+    only where every request comes through the proxy: adapter-node answers
+    500 to a request without it, and to one carrying fewer
+    `X-Forwarded-For` entries than `XFF_DEPTH`.
+14. **Let Heddohon's security headers through the proxy.** A proxy that sets
+    `Content-Security-Policy`, `Referrer-Policy`, `Cross-Origin-Resource-Policy`
+    or `Permissions-Policy` on every site replaces Heddohon's: the nonce-based
+    script policy, `same-origin` referrers and the sandbox on media. Attach such
+    a header set to the sites that need it rather than to every site.
 
 ## Audit history
 
@@ -1810,3 +1875,63 @@ Looked at and found holding:
 - A cast address after its session signs out: 404. The hardening headers
   on media, `/api/mcp`, `/healthz` and JSON answers; no `Server` or
   `X-Powered-By`.
+
+Reported by the maintainer later the same day, with a check each in
+`tests/e2e/app.test.mjs`:
+
+| Severity | Finding | Fix |
+| --- | --- | --- |
+| Medium | Anyone with a listen-together link could lock everyone out of it, the host included. The 50-listener cap was checked before who was connecting, and `/together/<token>/events` is public: one visitor holding 50 streams open was refused to every listener and member, and to the host's own browser after its next reload, until the party ended. The host's removal works per account, and the visitor had none | The host's browser is always let in. A signed-in account holds up to four streams and is not counted in the 50, which are for visitors without an account, four per address where the address tells visitors apart. What remains is under [Known gaps](#known-gaps) |
+| Low | A reaction was accepted for any listener id, and every reaction showed its sender's id to the whole party: anyone in it could react as another listener and spend that listener's one a second | The id is sent to the listener's own page alone; the party is shown a separate tag, which a reaction is not accepted with |
+
+Asked about at the same time and found holding: a radio station's redirect.
+Redirects are followed by hand, at most three, and every hop, a playlist's
+entry included, goes through the same address check as the station's own
+address. The connection's DNS lookup is the guarded one, so the address
+checked is the address connected to, and a hop served from a public address
+leads only to public ones.
+
+Raised by the maintainer on the fix above, and handled the same day:
+
+| Severity | Finding | Fix |
+| --- | --- | --- |
+| Low | Behind a proxy on a public address without `ADDRESS_HEADER`, every visitor had the proxy's address. The listen-together count would have let four visitors into every party, and the sign-in backstop already counted every visitor's failures together, 60 in 15 minutes for the whole deployment. A loopback or private proxy address was already left out | First counted by no address when a forwarding header came without `ADDRESS_HEADER`, which the audit below undid: it fails closed now, and the log says `address-header-unset`. `ADDRESS_HEADER` and `XFF_DEPTH` are item 13 of the operator checklist, with what a header the client controls does |
+| Info | IPv6 visitors could take a fresh address for each stream | Already counted by /64, as the sign-in throttle is; now checked for the listen-together count too |
+
+A review of every request header the server reads, the same day, at the
+maintainer's request. Each use was traced to what it decides:
+
+| Severity | Finding | Fix |
+| --- | --- | --- |
+| Medium | Introduced the same day and fixed before a release: a request carrying `X-Forwarded-For`, `Forwarded` or `X-Real-IP` without `ADDRESS_HEADER` set was counted by no address. A client reaching the server directly could send one and leave the sign-in backstop per address, which is what stops one password tried against many usernames, and the listen-together count per address | The headers' presence changes no count. The connection's address is counted as before, failing closed behind an unconfigured public proxy, and the log says `address-header-unset` once |
+
+Found holding:
+
+- `Origin` on every write (`hooks.server.ts`), compared with the address the
+  request is served on, and on `/api/mcp` where one is sent. A DNS rebinding
+  page on plain http is served as `https://` its own host, which its `Origin`
+  never matches.
+- The saved addresses (`savedOrigin`): `x-heddohon-host` and
+  `x-heddohon-protocol` from a client are deleted before the adapter reads
+  them, and are only set for a `Host` that is exactly a saved host, to that
+  saved address. A forged `Host` changes the address of the forger's own
+  request alone: the cookie name and `Secure` it is answered with, never a
+  check against another site. With `ORIGIN`, `HOST_HEADER` or
+  `PROTOCOL_HEADER` set, the two headers are read by nothing.
+- `Authorization` on `/api/mcp` (an HMAC digest looked up) and on
+  `/api/plugin/navidrome` (compared in constant time).
+- `Range`, `If-None-Match` and `If-Modified-Since`, passed to the music
+  server as sent (a header value cannot carry a line break) or compared with
+  an ETag; the range this server serves itself is parsed strictly, and a
+  malformed one is ignored.
+- `Content-Length` on the avatar upload, checked again against the body
+  read, under adapter-node's 512 KB body limit.
+- `User-Agent`: a device label shown to the account's own browsers as text,
+  and on a shared link whether `x-robots-tag: noindex` is sent.
+- `Host` and `Origin` in the address form under Settings: a guard against
+  saving a list without the address the administrator is on, after the
+  write has passed the origin check.
+- `ADDRESS_HEADER` set and missing from a request (a visit that did not come
+  through the proxy): adapter-node answers 500 for the sign-in and the
+  listen-together stream; the operator checklist says to set it only where
+  every request comes through the proxy.

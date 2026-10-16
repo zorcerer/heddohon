@@ -24,6 +24,8 @@ asks for:
 - the address of your music server (as Heddohon reaches it, so a LAN address is
   fine) and a name for it;
 - the address Heddohon is opened at, filled in from your browser;
+- the database: SQLite in the data directory, or a PostgreSQL server, with a
+  button that tests the connection;
 - the size of the cover cache, the default theme, and three switches.
 
 It makes the secret and saves everything in `setup.json` in the data directory.

@@ -41,7 +41,10 @@ LABEL org.opencontainers.image.source=https://github.com/zorcerer/heddohon \
 	org.opencontainers.image.description="Server-rendered music player for Navidrome/Subsonic and Jellyfin libraries" \
 	org.opencontainers.image.licenses=MIT
 
+# SHUTDOWN_TIMEOUT is how long adapter-node waits for open requests on SIGTERM
+# before closing them: under the 10 seconds `docker stop` gives.
 ENV NODE_ENV=production \
+	SHUTDOWN_TIMEOUT=3 \
 	PORT=3000 \
 	HOST=0.0.0.0 \
 	HEDDOHON_DATA_DIR=/data \
