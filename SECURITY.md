@@ -1935,3 +1935,21 @@ Found holding:
   through the proxy): adapter-node answers 500 for the sign-in and the
   listen-together stream; the operator checklist says to set it only where
   every request comes through the proxy.
+
+### 16 October 2026
+
+Asked by the maintainer: is a profile picture kept without its metadata, and
+can a display name run as markup? Each with a check, in
+`tests/e2e/app.test.mjs` (**a picture is kept without its metadata**) and
+`tests/browser/browser.test.mjs` (**an account that chooses to be shown**).
+
+| Severity | Finding | Fix |
+| --- | --- | --- |
+| Low | A picture sent to `PUT /api/profile/avatar` by hand, rather than through Settings, was stored and served as sent: EXIF with a phone's GPS position and serial number, XMP, comments, JFIF's thumbnail, and up to 96 KB of anything after the end marker, to every account it was shown to. The browser's own picture is drawn again on a canvas and had none of these (checked in Chromium, WebKit and Firefox) | Every segment is walked, the scans included, and only what draws the picture is kept: the tables, the frame, the scans, the ICC colour profile and Adobe's colour transform. The size check is made on what is kept |
+
+Found holding: a display name of `<img src=x onerror=alert(1)>` is shown as
+that text in the pill's label and in the popup, and no element is made from
+it; the source has no `{@html}` or `innerHTML`, and the page's policy has no
+`'unsafe-inline'` for scripts besides. A user name from the music server
+(the listen-together queue's "Added by", the Join button) goes through the
+same escaping.

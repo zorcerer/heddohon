@@ -1416,11 +1416,19 @@ describe('playback on another browser', () => {
 		});
 	});
 	describe('listening now', () => {
-		/** The frame header of a JPEG that declares this size, and nothing after it: what `jpegSize` reads. */
-		const jpeg = (width, height, padding = 0) =>
+		const JFIF = [0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00];
+		/** A segment with this marker and body. */
+		const segment = (marker, body) => [0xff, marker, (body.length + 2) >> 8, (body.length + 2) & 255, ...body];
+		/**
+		 * The frame header of a JPEG that declares this size (what `jpegSize`
+		 * reads), a scan of `padding` bytes and the end, with `extra` segments
+		 * after the start.
+		 */
+		const jpeg = (width, height, padding = 0, extra = JFIF) =>
 			new Uint8Array([
-				...[0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00],
+				...[0xff, 0xd8, ...extra],
 				...[0xff, 0xc0, 0x00, 0x11, 0x08, height >> 8, height & 255, width >> 8, width & 255, 0x03, 0x01, 0x11, 0x00, 0x02, 0x11, 0x01, 0x03, 0x11, 0x01],
+				...segment(0xda, [0x01, 0x01, 0x00, 0x00, 0x3f, 0x00]),
 				...new Array(padding).fill(0),
 				...[0xff, 0xd9]
 			]);
@@ -1559,7 +1567,8 @@ describe('playback on another browser', () => {
 				assert.equal(served.headers.get('x-content-type-options'), 'nosniff');
 				assert.equal(served.headers.get('content-security-policy'), "default-src 'none'; sandbox");
 				assert.match(served.headers.get('cache-control'), /^private, /);
-				assert.deepEqual(new Uint8Array(await served.arrayBuffer()), bytes);
+				// Without JFIF's segment, which can hold a thumbnail.
+				assert.deepEqual(new Uint8Array(await served.arrayBuffer()), jpeg(256, 256, 2000, []));
 
 				assert.equal((await new Client(app.url).request(`/api/profile/avatar/${id}`)).status, 401);
 				assert.equal((await other.request(`/api/profile/avatar/${'0'.repeat(24)}`)).status, 404);
@@ -1570,6 +1579,59 @@ describe('playback on another browser', () => {
 
 				assert.equal((await client.request('/api/profile/avatar', { method: 'DELETE' })).status, 200);
 				assert.equal((await other.request(`/api/profile/avatar/${id}`)).status, 404);
+			} finally {
+				await client.request('/api/profile/avatar', { method: 'DELETE' });
+			}
+		});
+
+		test('a picture is kept without its metadata, and with its colour profile', async () => {
+			const client = await signedIn();
+			const other = await signedIn('seconduser', 'secondpass');
+			const text = (value) => [...new TextEncoder().encode(value)];
+			try {
+				const icc = segment(0xe2, [...text('ICC_PROFILE\0'), 0x01, 0x01, ...text('sRGB')]);
+				const adobe = segment(0xee, [...text('Adobe'), 0x00, 0x64, 0x00, 0x00, 0x00, 0x00, 0x01]);
+				const exif = segment(0xe1, text('Exif\0\0MM\0*\0\0\0\x08GPS 52.3676N 4.9041E'));
+				const xmp = segment(0xe1, text('http://ns.adobe.com/xap/1.0/\0<x:xmpmeta>Canon EOS R5 0123456789</x:xmpmeta>'));
+				const comment = segment(0xfe, text('taken at home'));
+				const photoshop = segment(0xed, text('Photoshop 3.0\0author'));
+				const sent = new Uint8Array([
+					...jpeg(256, 256, 64, [...JFIF, ...exif, ...icc, ...xmp, ...photoshop, ...adobe, ...comment]),
+					// A second file after the end, as a polyglot carries one.
+					...text('PK\x03\x04hidden.txt')
+				]);
+				const set = await picture(client, sent);
+				assert.equal(set.status, 200);
+				const { id } = await set.json();
+				const served = new Uint8Array(await (await other.request(`/api/profile/avatar/${id}`)).arrayBuffer());
+				assert.deepEqual(served, jpeg(256, 256, 64, [...icc, ...adobe]));
+				const latin = Buffer.from(served).toString('latin1');
+				for (const left of ['Exif', 'GPS', 'xmpmeta', 'Canon', 'taken at home', 'Photoshop', 'JFIF', 'hidden']) {
+					assert.ok(!latin.includes(left), `${left} is still in the picture`);
+				}
+
+				// A scan's stuffed bytes and restart markers are its data, and a segment
+				// after a scan (a progressive JPEG's next table) is walked like the rest.
+				const scans = new Uint8Array([
+					0xff, 0xd8,
+					...[0xff, 0xc2, 0x00, 0x11, 0x08, 0x01, 0x00, 0x01, 0x00, 0x03, 0x01, 0x11, 0x00, 0x02, 0x11, 0x01, 0x03, 0x11, 0x01],
+					...segment(0xda, [0x01, 0x01, 0x00, 0x00, 0x00, 0x00]),
+					...[0x12, 0xff, 0x00, 0x34, 0xff, 0xd0, 0x56],
+					...comment,
+					...segment(0xc4, [0x10, ...new Array(16).fill(0)]),
+					...segment(0xda, [0x01, 0x01, 0x00, 0x01, 0x3f, 0x00]),
+					...[0x78, 0xff, 0xd9]
+				]);
+				const progressive = await picture(client, scans);
+				assert.equal(progressive.status, 200);
+				const kept = new Uint8Array(await (await other.request(`/api/profile/avatar/${(await progressive.json()).id}`)).arrayBuffer());
+				const without = [...scans];
+				without.splice(scans.indexOf(0x56) + 1, comment.length);
+				assert.deepEqual(kept, new Uint8Array(without));
+
+				// A scan that never ends, or a segment longer than what is left, is not a picture.
+				assert.equal((await picture(client, jpeg(256, 256, 64).slice(0, -2))).status, 400);
+				assert.equal((await picture(client, new Uint8Array([0xff, 0xd8, 0xff, 0xe1, 0x40, 0x00, 0x00]))).status, 400);
 			} finally {
 				await client.request('/api/profile/avatar', { method: 'DELETE' });
 			}
