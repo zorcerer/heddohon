@@ -1,13 +1,13 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { config } from '$lib/server/config';
-import { jpegSize, MAX_AVATAR_BYTES, MAX_AVATAR_SIDE, setAvatar } from '$lib/server/listening';
+import { jpegSize, MAX_AVATAR_BYTES, MAX_AVATAR_SIDE, setAvatar, stripJpeg } from '$lib/server/listening';
 
 /**
  * Sets this account's picture from the request's body: a JPEG of at most
- * `MAX_AVATAR_BYTES` and `MAX_AVATAR_SIDE` pixels a side. The browser sends
- * one it has cut square and scaled, and this route checks what it is sent
- * whoever made it.
+ * `MAX_AVATAR_BYTES` and `MAX_AVATAR_SIDE` pixels a side, kept without its
+ * metadata. The browser sends one it has cut square and scaled, and this
+ * route checks what it is sent whoever made it.
  */
 export const PUT: RequestHandler = async ({ locals, request }) => {
 	const session = locals.session;
@@ -20,13 +20,15 @@ export const PUT: RequestHandler = async ({ locals, request }) => {
 	const bytes = new Uint8Array(await request.arrayBuffer().catch(() => new ArrayBuffer(0)));
 	if (bytes.length > MAX_AVATAR_BYTES) error(413, 'The picture is too large');
 
-	const size = jpegSize(bytes);
-	if (!size) error(400, 'The picture must be a JPEG');
+	// What is kept is what is checked, and what other accounts are sent.
+	const picture = stripJpeg(bytes);
+	const size = picture && jpegSize(picture);
+	if (!picture || !size) error(400, 'The picture must be a JPEG');
 	if (size.width > MAX_AVATAR_SIDE || size.height > MAX_AVATAR_SIDE) {
 		error(400, `The picture may be at most ${MAX_AVATAR_SIDE} pixels a side`);
 	}
 
-	const profile = await setAvatar(session.account, bytes);
+	const profile = await setAvatar(session.account, picture);
 	return json({ id: profile.handle, avatar: profile.avatarAt });
 };
 

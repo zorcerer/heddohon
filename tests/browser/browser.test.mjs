@@ -3033,6 +3033,21 @@ describe('playback on another browser', () => {
 			);
 			await viewer.setViewportSize({ width: 1440, height: 900 });
 
+			// A name made of markup is shown as the text it is, in the pill and the popup.
+			const markup = '<img src=x onerror=alert(1)>';
+			const alerts = [];
+			viewer.on('dialog', (dialog) => {
+				alerts.push(dialog.message());
+				dialog.dismiss().catch(() => {});
+			});
+			assert.equal((await write('PATCH', '/api/profile', { name: markup })).status(), 200);
+			await viewer.waitForFunction((label) => document.querySelector('button.heads')?.getAttribute('aria-label') === label, `Listening now: ${markup}`, { timeout: 5000 });
+			await pill.click();
+			await dialog.locator('li.listener', { hasText: markup }).waitFor({ timeout: 5000 });
+			assert.equal(await viewer.locator('img[src="x"]').count(), 0, 'the name was drawn as an element');
+			await viewer.keyboard.press('Escape');
+			assert.deepEqual(alerts, []);
+
 			// Paused, the account is gone from the other's screen.
 			await shown.locator('aside.panel').getByRole('button', { name: 'Pause', exact: true }).click();
 			await pill.waitFor({ state: 'detached', timeout: 5000 });
