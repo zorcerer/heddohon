@@ -53,7 +53,7 @@ seeking and the volume work the same way.
 ## Quick start
 
 ```bash
-git clone https://github.com/zorcerer/heddohon.git && cd heddohon
+curl -LO https://github.com/zorcerer/heddohon/releases/latest/download/docker-compose.yml
 docker compose up -d
 docker compose logs heddohon
 ```
