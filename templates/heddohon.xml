@@ -22,38 +22,18 @@
   <Category>MediaApp:Music</Category>
   <ExtraSearchTerms>navidrome subsonic jellyfin music player flac lossless lyrics radio scrobble</ExtraSearchTerms>
   <License>MIT</License>
-  <Date>2026-10-07</Date>
+  <Date>2026-10-16</Date>
   <WebUI>http://[IP]:[PORT:3000]</WebUI>
 
-  <Overview>
-    A music player for a Navidrome, Subsonic or Jellyfin library, rendered on the server.
+  <Overview>A music player for a Navidrome, Subsonic or Jellyfin library, rendered on the server.
 
-    Audio and artwork are fetched by Heddohon rather than by the browser, so the music server never has to be reachable from the devices you play on: one hostname is exposed and the library stays where it is. Sign-in is a live call to the music server, so there is no second set of accounts to keep.
+Audio and artwork are fetched by Heddohon rather than by the browser, so the music server never has to be reachable from the devices you play on: one hostname is exposed and the library stays where it is. Sign-in is a live call to the music server, so there is no second set of accounts to keep.
 
-    Streams the original file by default, up to FLAC 24/192, with no transcoding or resampling, and shows what is being decoded. Transcoding to MP3, Opus or AAC is a setting of each account.
+Streams the original file by default, up to FLAC 24/192, with no transcoding or resampling, and shows what is being decoded. Transcoding to MP3, Opus or AAC is a setting of each account.
 
-    Synced lyrics, crossfade, a 10-band equaliser, ReplayGain, internet radio from the stations Navidrome lists, and a listening history with statistics, kept on this server. Links to songs, albums and playlists play without an account, and a link to listen together plays what the host plays. The queue and settings follow the account between devices, one browser can control another, and accounts that choose to can see what each other is playing. There is a phone layout, an installable app, and desktop apps for Linux and Windows.
-  </Overview>
+Synced lyrics, crossfade, a 10-band equaliser, ReplayGain, internet radio from the stations Navidrome lists, and a listening history with statistics, kept on this server. Links to songs, albums and playlists play without an account, and a link to listen together plays what the host plays. The queue and settings follow the account between devices, one browser can control another, and accounts that choose to can see what each other is playing. There is a phone layout, an installable app, and desktop apps for Linux and Windows.</Overview>
 
-  <Requires>
-    Nothing has to be filled in before the first start. With Secret and both music server URLs left empty, Heddohon prints a setup code to its log (Logs, on the container's icon) and serves a setup page at its address. The page takes the code and the address of your music server, makes the secret, and asks where Heddohon is opened, so that sign-in works there at once, over plain http on the LAN included.
-
-    Or fill them in here, and the setup page is not shown:
-
-    1. Secret. It encrypts the music-server credentials Heddohon stores. Generate one with: openssl rand -base64 48. Changing it later signs everyone out.
-
-    2. At least one music server URL. It is resolved by the container, so a LAN address is the right answer: http://192.168.1.10:4533
-
-    3. Public URL. The address you open Heddohon at, exactly as the browser shows it: http://192.168.1.10:3000 on the LAN, or https://music.example.com behind a reverse proxy. Sign-in is refused from any other address.
-
-    4. Over plain http, set Secure cookie (under Advanced) to false, or the sign-in does not stick.
-
-    The appdata folder is given to the user the container runs as when it starts: PUID and PGID under Advanced, 99 and 100 as Unraid has them. A container made from this template before 0.7.0 has --user 99:100 under Extra Parameters; with that left in, the folder has to be that user's already: chown -R 99:100 /mnt/user/appdata/heddohon
-
-    The database is SQLite in appdata. The PostgreSQL settings under Advanced move it to a PostgreSQL server, and can be left empty.
-
-    Every setting is described at https://github.com/zorcerer/heddohon/wiki/Configuration
-  </Requires>
+  <Requires>Nothing has to be filled in before the first start. With Secret and both music server URLs left empty, Heddohon prints a setup code to its log (Logs, on the container's icon) and serves a setup page at its address, which makes the secret and asks for the music server and the address Heddohon is opened at. To skip the setup page, fill in Secret (openssl rand -base64 48; changing it later signs everyone out), a music server URL as the container reaches it (http://192.168.1.10:4533) and Public URL exactly as the browser shows it (http://192.168.1.10:3000, or https://music.example.com behind a reverse proxy); over plain http, also set Secure cookie (Advanced) to false. The appdata folder is given to PUID and PGID (Advanced, 99 and 100) when the container starts. A container made from this template before 0.7.0 has --user 99:100 under Extra Parameters: remove it, or the folder has to be that user's already (chown -R 99:100 /mnt/user/appdata/heddohon). The database is SQLite in appdata unless the PostgreSQL settings (Advanced) are filled in. Every setting: https://github.com/zorcerer/heddohon/wiki/Configuration</Requires>
 
   <Config Name="WebUI" Target="3000" Default="3000" Mode="tcp" Description="Port the interface is served on." Type="Port" Display="always" Required="true" Mask="false">3000</Config>
   <Config Name="Appdata" Target="/data" Default="/mnt/user/appdata/heddohon" Mode="rw" Description="Holds the cover cache and the log files, and the SQLite database unless a PostgreSQL URL is set." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/heddohon</Config>
