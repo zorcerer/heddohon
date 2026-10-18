@@ -1,6 +1,7 @@
 import { redirect } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 import { setupPending } from '$lib/server/setup';
+import { FEATURES } from '$lib/server/features';
 
 /**
  * The first-run setup page. It exists while the deployment is missing its
@@ -14,6 +15,8 @@ export const load: PageServerLoad = ({ locals, url }) => {
 	return {
 		// The address this server believes it is served on. Where the browser's
 		// differs, sign-in will be refused until `ORIGIN` says the browser's.
-		serverOrigin: url.origin
+		serverOrigin: url.origin,
+		// The optional features, each a box the setup offers, off; see `features.ts`.
+		features: FEATURES.map(({ id, title, detail }) => ({ id, title, detail }))
 	};
 };

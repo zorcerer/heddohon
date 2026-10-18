@@ -5,6 +5,7 @@ import { remembered } from '$lib/server/listings';
 import { log, reason } from '$lib/server/log';
 import { dailyMixes, summary } from '$lib/server/mixes';
 import { newReleases } from '$lib/server/newreleases';
+import { unseenFeatures } from '$lib/server/features';
 
 /** Favourite songs shown on the home page. */
 const FAVOURITES_SHOWN = 8;
@@ -61,6 +62,21 @@ export const load: PageServerLoad = async ({ locals }) => {
 			})
 		: Promise.resolve([]);
 
+	/*
+	 * Streamed: the optional features that are off and that this account has
+	 * not been told of, for an administrator of the music server; see
+	 * `features.ts`. The administrator is asked of the music server only when
+	 * there is something to tell.
+	 */
+	const unseen = unseenFeatures(locals.settings?.featuresSeen ?? []);
+	const featureNotice =
+		unseen.length === 0
+			? Promise.resolve([])
+			: backend
+					.isAdmin(credential)
+					.then((admin) => (admin === true ? unseen.map(({ id, title }) => ({ id, title })) : []))
+					.catch(() => []);
+
 	// From this server's history, without an upstream call. A failed read leaves
 	// the shelf out.
 	const rediscover = forgottenAlbums(accountId, REDISCOVER_SHOWN).catch((err) => {
@@ -82,6 +98,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 		favouriteSongs,
 		mixes,
 		newReleases: releases,
+		featureNotice,
 		rediscover: await rediscover,
 		discover: shelves.discover ?? []
 	};

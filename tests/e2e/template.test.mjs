@@ -256,7 +256,7 @@ describe('the Unraid template', () => {
 		const settings = new Map(all(template(), 'Config').map((setting) => [setting.attrs.Target, setting.attrs.Default]));
 		// Left empty in the template, so that the setup and Settings decide it: a
 		// value there would be the environment's, which Settings does not change.
-		const savedElsewhere = new Set(['HEDDOHON_MCP', 'HEDDOHON_NEW_RELEASES']);
+		const savedElsewhere = new Set(['HEDDOHON_MCP', 'HEDDOHON_NEW_RELEASES', 'HEDDOHON_LYRICS_LRCLIB', 'HEDDOHON_AUTOEQ', 'HEDDOHON_DISCORD', 'HEDDOHON_LISTENBRAINZ']);
 		let compared = 0;
 		for (const [name, value] of defaults) {
 			if (!settings.has(name) || savedElsewhere.has(name)) continue;

@@ -28,6 +28,7 @@ import {
 	type BackendKind,
 	type SetupName
 } from './config';
+import { FEATURES } from './features';
 import { log, reason } from './log';
 import { addressesWithoutSecure } from './origin';
 
@@ -228,10 +229,14 @@ export interface SetupInput {
 	theme?: unknown;
 	sharing?: unknown;
 	downloads?: unknown;
+	/**
+	 * The optional features to turn on, by id (`FEATURES` in `features.ts`):
+	 * `{ lrclib: true, mcp: false }`. Each may also come as a field of its own
+	 * (`mcp: true`), as the setup page sent them before the list.
+	 */
+	features?: unknown;
 	lrclib?: unknown;
-	/** Whether accounts may turn on the "New releases" shelf; see `newreleases.ts`. */
 	newReleases?: unknown;
-	/** Whether accounts may make tokens for an AI assistant; see `mcp.ts`. */
 	mcp?: unknown;
 	/** The address, or addresses, the deployment is opened at. */
 	origin?: unknown;
@@ -408,12 +413,14 @@ export function finishSetup(input: SetupInput): SetupOutcome {
 	}
 	for (const [field, name] of [
 		['sharing', 'HEDDOHON_SHARING'],
-		['downloads', 'HEDDOHON_DOWNLOADS'],
-		['lrclib', 'HEDDOHON_LYRICS_LRCLIB'],
-		['newReleases', 'HEDDOHON_NEW_RELEASES'],
-		['mcp', 'HEDDOHON_MCP']
+		['downloads', 'HEDDOHON_DOWNLOADS']
 	] as const) {
 		if (typeof input[field] === 'boolean') values[name] = String(input[field]);
+	}
+	const chosen = (input.features && typeof input.features === 'object' ? input.features : {}) as Record<string, unknown>;
+	for (const feature of FEATURES) {
+		const on = Object.hasOwn(chosen, feature.id) ? chosen[feature.id] : (input as Record<string, unknown>)[feature.id];
+		if (typeof on === 'boolean') values[feature.variable] = String(on);
 	}
 
 	const server = serverValues(input);

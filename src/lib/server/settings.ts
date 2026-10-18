@@ -4,6 +4,7 @@
  */
 import { config } from './config';
 import { now, store } from './db';
+import { FEATURE_IDS, type FeatureId } from './features';
 import type { AlbumSort } from '$lib/types';
 
 /**
@@ -118,6 +119,12 @@ export interface UserSettings {
 	 */
 	newReleases: boolean;
 	/**
+	 * The optional features (`features.ts`) this account, as an administrator,
+	 * has been told of on its home page or has saved under Settings, Features.
+	 * One that is off and not in here is told of once.
+	 */
+	featuresSeen: FeatureId[];
+	/**
 	 * Whether what the account plays in other apps, which the Navidrome plugin
 	 * reports, is shown to the other accounts with what it plays here. Read
 	 * only for an account that is shown at all; see `listening.ts`.
@@ -210,6 +217,7 @@ const DEFAULT_SETTINGS: UserSettings = {
 	historyOtherApps: true,
 	// Off until the account turns it on: it sends what it plays to a third party.
 	newReleases: false,
+	featuresSeen: [],
 	// Off until the account turns it on: it shows the other accounts more of it.
 	listeningOtherApps: false,
 	aurora: 'moving',
@@ -313,6 +321,10 @@ function sanitizeSettings(input: unknown, base: UserSettings = defaultSettings()
 			raw.historyDays === 0 || raw.historyDays === 90 || raw.historyDays === 365 ? raw.historyDays : base.historyDays,
 		historyOtherApps: flag('historyOtherApps'),
 		newReleases: flag('newReleases'),
+		// Known ids alone, each once.
+		featuresSeen: Array.isArray(raw.featuresSeen)
+			? FEATURE_IDS.filter((id) => (raw.featuresSeen as unknown[]).includes(id))
+			: base.featuresSeen,
 		listeningOtherApps: flag('listeningOtherApps'),
 		showQualityBadge: flag('showQualityBadge'),
 		gridSize: pick('gridSize', ['compact', 'comfortable', 'roomy'] as const, base.gridSize),

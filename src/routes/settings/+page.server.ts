@@ -1,6 +1,6 @@
 import { fail } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
-import { config, parseOrigins, saveSetup } from '$lib/server/config';
+import { config, fromEnvironment, parseOrigins, saveSetup } from '$lib/server/config';
 import { decidedByEnvironment, MAX_COVER_CACHE_MB, serverValues } from '$lib/server/setup';
 import { addressesWithoutSecure } from '$lib/server/origin';
 import { destroyAllSessions, endSessions, listSessions } from '$lib/server/auth';
@@ -24,6 +24,7 @@ import { getProfile } from '$lib/server/listening';
 import { pluginHeard, pluginOffered, requestImport } from '$lib/server/plugin';
 import { reportStatus } from '$lib/server/libraryreport';
 import { createMcpToken, listMcpTokens, MAX_MCP_TOKEN_NAME, MAX_MCP_TOKENS, revokeMcpToken } from '$lib/server/mcp';
+import { FEATURE_IDS, FEATURES, featureStates } from '$lib/server/features';
 
 /**
  * How long the import action waits for the Navidrome plugin to send the whole
@@ -181,7 +182,9 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 						// Whether this account may switch it, and whether the environment decides it instead.
 						admin: isAdmin === true ? { fromEnvironment: decidedByEnvironment().mcp } : null
 					}
-				: null
+				: null,
+		// The Features tab: each optional feature's switch, for an administrator of the music server.
+		features: isAdmin === true ? featureStates() : null
 	};
 };
 
@@ -222,6 +225,35 @@ export const actions: Actions = {
 		saveSetup({ HEDDOHON_MCP: on ? 'true' : '' });
 		log.warn('mcp-switched', { by: session.account.username, on });
 		return { mcpSaved: true };
+	},
+
+	/**
+	 * Turns the optional features on and off for the deployment, for an
+	 * administrator of the music server; see `features.ts`. Each is saved in
+	 * `setup.json` and taken with the next request. One the environment sets
+	 * is left as it is. Saving also marks every feature as seen for this
+	 * account, so the home page's notice of them goes.
+	 */
+	saveFeatures: async ({ locals, request }) => {
+		const session = locals.session;
+		if (!session) return fail(401, { error: 'Not signed in' });
+		if ((await backendFor(session.account.backend).isAdmin(session.credential)) !== true) {
+			return fail(403, { featuresError: 'Only an administrator of the music server can change these.' });
+		}
+		const form = await request.formData();
+		const values: Partial<Record<(typeof FEATURES)[number]['variable'], string>> = {};
+		const on: string[] = [];
+		for (const feature of FEATURES) {
+			if (fromEnvironment(feature.variable)) continue;
+			const wanted = form.get(feature.id) === 'on';
+			// Off is the default, so it is saved as no value.
+			values[feature.variable] = wanted ? 'true' : '';
+			if (wanted) on.push(feature.id);
+		}
+		saveSetup(values);
+		await saveSettings(session.account.id, { featuresSeen: [...FEATURE_IDS] });
+		log.warn('features-switched', { by: session.account.username, on: on.join(',') || 'none' });
+		return { featuresSaved: true };
 	},
 
 	/** Withdraws one of the account's tokens, by the id the list shows. */

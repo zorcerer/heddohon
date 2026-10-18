@@ -257,13 +257,19 @@
 		{ id: 'account', label: 'Account' },
 		{ id: 'ai', label: 'AI' },
 		{ id: 'sharing', label: 'Shared links' },
-		{ id: 'storage', label: 'Cover cache' }
+		{ id: 'storage', label: 'Cover cache' },
+		{ id: 'features', label: 'Features' }
 	] as const;
 	type Tab = (typeof TABS)[number]['id'];
 
 	const sharingShown = $derived(data.sharing || data.shares.length > 0);
 	const tabs = $derived(
-		TABS.filter((entry) => (entry.id !== 'sharing' || sharingShown) && (entry.id !== 'ai' || data.mcp !== null))
+		TABS.filter(
+			(entry) =>
+				(entry.id !== 'sharing' || sharingShown) &&
+				(entry.id !== 'ai' || data.mcp !== null) &&
+				(entry.id !== 'features' || data.features !== null)
+		)
 	);
 
 	function tabFrom(url: URL): Tab {
@@ -276,8 +282,17 @@
 	let tab = $state<Tab>(untrack(() => tabFrom(page.url)));
 	// A link to a tab that is not offered: sharing off with no links left, or AI with nothing to show.
 	const shown = $derived<Tab>(
-		(tab === 'sharing' && !sharingShown) || (tab === 'ai' && data.mcp === null) ? 'appearance' : tab
+		(tab === 'sharing' && !sharingShown) || (tab === 'ai' && data.mcp === null) || (tab === 'features' && data.features === null)
+			? 'appearance'
+			: tab
 	);
+
+	// On a phone the row scrolls sideways; the chosen tab is brought into it.
+	let tabRow = $state<HTMLElement | null>(null);
+	$effect(() => {
+		void shown;
+		tabRow?.querySelector<HTMLElement>('.tab.active')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+	});
 
 	function selectTab(event: MouseEvent, next: Tab) {
 		// A modified click opens the tab's link as a link would.
@@ -448,6 +463,7 @@
 
 	/** The MCP token form waiting on the server: `make`, or the id of one being withdrawn. */
 	let mcpBusy = $state<string | null>(null);
+	let featuresBusy = $state(false);
 
 	function mcpSubmit(busy: string): SubmitFunction {
 		return () => {
@@ -513,7 +529,7 @@
 		</p>
 	</header>
 
-	<nav class="tabs" aria-label="Settings">
+	<nav class="tabs" aria-label="Settings" bind:this={tabRow}>
 		{#each tabs as entry (entry.id)}
 			<a
 				class="tab"
@@ -2192,6 +2208,53 @@
 		</section>
 	{/if}
 
+	{#if data.features}
+		<section class="hh-card hh-glass group" id="features" hidden={shown !== 'features'}>
+			<div class="group-head">
+				<h2>Features</h2>
+				<p class="hh-muted">
+					Shown to administrators of {data.serverLabel || 'the music server'}. Each of these is off until it is
+					turned on here, for every account on this server, since each sends something to another service. Saved
+					with the setup in setup.json, and taken at once. One set in the server's environment is shown and cannot
+					be changed here.
+				</p>
+			</div>
+			<form
+				method="POST"
+				action="?/saveFeatures"
+				use:enhance={() => {
+					featuresBusy = true;
+					return async ({ update }) => {
+						await update({ reset: false });
+						await invalidateAll();
+						featuresBusy = false;
+					};
+				}}
+			>
+				{#each data.features as feature (feature.id)}
+					<label class="row switch">
+						<span class="label">
+							{feature.title}
+							<span class="hint hh-muted">
+								{feature.detail}
+								{#if feature.fromEnvironment}
+									Set by {feature.variable} in the environment.
+								{/if}
+							</span>
+						</span>
+						<input type="checkbox" name={feature.id} checked={feature.on} disabled={feature.fromEnvironment} />
+					</label>
+				{/each}
+				{#if form && 'featuresError' in form && form.featuresError}
+					<p class="hh-muted note-inline" role="alert">{form.featuresError}</p>
+				{:else if form && 'featuresSaved' in form && form.featuresSaved}
+					<p class="hh-muted note-inline" role="status">Saved.</p>
+				{/if}
+				<button class="hh-button" type="submit" disabled={featuresBusy}>{featuresBusy ? 'Saving…' : 'Save'}</button>
+			</form>
+		</section>
+	{/if}
+
 	<section class="hh-card hh-glass group" hidden={shown !== 'history'}>
 		<div class="group-head">
 			<h2>Listening history</h2>
@@ -2406,6 +2469,14 @@
 		overflow-x: auto;
 		/* Five tabs are wider than a phone; the row scrolls sideways there. */
 		scrollbar-width: none;
+	}
+
+	/* Eight tabs are wider than the column too: there they wrap to a second line. */
+	@media (min-width: 40rem) {
+		.tabs {
+			flex-wrap: wrap;
+			overflow-x: visible;
+		}
 	}
 
 	.tab {
