@@ -1953,6 +1953,77 @@ describe('listening history', () => {
 		}
 	});
 
+	test('the history downloads as CSV and as ListenBrainz listens, with each play\'s source and browser, whole or for a range', async () => {
+		await asFreshAccount('exporter', async (client) => {
+			await client.json('/api/settings', 'PATCH', { reportPlayback: false });
+			const firefox = { headers: { 'user-agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:131.0) Gecko/20100101 Firefox/131.0' } };
+			// A title a spreadsheet would run as a formula.
+			subsonic.state.songTitles.set('s3a', '=HYPERLINK("https://evil.example","x")');
+			subsonic.state.played.set('s5a', daysAgo(30));
+			let middle;
+			try {
+				await client.json('/api/playback', 'POST', { songId: 's3a', event: 'stop', position: 100, completed: true }, firefox);
+				await new Promise((done) => setTimeout(done, 5));
+				middle = Date.now();
+				await new Promise((done) => setTimeout(done, 5));
+				await play(client, 's4b');
+				assert.equal((await importHistory(client)).imported, 1);
+			} finally {
+				subsonic.state.songTitles.clear();
+				subsonic.state.played.clear();
+			}
+
+			const csv = await client.request('/api/history/export?format=csv');
+			assert.equal(csv.status, 200, explain('the CSV export failed'));
+			assert.match(csv.headers.get('content-type'), /^text\/csv; charset=utf-8/);
+			assert.match(csv.headers.get('content-disposition'), /^attachment; filename="heddohon-listening-\d{4}-\d\d-\d\d\.csv"$/);
+			assert.match(csv.headers.get('cache-control'), /no-store/);
+			const lines = (await csv.text()).split('\r\n');
+			assert.equal(lines.pop(), '', 'the last line does not end');
+			assert.equal(lines[0], 'played_at,track,artist,album,duration_seconds,device,source,song_id');
+			// Oldest first: the imported play, 30 days back, then the two made here.
+			assert.equal(lines.length, 4, lines.join('\n'));
+			assert.match(lines[1], /^\d{4}-\d\d-\d\dT[\d:.]+Z,Song 5a,Artist 0005,Album 5,180,,music-server,s5a$/);
+			assert.match(lines[2], /,"'=HYPERLINK\(""https:\/\/evil\.example"",""x""\)",Artist 0003,Album 3,180,Firefox on Linux,heddohon,s3a$/);
+			assert.match(lines[3], /,Song 4b,Artist 0004,Album 4,180,,heddohon,s4b$/);
+
+			const json = await client.request('/api/history/export?format=json');
+			assert.equal(json.status, 200);
+			assert.match(json.headers.get('content-disposition'), /\.json"$/);
+			const listens = await json.json();
+			assert.equal(listens.length, 3);
+			assert.equal(listens[1].listened_at, Math.floor(Date.parse(lines[2].split(',')[0]) / 1000));
+			assert.deepEqual(listens[1].track_metadata, {
+				artist_name: 'Artist 0003',
+				track_name: '=HYPERLINK("https://evil.example","x")',
+				release_name: 'Album 3',
+				additional_info: {
+					media_player: 'Heddohon',
+					submission_client: 'Heddohon',
+					submission_client_version: listens[1].track_metadata.additional_info.submission_client_version,
+					duration: 180,
+					heddohon_song_id: 's3a',
+					heddohon_source: 'heddohon',
+					heddohon_device: 'Firefox on Linux'
+				}
+			});
+			assert.equal(listens[0].track_metadata.additional_info.media_player, undefined, 'an imported play was given a player');
+			assert.equal(listens[0].track_metadata.additional_info.heddohon_source, 'music-server');
+
+			const rows = async (query) => (await (await client.request(`/api/history/export?${query}`)).text()).trim().split('\r\n').slice(1);
+			assert.deepEqual((await rows(`from=${middle}`)).map((line) => line.split(',').at(-1)), ['s4b']);
+			assert.deepEqual((await rows(`to=${middle}`)).map((line) => line.split(',').at(-1)), ['s5a', 's3a']);
+
+			for (const query of ['format=xml', 'from=soon', 'from=-1', 'from=10&to=5', 'to=99999999999999999']) {
+				assert.equal((await client.request(`/api/history/export?${query}`)).status, 400, `${query} was taken`);
+			}
+
+			await asFreshAccount('bystander', async (other) => {
+				assert.deepEqual(await (await other.request('/api/history/export?format=json')).json(), []);
+			});
+		});
+	});
+
 	/** The album links on the home page's shelf titled `title`, in order. */
 	const shelfAlbums = (html, title) => {
 		const section = html.split(`>${title}<`)[1]?.split('</section>')[0] ?? '';
@@ -4313,7 +4384,7 @@ describe('plays sent to a Discord channel and to ListenBrainz', () => {
 		assert.equal(outside.posts.length, count, explain(`posts: ${JSON.stringify(outside.posts)}`));
 		return outside.posts;
 	}
-	const section = async (client) => (await client.page('/settings?tab=account')).html.split('Your plays, elsewhere')[1] ?? '';
+	const section = async (client) => (await client.page('/settings?tab=account')).html.split('Your plays, elsewhere')[1]?.split('</section>')[0] ?? '';
 
 	test('a Discord webhook is checked with Discord, kept out of the page, and posted to once per counted play', async () => {
 		const client = await signedIn(on.url, 'testuser', 'testpass', 'subsonic');

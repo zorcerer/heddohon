@@ -1284,6 +1284,7 @@ Covers are cached under `$HEDDOHON_DATA_DIR/covers` (see
 | MCP request | one JSON-RPC message, within the 512 KB body cap |
 | Library report | an account the music server lists as an administrator; one at a time on the server; kept in memory a day; 50 entries a list |
 | Daily mixes | 3 a day for an account, 40 songs each, made at most once a day from this server's history and kept in `daily_mixes` |
+| Listening history export | the account's own plays; `format` `csv` or `json`, `from` and `to` whole epoch milliseconds up to 8.64e15, `from` before `to`; read 2000 plays a query and written as read. A CSV field that starts with `=`, `+`, `-`, `@`, a tab or a carriage return takes a `'` in front, so a spreadsheet does not run a track name as a formula |
 | Navidrome plugin token | at least 32 characters, and not `HEDDOHON_SECRET` |
 | Navidrome plugin message | 100 plays, or a page of 2000 scrobbles; a user name and a song id of 1 to 255 characters; a time in whole seconds, at most 5 minutes ahead |
 | Scrobble history imports open at once | 4; closed after 2 minutes without a page |

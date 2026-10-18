@@ -17,6 +17,7 @@
 	import { isStarred, setStarred } from '$lib/client/favourites.svelte';
 	import { player } from '$lib/client/player.svelte';
 	import { addSongsToPlaylist } from '$lib/client/playlists.svelte';
+	import { selection, selectionActions } from '$lib/client/selection.svelte';
 	import { shareComposer } from '$lib/client/share.svelte';
 	import { together } from '$lib/client/together.svelte';
 	import Icon from './Icon.svelte';
@@ -91,6 +92,17 @@
 		const sharing = page.data.sharing === true;
 		const here = page.url.pathname;
 		const list: Item[] = [];
+
+		if (subject.kind === 'selection') {
+			const actions = selectionActions();
+			const removal = actions.findIndex((action) => action.danger);
+			for (const [index, action] of actions.entries()) {
+				// The same groups as a single song's.
+				if (index === 3 || index === removal) list.push({ kind: 'rule' });
+				list.push({ kind: 'action', ...action });
+			}
+			return list;
+		}
 
 		if (subject.kind === 'song') {
 			const { song, play, remove } = subject;
@@ -174,11 +186,13 @@
 	});
 
 	const heading = $derived(
-		subject?.kind === 'song'
-			? { kind: 'Song', name: subject.song.title, by: subject.song.artist }
-			: subject
-				? { kind: 'Album', name: subject.album.name, by: subject.album.artist }
-				: null
+		subject?.kind === 'selection'
+			? { kind: 'Selection', name: `${selection.count} ${selection.count === 1 ? 'song' : 'songs'}`, by: null }
+			: subject?.kind === 'song'
+				? { kind: 'Song', name: subject.song.title, by: subject.song.artist }
+				: subject
+					? { kind: 'Album', name: subject.album.name, by: subject.album.artist }
+					: null
 	);
 
 	function choose(item: Extract<Item, { kind: 'action' }>) {
@@ -269,6 +283,11 @@
 			removeEventListener('resize', away);
 			removeEventListener('blur', away);
 		};
+	});
+
+	// A menu for a selection that has ended (its list changed under it) has nothing to act on.
+	$effect(() => {
+		if (subject?.kind === 'selection' && selection.count === 0) contextMenu.close();
 	});
 
 	beforeNavigate(() => contextMenu.close());

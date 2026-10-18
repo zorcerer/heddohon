@@ -118,7 +118,13 @@ CREATE TABLE IF NOT EXISTS plays (
   album       TEXT,
   album_id    TEXT,
   cover_art   TEXT,
-  duration    INTEGER
+  duration    INTEGER,
+  -- How this server heard of the play ("heddohon", "navidrome" or
+  -- "music-server"; see PlaySource in history.ts), and for a play made
+  -- here, the browser ("Firefox on Linux"). Null in a row from before these
+  -- were kept.
+  source      TEXT,
+  device      TEXT
 );
 CREATE INDEX IF NOT EXISTS plays_account_idx ON plays(account_id, played_at);
 
@@ -205,7 +211,9 @@ const ADDED_COLUMNS: { table: string; column: string; type: string }[] = [
 	{ table: 'plays', column: 'album', type: 'TEXT' },
 	{ table: 'plays', column: 'album_id', type: 'TEXT' },
 	{ table: 'plays', column: 'cover_art', type: 'TEXT' },
-	{ table: 'plays', column: 'duration', type: 'INTEGER' }
+	{ table: 'plays', column: 'duration', type: 'INTEGER' },
+	{ table: 'plays', column: 'source', type: 'TEXT' },
+	{ table: 'plays', column: 'device', type: 'TEXT' }
 ];
 
 /**
@@ -269,7 +277,7 @@ const COPIED_TABLES = {
 	settings: ['account_id', 'data', 'updated_at'],
 	play_state: ['account_id', 'data', 'updated_at'],
 	shares: ['id', 'token_digest', 'account_id', 'backend', 'song_id', 'created_at', 'expires_at', 'kind'],
-	plays: ['account_id', 'song_id', 'played_at', 'title', 'artist', 'artist_id', 'album', 'album_id', 'cover_art', 'duration'],
+	plays: ['account_id', 'song_id', 'played_at', 'title', 'artist', 'artist_id', 'album', 'album_id', 'cover_art', 'duration', 'source', 'device'],
 	integrations: ['account_id', 'kind', 'secret', 'created_at'],
 	profiles: ['account_id', 'handle', 'name', 'shown', 'avatar', 'avatar_at', 'updated_at'],
 	meta: ['key', 'value']

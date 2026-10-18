@@ -40,6 +40,21 @@ export interface Play {
 }
 
 /**
+ * How this server heard of a play, kept with it for the export
+ * (`exportPlays`):
+ *
+ * - `heddohon`: played in a browser of this server (`/api/playback`).
+ * - `navidrome`: reported by the Navidrome plugin, as it happened
+ *   (`recordScrobble`) or from Navidrome's scrobble history
+ *   (`openScrobbleImport`): a play in another app, or one made here before
+ *   this server kept a history.
+ * - `music-server`: the music server's date for the song's last play,
+ *   brought in from Settings (`importPlays`).
+ */
+export const PLAY_SOURCES = ['heddohon', 'navidrome', 'music-server'] as const;
+export type PlaySource = (typeof PLAY_SOURCES)[number];
+
+/**
  * Records a play, and drops what is past either limit for the account.
  *
  * `song` is the track as the music server describes it now, kept with the play
@@ -49,21 +64,29 @@ export interface Play {
 export async function recordPlay(
 	accountId: string,
 	songId: string,
-	options: { at?: number; song?: Song | null; keepDays?: number } = {}
+	options: { at?: number; song?: Song | null; keepDays?: number; source?: PlaySource; device?: string | null } = {}
 ): Promise<void> {
 	const at = options.at ?? Date.now();
 	const database = await store();
 	await database.run(
 		`INSERT INTO plays (${COLUMNS}) VALUES ${ROW}`,
-		...playRow(accountId, songId, at, options.song ?? null)
+		...playRow(accountId, songId, at, options.song ?? null, options.source ?? 'heddohon', options.device ?? null)
 	);
 	await trim(accountId, at, options.keepDays ?? 0);
 }
 
-const COLUMNS = 'account_id, song_id, played_at, title, artist, artist_id, album, album_id, cover_art, duration';
-const ROW = '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
+const COLUMNS =
+	'account_id, song_id, played_at, title, artist, artist_id, album, album_id, cover_art, duration, source, device';
+const ROW = '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
 
-function playRow(accountId: string, songId: string, at: number, song: Song | null): unknown[] {
+function playRow(
+	accountId: string,
+	songId: string,
+	at: number,
+	song: Song | null,
+	source: PlaySource,
+	device: string | null = null
+): unknown[] {
 	return [
 		accountId,
 		songId,
@@ -74,7 +97,9 @@ function playRow(accountId: string, songId: string, at: number, song: Song | nul
 		song?.album ?? null,
 		song?.albumId ?? null,
 		song?.coverArt ?? null,
-		song ? Math.round(song.duration) : null
+		song ? Math.round(song.duration) : null,
+		source,
+		device
 	];
 }
 
@@ -113,6 +138,78 @@ export async function recentPlays(accountId: string, limit: number, offset: numb
 	};
 }
 
+/** A play as the export gives it (`exportPlays`). */
+export interface ExportedPlay {
+	songId: string;
+	/** Epoch millis. */
+	playedAt: number;
+	/** The track as it was when played; null in a row from before these were kept. */
+	title: string | null;
+	artist: string | null;
+	album: string | null;
+	/** Seconds. */
+	duration: number | null;
+	/** Null in a row from before it was kept. */
+	source: PlaySource | null;
+	/** The browser, for a play made here; see `deviceLabel`. */
+	device: string | null;
+}
+
+/** Plays read per query by `exportPlays`. */
+const EXPORT_PAGE = 2000;
+
+/**
+ * The account's plays from `from` to before `to` (epoch millis), oldest
+ * first, a page at a time, for the download in Settings.
+ *
+ * Paged by the time and the song of the last play read rather than by an
+ * offset, so a play recorded or trimmed while the download runs moves no page
+ * boundary. Two rows with both the same are one play twice
+ * (`SAME_SCROBBLE_MS`), and the second is left out.
+ */
+export async function* exportPlays(accountId: string, from: number, to: number): AsyncGenerator<ExportedPlay[]> {
+	const database = await store();
+	let afterAt = from;
+	let afterSong = '';
+	for (;;) {
+		const rows = await database.all<{
+			song_id: string;
+			played_at: number;
+			title: string | null;
+			artist: string | null;
+			album: string | null;
+			duration: number | null;
+			source: string | null;
+			device: string | null;
+		}>(
+			`SELECT song_id, played_at, title, artist, album, duration, source, device FROM plays
+			 WHERE account_id = ? AND played_at >= ? AND played_at < ? AND (played_at > ? OR song_id > ?)
+			 ORDER BY played_at, song_id LIMIT ?`,
+			accountId,
+			afterAt,
+			to,
+			afterAt,
+			afterSong,
+			EXPORT_PAGE
+		);
+		if (rows.length === 0) return;
+		yield rows.map((row) => ({
+			songId: row.song_id,
+			playedAt: Number(row.played_at),
+			title: row.title,
+			artist: row.artist,
+			album: row.album,
+			duration: row.duration === null ? null : Number(row.duration),
+			source: PLAY_SOURCES.includes(row.source as PlaySource) ? (row.source as PlaySource) : null,
+			device: row.device
+		}));
+		if (rows.length < EXPORT_PAGE) return;
+		const last = rows[rows.length - 1];
+		afterAt = Number(last.played_at);
+		afterSong = last.song_id;
+	}
+}
+
 /** Forgets every play of the account. Returns how many there were. */
 export async function clearHistory(accountId: string): Promise<number> {
 	return (await (await store()).run('DELETE FROM plays WHERE account_id = ?', accountId)).changes;
@@ -126,8 +223,8 @@ export async function clearHistory(accountId: string): Promise<number> {
  */
 const SAME_PLAY_SLACK_MS = 5 * 60 * 1000;
 
-/** Rows per `INSERT`: 10 parameters each, under SQLite's older limit of 999. */
-const IMPORT_CHUNK = 90;
+/** Rows per `INSERT`: 12 parameters each, under SQLite's older limit of 999. */
+const IMPORT_CHUNK = 80;
 
 /** Accounts with an import running, so a second click does not import twice. */
 const importing = new Set<string>();
@@ -181,7 +278,7 @@ export async function importPlays(
 			const chunk = rows.slice(i, i + IMPORT_CHUNK);
 			await database.run(
 				`INSERT INTO plays (${COLUMNS}) VALUES ${chunk.map(() => ROW).join(', ')}`,
-				...chunk.flatMap(({ song, playedAt }) => playRow(accountId, song.id, playedAt, song))
+				...chunk.flatMap(({ song, playedAt }) => playRow(accountId, song.id, playedAt, song, 'music-server'))
 			);
 		}
 		await trim(accountId, now, keepDays);
@@ -236,7 +333,7 @@ export async function recordScrobble(
 	if (keepDays !== 0 && at < now - keepDays * DAY_MS) return false;
 	return inTurn(accountId, async () => {
 		if (await hasScrobble(accountId, song.id, at)) return false;
-		await recordPlay(accountId, song.id, { at, song, keepDays });
+		await recordPlay(accountId, song.id, { at, song, keepDays, source: 'navidrome' });
 		return true;
 	});
 }
@@ -341,7 +438,7 @@ export async function openScrobbleImport(
 						const chunk = rows.slice(i, i + IMPORT_CHUNK);
 						await database.run(
 							`INSERT INTO plays (${COLUMNS}) VALUES ${chunk.map(() => ROW).join(', ')}`,
-							...chunk.flatMap(({ song, playedAt }) => playRow(accountId, song.id, playedAt, song))
+							...chunk.flatMap(({ song, playedAt }) => playRow(accountId, song.id, playedAt, song, 'navidrome'))
 						);
 					}
 					result.imported += rows.length;

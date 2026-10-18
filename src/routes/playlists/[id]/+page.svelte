@@ -69,15 +69,24 @@
 		}
 	}
 
-	async function removeAt(index: number) {
-		if (busy) return;
+	/**
+	 * Removes one row or the rows picked together. The server takes 1000
+	 * positions a request, so more go in turns from the end of the list, which
+	 * leaves the positions before each turn where they were.
+	 */
+	async function removeAll(indexes: number[]) {
+		if (busy || indexes.length === 0) return;
 		busy = true;
 		error = null;
+		const highestFirst = [...indexes].sort((a, b) => b - a);
 		try {
-			await removeTracks(playlist.id, [index]);
+			for (let at = 0; at < highestFirst.length; at += 1000) {
+				await removeTracks(playlist.id, highestFirst.slice(at, at + 1000));
+			}
 			await invalidateAll();
 		} catch (err) {
-			error = err instanceof Error ? err.message : 'Could not remove that track';
+			await invalidateAll();
+			error = err instanceof Error ? err.message : indexes.length === 1 ? 'Could not remove that track' : 'Could not remove those tracks';
 		} finally {
 			busy = false;
 		}
@@ -319,7 +328,7 @@
 			songs={shownSongs}
 			variant="artwork"
 			showAlbum
-			onremove={playlist.editable ? removeAt : null}
+			onremove={playlist.editable ? removeAll : null}
 			onmove={playlist.editable ? move : null}
 		/>
 	</section>

@@ -3,6 +3,7 @@
 	import { player } from '$lib/client/player.svelte';
 	import { formatDuration } from '$lib/client/format';
 	import { contextMenu } from '$lib/client/context-menu.svelte';
+	import { SelectableList } from '$lib/client/selection.svelte';
 	import { addSongsToPlaylist } from '$lib/client/playlists.svelte';
 	import { shareComposer } from '$lib/client/share.svelte';
 	import { together } from '$lib/client/together.svelte';
@@ -25,7 +26,7 @@
 		 * where one column at that width left most of each row empty.
 		 */
 		columns = false,
-		/** Supplied by the playlist page so rows can be removed from it. */
+		/** Supplied by the playlist page so rows can be removed from it, one or the selection at a time. */
 		onremove = null,
 		onmove = null
 	}: {
@@ -35,7 +36,7 @@
 		showQuality?: boolean;
 		groupByDisc?: boolean;
 		columns?: boolean;
-		onremove?: ((index: number) => void) | null;
+		onremove?: ((indexes: number[]) => void) | null;
 		/**
 		 * Makes the list reorderable: each row gets a handle, dragged with a
 		 * pointer or a finger or moved one place at a time with the arrow keys,
@@ -46,6 +47,25 @@
 	} = $props();
 
 	const currentId = $derived(player.current?.id ?? null);
+
+	/*
+	 * Several rows picked at once; see `selection.svelte.ts`. The selection is
+	 * of positions, so it ends when the list is handed a new order or loses a
+	 * row, and when the list goes.
+	 */
+	const selectable = new SelectableList(() => ({
+		songs: () => songs,
+		remove: onremove ? { label: 'Remove from this playlist', run: (indexes) => onremove?.(indexes) } : null
+	}));
+
+	$effect(() => {
+		void songs;
+		return () => selectable.drop();
+	});
+
+	function focusRow(index: number) {
+		listEl?.querySelectorAll<HTMLElement>('.track')[index]?.focus();
+	}
 
 	/** Only worth showing disc headers when the release actually has more than one. */
 	const discs = $derived.by(() => {
@@ -173,7 +193,8 @@
 		// The row's own keys only. Enter on a link or a button inside it belongs
 		// to that control: caught here, it started the row's song instead.
 		if (event.target !== event.currentTarget) return;
-		if (event.key === 'Enter' || event.key === ' ') {
+		if (selectable.keydown(event, index, focusRow)) return;
+		if (event.key === 'Enter') {
 			event.preventDefault();
 			activate(index);
 		}
@@ -192,6 +213,7 @@
 >
 	{#each songs as song, index (song.id + ':' + index)}
 		{@const isCurrent = song.id === currentId}
+		{@const isSelected = selectable.has(index)}
 		{#if discs && (index === 0 || (songs[index - 1].disc ?? 1) !== (song.disc ?? 1))}
 			<li class="disc-header hh-eyebrow" aria-hidden="true">Disc {song.disc ?? 1}</li>
 		{/if}
@@ -203,23 +225,39 @@
 			<div
 				class="track"
 				class:current={isCurrent}
+				class:selected={isSelected}
 				role="button"
 				tabindex="0"
+				onclickcapture={(event) => selectable.click(event, index)}
+				onmousedown={(event) => selectable.mousedown(event)}
+				onpointerdown={(event) => selectable.pointerdown(event, index)}
+				onpointermove={(event) => selectable.pointermove(event)}
+				onpointerup={() => selectable.pointerend()}
+				onpointercancel={() => selectable.pointerend()}
 				ondblclick={(event) => {
 					// A double press on a control in the row is that control's.
 					// `stopPropagation` on its clicks does not stop the `dblclick` that
-					// follows, which started the row's song.
+					// follows, which started the row's song. Two clicks that pick
+					// rows, or two taps while picking, are not a double press either.
 					if ((event.target as Element).closest('button, a')) return;
+					if (event.shiftKey || event.ctrlKey || event.metaKey || selectable.active) return;
 					activate(index);
 				}}
 				onkeydown={(event) => onKey(event, index)}
-				oncontextmenu={(event) =>
+				oncontextmenu={(event) => {
+					if (selectable.contextmenu(event, index)) return;
+					// On a picked row the menu is for every picked row.
+					if (isSelected) {
+						contextMenu.open(event, { kind: 'selection' });
+						return;
+					}
 					contextMenu.open(event, {
 						kind: 'song',
 						song,
 						play: () => activate(index),
-						remove: onremove ? { label: 'Remove from this playlist', run: () => onremove?.(index) } : null
-					})}
+						remove: onremove ? { label: 'Remove from this playlist', run: () => onremove?.([index]) } : null
+					});
+				}}
 				aria-current={isCurrent ? 'true' : undefined}
 			>
 				{#if onmove}
@@ -227,6 +265,7 @@
 					     the arrow keys while it has focus. -->
 					<button
 						class="grip"
+						data-select-skip
 						type="button"
 						aria-label="Move {song.title}, number {index + 1} of {songs.length}. Use the up and down arrow keys."
 						title="Drag to reorder"
@@ -244,6 +283,9 @@
 					{#if variant === 'artwork'}
 						<div class="thumb">
 							<Cover coverArt={song.coverArt} size={96} alt="" radius="var(--r-sm)" />
+							{#if isSelected}
+								<span class="picked" aria-hidden="true"><Icon name="check" size={18} /></span>
+							{/if}
 						</div>
 					{:else}
 						<!--
@@ -261,6 +303,8 @@
 									<span class="bars" aria-hidden="true">
 										<i></i><i></i><i></i><i></i>
 									</span>
+								{:else if isSelected}
+									<Icon name="check" size={14} />
 								{:else}
 									{song.track ?? index + 1}
 								{/if}
@@ -280,6 +324,7 @@
 
 				<div class="meta">
 					<span class="title hh-truncate">{song.title}</span>
+					{#if isSelected}<span class="hh-visually-hidden">Selected</span>{/if}
 					<span class="sub hh-truncate hh-muted">
 						{#if song.artist}
 							<a href={song.artistId ? `/artists/${song.artistId}` : '#'}>
@@ -357,7 +402,7 @@
 							class="row-action row-action--danger"
 							onclick={(event) => {
 								event.stopPropagation();
-								onremove?.(index);
+								onremove?.([index]);
 							}}
 							aria-label="Remove {song.title} from this playlist"
 							title="Remove from playlist"
@@ -449,6 +494,53 @@
 	.track:focus-visible::before {
 		opacity: 1;
 		scale: 1;
+	}
+
+	/* A picked row: the wash held, stronger and across the whole row, with an
+	   edge in the accent where it starts. */
+	.track.selected::before {
+		opacity: 1;
+		scale: 1;
+		background: linear-gradient(
+			90deg,
+			color-mix(in srgb, var(--accent) 24%, transparent),
+			color-mix(in srgb, var(--accent) 9%, transparent)
+		);
+		box-shadow: inset 2px 0 0 var(--accent);
+	}
+
+	.track.selected .index .resting {
+		color: var(--accent);
+	}
+
+	/* Over the cover of a picked row, which is the play control there. */
+	.picked {
+		position: absolute;
+		inset: 0;
+		display: grid;
+		place-items: center;
+		border-radius: var(--r-sm);
+		background: color-mix(in srgb, var(--accent) 72%, transparent);
+		color: var(--accent-contrast);
+		pointer-events: none;
+	}
+
+	/*
+	 * With a finger, a long press on a row picks it (`selection.svelte.ts`).
+	 * Without these, iOS selects the text under the finger and opens its
+	 * callout instead. A link keeps its own: a long press there is how it
+	 * opens in a new tab.
+	 */
+	@media (pointer: coarse) {
+		.track {
+			-webkit-touch-callout: none;
+			-webkit-user-select: none;
+			user-select: none;
+		}
+
+		.track a {
+			-webkit-touch-callout: default;
+		}
 	}
 
 	/* A reorderable list puts the handle in a column of its own first, as the
@@ -862,6 +954,12 @@
 		background: var(--bg-hover);
 		scale: none;
 		transition: opacity var(--dur-hover) var(--ease-out);
+	}
+
+	/* A picked row is the accent's ground, faint, with its edge. */
+	:global([data-theme='terminal']) .track.selected::before {
+		background: color-mix(in srgb, var(--row-accent) 20%, transparent);
+		box-shadow: inset 3px 0 0 var(--row-accent);
 	}
 
 	:global([data-theme='terminal']) .track:hover .meta {
