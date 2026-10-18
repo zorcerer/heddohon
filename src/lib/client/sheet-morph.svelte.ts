@@ -9,8 +9,8 @@
  * Everything that moves obeys the glass rules in `app.css`. The sheet's
  * wrapper is transformed, and a transform is not a backdrop root, so the panel
  * keeps its blur. Opacity goes on the panel's contents, never on the panel or
- * anything around it. The flying cover is an image of its own, over
- * everything, holding no glass.
+ * anything around it. The flying cover is a box of its own, over everything,
+ * holding no glass.
  *
  * The CSS slide stays for what this does not cover: a wider screen, reduced
  * motion, and nothing playing (so no dock row to land in).
@@ -28,7 +28,7 @@ import { takeRelease } from './sheet.svelte';
 export const sheetMorph = $state<{ phase: 'morphing' | 'parking' | null }>({ phase: null });
 
 let running: Animation[] = [];
-let ghost: HTMLImageElement | null = null;
+let ghost: HTMLElement | null = null;
 let hiddenArt: HTMLElement | null = null;
 
 function cleanUp() {
@@ -126,13 +126,32 @@ function run(opening: boolean, pulled: number) {
 	if (sheetArt && big && image) {
 		const start = opening ? small : new DOMRect(big.left, big.top + pulled, big.width, big.height);
 		const end = opening ? big : small;
-		ghost = document.createElement('img');
-		ghost.src = image.currentSrc || image.src;
-		ghost.alt = '';
+		ghost = document.createElement('div');
 		ghost.setAttribute('aria-hidden', 'true');
 		ghost.className = 'hh-cover-ghost';
+		const picture = document.createElement('img');
+		picture.src = image.currentSrc || image.src;
+		picture.alt = '';
+		ghost.append(picture);
 		place(ghost, start);
 		document.body.append(ghost);
+		// Duotone (Terminal): the sheet's cover is drawn in grey under a layer of
+		// its own colour, the dock's in full colour. The flying one turns from
+		// one to the other on the way. It flew in colour and snapped to the tone
+		// as the sheet's cover was shown at the end of an open.
+		const layer = getComputedStyle(sheetArt, '::after');
+		if (layer.mixBlendMode === 'multiply') {
+			const sheetCover = sheetArt.querySelector('.cover');
+			const grey = sheetCover ? getComputedStyle(sheetCover).filter : 'none';
+			const tone = document.createElement('span');
+			tone.style.background = layer.backgroundColor;
+			ghost.append(tone);
+			const turn = (from: Keyframe, to: Keyframe) => (opening ? [from, to] : [to, from]);
+			running.push(
+				picture.animate(turn({ filter: 'none' }, { filter: grey }), options),
+				tone.animate(turn({ opacity: 0 }, { opacity: 1 }), options)
+			);
+		}
 		// The sheet's cover rounds its top corners only, on the image itself.
 		const bigRadius = getComputedStyle(sheetArt.querySelector('img') ?? sheetArt).borderRadius;
 		const smallRadius = getComputedStyle(dockArt).borderRadius;
