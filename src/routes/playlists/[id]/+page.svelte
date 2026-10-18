@@ -259,6 +259,22 @@
 				</div>
 
 				<div class="group group--edit">
+					<!-- Downloads, so links: the server writes the file. -->
+					<details class="export">
+						<summary class="hh-button hh-button--ghost">
+							<Icon name="download" size={16} />
+							Export
+						</summary>
+						<div class="export-menu hh-glass hh-float">
+							<a href="/api/playlists/{encodeURIComponent(playlist.id)}/export?format=m3u" download>
+								M3U, by file
+							</a>
+							<a href="/api/playlists/{encodeURIComponent(playlist.id)}/export?format=m3u-titles" download>
+								M3U, by artist and title
+							</a>
+							<a href="/api/playlists/{encodeURIComponent(playlist.id)}/export?format=csv" download>CSV</a>
+						</div>
+					</details>
 					{#if player.queue.length > 0}
 						<button
 							class="hh-button hh-button--ghost"
@@ -429,6 +445,48 @@
 	.actions .hh-button:disabled {
 		opacity: 0.5;
 		cursor: not-allowed;
+	}
+
+	/* The export's three files, in a pane under its button. */
+	.export {
+		position: relative;
+	}
+
+	.export summary {
+		list-style: none;
+		cursor: default;
+	}
+
+	.export summary::-webkit-details-marker {
+		display: none;
+	}
+
+	.export-menu {
+		position: absolute;
+		top: calc(100% + var(--space-1));
+		left: 0;
+		z-index: 5;
+		display: grid;
+		min-width: 14rem;
+		padding: var(--space-1);
+		border: 1px solid var(--border-strong);
+		border-radius: var(--r-md);
+	}
+
+	.export-menu a {
+		padding: 0.45rem var(--space-3);
+		border-radius: var(--r-sm);
+		color: var(--text-default);
+		font-size: 0.875rem;
+		text-decoration: none;
+		white-space: nowrap;
+	}
+
+	.export-menu a:hover,
+	.export-menu a:focus-visible {
+		background: var(--bg-hover);
+		color: var(--text-strong);
+		outline: none;
 	}
 
 	.danger:hover:not(:disabled) {

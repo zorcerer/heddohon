@@ -36,14 +36,15 @@ a request to the music server. The one host you expose is Heddohon.
 Heddohon also contacts a PostgreSQL server when `HEDDOHON_DATABASE_URL` names
 one (see [PostgreSQL](#postgresql)). The other hosts it contacts are LRCLIB, only with
 `HEDDOHON_LYRICS_LRCLIB=true`, and the AutoEq results on GitHub, only with
-`HEDDOHON_AUTOEQ=true`, Discord, only with `HEDDOHON_DISCORD=true`, and
-ListenBrainz, only with `HEDDOHON_LISTENBRAINZ=true`; all four are off by
-default. And the hosts of the internet
+`HEDDOHON_AUTOEQ=true`, Discord, only with `HEDDOHON_DISCORD=true`,
+ListenBrainz, only with `HEDDOHON_LISTENBRAINZ=true`, and MusicBrainz, only
+with `HEDDOHON_NEW_RELEASES=true`; all five are off by default. And the hosts of the internet
 radio stations the music server lists, when a listener plays one; that is on
 unless `HEDDOHON_RADIO=false`. See [Lyrics from
 LRCLIB](#lyrics-from-lrclib), [Headphone corrections from
 AutoEq](#headphone-corrections-from-autoeq), [Plays sent to Discord and
-ListenBrainz](#plays-sent-to-discord-and-listenbrainz) and [Internet
+ListenBrainz](#plays-sent-to-discord-and-listenbrainz), [New releases from
+MusicBrainz](#new-releases-from-musicbrainz) and [Internet
 radio](#internet-radio).
 
 Two things besides a browser send Heddohon requests, each only where the
@@ -191,6 +192,33 @@ No account name, credential or upstream detail is sent.
   hours, a failure for 5 minutes.
 - Both routes need a session. Search matches in memory and makes no request
   upstream once the index is held.
+
+## New releases from MusicBrainz
+
+With `HEDDOHON_NEW_RELEASES=true`, an account can turn on a "New releases"
+shelf for its home page under Settings, Listening history; it is off for every
+account until it does. For an account that has, the server reads the ten
+artists it played most in the last year from its history, and asks
+`HEDDOHON_MUSICBRAINZ_URL` (by default `musicbrainz.org`) for the albums and
+EPs of each: by the MusicBrainz id the music server keeps for the artist, or
+by its name where it keeps none. That is what MusicBrainz learns: this
+server's address, and the names or ids of those artists. No account name,
+credential or upstream detail is sent.
+
+- **Server-side only.** The browser's policy is unchanged; the shelf links to
+  MusicBrainz's pages and loads nothing from there.
+- **The library is read first, within the request.** The artists' ids and
+  the albums the library holds are read through the account's credential
+  while the home page loads; only the questions to MusicBrainz, which need no
+  credential, may go on after it: a decrypted credential lives for one
+  request.
+- **One request a second**, as MusicBrainz asks, in one queue for the
+  process, under a `User-Agent` naming Heddohon. 10 seconds and 1 MB an
+  answer, redirects refused, 3 pages of 100 release groups an artist.
+- **Cached.** What an artist has released, and the id a name finds, for a
+  day, for every account alike (it is the same for all); 2000 of each. The
+  shelf for a day per account. Failures are logged as `new-releases-failed`.
+- **Text only.** Titles are cut to 300 characters and rendered as text.
 
 ## Internet radio
 
@@ -1285,6 +1313,8 @@ Covers are cached under `$HEDDOHON_DATA_DIR/covers` (see
 | Library report | an account the music server lists as an administrator; one at a time on the server; kept in memory a day; 50 entries a list |
 | Daily mixes | 3 a day for an account, 40 songs each, made at most once a day from this server's history and kept in `daily_mixes` |
 | Listening history export | the account's own plays; `format` `csv` or `json`, `from` and `to` whole epoch milliseconds up to 8.64e15, `from` before `to`; read 2000 plays a query and written as read. A CSV field that starts with `=`, `+`, `-`, `@`, a tab or a carriage return takes a `'` in front, so a spreadsheet does not run a track name as a formula |
+| Playlist import | 1000 tracks a request, each with a title; title, artist and album cut to 300 characters; a length above 0 and under 86400 s or none. Each track is up to two searches of 20 songs on the music server, 8 tracks at a time, stopped when the browser goes. Nothing is written until the playlist is created through `/api/playlists` |
+| Playlist export | `format` one of `m3u`, `m3u-titles` and `csv`; a playlist the account can read. An M3U line holds no line break; CSV fields as in the history export |
 | Navidrome plugin token | at least 32 characters, and not `HEDDOHON_SECRET` |
 | Navidrome plugin message | 100 plays, or a page of 2000 scrobbles; a user name and a song id of 1 to 255 characters; a time in whole seconds, at most 5 minutes ahead |
 | Scrobble history imports open at once | 4; closed after 2 minutes without a page |

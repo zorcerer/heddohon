@@ -1114,6 +1114,28 @@ export const jellyfinBackend: MediaBackend = {
 		};
 	},
 
+	async searchSongs(cred, query, limit) {
+		const { userId } = creds(cred);
+		const body = await call<ItemsResponse>(cred, '/Items', {
+			userId,
+			searchTerm: query,
+			IncludeItemTypes: 'Audio',
+			Recursive: 'true',
+			Fields: SONG_FIELDS,
+			Limit: limit
+		});
+		return (body.Items ?? []).map(toSong);
+	},
+
+	async getPlaylistPaths(cred, id) {
+		const { userId } = creds(cred);
+		const items = await call<ItemsResponse>(cred, `/Playlists/${seg(id)}/Items`, { userId, Fields: 'Path' });
+		return (items.Items ?? []).map((item) => {
+			const path = (item as { Path?: unknown }).Path;
+			return typeof path === 'string' && path ? path : null;
+		});
+	},
+
 	async setStarred(cred, id, _kind: StarKind, starred) {
 		const { userId } = creds(cred);
 		await post(

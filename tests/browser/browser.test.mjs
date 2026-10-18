@@ -9,6 +9,7 @@
  * Runs the built app against the same mock servers as `tests/e2e`.
  */
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { after, before, describe, test } from 'node:test';
 import { chromium } from 'playwright';
 import { startApp } from '../e2e/harness.mjs';
@@ -83,11 +84,13 @@ describe('the policy', () => {
 			'/radio',
 			'/library',
 			'/playlists',
+			'/playlists/import',
 			'/folders',
 			'/folders/d-al1',
 			'/history',
 			'/screen',
 			'/stats',
+			'/stats/recap',
 			'/search?q=song',
 			'/settings'
 		];
@@ -2008,6 +2011,73 @@ describe('reordering a playlist', () => {
 	});
 });
 
+describe('importing a playlist', () => {
+	test('a file is read, its tracks looked for, what was found shown, and the playlist saved with what is kept', async () => {
+		const { page, problems } = await watchedPage();
+		try {
+			await page.goto(app.url + '/playlists', { waitUntil: 'networkidle' });
+			await page.getByRole('link', { name: 'Import', exact: true }).click();
+			await page.waitForURL(app.url + '/playlists/import');
+			const file =
+				'#EXTM3U\n#PLAYLIST:Road trip\n' +
+				'#EXTINF:180,Artist 0003 - Song 3a\n/music/a.flac\n' +
+				'#EXTINF:181,Artist 0004 - Song 4b (Live)\n/music/b.flac\n' +
+				'/music/Nobody/Nothing/01 - Nothing like it.flac\n';
+			await page.locator('input[type=file]').setInputFiles({ name: 'road.m3u8', mimeType: 'audio/x-mpegurl', buffer: Buffer.from(file) });
+			assert.equal(await page.getByLabel('Name', { exact: true }).inputValue(), 'Road trip');
+			await page.getByRole('button', { name: 'Look for them in your library' }).click();
+			const summary = page.locator('.summary');
+			await summary.waitFor();
+			assert.equal((await summary.textContent()).replace(/\s+/g, ' ').trim(), '1 found, 1 close, 1 not in your library.');
+
+			await page.getByRole('checkbox', { name: 'Keep Song 4b' }).uncheck();
+			await page.getByRole('button', { name: 'Save playlist (1 track)' }).waitFor();
+			await page.getByRole('checkbox', { name: 'Keep Song 4b' }).check();
+
+			// The mock makes no new playlists, so the one request is answered here.
+			let sent = null;
+			await page.route('**/api/playlists', async (route) => {
+				if (route.request().method() !== 'POST') return route.fallback();
+				sent = route.request().postDataJSON();
+				await route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({ id: 'pl1', name: 'Road trip', added: 2 }) });
+			});
+			await page.getByRole('button', { name: 'Save playlist (2 tracks)' }).click();
+			await page.waitForURL(app.url + '/playlists/pl1');
+			assert.deepEqual(sent, { name: 'Road trip', songIds: ['s3a', 's4b'] });
+		} finally {
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+
+	test('a Spotify export with several playlists offers each, and a file with no tracks says so', async () => {
+		const { page, problems } = await watchedPage();
+		try {
+			await page.goto(app.url + '/playlists/import', { waitUntil: 'networkidle' });
+			const spotify = {
+				playlists: [
+					{ name: 'First', items: [{ track: { trackName: 'Song 1a', artistName: 'Artist 0001', albumName: 'Album 1' } }] },
+					{ name: 'Second', items: [{ track: { trackName: 'Song 2a', artistName: 'Artist 0002' } }, { track: { trackName: 'Song 2b', artistName: 'Artist 0002' } }] }
+				]
+			};
+			await page.locator('input[type=file]').setInputFiles({ name: 'Playlist1.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(spotify)) });
+			const which = page.getByLabel('Playlist in the file');
+			assert.deepEqual(await which.locator('option').allTextContents(), ['First (1)', 'Second (2)']);
+			await which.selectOption({ label: 'Second (2)' });
+			assert.equal(await page.getByLabel('Name', { exact: true }).inputValue(), 'Second');
+			await page.getByRole('button', { name: 'Look for them in your library' }).click();
+			await page.locator('.summary').waitFor();
+			assert.match(await page.locator('.summary').textContent(), /^2 found/);
+
+			await page.locator('input[type=file]').setInputFiles({ name: 'empty.csv', mimeType: 'text/csv', buffer: Buffer.from('title,artist\n') });
+			assert.equal(await page.getByRole('alert').textContent(), 'No tracks were found in the file.');
+		} finally {
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+});
+
 describe('waiting for a page', () => {
 	test('a slow page shows the press, a line and a softened page, and clears them when it lands', async () => {
 		subsonic.state.delays.set('getAlbumList2', 1500);
@@ -3402,6 +3472,34 @@ describe('your listening', () => {
 		}
 		assert.deepEqual(problems, []);
 	});
+
+	test('the recap of this year names its busiest day and saves a card as a picture', async () => {
+		const { page, problems } = await watchedPage();
+		try {
+			const response = await context.request.post(`${app.url}/api/playback`, {
+				data: { songId: 's17b', event: 'stop', position: 100, completed: true },
+				headers: { origin: app.url }
+			});
+			assert.equal(response.status(), 200);
+			await page.goto(app.url + '/stats/recap', { waitUntil: 'networkidle' });
+			assert.equal(await page.locator('h1').textContent(), String(new Date().getUTCFullYear()));
+			const busiest = page.locator('.figure', { hasText: 'Busiest day' }).locator('.value');
+			assert.notEqual((await busiest.textContent()).trim(), '–');
+			assert.equal(await page.locator('.months li').count(), 12);
+
+			const download = page.waitForEvent('download');
+			await page.getByRole('button', { name: 'Save as a picture' }).click();
+			const file = await download;
+			assert.match(file.suggestedFilename(), /^heddohon-recap-\d{4}\.png$/);
+			const bytes = await readFile(await file.path());
+			// A PNG, 1080 by 1350: the signature, then the width and height in IHDR.
+			assert.deepEqual([...bytes.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
+			assert.deepEqual([bytes.readUInt32BE(16), bytes.readUInt32BE(20)], [1080, 1350]);
+		} finally {
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
 });
 
 describe('your listening, day by day', () => {
@@ -3593,6 +3691,50 @@ describe('star ratings', () => {
 			await saved;
 			assert.equal(await hero.getAttribute('aria-label'), 'Not rated');
 			assert.equal(subsonic.state.ratings.has('al5'), false);
+		} finally {
+			subsonic.state.ratings.clear();
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+
+	test('a song is rated from the menu on its row, by a press or from the keyboard, and the lit star clears it', async () => {
+		const { page, problems } = await watchedPage();
+		const rated = () => page.waitForResponse((r) => r.url().endsWith('/api/rating'));
+		const focusedLabel = () => page.evaluate(() => document.activeElement?.getAttribute('aria-label'));
+		try {
+			await page.goto(app.url + '/albums/al34', { waitUntil: 'networkidle' });
+			const row = page.locator('main .track', { hasText: 'Song 34b' });
+			const stars = page.getByRole('menu').getByRole('group', { name: 'Rating' });
+			await row.locator('.title').click({ button: 'right' });
+			let saved = rated();
+			await stars.getByRole('menuitemradio', { name: 'Rate 4 of 5' }).click();
+			await saved;
+			assert.equal(subsonic.state.ratings.get('s34b'), 4);
+			assert.equal(await page.getByRole('menu').count(), 0, 'the menu stayed after a rating');
+
+			// From the keyboard the stars are one stop, entered at the rating.
+			await row.focus();
+			await page.keyboard.press('ContextMenu');
+			await page.getByRole('menu').waitFor();
+			for (let press = 0; press < 12; press++) {
+				if (await page.evaluate(() => document.activeElement?.getAttribute('role') === 'menuitemradio')) break;
+				await page.keyboard.press('ArrowDown');
+			}
+			assert.equal(await focusedLabel(), '4 of 5, press to clear');
+			await page.keyboard.press('ArrowLeft');
+			assert.equal(await focusedLabel(), 'Rate 3 of 5');
+			saved = rated();
+			await page.keyboard.press('Enter');
+			await saved;
+			assert.equal(subsonic.state.ratings.get('s34b'), 3);
+			assert.ok(await row.evaluate((el) => el === document.activeElement), 'the focus did not go back to the row');
+
+			await row.locator('.title').click({ button: 'right' });
+			saved = rated();
+			await stars.getByRole('menuitemradio', { name: '3 of 5, press to clear' }).click();
+			await saved;
+			assert.equal(subsonic.state.ratings.has('s34b'), false);
 		} finally {
 			subsonic.state.ratings.clear();
 			await page.close();
@@ -5441,7 +5583,7 @@ describe('Terminal, the default theme', () => {
 		await settings({ theme: 'terminal' });
 		const { page, problems } = await watchedPage();
 		try {
-			for (const path of ['/', '/albums', '/albums/al1', '/artists', '/artists/ar1', '/favourites', '/genres', '/radio', '/library', '/playlists', '/folders', '/folders/d-al1', '/history', '/screen', '/stats', '/search?q=song', '/settings']) {
+			for (const path of ['/', '/albums', '/albums/al1', '/artists', '/artists/ar1', '/favourites', '/genres', '/radio', '/library', '/playlists', '/playlists/import', '/folders', '/folders/d-al1', '/history', '/screen', '/stats', '/stats/recap', '/search?q=song', '/settings']) {
 				const response = await page.goto(app.url + path, { waitUntil: 'networkidle' });
 				assert.equal(response?.status(), 200, path);
 				assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), 'terminal', path);
@@ -6043,7 +6185,7 @@ describe('Phosphor', () => {
 		await settings({ theme: 'phosphor' });
 		const { page, problems } = await watchedPage();
 		try {
-			for (const path of ['/', '/albums', '/albums/al1', '/artists', '/artists/ar1', '/favourites', '/genres', '/radio', '/library', '/playlists', '/folders', '/history', '/stats', '/search?q=song', '/settings']) {
+			for (const path of ['/', '/albums', '/albums/al1', '/artists', '/artists/ar1', '/favourites', '/genres', '/radio', '/library', '/playlists', '/playlists/import', '/folders', '/history', '/stats', '/stats/recap', '/search?q=song', '/settings']) {
 				const response = await page.goto(app.url + path, { waitUntil: 'networkidle' });
 				assert.equal(response?.status(), 200, path);
 				assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), 'phosphor', path);

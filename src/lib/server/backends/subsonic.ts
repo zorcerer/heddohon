@@ -866,6 +866,24 @@ export const subsonicBackend: MediaBackend = {
 		};
 	},
 
+	async searchSongs(cred, query, limit) {
+		const body = await call<{ searchResult3?: Record<string, any> }>(cred, 'search3.view', {
+			query,
+			songCount: limit,
+			albumCount: 0,
+			artistCount: 0
+		});
+		return asArray(body.searchResult3?.song as Record<string, any>[]).map(toSong);
+	},
+
+	async getPlaylistPaths(cred, id) {
+		const body = await call<{ playlist?: Record<string, any> }>(cred, 'getPlaylist.view', { id });
+		if (!body.playlist) throw new UpstreamError('Playlist not found', 404, 'not_found');
+		return asArray(body.playlist.entry as Record<string, any>[]).map((entry) =>
+			typeof entry.path === 'string' && entry.path ? entry.path : null
+		);
+	},
+
 	async setStarred(cred, id, kind: StarKind, starred) {
 		const key = kind === 'album' ? 'albumId' : kind === 'artist' ? 'artistId' : 'id';
 		await call(cred, starred ? 'star.view' : 'unstar.view', { [key]: id });

@@ -14,7 +14,7 @@ import { join } from 'node:path';
 import { crc32, inflateRawSync } from 'node:zlib';
 import { after, before, beforeEach, describe, test } from 'node:test';
 import { Client, startApp } from './harness.mjs';
-import { OUTSIDE, startAutoEq, startJellyfin, startOutside, startStationHost, startSubsonic } from './mocks.mjs';
+import { OUTSIDE, startAutoEq, startJellyfin, startMusicBrainz, startOutside, startStationHost, startSubsonic } from './mocks.mjs';
 
 let subsonic;
 let jellyfin;
@@ -1874,10 +1874,10 @@ describe('listening history', () => {
 		});
 	});
 
-	test('Recently played and Your listening are tabs of each other, under History on the rail', async () => {
+	test('Recently played, Your listening and Recap are tabs of each other, under History on the rail', async () => {
 		const current = (html) => /<nav class="tabs[^"]*" aria-label="Listening history">[\s\S]*?aria-current="page"[^>]*>([^<]+)</.exec(html)?.[1];
 		const rail = (html) => /title="([^"]+)" aria-current="page"/.exec(html)?.[1];
-		for (const [path, tab] of [['/history', 'Recently played'], ['/stats', 'Your listening']]) {
+		for (const [path, tab] of [['/history', 'Recently played'], ['/stats', 'Your listening'], ['/stats/recap', 'Recap']]) {
 			const { html } = await user.page(path);
 			assert.equal(current(html), tab, `${path} does not mark its tab`);
 			assert.equal(rail(html), 'History', `${path} does not light History on the rail`);
@@ -2021,6 +2021,49 @@ describe('listening history', () => {
 			await asFreshAccount('bystander', async (other) => {
 				assert.deepEqual(await (await other.request('/api/history/export?format=json')).json(), []);
 			});
+		});
+	});
+
+	test('a recap sums up a year or a month of it, against the one before, and an empty one says so', async () => {
+		await asFreshAccount('recapper', async (client) => {
+			const year = new Date().getUTCFullYear() - 1;
+			subsonic.state.played.set('s5a', `${year}-03-15T12:00:00.000Z`);
+			subsonic.state.played.set('s6b', `${year}-03-20T20:00:00.000Z`);
+			subsonic.state.played.set('s7a', `${year - 1}-03-02T09:00:00.000Z`);
+			try {
+				assert.equal((await importHistory(client)).imported, 3);
+			} finally {
+				subsonic.state.played.clear();
+			}
+			const recap = async (query) => {
+				const { response, html } = await client.page(`/stats/recap${query}`);
+				assert.equal(response.status, 200, explain(`the recap ${query} failed`));
+				return html;
+			};
+			const figure = (html, label) => new RegExp(`<span class="label[^"]*">${label}</span> <span class="number[^"]*">([^<]+)<`).exec(html)?.[1];
+
+			const whole = await recap(`?year=${year}`);
+			assert.match(whole, new RegExp(`<h1[^>]*>${year}</h1>`));
+			assert.equal(figure(whole, 'Plays'), '2');
+			assert.equal(figure(whole, 'Hours listened'), '0.1');
+			assert.match(whole, /Artist 0005/);
+			assert.match(whole, /Song 6b/);
+			// One play the year before: twice as many now.
+			assert.match(whole, new RegExp(`\\+100% on ${year - 1}`));
+			// Both artists are heard for the first time that year; the earlier year's is not.
+			const first = whole.split('First heard in')[1] ?? '';
+			assert.match(first, /Artist 0005/);
+			assert.doesNotMatch(first, /Artist 0007/);
+
+			const march = await recap(`?year=${year}&month=3`);
+			assert.match(march, /<h1[^>]*>[A-Za-z]+ \d{4}<\/h1>/);
+			assert.equal(figure(march, 'Plays'), '2');
+			assert.match(await recap(`?year=${year}&month=4`), /Nothing was played in/);
+
+			// Anything else is the current year.
+			for (const query of ['?year=soon', '?year=12', `?year=${year}&month=13`]) {
+				assert.match(await recap(query), /<h1[^>]*>\d{4}/, query);
+			}
 		});
 	});
 
@@ -3227,6 +3270,68 @@ describe('reordering a playlist', () => {
 	});
 });
 
+describe('playlist files', () => {
+	test('a playlist downloads as M3U by file or by artist and title, and as CSV', async () => {
+		subsonic.state.playlistEntries = ['s1a', 's2b'];
+		try {
+			const m3u = await user.request('/api/playlists/pl1/export?format=m3u');
+			assert.equal(m3u.status, 200, explain('the M3U export failed'));
+			assert.match(m3u.headers.get('content-type'), /^audio\/x-mpegurl/);
+			assert.equal(
+				m3u.headers.get('content-disposition'),
+				`attachment; filename="playlist.m3u8"; filename*=UTF-8''Mock%20Playlist.m3u8`
+			);
+			assert.equal(
+				await m3u.text(),
+				'#EXTM3U\n#PLAYLIST:Mock Playlist\n' +
+					'#EXTINF:180,Artist 0001 - Song 1a\nArtist 0001/Album 1/01 - Song 1a.flac\n' +
+					'#EXTINF:180,Artist 0002 - Song 2b\nArtist 0002/Album 2/02 - Song 2b.flac\n'
+			);
+
+			const titles = await (await user.request('/api/playlists/pl1/export?format=m3u-titles')).text();
+			assert.match(titles, /#EXTINF:180,Artist 0001 - Song 1a\nArtist 0001 - Song 1a\n/);
+
+			const csv = (await (await user.request('/api/playlists/pl1/export?format=csv')).text()).split('\r\n');
+			assert.equal(csv[0], 'title,artist,album,album_artist,duration_seconds,year,song_id');
+			assert.match(csv[1], /^Song 1a,Artist 0001,Album 1,.*,180,.*,s1a$/);
+			assert.equal(csv.length, 4);
+
+			assert.equal((await user.request('/api/playlists/pl1/export?format=pls')).status, 400);
+			assert.equal((await user.request('/api/playlists/nope/export?format=csv')).status, 404);
+		} finally {
+			subsonic.state.playlistEntries = ['s1a', 's2a'];
+		}
+	});
+
+	test('tracks read from a file are found in the library, closely, or not at all', async () => {
+		const response = await user.json('/api/playlists/match', 'POST', {
+			tracks: [
+				{ title: 'Song 3a', artist: 'Artist 0003', duration: 181 },
+				// Another version's title, and an artist with a guest.
+				{ title: 'song 4b (Remastered 2011)', artist: 'Artist 0004 feat. Someone', album: 'Album 4' },
+				// The title alone agrees: another song of that name.
+				{ title: 'Song 5a', artist: 'Someone Else', duration: 240 },
+				{ title: 'Nothing like it', artist: 'Nobody' }
+			]
+		});
+		assert.equal(response.status, 200, explain('matching failed'));
+		const { matches } = await response.json();
+		assert.deepEqual(
+			matches.map((match) => [match.quality, match.song?.id ?? null]),
+			[
+				['exact', 's3a'],
+				['loose', 's4b'],
+				['none', null],
+				['none', null]
+			]
+		);
+
+		for (const body of [{}, { tracks: [] }, { tracks: [{ artist: 'No title' }] }, { tracks: Array.from({ length: 1001 }, () => ({ title: 'x' })) }]) {
+			assert.equal((await user.json('/api/playlists/match', 'POST', body)).status, 400, JSON.stringify(body).slice(0, 80));
+		}
+	});
+});
+
 describe('sessions ending', () => {
 	test('a credential the music server stops accepting signs the account out', async () => {
 		const client = new Client(app.url);
@@ -4045,6 +4150,70 @@ describe('headphone corrections from AutoEq', () => {
 				await aged.stop();
 			}
 		}
+	});
+});
+
+describe('new releases', () => {
+	let musicbrainz;
+	let on;
+
+	before(async () => {
+		musicbrainz = await startMusicBrainz();
+		on = await startApp({
+			subsonicUrl: subsonic.url,
+			jellyfinUrl: jellyfin.url,
+			env: { HEDDOHON_NEW_RELEASES: 'true', HEDDOHON_MUSICBRAINZ_URL: musicbrainz.url }
+		});
+	});
+
+	after(async () => {
+		await on?.stop();
+		await musicbrainz?.close();
+	});
+
+	/**
+	 * What the home page's data says of the shelf: its releases' groups, in
+	 * order. Streamed, so drawn in the browser and not in the server's HTML.
+	 */
+	const shelf = async (client) => [...(await (await client.request('/__data.json')).text()).matchAll(/release-group\/(rg-[\w-]+)/g)].map((m) => m[1]);
+
+	test('is off unless the server allows it, and then until an account turns it on', async () => {
+		assert.doesNotMatch((await user.page('/settings?tab=history')).html, /New releases on the home page/);
+		const listener = new Client(on.url);
+		await listener.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' });
+		assert.match((await listener.page('/settings?tab=history')).html, /New releases on the home page/);
+		for (const songId of ['s3a', 's3b', 's0a']) {
+			await listener.json('/api/playback', 'POST', { songId, event: 'stop', position: 100, completed: true });
+		}
+		assert.deepEqual(await shelf(listener), []);
+		assert.equal(musicbrainz.requests.length, 0, 'MusicBrainz was asked for an account that had not turned the shelf on');
+	});
+
+	test('lists the recent and announced albums of the artists played most that the library lacks, asking MusicBrainz a request a second', async () => {
+		const listener = new Client(on.url);
+		await listener.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' });
+		assert.equal((await listener.json('/api/settings', 'PATCH', { newReleases: true })).status, 200);
+
+		// The first visit waits 2.5 seconds for MusicBrainz, and the shelf is kept for the next.
+		let found = [];
+		for (let visit = 0; visit < 8 && found.length === 0; visit++) {
+			found = await shelf(listener);
+			if (found.length === 0) await new Promise((done) => setTimeout(done, 750));
+		}
+		// The announced EP first, then the album out 20 days ago; not the one the
+		// library has, the live one, the old one or the single.
+		assert.deepEqual(found, ['rg-3-soon', 'rg-0-new']);
+
+		// Artist 0000's id came from the music server; only Artist 0003 was searched for.
+		const searches = musicbrainz.requests.filter((request) => request.path === '/ws/2/artist');
+		assert.deepEqual(searches.map((request) => request.query.query), ['artist:"Artist 0003"']);
+		for (const request of musicbrainz.requests) assert.match(request.agent, /^Heddohon\/\S+ \( https:\/\/github\.com\/zorcerer\/heddohon \)$/);
+		const gaps = musicbrainz.requests.slice(1).map((request, i) => request.at - musicbrainz.requests[i].at);
+		assert.ok(gaps.every((gap) => gap >= 1000), `requests ${gaps.join(', ')}ms apart`);
+
+		const asked = musicbrainz.requests.length;
+		assert.deepEqual(await shelf(listener), ['rg-3-soon', 'rg-0-new']);
+		assert.equal(musicbrainz.requests.length, asked, 'the shelf was not held');
 	});
 });
 

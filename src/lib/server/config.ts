@@ -73,6 +73,8 @@ export interface AppConfig {
 	lrclibUrl: string | null;
 	/** Base URL of the AutoEq results for headphone corrections, or null when off; see `autoeq.ts`. */
 	autoeqUrl: string | null;
+	/** MusicBrainz base URL for the "New releases" shelf, or null when off; see `newreleases.ts`. */
+	musicbrainzUrl: string | null;
 	/** Discord's address, for posting plays to a channel's webhook, or null when off; see `integrations.ts`. */
 	discordUrl: string | null;
 	/** The ListenBrainz API, for scrobbles this server sends itself, or null when off; see `integrations.ts`. */
@@ -590,6 +592,11 @@ function build(): AppConfig {
 					env('HEDDOHON_AUTOEQ_URL') ?? 'https://raw.githubusercontent.com/jaakkopasanen/AutoEq/master/results'
 				)
 			: null,
+		// Off unless asked for: an account that turns the shelf on has the names of
+		// the artists it plays most sent to MusicBrainz.
+		musicbrainzUrl: flagEnv('HEDDOHON_NEW_RELEASES', false)
+			? normaliseUrl('HEDDOHON_MUSICBRAINZ_URL', env('HEDDOHON_MUSICBRAINZ_URL') ?? 'https://musicbrainz.org')
+			: null,
 		// Both off unless asked for: an account can then send the title, artist
 		// and album of what it plays to a third party it chose.
 		discordUrl: flagEnv('HEDDOHON_DISCORD', false)
@@ -694,6 +701,7 @@ export function config(): AppConfig {
 			listeners: true,
 			lrclibUrl: null,
 			autoeqUrl: null,
+			musicbrainzUrl: null,
 			discordUrl: null,
 			listenbrainzUrl: null,
 			folders: true,

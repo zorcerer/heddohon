@@ -234,6 +234,7 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 		duration: 180,
 		track: side.charCodeAt(0) - 96,
 		suffix: 'flac',
+		path: `${name(i)}/Album ${i}/0${side.charCodeAt(0) - 96} - Song ${i}${side}.flac`,
 		bitRate: 900,
 		bitDepth: 16,
 		samplingRate: 44100,
@@ -414,7 +415,15 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 					return send(ok({ searchResult3: page.length > 0 ? { song: page } : {} }));
 				}
 				const match = /^Artist (\d{4})$/.exec(p.get('query') ?? '');
-				if (!match) return send(ok({}));
+				if (!match) {
+					// Any other query as Navidrome reads one: every word in the title,
+					// the artist or the album.
+					const words = (p.get('query') ?? '').toLowerCase().split(/\s+/).filter(Boolean);
+					const hits = Array.from({ length: artistCount * 2 }, (_, k) => song(k >> 1, k % 2 ? 'b' : 'a'))
+						.filter((entry) => words.every((word) => `${entry.title} ${entry.artist} ${entry.album}`.toLowerCase().includes(word)))
+						.slice(0, Number(p.get('songCount') ?? 20));
+					return send(ok(hits.length > 0 ? { searchResult3: { song: hits } } : {}));
+				}
 				const i = Number(match[1]);
 				const host = (i + 1) % artistCount;
 				const guest = {
@@ -1016,4 +1025,60 @@ export async function startOutside() {
 		});
 	});
 	return { ...server, calls, state, posts };
+}
+
+/**
+ * MusicBrainz, for the "New releases" shelf: an artist search that knows
+ * Artist 0003, and the release groups of that artist and of Artist 0000 (whose
+ * MusicBrainz id the Subsonic mock gives). `requests` holds each request's
+ * path, time and user agent.
+ */
+export async function startMusicBrainz() {
+	const requests = [];
+	const day = (offset) => new Date(Date.now() + offset * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+	const group = (id, title, date, type = 'Album', secondary = []) => ({
+		id,
+		title,
+		'first-release-date': date,
+		'primary-type': type,
+		'secondary-types': secondary
+	});
+	const groups = {
+		'b09c8a50-7bfa-434f-a2cf-f9bf9f6f91a5': () => [
+			group('rg-0-new', 'Fresh Start', day(-20)),
+			// In the library already, live, and old.
+			group('rg-0-owned', 'Album 0', day(-5)),
+			group('rg-0-live', 'Live at Home', day(-3), 'Album', ['Live']),
+			group('rg-0-old', 'Debut', '2001-05-01')
+		],
+		'33333333-3333-4333-8333-333333333333': () => [
+			group('rg-3-soon', 'Next One', day(40), 'EP'),
+			group('rg-3-single', 'A Single', day(-2), 'Single')
+		]
+	};
+	const server = await listen((req, res) => {
+		const url = new URL(req.url, 'http://x');
+		requests.push({ path: url.pathname, query: Object.fromEntries(url.searchParams), at: Date.now(), agent: req.headers['user-agent'] });
+		res.setHeader('content-type', 'application/json');
+		if (url.pathname === '/ws/2/artist') {
+			const known = url.searchParams.get('query') === 'artist:"Artist 0003"';
+			return res.end(
+				JSON.stringify({
+					artists: known
+						? [
+								{ id: '33333333-3333-4333-8333-333333333333', name: 'Artist 0003', score: 100 },
+								{ id: '44444444-4444-4444-8444-444444444444', name: 'Artist 0003 Tribute', score: 80 }
+							]
+						: []
+				})
+			);
+		}
+		if (url.pathname === '/ws/2/release-group') {
+			const listed = groups[url.searchParams.get('artist')]?.() ?? [];
+			return res.end(JSON.stringify({ 'release-group-count': listed.length, 'release-groups': listed }));
+		}
+		res.statusCode = 404;
+		res.end('{}');
+	});
+	return { url: server.url, requests, close: server.close };
 }

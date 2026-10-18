@@ -135,6 +135,8 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 			viaMusicServer
 		},
 		historyCount: history.total,
+		// Whether the server allows the "New releases" shelf; see `newreleases.ts`.
+		newReleasesOffered: config().musicbrainzUrl !== null,
 		/*
 		 * Where the Navidrome plugin's endpoint is on for this account: whether
 		 * the plugin has been heard from in the last minute. Null where it is
