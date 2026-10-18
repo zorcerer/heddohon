@@ -19,6 +19,7 @@
 	import { handOff } from '$lib/client/handoff';
 	import { artworkColor } from '$lib/client/artwork';
 	import { contextMenu } from '$lib/client/context-menu.svelte';
+	import { SelectableList } from '$lib/client/selection.svelte';
 	import { formatBytes, formatDuration } from '$lib/client/format';
 	import { lyricsWindow } from '$lib/client/lyrics.svelte';
 	import { playlistPicker } from '$lib/client/playlists.svelte';
@@ -227,6 +228,26 @@
 		});
 	});
 
+	/*
+	 * Several entries picked at once; see `selection.svelte.ts`. Positions, so
+	 * any change to the queue ends the selection, and so does putting the queue
+	 * away.
+	 */
+	const queueSelect = new SelectableList(() => ({
+		songs: () => player.queue,
+		remove: { label: 'Remove from the queue', run: (indexes) => player.removeMany(indexes) },
+		inPlayer: true
+	}));
+
+	$effect(() => {
+		void player.queue;
+		return () => queueSelect.drop();
+	});
+
+	$effect(() => {
+		if (!player.queueOpen) untrack(() => queueSelect.drop());
+	});
+
 	let queueList = $state<HTMLOListElement | null>(null);
 
 	/*
@@ -354,18 +375,32 @@
 							<!-- The menu is a second way to what the row's buttons do. -->
 							<!-- svelte-ignore a11y_no_static_element_interactions -->
 							<div class="row" class:current={index === player.index} class:past={index < player.index}
-								oncontextmenu={(event) =>
+								class:selected={queueSelect.has(index)}
+								onclickcapture={(event) => queueSelect.click(event, index)}
+								onmousedown={(event) => queueSelect.mousedown(event)}
+								onpointerdown={(event) => queueSelect.pointerdown(event, index)}
+								onpointermove={(event) => queueSelect.pointermove(event)}
+								onpointerup={() => queueSelect.pointerend()}
+								onpointercancel={() => queueSelect.pointerend()}
+								oncontextmenu={(event) => {
+									if (queueSelect.contextmenu(event, index)) return;
+									if (queueSelect.has(index)) {
+										contextMenu.open(event, { kind: 'selection' });
+										return;
+									}
 									contextMenu.open(event, {
 										kind: 'song',
 										song: track,
 										play: () => void player.jumpTo(index),
 										remove: { label: 'Remove from the queue', run: () => player.removeAt(index) }
-									})}
+									});
+								}}
 							>
 								<!-- Dragged by pointer or finger, or moved one place at a time
 								     with the arrow keys while it has focus. -->
 								<button
 									class="row-grip"
+									data-select-skip
 									type="button"
 									aria-label="Move {track.title}. Use the up and down arrow keys."
 									title="Drag to reorder"
@@ -1150,6 +1185,22 @@
 
 	.row.past {
 		opacity: 0.55;
+	}
+
+	/* A picked entry: the accent's ground, faint, with an edge where it starts. */
+	.row.selected {
+		border-radius: var(--r-sm);
+		background: color-mix(in srgb, var(--accent) 16%, transparent);
+		box-shadow: inset 2px 0 0 var(--accent);
+	}
+
+	/* A long press picks an entry (`selection.svelte.ts`); iOS would select its text instead. */
+	@media (pointer: coarse) {
+		.row {
+			-webkit-touch-callout: none;
+			-webkit-user-select: none;
+			user-select: none;
+		}
 	}
 
 	.row.current .row-title {

@@ -6388,6 +6388,182 @@ describe('the menu on a right click', () => {
 	});
 });
 
+describe('picking several songs', () => {
+	const bar = (page) => page.getByRole('toolbar');
+	const picked = (page) =>
+		page.evaluate(() => [...document.querySelectorAll('main .track.selected .title')].map((el) => el.textContent));
+	const row = (page, title) => page.locator('main .track', { hasText: title });
+
+	test('Ctrl and Shift with a click pick rows, the bar and the menu act on them, and Escape lets go', async () => {
+		subsonic.state.albumSongs = 4;
+		subsonic.state.audio = { type: 'audio/wav', body: silentWav(30) };
+		const { page, problems } = await watchedPage();
+		try {
+			await page.goto(app.url + '/albums/al27', { waitUntil: 'networkidle' });
+			await row(page, 'Song 27a').locator('.title').click({ modifiers: ['ControlOrMeta'] });
+			await row(page, 'Song 27c').locator('.title').click({ modifiers: ['Shift'] });
+			assert.deepEqual(await picked(page), ['Song 27a', 'Song 27b', 'Song 27c']);
+			assert.equal(await bar(page).getAttribute('aria-label'), '3 songs selected');
+			// Shift did not select the text between the two clicks.
+			assert.equal(await page.evaluate(() => getSelection()?.toString()), '');
+			await row(page, 'Song 27b').locator('.title').click({ modifiers: ['ControlOrMeta'] });
+			assert.deepEqual(await picked(page), ['Song 27a', 'Song 27c']);
+			assert.equal(await page.evaluate(() => [...document.querySelectorAll('audio')].some((a) => !a.paused)), false, 'a pick played a row');
+
+			// The menu on a picked row is for both.
+			await row(page, 'Song 27c').locator('.title').click({ button: 'right' });
+			const menu = page.getByRole('menu');
+			assert.equal(await menu.getAttribute('aria-label'), 'Selection: 2 songs');
+			assert.deepEqual(
+				(await menu.getByRole('menuitem').allTextContents()).map((text) => text.trim()),
+				['Play', 'Play next', 'Add to queue', 'Add to playlist…', 'Add to favourites']
+			);
+			await menu.getByRole('menuitem', { name: 'Add to favourites', exact: true }).click();
+			assert.equal(await bar(page).count(), 0, 'the selection stayed after an action');
+			await page.waitForFunction(() => document.querySelectorAll('main .track button[aria-pressed="true"]').length === 2);
+			assert.deepEqual([...subsonic.state.starred.keys()].filter((id) => id.startsWith('s27')).sort(), ['s27a', 's27c']);
+
+			// The bar's Play makes the picked rows the queue.
+			await row(page, 'Song 27b').locator('.title').click({ modifiers: ['ControlOrMeta'] });
+			await row(page, 'Song 27d').locator('.title').click({ modifiers: ['ControlOrMeta'] });
+			await bar(page).getByRole('button', { name: 'Play', exact: true }).click();
+			await page.waitForFunction(() => document.querySelector('aside.panel h2.title')?.getAttribute('data-text') === 'Song 27b');
+			assert.equal(await page.evaluate(() => document.querySelector('aside.panel button[aria-label="Queue"]')?.getAttribute('title')), 'Queue (2)');
+
+			// A plain click lets go, and so does Escape.
+			await row(page, 'Song 27a').locator('.title').click({ modifiers: ['ControlOrMeta'] });
+			await row(page, 'Song 27b').locator('.title').click();
+			assert.deepEqual(await picked(page), []);
+			await row(page, 'Song 27a').locator('.title').click({ modifiers: ['ControlOrMeta'] });
+			await page.keyboard.press('Escape');
+			assert.equal(await bar(page).count(), 0);
+		} finally {
+			subsonic.state.albumSongs = 2;
+			subsonic.state.audio = null;
+			for (const id of ['s27a', 's27c']) subsonic.state.starred.delete(id);
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+
+	test('from the keyboard: Shift and the arrows pick, Space picks one, Ctrl+A picks the list, and none of them plays', async () => {
+		subsonic.state.albumSongs = 4;
+		const { page, problems } = await watchedPage();
+		try {
+			await page.goto(app.url + '/albums/al28', { waitUntil: 'networkidle' });
+			await row(page, 'Song 28a').focus();
+			await page.keyboard.press('ArrowDown');
+			assert.equal(await page.evaluate(() => document.activeElement?.querySelector('.title')?.textContent), 'Song 28b');
+			await page.keyboard.press('Shift+ArrowDown');
+			await page.keyboard.press('Shift+ArrowDown');
+			assert.deepEqual(await picked(page), ['Song 28b', 'Song 28c', 'Song 28d']);
+			assert.equal(await page.evaluate(() => document.activeElement?.querySelector('.title')?.textContent), 'Song 28d');
+			await page.keyboard.press('Space');
+			assert.deepEqual(await picked(page), ['Song 28b', 'Song 28c']);
+			await page.keyboard.press('ControlOrMeta+a');
+			assert.equal((await picked(page)).length, 4);
+			assert.equal(await page.evaluate(() => [...document.querySelectorAll('audio')].some((a) => !a.paused)), false, 'Space played');
+			await page.keyboard.press('Escape');
+			assert.deepEqual(await picked(page), []);
+		} finally {
+			subsonic.state.albumSongs = 2;
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+
+	test('picked rows of a playlist are removed in one go, from the bar', async () => {
+		subsonic.state.playlistEntries = ['s1a', 's2a', 's3a', 's4a'];
+		const { page, problems } = await watchedPage();
+		try {
+			await page.goto(app.url + '/playlists/pl1', { waitUntil: 'networkidle' });
+			await row(page, 'Song 1a').locator('.title').click({ modifiers: ['ControlOrMeta'] });
+			await row(page, 'Song 3a').locator('.title').click({ modifiers: ['ControlOrMeta'] });
+			const removed = page.waitForResponse((r) => r.request().method() === 'DELETE' && r.url().endsWith('/tracks'));
+			await bar(page).getByRole('button', { name: 'Remove from this playlist', exact: true }).click();
+			assert.deepEqual((await removed).request().postDataJSON(), { indices: [2, 0] });
+			// One call to the music server, which the mock records and does not apply.
+			assert.deepEqual(subsonic.state.playlistUpdates.at(-1), { id: 'pl1', add: [], remove: [2, 0] });
+			await bar(page).waitFor({ state: 'detached' });
+		} finally {
+			subsonic.state.playlistEntries = ['s1a', 's2a'];
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+
+	test('entries of the queue are picked and removed together, the playing one with them', async () => {
+		subsonic.state.albumSongs = 4;
+		subsonic.state.audio = { type: 'audio/wav', body: silentWav(30) };
+		const { page, problems } = await watchedPage();
+		try {
+			await page.goto(app.url + '/albums/al29', { waitUntil: 'networkidle' });
+			await page.getByRole('button', { name: 'Play Song 29a', exact: true }).click();
+			await page.waitForFunction(() => [...document.querySelectorAll('audio')].some((a) => !a.paused && a.currentTime > 0));
+			await page.locator('aside.panel button[aria-label="Queue"]').click();
+			const entry = (title) => page.locator('aside.panel .queue-list .row', { hasText: title });
+			await entry('Song 29a').locator('.row-text').click({ modifiers: ['ControlOrMeta'] });
+			await entry('Song 29c').locator('.row-text').click({ modifiers: ['ControlOrMeta'] });
+			assert.equal(await page.locator('aside.panel .queue-list .row.selected').count(), 2);
+			await bar(page).getByRole('button', { name: 'Remove from the queue', exact: true }).click();
+			await page.waitForFunction(
+				() => [...document.querySelectorAll('aside.panel .queue-list .row-title')].map((el) => el.textContent).join() === 'Song 29b,Song 29d'
+			);
+			// The playing track went, and the next that stayed took its place.
+			await page.waitForFunction(() => document.querySelector('aside.panel h2.title')?.getAttribute('data-text') === 'Song 29b');
+		} finally {
+			subsonic.state.albumSongs = 2;
+			subsonic.state.audio = null;
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+
+	test('on a phone a long press picks a row, a tap then picks another, and the bar sits above the dock', async () => {
+		subsonic.state.albumSongs = 4;
+		const phone = await browser.newContext({ viewport: { width: 393, height: 852 }, isMobile: true, hasTouch: true });
+		try {
+			const signIn = await phone.request.post(`${app.url}/login`, {
+				form: { username: 'testuser', password: 'testpass', backend: 'subsonic', next: '/' },
+				headers: { origin: app.url, accept: 'text/html' },
+				maxRedirects: 0
+			});
+			assert.equal(signIn.status(), 303);
+			const page = await phone.newPage();
+			const problems = [];
+			page.on('pageerror', (err) => problems.push(err.message));
+			await page.goto(app.url + '/albums/al30', { waitUntil: 'networkidle' });
+			const title = (name) => row(page, name).locator('.title');
+			await title('Song 30a').evaluate((el) => el.scrollIntoView({ block: 'center', behavior: 'instant' }));
+			const box = await title('Song 30a').boundingBox();
+			const cdp = await phone.newCDPSession(page);
+			const at = { x: box.x + 20, y: box.y + box.height / 2 };
+			await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [at] });
+			await page.waitForTimeout(700);
+			await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+			await page.waitForTimeout(100);
+			assert.deepEqual(await picked(page), ['Song 30a']);
+
+			const tapOn = async (name) => {
+				const b = await title(name).boundingBox();
+				await page.touchscreen.tap(b.x + 20, b.y + b.height / 2);
+			};
+			await tapOn('Song 30c');
+			assert.deepEqual(await picked(page), ['Song 30a', 'Song 30c']);
+			await tapOn('Song 30a');
+			assert.deepEqual(await picked(page), ['Song 30c']);
+			assert.equal(await page.evaluate(() => [...document.querySelectorAll('audio')].some((a) => !a.paused)), false, 'a tap played a row');
+
+			const [barBox, dockBox] = [await bar(page).boundingBox(), await page.locator('.phone-dock').boundingBox()];
+			assert.ok(barBox.y + barBox.height <= dockBox.y + 1, `the bar (${JSON.stringify(barBox)}) is not above the dock (${JSON.stringify(dockBox)})`);
+			assert.deepEqual(problems, []);
+		} finally {
+			subsonic.state.albumSongs = 2;
+			await phone.close();
+		}
+	});
+});
+
 describe('the first-run setup page', () => {
 	/*
 	 * An app of its own, started without its secret or its music server. The

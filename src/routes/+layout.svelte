@@ -36,6 +36,7 @@
 	import Reactions from '$lib/components/Reactions.svelte';
 	import TogetherDialog from '$lib/components/TogetherDialog.svelte';
 	import ContextMenu from '$lib/components/ContextMenu.svelte';
+	import SelectionBar from '$lib/components/SelectionBar.svelte';
 	import PlaylistPicker from '$lib/components/PlaylistPicker.svelte';
 	import ShareDialog from '$lib/components/ShareDialog.svelte';
 	import PathStrip from '$lib/components/PathStrip.svelte';
@@ -879,6 +880,7 @@
 		{#if data.listeners}
 			<ListeningNow backend={data.account.backend} username={data.account.username} />
 		{/if}
+		<SelectionBar />
 		<!-- Not on a cast receiver's page, which only a Cast device opens. -->
 		{#if !page.url.pathname.startsWith('/cast/')}
 			<InstallCard appName={data.appName} dismissed={data.settings.installCardDismissed} />
