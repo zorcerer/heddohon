@@ -47,6 +47,15 @@ ListenBrainz](#plays-sent-to-discord-and-listenbrainz), [New releases from
 MusicBrainz](#new-releases-from-musicbrainz) and [Internet
 radio](#internet-radio).
 
+The five third-party switches and the MCP endpoint are saved by the first-run
+setup, and an account the music server lists as an administrator (asked of
+the music server on each save) turns them on and off under Settings, Features
+(`?/saveFeatures`). Each is saved to `setup.json`, taken with the next
+request, and logged as `features-switched` at `warn`. A variable set in the
+environment takes precedence, and the switch is shown locked. The addresses
+they fetch from are read from the environment alone. An administrator is shown
+once on the home page which of them are off.
+
 Two things besides a browser send Heddohon requests, each only where the
 operator turns it on: the Heddohon plugin running inside Navidrome, with a
 token the operator sets (see [Plays from the Navidrome

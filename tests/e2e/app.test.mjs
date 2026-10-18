@@ -4217,6 +4217,106 @@ describe('new releases', () => {
 	});
 });
 
+describe('optional features', () => {
+	async function action(client, name, fields = {}) {
+		const response = await client.request(`/settings?/${name}`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json', 'x-sveltekit-action': 'true' },
+			body: new URLSearchParams(fields).toString()
+		});
+		const result = await response.json();
+		const data = result.data ? JSON.parse(result.data) : null;
+		const values = data ? Object.fromEntries(Object.entries(data[0]).map(([k, i]) => [k, data[i]])) : {};
+		return { type: result.type, status: result.status, ...values };
+	}
+	/** Each switch on the Features tab, by name, with whether it is on and whether it can be changed. */
+	const switches = async (client) => {
+		const html = (await client.page('/settings?tab=features')).html;
+		const section = html.split('id="features"')[1]?.split('</section>')[0] ?? '';
+		return Object.fromEntries(
+			[...section.matchAll(/<input type="checkbox" name="([a-zA-Z]+)"([^>]*)>/g)].map(([, name, rest]) => [
+				name,
+				`${/checked/.test(rest) ? 'on' : 'off'}${/disabled/.test(rest) ? ', locked' : ''}`
+			])
+		);
+	};
+	/** The titles of the features the home page's data tells of. */
+	const notice = async (client) => {
+		const data = await (await client.request('/__data.json')).text();
+		return ['New releases from MusicBrainz', 'Lyrics from LRCLIB', 'Headphone corrections from AutoEq', 'Plays sent to Discord', 'Plays sent to ListenBrainz', 'AI assistants (MCP)'].filter((title) => data.includes(title));
+	};
+
+	test('an administrator switches each under Settings, Features, where the environment does not set it', async () => {
+		await asFreshAccount('featureadmin', async (client) => {
+			assert.deepEqual(await switches(client), {
+				newReleases: 'off',
+				lrclib: 'off',
+				autoeq: 'off',
+				discord: 'off',
+				listenbrainz: 'off',
+				mcp: 'off'
+			});
+			try {
+				assert.equal((await action(client, 'saveFeatures', { newReleases: 'on', mcp: 'on' })).type, 'success');
+				assert.equal((await switches(client)).newReleases, 'on');
+				assert.equal((await switches(client)).mcp, 'on');
+				// Taken at once: the account's own switch for the shelf is offered now.
+				assert.match((await client.page('/settings?tab=history')).html, /New releases on the home page/);
+				assert.match(app.output(), /features-switched/);
+
+				subsonic.state.admin = false;
+				try {
+					assert.equal((await action(client, 'saveFeatures', {})).status, 403);
+					assert.ok(!(await client.page('/settings')).html.includes('id="features"'), 'the tab is shown to an account that is not an administrator');
+				} finally {
+					subsonic.state.admin = true;
+				}
+			} finally {
+				await action(client, 'saveFeatures', {});
+			}
+			assert.equal((await switches(client)).newReleases, 'off');
+		});
+
+		// Set in the environment, a switch is shown locked and saving leaves it.
+		const set = await startApp({ subsonicUrl: subsonic.url, jellyfinUrl: jellyfin.url, env: { HEDDOHON_DISCORD: 'true', HEDDOHON_LISTENBRAINZ: 'false' } });
+		try {
+			const client = new Client(set.url);
+			await client.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' });
+			assert.equal((await switches(client)).discord, 'on, locked');
+			assert.equal((await switches(client)).listenbrainz, 'off, locked');
+			assert.match((await client.page('/settings?tab=features')).html, /Set by HEDDOHON_DISCORD in the environment\./);
+			assert.equal((await action(client, 'saveFeatures', { listenbrainz: 'on' })).type, 'success');
+			assert.equal((await switches(client)).discord, 'on, locked');
+			assert.equal((await switches(client)).listenbrainz, 'off, locked');
+		} finally {
+			await set.stop();
+		}
+	});
+
+	test('an administrator is told once on the home page of the features that are off', async () => {
+		await asFreshAccount('featurenotice', async (client) => {
+			assert.equal((await notice(client)).length, 6);
+			subsonic.state.admin = false;
+			try {
+				assert.deepEqual(await notice(client), [], 'told an account that is not an administrator');
+			} finally {
+				subsonic.state.admin = true;
+			}
+			// Dismissed: the features named are seen.
+			const saved = await (await client.json('/api/settings', 'PATCH', { featuresSeen: ['mcp', 'nonsense', 'newReleases', 'lrclib', 'autoeq', 'discord', 'listenbrainz', 'mcp'] })).json();
+			// Known ids alone, each once.
+			assert.deepEqual(saved.featuresSeen, ['newReleases', 'lrclib', 'autoeq', 'discord', 'listenbrainz', 'mcp']);
+			assert.deepEqual(await notice(client), []);
+			// One not seen yet is told of alone.
+			await client.json('/api/settings', 'PATCH', { featuresSeen: ['lrclib', 'autoeq', 'discord', 'listenbrainz', 'mcp'] });
+			assert.deepEqual(await notice(client), ['New releases from MusicBrainz']);
+			// Saving under Settings, Features marks every one seen.
+			assert.equal((await action(client, 'saveFeatures', {})).type, 'success');
+			assert.deepEqual(await notice(client), []);
+		});
+	});
+});
+
 
 describe('log files', () => {
 	const day = (daysAgo) => new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);

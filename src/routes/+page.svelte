@@ -8,6 +8,7 @@
 	import OnThisDayShelf from '$lib/components/OnThisDayShelf.svelte';
 	import RediscoverShelf from '$lib/components/RediscoverShelf.svelte';
 	import NewReleasesShelf from '$lib/components/NewReleasesShelf.svelte';
+	import FeatureNotice from '$lib/components/FeatureNotice.svelte';
 	import SectionHeader from '$lib/components/SectionHeader.svelte';
 	import TrackList from '$lib/components/TrackList.svelte';
 	import Icon from '$lib/components/Icon.svelte';
@@ -122,6 +123,13 @@
 			</button>
 		{/if}
 	</header>
+
+	<!-- Streamed, for an administrator; see features.ts. -->
+	{#await data.featureNotice then features}
+		{#if features.length > 0}
+			<FeatureNotice {features} seen={data.settings?.featuresSeen ?? []} />
+		{/if}
+	{/await}
 
 	<!--
 		The front page: the newest release as the lead, and what was played last

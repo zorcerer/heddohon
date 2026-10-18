@@ -44,6 +44,12 @@ before(async () => {
 	// blurs the glass over it in software: about a third of a core, under tests
 	// that time what the page does and read its colours. It has its own test.
 	await context.request.patch(`${app.url}/api/settings`, { data: { aurora: 'off' }, headers: { origin: app.url } });
+	// The notice of features that are off, which an administrator is shown once
+	// on the home page; its own test turns it back on.
+	await context.request.patch(`${app.url}/api/settings`, {
+		data: { featuresSeen: ['newReleases', 'lrclib', 'autoeq', 'discord', 'listenbrainz', 'mcp'] },
+		headers: { origin: app.url }
+	});
 });
 
 after(async () => {
@@ -6843,6 +6849,38 @@ describe('the first-run setup page', () => {
 		} finally {
 			await visitor.close();
 			await fresh.stop();
+		}
+		assert.deepEqual(problems, []);
+	});
+});
+
+describe('features that are off', () => {
+	const ALL = ['newReleases', 'lrclib', 'autoeq', 'discord', 'listenbrainz', 'mcp'];
+	const seen = (featuresSeen) => context.request.patch(`${app.url}/api/settings`, { data: { featuresSeen }, headers: { origin: app.url } });
+
+	test('an administrator is told on the home page once, and the Features tab switches them', async () => {
+		const { page, problems } = await watchedPage();
+		try {
+			await seen(['lrclib', 'autoeq', 'discord', 'listenbrainz', 'mcp']);
+			await page.goto(app.url + '/', { waitUntil: 'networkidle' });
+			const notice = page.getByRole('complementary', { name: 'Features that are off' });
+			await notice.waitFor();
+			assert.match(await notice.textContent(), /New releases from MusicBrainz/);
+			assert.doesNotMatch(await notice.textContent(), /LRCLIB/);
+			const saved = page.waitForResponse((r) => r.url().endsWith('/api/settings') && r.request().method() === 'PATCH');
+			await notice.getByRole('button', { name: 'Dismiss' }).click();
+			await saved;
+			assert.equal(await notice.count(), 0);
+			await page.reload({ waitUntil: 'networkidle' });
+			assert.equal(await notice.count(), 0, 'the notice came back after it was dismissed');
+
+			await page.goto(app.url + '/settings?tab=features', { waitUntil: 'networkidle' });
+			const section = page.locator('section#features');
+			assert.equal(await section.locator('input[type=checkbox]').count(), ALL.length);
+			assert.equal(await section.getByRole('checkbox', { name: /New releases from MusicBrainz/ }).isChecked(), false);
+		} finally {
+			await seen(ALL);
+			await page.close();
 		}
 		assert.deepEqual(problems, []);
 	});

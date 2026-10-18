@@ -81,10 +81,12 @@ Skip this if it stays on your own network.
 These are off until you turn them on. Each is in
 [Configuration](https://github.com/zorcerer/heddohon/wiki/Configuration):
 
-- AI assistants over MCP: an administrator under Settings, AI, or `HEDDOHON_MCP`.
+- AI assistants over MCP, lyrics from LRCLIB, AutoEq headphone corrections, Discord, ListenBrainz and
+  new releases from MusicBrainz: in the first-run setup, or afterwards by an administrator of the music
+  server under Settings, Features. An administrator is told once on the home page of each that is off,
+  a new one included after an update. A variable set in the environment (`HEDDOHON_MCP` and the like)
+  takes precedence and locks the switch.
 - The plugin for Navidrome: `HEDDOHON_NAVIDROME_PLUGIN_TOKEN`, from `openssl rand -hex 32`.
-- Lyrics from LRCLIB, AutoEq headphone corrections, Discord, ListenBrainz, and new releases from
-  MusicBrainz (in the first-run setup, or `HEDDOHON_NEW_RELEASES`).
 
 ## Updating
 

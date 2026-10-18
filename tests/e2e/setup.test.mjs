@@ -232,6 +232,7 @@ describe('a deployment that is not set up', () => {
 					sharing: false,
 					mcp: true,
 					newReleases: true,
+					features: { lrclib: true, autoeq: 'yes' },
 					downloads: 'yes',
 					// Not what the setup may save.
 					HEDDOHON_DATABASE_URL: 'postgres://evil.example/x',
@@ -254,6 +255,7 @@ describe('a deployment that is not set up', () => {
 				HEDDOHON_SUBSONIC_LABEL: '<b>Home</b>',
 				HEDDOHON_DEFAULT_THEME: 'paper',
 				HEDDOHON_SHARING: 'false',
+				HEDDOHON_LYRICS_LRCLIB: 'true',
 				HEDDOHON_MCP: 'true',
 				HEDDOHON_NEW_RELEASES: 'true'
 			});
