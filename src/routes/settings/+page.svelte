@@ -168,6 +168,30 @@
 			body: JSON.stringify({ historyOtherApps: on })
 		}).catch(() => undefined);
 	}
+	/*
+	 * The history as a file. The dates are days in this browser's time zone,
+	 * the start from its first moment and the end to its last, sent as the
+	 * epoch millis the server reads (`/api/history/export`).
+	 */
+	let exportFormat = $state<'csv' | 'json'>('csv');
+	let exportFrom = $state('');
+	let exportTo = $state('');
+	const exportRange = $derived.by(() => {
+		const from = exportFrom ? new Date(`${exportFrom}T00:00`).getTime() : null;
+		let to: number | null = null;
+		if (exportTo) {
+			const end = new Date(`${exportTo}T00:00`);
+			end.setDate(end.getDate() + 1);
+			to = end.getTime();
+		}
+		return { from, to, wrong: from !== null && to !== null && from >= to };
+	});
+	const exportHref = $derived.by(() => {
+		const query = new URLSearchParams({ format: exportFormat });
+		if (exportRange.from !== null) query.set('from', String(exportRange.from));
+		if (exportRange.to !== null) query.set('to', String(exportRange.to));
+		return `/api/history/export?${query}`;
+	});
 	/** The session lifetime in days where it is a whole number of them, and in hours otherwise. */
 	const sessionLifetime = $derived(
 		data.sessionMaxHours % 24 === 0
@@ -2215,6 +2239,45 @@
 				Recently played
 			</a>
 			<a class="hh-button" href="/stats">Your listening</a>
+		</div>
+
+		<h3 class="subhead">Export</h3>
+		<p class="hh-muted note">
+			Each play with its time, track, artist, album and length, the browser it was played in here, and its
+			source: <code>heddohon</code> for a play here, <code>navidrome</code> for one Navidrome reported (another
+			app, or its scrobble history), <code>music-server</code> for an imported last play. CSV opens in a
+			spreadsheet. JSON is a list of ListenBrainz listens, which ListenBrainz and other scrobble tools import; a
+			play kept without its track's name, from before Heddohon kept one, is left out of it.
+		</p>
+		<label class="row">
+			<span class="label">Format</span>
+			<select class="hh-input control" bind:value={exportFormat}>
+				<option value="csv">CSV</option>
+				<option value="json">JSON (ListenBrainz)</option>
+			</select>
+		</label>
+		<label class="row">
+			<span class="label">
+				From
+				<span class="hint hh-muted">Both left empty, every play is exported.</span>
+			</span>
+			<input class="hh-input control" type="date" bind:value={exportFrom} max={exportTo || undefined} />
+		</label>
+		<label class="row">
+			<span class="label">To</span>
+			<input class="hh-input control" type="date" bind:value={exportTo} min={exportFrom || undefined} />
+		</label>
+		<div class="history-links">
+			{#if data.historyCount === 0}
+				<button class="hh-button" type="button" disabled>No listening history</button>
+			{:else if exportRange.wrong}
+				<button class="hh-button" type="button" disabled>The start is after the end</button>
+			{:else}
+				<a class="hh-button" href={exportHref} download>
+					<Icon name="download" size={16} />
+					Download listening history
+				</a>
+			{/if}
 		</div>
 
 		<h3 class="subhead">Import from {data.serverLabel || 'the music server'}</h3>

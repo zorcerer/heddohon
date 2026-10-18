@@ -3,6 +3,7 @@ import type { RequestHandler } from './$types';
 import { backendFor, UpstreamError } from '$lib/server/backends';
 import { getSettings } from '$lib/server/settings';
 import { recordPlay } from '$lib/server/history';
+import { deviceLabel } from '$lib/server/device';
 import { coverBytes } from '$lib/server/coverfill';
 import { announcePlay, announceStart, DISCORD_COVER_SIZE } from '$lib/server/integrations';
 import { log, reason } from '$lib/server/log';
@@ -51,7 +52,12 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 			.getSongs(session.credential, [songId])
 			.then((songs) => songs[0] ?? null)
 			.catch(() => null);
-		await recordPlay(session.account.id, songId, { at, song, keepDays: settings.historyDays }).catch((err) =>
+		await recordPlay(session.account.id, songId, {
+			at,
+			song,
+			keepDays: settings.historyDays,
+			device: deviceLabel(request.headers.get('user-agent'))
+		}).catch((err) =>
 			log.warn('history-write-failed', { detail: reason(err) })
 		);
 		// To a Discord channel and ListenBrainz, where the account linked them,
