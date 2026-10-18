@@ -231,6 +231,7 @@ describe('a deployment that is not set up', () => {
 					theme: 'paper',
 					sharing: false,
 					mcp: true,
+					newReleases: true,
 					downloads: 'yes',
 					// Not what the setup may save.
 					HEDDOHON_DATABASE_URL: 'postgres://evil.example/x',
@@ -253,7 +254,8 @@ describe('a deployment that is not set up', () => {
 				HEDDOHON_SUBSONIC_LABEL: '<b>Home</b>',
 				HEDDOHON_DEFAULT_THEME: 'paper',
 				HEDDOHON_SHARING: 'false',
-				HEDDOHON_MCP: 'true'
+				HEDDOHON_MCP: 'true',
+				HEDDOHON_NEW_RELEASES: 'true'
 			});
 			// The key is on the page once, and in no log.
 			assert.ok(!app.output().includes(body.secret));

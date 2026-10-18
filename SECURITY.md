@@ -195,7 +195,8 @@ No account name, credential or upstream detail is sent.
 
 ## New releases from MusicBrainz
 
-With `HEDDOHON_NEW_RELEASES=true`, an account can turn on a "New releases"
+With `HEDDOHON_NEW_RELEASES=true`, or the box ticked in the first-run setup
+(which saves it to `setup.json`), an account can turn on a "New releases"
 shelf for its home page under Settings, Listening history; it is off for every
 account until it does. For an account that has, the server reads the ten
 artists it played most in the last year from its history, and asks

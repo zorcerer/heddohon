@@ -30,6 +30,7 @@
 	let sharing = $state(true);
 	let downloads = $state(true);
 	let lrclib = $state(false);
+	let newReleases = $state(false);
 	let mcp = $state(false);
 	/** Where the deployment is opened: the address in the bar now, until it is changed. */
 	let origin = $state('');
@@ -177,6 +178,7 @@
 					sharing,
 					downloads,
 					lrclib,
+					newReleases,
 					mcp,
 					origin,
 					coverCacheMb,
@@ -473,6 +475,16 @@
 							<span class="hint hh-muted">
 								For a track the music server has no lyrics for, its artist, title, album and length are sent
 								to lrclib.net.
+							</span>
+						</span>
+					</label>
+					<label class="check">
+						<input type="checkbox" bind:checked={newReleases} name="newReleases" />
+						<span>
+							New releases from MusicBrainz
+							<span class="hint hh-muted">
+								Each account can turn on a home shelf of recent albums by the artists it plays most. For an
+								account that does, the names of those artists are sent to musicbrainz.org once a day.
 							</span>
 						</span>
 					</label>
