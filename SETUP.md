@@ -84,7 +84,7 @@ These are off until you turn them on. Each is in
 - AI assistants over MCP: an administrator under Settings, AI, or `HEDDOHON_MCP`.
 - The plugin for Navidrome: `HEDDOHON_NAVIDROME_PLUGIN_TOKEN`, from `openssl rand -hex 32`.
 - Lyrics from LRCLIB, AutoEq headphone corrections, Discord, ListenBrainz, and new releases from
-  MusicBrainz (`HEDDOHON_NEW_RELEASES`).
+  MusicBrainz (in the first-run setup, or `HEDDOHON_NEW_RELEASES`).
 
 ## Updating
 

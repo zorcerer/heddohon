@@ -229,6 +229,8 @@ export interface SetupInput {
 	sharing?: unknown;
 	downloads?: unknown;
 	lrclib?: unknown;
+	/** Whether accounts may turn on the "New releases" shelf; see `newreleases.ts`. */
+	newReleases?: unknown;
 	/** Whether accounts may make tokens for an AI assistant; see `mcp.ts`. */
 	mcp?: unknown;
 	/** The address, or addresses, the deployment is opened at. */
@@ -408,6 +410,7 @@ export function finishSetup(input: SetupInput): SetupOutcome {
 		['sharing', 'HEDDOHON_SHARING'],
 		['downloads', 'HEDDOHON_DOWNLOADS'],
 		['lrclib', 'HEDDOHON_LYRICS_LRCLIB'],
+		['newReleases', 'HEDDOHON_NEW_RELEASES'],
 		['mcp', 'HEDDOHON_MCP']
 	] as const) {
 		if (typeof input[field] === 'boolean') values[name] = String(input[field]);
