@@ -112,6 +112,12 @@ export interface UserSettings {
 	 */
 	historyOtherApps: boolean;
 	/**
+	 * Whether the home page has the "New releases" shelf, which sends the names
+	 * of the artists the account plays most to MusicBrainz; see
+	 * `newreleases.ts`. Read only where `HEDDOHON_NEW_RELEASES` is on.
+	 */
+	newReleases: boolean;
+	/**
 	 * Whether what the account plays in other apps, which the Navidrome plugin
 	 * reports, is shown to the other accounts with what it plays here. Read
 	 * only for an account that is shown at all; see `listening.ts`.
@@ -202,6 +208,8 @@ const DEFAULT_SETTINGS: UserSettings = {
 	reportPlayback: true,
 	historyDays: 0,
 	historyOtherApps: true,
+	// Off until the account turns it on: it sends what it plays to a third party.
+	newReleases: false,
 	// Off until the account turns it on: it shows the other accounts more of it.
 	listeningOtherApps: false,
 	aurora: 'moving',
@@ -304,6 +312,7 @@ function sanitizeSettings(input: unknown, base: UserSettings = defaultSettings()
 		historyDays:
 			raw.historyDays === 0 || raw.historyDays === 90 || raw.historyDays === 365 ? raw.historyDays : base.historyDays,
 		historyOtherApps: flag('historyOtherApps'),
+		newReleases: flag('newReleases'),
 		listeningOtherApps: flag('listeningOtherApps'),
 		showQualityBadge: flag('showQualityBadge'),
 		gridSize: pick('gridSize', ['compact', 'comfortable', 'roomy'] as const, base.gridSize),

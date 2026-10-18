@@ -4,6 +4,7 @@ import { libraryContext, librarySettled } from '$lib/server/library';
 import { remembered } from '$lib/server/listings';
 import { log, reason } from '$lib/server/log';
 import { dailyMixes, summary } from '$lib/server/mixes';
+import { newReleases } from '$lib/server/newreleases';
 
 /** Favourite songs shown on the home page. */
 const FAVOURITES_SHOWN = 8;
@@ -51,6 +52,15 @@ export const load: PageServerLoad = async ({ locals }) => {
 			return [];
 		});
 
+	// Streamed: from MusicBrainz, for an account that turned the shelf on where
+	// the server allows it. See `newreleases.ts`. A failure leaves the shelf out.
+	const releases = locals.settings?.newReleases
+		? newReleases({ backend, credential, accountId }).catch((err) => {
+				log.warn('section-failed', { section: 'new-releases', detail: reason(err) });
+				return [];
+			})
+		: Promise.resolve([]);
+
 	// From this server's history, without an upstream call. A failed read leaves
 	// the shelf out.
 	const rediscover = forgottenAlbums(accountId, REDISCOVER_SHOWN).catch((err) => {
@@ -71,6 +81,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 		recentlyPlayed: shelves.recentlyPlayed ?? [],
 		favouriteSongs,
 		mixes,
+		newReleases: releases,
 		rediscover: await rediscover,
 		discover: shelves.discover ?? []
 	};

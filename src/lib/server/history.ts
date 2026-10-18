@@ -541,14 +541,18 @@ export interface ListeningStats {
 const TOP = 10;
 const HOUR_MS = 60 * 60 * 1000;
 
-/** An account's listening from `from` on, from the history table alone. */
+/**
+ * An account's listening from `from` to before `to` (now, unless given; the
+ * recap reads a past year or month), from the history table alone.
+ */
 export async function listeningStats(
 	accountId: string,
 	from: number,
-	earlier: { from: number; to: number } | null = null
+	earlier: { from: number; to: number } | null = null,
+	to = Number.MAX_SAFE_INTEGER
 ): Promise<ListeningStats> {
 	const database = await store();
-	const scope = 'account_id = ? AND played_at >= ?';
+	const scope = 'account_id = ? AND played_at >= ? AND played_at < ?';
 	// Grouped by id where the server gave one, by name otherwise.
 	const artistKey = 'COALESCE(artist_id, artist)';
 	const [totals, topArtists, topAlbums, topTracks, newArtists, hours, before] = await Promise.all([
@@ -557,21 +561,24 @@ export async function listeningStats(
 			        COUNT(DISTINCT ${artistKey}) AS artists
 			 FROM plays WHERE ${scope}`,
 			accountId,
-			from
+			from,
+			to
 		),
 		database.all<{ id: string | null; name: string; plays: number; cover: string | null }>(
 			`SELECT MAX(artist_id) AS id, MAX(artist) AS name, COUNT(*) AS plays, MAX(cover_art) AS cover
 			 FROM plays WHERE ${scope} AND artist IS NOT NULL
 			 GROUP BY ${artistKey} ORDER BY COUNT(*) DESC, MAX(artist) LIMIT ${TOP}`,
 			accountId,
-			from
+			from,
+			to
 		),
 		database.all<{ id: string; name: string | null; artist: string | null; plays: number; cover: string | null }>(
 			`SELECT album_id AS id, MAX(album) AS name, MAX(artist) AS artist, COUNT(*) AS plays, MAX(cover_art) AS cover
 			 FROM plays WHERE ${scope} AND album_id IS NOT NULL
 			 GROUP BY album_id ORDER BY COUNT(*) DESC, MAX(album) LIMIT ${TOP}`,
 			accountId,
-			from
+			from,
+			to
 		),
 		database.all<{ id: string; title: string | null; artist: string | null; album: string | null; plays: number; cover: string | null }>(
 			`SELECT song_id AS id, MAX(title) AS title, MAX(artist) AS artist, MAX(album_id) AS album, COUNT(*) AS plays,
@@ -579,22 +586,25 @@ export async function listeningStats(
 			 FROM plays WHERE ${scope} AND title IS NOT NULL
 			 GROUP BY song_id ORDER BY COUNT(*) DESC, MAX(title) LIMIT ${TOP}`,
 			accountId,
-			from
+			from,
+			to
 		),
 		// First heard: the earliest play over everything kept, not only the period.
 		database.all<{ id: string | null; name: string; plays: number; cover: string | null }>(
 			`SELECT MAX(artist_id) AS id, MAX(artist) AS name, COUNT(*) AS plays, MAX(cover_art) AS cover
 			 FROM plays WHERE account_id = ? AND artist IS NOT NULL
-			 GROUP BY ${artistKey} HAVING MIN(played_at) >= ? ORDER BY COUNT(*) DESC, MAX(artist) LIMIT ${TOP}`,
+			 GROUP BY ${artistKey} HAVING MIN(played_at) >= ? AND MIN(played_at) < ? ORDER BY COUNT(*) DESC, MAX(artist) LIMIT ${TOP}`,
 			accountId,
 			// Everything kept is new against nothing, so the whole history names none.
-			from > 0 ? from : Number.MAX_SAFE_INTEGER
+			from > 0 ? from : Number.MAX_SAFE_INTEGER,
+			to
 		),
 		database.all<{ hour: number; plays: number; seconds: number | null }>(
 			`SELECT played_at / ${HOUR_MS} AS hour, COUNT(*) AS plays, SUM(duration) AS seconds FROM plays WHERE ${scope}
 			 GROUP BY played_at / ${HOUR_MS} ORDER BY hour`,
 			accountId,
-			from
+			from,
+			to
 		),
 		earlier
 			? database.get<{ plays: number; seconds: number | null; tracks: number; artists: number }>(
@@ -783,4 +793,26 @@ export async function forgottenAlbums(accountId: string, limit: number, now = Da
 			};
 		})
 	);
+}
+
+/** The times of the account's first and last kept plays, or null with none: the years the recap offers. */
+export async function historySpan(accountId: string): Promise<{ first: number; last: number } | null> {
+	const row = await (await store()).get<{ first: number | null; last: number | null }>(
+		'SELECT MIN(played_at) AS first, MAX(played_at) AS last FROM plays WHERE account_id = ?',
+		accountId
+	);
+	return row?.first == null || row.last == null ? null : { first: Number(row.first), last: Number(row.last) };
+}
+
+/** The library artists the account played most since `since`, most played first; for the "New releases" shelf. */
+export async function topArtistsSince(accountId: string, since: number, limit: number): Promise<{ id: string; name: string }[]> {
+	const rows = await (await store()).all<{ id: string; name: string }>(
+		`SELECT artist_id AS id, MAX(artist) AS name FROM plays
+		 WHERE account_id = ? AND played_at >= ? AND artist_id IS NOT NULL AND artist IS NOT NULL
+		 GROUP BY artist_id ORDER BY COUNT(*) DESC, MAX(artist) LIMIT ?`,
+		accountId,
+		since,
+		limit
+	);
+	return rows.map((row) => ({ id: row.id, name: row.name }));
 }

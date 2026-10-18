@@ -247,6 +247,23 @@ export interface MediaBackend {
 	getStarred(cred: StoredCredential): Promise<SearchResults>;
 	search(cred: StoredCredential, query: string, limit: number): Promise<SearchResults>;
 
+	/**
+	 * Songs alone for a search, for matching an imported playlist: one call
+	 * where `search` makes three on Jellyfin. Subsonic's `search3` with no
+	 * albums or artists asked for; Navidrome matches every word of the query
+	 * in the title, the artist or the album. Jellyfin's `searchTerm`, which
+	 * matches the title.
+	 */
+	searchSongs(cred: StoredCredential, query: string, limit: number): Promise<Song[]>;
+
+	/**
+	 * The file of each entry of a playlist, in its order, as the server names
+	 * it, for an M3U export; null for an entry it gives none for. Navidrome's
+	 * `path` on `getPlaylist`, relative to its music folder. Jellyfin's `Path`
+	 * on the playlist's items, as the server sees its disk.
+	 */
+	getPlaylistPaths(cred: StoredCredential, id: string): Promise<(string | null)[]>;
+
 	setStarred(cred: StoredCredential, id: string, kind: StarKind, starred: boolean): Promise<void>;
 
 	/**

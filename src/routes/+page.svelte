@@ -7,6 +7,7 @@
 	import MediaShelf from '$lib/components/MediaShelf.svelte';
 	import OnThisDayShelf from '$lib/components/OnThisDayShelf.svelte';
 	import RediscoverShelf from '$lib/components/RediscoverShelf.svelte';
+	import NewReleasesShelf from '$lib/components/NewReleasesShelf.svelte';
 	import SectionHeader from '$lib/components/SectionHeader.svelte';
 	import TrackList from '$lib/components/TrackList.svelte';
 	import Icon from '$lib/components/Icon.svelte';
@@ -81,10 +82,23 @@
 		};
 	});
 
+	// The same for the new releases, which follow the mixes.
+	let releasing = $state(false);
+	$effect(() => {
+		let current = true;
+		releasing = false;
+		data.newReleases.then((releases) => {
+			if (current) releasing = releases.length > 0;
+		});
+		return () => {
+			current = false;
+		};
+	});
+
 	// The numbered album shelves, ahead of the daily mixes.
 	const albumShelves = $derived(shelves.length + Number(rediscovering) + Number(remembering));
 	// Every numbered section above Favourites.
-	const aboveFavourites = $derived(albumShelves + Number(mixing));
+	const aboveFavourites = $derived(albumShelves + Number(mixing) + Number(releasing));
 </script>
 
 <svelte:head>
@@ -177,6 +191,13 @@
 					/>
 				{/each}
 			</MediaShelf>
+		{/if}
+	{/await}
+
+	<!-- Streamed, after the mixes; see newreleases.ts. -->
+	{#await data.newReleases then releases}
+		{#if releases.length > 0}
+			<NewReleasesShelf {releases} index={albumShelves + Number(mixing) + 1} />
 		{/if}
 	{/await}
 

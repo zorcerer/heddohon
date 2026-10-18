@@ -87,6 +87,10 @@
 				href={sortHref}
 				label="Sort playlists"
 			/>
+			<a class="hh-button" href="/playlists/import">
+				<Icon name="download" size={16} />
+				Import
+			</a>
 			<button class="hh-button hh-button--primary new" onclick={() => (creating = !creating)}>
 				<Icon name="plus" size={16} />
 				New playlist

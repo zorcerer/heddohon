@@ -15,6 +15,7 @@
 	import { fetchTracks, playContainer, playInstantMix, queueContainer } from '$lib/client/actions';
 	import { contextMenu } from '$lib/client/context-menu.svelte';
 	import { isStarred, setStarred } from '$lib/client/favourites.svelte';
+	import { ratingOf, setRating } from '$lib/client/ratings.svelte';
 	import { player } from '$lib/client/player.svelte';
 	import { addSongsToPlaylist } from '$lib/client/playlists.svelte';
 	import { selection, selectionActions } from '$lib/client/selection.svelte';
@@ -26,6 +27,8 @@
 	type Item =
 		| { kind: 'rule' }
 		| { kind: 'link'; label: string; icon: IconName; href: string }
+		/** Five stars in one row; see `rate`. */
+		| { kind: 'rating'; id: string; current: number }
 		| {
 				kind: 'action';
 				label: string;
@@ -126,6 +129,8 @@
 					},
 					{ kind: 'action', label: mixLabel, icon: 'radio', run: () => startMix('song', song.id), stays: true }
 				);
+				// Where the music server keeps ratings, as the player's stars are.
+				if (page.data.ratings) list.push({ kind: 'rating', id: song.id, current: ratingOf('song', song.id, song.rating ?? 0) });
 				if (together.joined) {
 					list.push({ kind: 'action', label: 'Add to listen together', icon: 'radio', run: () => together.add(song) });
 				}
@@ -227,10 +232,33 @@
 		(first ?? menu).focus({ preventScroll: true });
 	});
 
+	/** Sets a song's rating from the menu's stars, and closes it. The star that is the rating clears it, as in the player. */
+	function rate(id: string, stars: number, current: number) {
+		contextMenu.close(true);
+		void setRating('song', id, stars === current ? 0 : stars, current);
+	}
+
+	function starKey(event: KeyboardEvent) {
+		const step = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0;
+		if (step === 0) return;
+		event.preventDefault();
+		event.stopPropagation();
+		const star = event.currentTarget as HTMLElement;
+		const next = step > 0 ? star.nextElementSibling : star.previousElementSibling;
+		if (next instanceof HTMLElement) next.focus();
+	}
+
+	/*
+	 * The stops the up and down arrows move through: each item, and the five
+	 * stars of the rating as one, entered at the star that is the rating (or
+	 * the first). Left and right move between the stars (`starKey`).
+	 */
 	function step(event: KeyboardEvent) {
 		if (!menu) return;
-		const all = [...menu.querySelectorAll<HTMLElement>('[role="menuitem"]')];
-		const at = all.indexOf(document.activeElement as HTMLElement);
+		const all = [...menu.querySelectorAll<HTMLElement>('[role="menuitem"], [data-stop]')];
+		let active = document.activeElement as HTMLElement | null;
+		if (active?.getAttribute('role') === 'menuitemradio') active = menu.querySelector<HTMLElement>('[data-stop]');
+		const at = active ? all.indexOf(active) : -1;
 		let to: number | null = null;
 		if (event.key === 'ArrowDown') to = at < 0 ? 0 : (at + 1) % all.length;
 		else if (event.key === 'ArrowUp') to = at < 0 ? all.length - 1 : (at - 1 + all.length) % all.length;
@@ -313,6 +341,29 @@
 		{#each items as item, index (index)}
 			{#if item.kind === 'rule'}
 				<div class="rule" role="separator"></div>
+			{:else if item.kind === 'rating'}
+				<div class="rating" role="group" aria-label="Rating">
+					<Icon name="star" size={16} />
+					<span class="label" aria-hidden="true">Rate</span>
+					<span class="stars">
+						{#each [1, 2, 3, 4, 5] as stars (stars)}
+							<button
+								class="star"
+								class:lit={stars <= item.current}
+								role="menuitemradio"
+								tabindex="-1"
+								type="button"
+								aria-checked={stars === item.current}
+								aria-label={stars === item.current ? `${stars} of 5, press to clear` : `Rate ${stars} of 5`}
+								data-stop={stars === Math.max(1, item.current) ? '' : undefined}
+								onclick={() => rate(item.id, stars, item.current)}
+								onkeydown={starKey}
+							>
+								<Icon name={stars <= item.current ? 'star-filled' : 'star'} size={16} />
+							</button>
+						{/each}
+					</span>
+				</div>
 			{:else if item.kind === 'link'}
 				<a class="item" role="menuitem" tabindex="-1" href={item.href} onclick={() => contextMenu.close()}>
 					<Icon name={item.icon} size={16} />
@@ -429,6 +480,53 @@
 
 	.item[aria-busy='true'] {
 		cursor: progress;
+	}
+
+	/* The rating: a row laid out as an item, whose stars are the items. */
+	.rating {
+		display: flex;
+		align-items: center;
+		gap: var(--space-3);
+		padding: 0.2rem 0.25rem 0.2rem var(--space-3);
+		color: var(--text-default);
+		font-size: 0.875rem;
+	}
+
+	.rating > :global(svg) {
+		flex: none;
+		color: var(--text-muted);
+	}
+
+	.stars {
+		display: inline-flex;
+		margin-left: auto;
+	}
+
+	.star {
+		display: grid;
+		place-items: center;
+		padding: 0.25rem;
+		border-radius: var(--r-sm);
+		color: var(--text-faint);
+		cursor: default;
+	}
+
+	.star.lit {
+		color: var(--glow-color);
+	}
+
+	/* As in the player: pointing at a star lights it and those before it. */
+	.stars:hover .star {
+		color: var(--glow-color);
+	}
+
+	.stars .star:hover ~ .star {
+		color: var(--text-faint);
+	}
+
+	.star:focus-visible {
+		outline: 2px solid var(--accent);
+		outline-offset: -1px;
 	}
 
 	.rule {

@@ -192,6 +192,16 @@
 		if (exportRange.to !== null) query.set('to', String(exportRange.to));
 		return `/api/history/export?${query}`;
 	});
+	/** Whether the home page has the "New releases" shelf, saved as it is changed. */
+	let newReleases = $state(untrack(() => data.settings.newReleases));
+	async function showNewReleases(on: boolean) {
+		newReleases = on;
+		await fetch('/api/settings', {
+			method: 'PATCH',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ newReleases: on })
+		}).catch(() => undefined);
+	}
 	/** The session lifetime in days where it is a whole number of them, and in hours otherwise. */
 	const sessionLifetime = $derived(
 		data.sessionMaxHours % 24 === 0
@@ -2230,6 +2240,20 @@
 					checked={historyOtherApps}
 					onchange={(event) => void keepOtherApps(event.currentTarget.checked)}
 				/>
+			</label>
+		{/if}
+
+		{#if data.newReleasesOffered}
+			<label class="row switch">
+				<span class="label">
+					New releases on the home page
+					<span class="hint hh-muted">
+						Albums and EPs from the last six months, and ones announced, by the ten artists you played most
+						this year, that your library does not have. To find them, this server sends those artists' names
+						to MusicBrainz once a day.
+					</span>
+				</span>
+				<input type="checkbox" checked={newReleases} onchange={(event) => void showNewReleases(event.currentTarget.checked)} />
 			</label>
 		{/if}
 

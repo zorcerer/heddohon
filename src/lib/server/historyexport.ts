@@ -5,6 +5,7 @@
  * Written as it is read, a page of plays at a time (`exportPlays`), so a
  * history of any length is never held whole in memory.
  */
+import { csvLine } from './csv';
 import { exportPlays, type ExportedPlay } from './history';
 import { APP_VERSION } from './version';
 
@@ -12,23 +13,6 @@ export const EXPORT_FORMATS = ['csv', 'json'] as const;
 export type ExportFormat = (typeof EXPORT_FORMATS)[number];
 
 const CSV_HEADER = ['played_at', 'track', 'artist', 'album', 'duration_seconds', 'device', 'source', 'song_id'];
-
-/**
- * One field of a CSV line (RFC 4180). A value a spreadsheet would read as a
- * formula (`=`, `+`, `-`, `@`, a tab or a carriage return first) takes a `'`
- * in front: track names are written by whoever tags the library, not by the
- * account downloading them.
- */
-function csvField(value: string | number | null): string {
-	if (value === null) return '';
-	let text = String(value);
-	if (typeof value === 'string' && /^[=+\-@\t\r]/.test(text)) text = `'${text}`;
-	return /[",\r\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
-}
-
-function csvLine(fields: (string | number | null)[]): string {
-	return `${fields.map(csvField).join(',')}\r\n`;
-}
 
 function csvRow(play: ExportedPlay): string {
 	return csvLine([
