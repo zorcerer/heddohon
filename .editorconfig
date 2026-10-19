@@ -1,0 +1,26 @@
+# The repository's style, for editors that read this file. There is no
+# formatter run over the tree: match the code around a change, and format only
+# the lines you change. Do not run prettier over a file; with no settings of
+# its own it rewrites tabs to spaces and single quotes to double.
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = tab
+indent_size = 4
+
+[*.{md,yml,yaml}]
+indent_style = space
+indent_size = 2
+
+[*.md]
+# A trailing double space is a line break in Markdown.
+trim_trailing_whitespace = false
+
+# The Unraid template and profile.
+[{templates/*.xml,ca_profile.xml}]
+indent_style = space
+indent_size = 2
