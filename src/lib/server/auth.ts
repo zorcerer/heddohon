@@ -33,6 +33,7 @@ import { clearAccountState } from './settings';
 import { clearProfile, hideProfile } from './listening';
 import { forgetSharedItems, revokeAllShares } from './shares';
 import { revokeMcpTokens } from './mcp';
+import { withdrawNowPlayingLink } from './nowplaying';
 import { clearMixes } from './mixes';
 import { foldName } from './names';
 import { endPartiesOf } from './together';
@@ -121,6 +122,22 @@ export async function accountOfUser(
 		kind,
 		username
 	);
+	if (!row) return null;
+	try {
+		return { account: toAccount(row), credential: openJson<StoredCredential>(row.credential) };
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * An account by its id, with its credential opened, for a now-playing link's
+ * cover (`nowplaying.ts`): no request of the account is behind it, as with
+ * `accountOfUser`. Null where there is no such account or the credential no
+ * longer opens.
+ */
+export async function accountById(accountId: string): Promise<{ account: Account; credential: StoredCredential } | null> {
+	const row = await (await store()).get<AccountRow>('SELECT * FROM accounts WHERE id = ?', accountId);
 	if (!row) return null;
 	try {
 		return { account: toAccount(row), credential: openJson<StoredCredential>(row.credential) };
@@ -585,6 +602,9 @@ export async function destroyAllSessions(accountId: string): Promise<void> {
 	// it ends with the sessions: kept, it would hand a reused name's library to
 	// its previous holder's assistant.
 	await revokeMcpTokens(accountId);
+	// The same for the now-playing link: kept, it would show a reused name's
+	// listening to whoever held the link before.
+	await withdrawNowPlayingLink(accountId);
 	cutSessionStreams(ending.map((row) => row.token_digest));
 	forgetAccount(accountId);
 	forgetListings(accountId);

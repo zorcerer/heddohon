@@ -38,7 +38,10 @@ const PUBLIC_ROUTES = [
 	'/together',
 	'/manifest.webmanifest',
 	'/.well-known/assetlinks.json',
-	'/api/plugin/navidrome'
+	'/api/plugin/navidrome',
+	// A now-playing link: the token in the path in place of a session; see nowplaying.ts.
+	'/now',
+	'/api/now-playing'
 ];
 
 const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);

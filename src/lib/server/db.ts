@@ -152,6 +152,14 @@ CREATE TABLE IF NOT EXISTS mcp_tokens (
 );
 CREATE INDEX IF NOT EXISTS mcp_tokens_account_idx ON mcp_tokens(account_id);
 
+-- An account's now-playing link, one at most: the HMAC digest of its token;
+-- see nowplaying.ts.
+CREATE TABLE IF NOT EXISTS now_playing_links (
+  account_id    TEXT PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
+  token_digest  TEXT NOT NULL UNIQUE,
+  created_at    INTEGER NOT NULL
+);
+
 -- What an account has linked outside the music server: a Discord webhook, a
 -- ListenBrainz token. The secret is sealed as a credential is; see
 -- integrations.ts.
@@ -270,7 +278,8 @@ export interface Store {
  * The tables that move between databases, and their columns: read from a
  * SQLite file into PostgreSQL (`importFromSqlite`) and written from
  * PostgreSQL into a SQLite file (`backup`). Accounts first: the others refer
- * to them. `sessions`, `mcp_tokens` and `login_attempts` are not in it.
+ * to them. `sessions`, `mcp_tokens`, `now_playing_links` and `login_attempts`
+ * are not in it.
  */
 const COPIED_TABLES = {
 	accounts: ['id', 'backend', 'username', 'remote_user_id', 'credential', 'created_at', 'last_login_at', 'device_epoch'],

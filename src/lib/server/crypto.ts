@@ -145,3 +145,11 @@ export function pluginDigest(token: string): string {
 export function mcpDigest(token: string): string {
 	return createHmac('sha256', keyFor('mcp')).update(token).digest('base64url');
 }
+
+/**
+ * The digest of a now-playing link's token; see `nowplaying.ts`. Keyed apart
+ * from the other tokens, so none digests to a value in another's table.
+ */
+export function nowPlayingDigest(token: string): string {
+	return createHmac('sha256', keyFor('now-playing')).update(token).digest('base64url');
+}

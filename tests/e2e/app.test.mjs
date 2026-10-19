@@ -4350,6 +4350,116 @@ describe('optional features', () => {
 	});
 });
 
+describe('a now-playing link', () => {
+	async function action(client, name) {
+		const response = await client.request(`/settings?/${name}`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json', 'x-sveltekit-action': 'true' },
+			body: ''
+		});
+		const result = await response.json();
+		const data = result.data ? JSON.parse(result.data) : null;
+		const values = data ? Object.fromEntries(Object.entries(data[0]).map(([k, i]) => [k, data[i]])) : {};
+		return { type: result.type, status: result.status, ...values };
+	}
+
+	test('shows what the account plays, without a sign-in, until it is replaced or withdrawn', async () => {
+		await asFreshAccount('streamer', async (client) => {
+			const made = await action(client, 'makeNowPlaying');
+			assert.equal(made.type, 'success', explain('the link was not made'));
+			const token = made.nowPlayingToken;
+			assert.match(token, /^hhnp_[\w-]{43}$/);
+			assert.match((await client.page('/settings?tab=account')).html, /You have a link, made/);
+
+			// Nobody signed in.
+			const visitor = new Client(app.url);
+			const read = async (link = token) => {
+				const response = await visitor.request(`/api/now-playing/${link}`);
+				return { status: response.status, body: response.ok ? await response.json() : null, cache: response.headers.get('cache-control') };
+			};
+			assert.deepEqual((await read()).body, { playing: false });
+
+			const browser = await listen(client);
+			try {
+				await browser.next('peers');
+				const state = { songId: 's3a', title: 'Song 3a', artist: 'Artist 0003', album: 'Album 3', albumId: 'al3', coverArt: 'al-3', position: 12, duration: 180, playing: true, volume: 1 };
+				assert.equal((await client.json('/api/remote/state', 'POST', { peer: browser.id, state })).status, 200);
+
+				const playing = await read();
+				assert.equal(playing.cache, 'no-store');
+				const { position, ...rest } = playing.body;
+				assert.deepEqual(rest, { playing: true, title: 'Song 3a', artist: 'Artist 0003', album: 'Album 3', duration: 180, cover: true });
+				assert.ok(position >= 12 && position <= 14, `position ${position}`);
+
+				// The cover, through the account's own credential.
+				const cover = await visitor.request(`/api/now-playing/${token}/cover`);
+				assert.equal(cover.status, 200);
+				assert.match(cover.headers.get('content-type'), /^image\//);
+
+				// The page for OBS: the track, without the app around it.
+				const { response, html } = await visitor.page(`/now/${token}`);
+				assert.equal(response.status, 200);
+				assert.match(html, /Song 3a/);
+				assert.doesNotMatch(html, /class="app\b/);
+
+				// Paused: nothing, and no cover.
+				await client.json('/api/remote/state', 'POST', { peer: browser.id, state: { ...state, playing: false } });
+				assert.deepEqual((await read()).body, { playing: false });
+				assert.equal((await visitor.request(`/api/now-playing/${token}/cover`)).status, 404);
+			} finally {
+				browser.cancel();
+			}
+
+			// A new link stops the old one, and withdrawing stops the new.
+			const again = (await action(client, 'makeNowPlaying')).nowPlayingToken;
+			assert.equal((await read()).status, 404, 'the replaced link still works');
+			assert.equal((await read(again)).status, 200);
+			assert.equal((await action(client, 'withdrawNowPlaying')).type, 'success');
+			assert.equal((await read(again)).status, 404);
+			for (const link of ['nothing', `hhnp_${'A'.repeat(43)}`, `hhnp_${'x'.repeat(200)}`]) assert.equal((await read(link)).status, 404, link);
+			assert.equal((await visitor.page(`/now/${again}`)).response.status, 404);
+		});
+	});
+
+	test('ends with the account\'s sessions', async () => {
+		await asFreshAccount('streamer2', async (client) => {
+			const token = (await action(client, 'makeNowPlaying')).nowPlayingToken;
+			const visitor = new Client(app.url);
+			assert.equal((await visitor.request(`/api/now-playing/${token}`)).status, 200);
+			// The password changed on the music server: every session ends, and the link with them.
+			subsonic.state.password = 'changed';
+			try {
+				// A page that reads the library, which ends the sessions on a refusal.
+				await client.page('/albums/al1');
+			} finally {
+				subsonic.state.password = 'streamer2pass';
+			}
+			assert.equal((await visitor.request(`/api/now-playing/${token}`)).status, 404);
+		});
+	});
+
+	test('a link\'s token stays out of the log', async () => {
+		// Every request line is written at `debug`.
+		const logged = await startApp({ subsonicUrl: subsonic.url, jellyfinUrl: jellyfin.url, env: { HEDDOHON_LOG_LEVEL: 'debug' } });
+		try {
+			const client = new Client(logged.url);
+			await client.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' });
+			const made = await client.request('/settings?/makeNowPlaying', {
+				method: 'POST',
+				headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json', 'x-sveltekit-action': 'true' },
+				body: ''
+			});
+			const data = JSON.parse((await made.json()).data);
+			const token = data[data[0].nowPlayingToken];
+			for (const path of [`/now/${token}`, `/api/now-playing/${token}`, `/api/now-playing/${token}/cover`]) await fetch(logged.url + path);
+			assert.match(logged.output(), /\/now-playing\//, 'no request line was written');
+			assert.ok(!logged.output().includes(token.slice(5, 40)), 'the token reached the log');
+		} finally {
+			await logged.stop();
+		}
+	});
+});
+
 
 describe('log files', () => {
 	const day = (daysAgo) => new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
