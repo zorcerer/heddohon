@@ -227,7 +227,12 @@ credential or upstream detail is sent.
   answer, redirects refused, 3 pages of 100 release groups an artist.
 - **Cached.** What an artist has released, and the id a name finds, for a
   day, for every account alike (it is the same for all); 2000 of each. The
-  shelf for a day per account. Failures are logged as `new-releases-failed`.
+  shelf per account: made as the account turns it on, shown at once after
+  that, and made again behind the one shown once it is a day old (one older
+  than a week is not shown). All of it is kept in
+  `HEDDOHON_DATA_DIR/new-releases.json`, mode 0600, written at most every 5
+  seconds, so a restart starts from it; it is a cache, rebuilt where it is
+  missing, and not in a backup. Failures are logged as `new-releases-failed`.
 - **Text only.** Titles are cut to 300 characters and rendered as text.
 
 ## Internet radio

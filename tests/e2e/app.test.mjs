@@ -8,7 +8,7 @@
  * state (settings, credentials) says so and puts it back.
  */
 import assert from 'node:assert/strict';
-import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { crc32, inflateRawSync } from 'node:zlib';
@@ -4189,17 +4189,18 @@ describe('new releases', () => {
 		assert.equal(musicbrainz.requests.length, 0, 'MusicBrainz was asked for an account that had not turned the shelf on');
 	});
 
-	test('lists the recent and announced albums of the artists played most that the library lacks, asking MusicBrainz a request a second', async () => {
+	test('lists the recent and announced albums of the artists played most that the library lacks, made as the shelf is turned on', async () => {
 		const listener = new Client(on.url);
 		await listener.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' });
 		assert.equal((await listener.json('/api/settings', 'PATCH', { newReleases: true })).status, 200);
 
-		// The first visit waits 2.5 seconds for MusicBrainz, and the shelf is kept for the next.
-		let found = [];
-		for (let visit = 0; visit < 8 && found.length === 0; visit++) {
-			found = await shelf(listener);
-			if (found.length === 0) await new Promise((done) => setTimeout(done, 750));
-		}
+		// Made from the moment it is turned on, without a visit to the home page:
+		// three requests a second apart. The first visit then waits for nothing.
+		for (let wait = 0; wait < 20 && musicbrainz.requests.length < 3; wait++) await new Promise((done) => setTimeout(done, 250));
+		await new Promise((done) => setTimeout(done, 300));
+		const started = Date.now();
+		const found = await shelf(listener);
+		assert.ok(Date.now() - started < 2000, `the first visit took ${Date.now() - started}ms`);
 		// The announced EP first, then the album out 20 days ago; not the one the
 		// library has, the live one, the old one or the single.
 		assert.deepEqual(found, ['rg-3-soon', 'rg-0-new']);
@@ -4214,6 +4215,38 @@ describe('new releases', () => {
 		const asked = musicbrainz.requests.length;
 		assert.deepEqual(await shelf(listener), ['rg-3-soon', 'rg-0-new']);
 		assert.equal(musicbrainz.requests.length, asked, 'the shelf was not held');
+	});
+
+	test('is kept across a restart, and a day-old shelf is shown at once while a new one is made', async () => {
+		const file = join(on.dataDir, 'new-releases.json');
+		for (let wait = 0; wait < 40 && !existsSync(file); wait++) await new Promise((done) => setTimeout(done, 250));
+		const kept = JSON.parse(readFileSync(file, 'utf8'));
+		assert.equal(statSync(file).mode & 0o777, 0o600);
+		assert.equal(kept.shelves.length, 1);
+		// Made two days ago, as far as the next start can tell.
+		const twoDaysAgo = Date.now() - 2 * 24 * 60 * 60 * 1000;
+		kept.shelves[0][1] = twoDaysAgo;
+		writeFileSync(file, JSON.stringify(kept));
+
+		await on.stop({ keepData: true });
+		on = await startApp({
+			subsonicUrl: subsonic.url,
+			jellyfinUrl: jellyfin.url,
+			dataDir: on.dataDir,
+			env: { HEDDOHON_NEW_RELEASES: 'true', HEDDOHON_MUSICBRAINZ_URL: musicbrainz.url }
+		});
+		const asked = musicbrainz.requests.length;
+		const listener = new Client(on.url);
+		await listener.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' });
+		const started = Date.now();
+		assert.deepEqual(await shelf(listener), ['rg-3-soon', 'rg-0-new']);
+		assert.ok(Date.now() - started < 2000, `the visit after a restart took ${Date.now() - started}ms`);
+		// What MusicBrainz said is kept too: the new shelf asked it nothing.
+		for (let wait = 0; wait < 40 && JSON.parse(readFileSync(file, 'utf8')).shelves[0][1] === twoDaysAgo; wait++) {
+			await new Promise((done) => setTimeout(done, 250));
+		}
+		assert.ok(JSON.parse(readFileSync(file, 'utf8')).shelves[0][1] > twoDaysAgo, 'no new shelf was made behind the old one');
+		assert.equal(musicbrainz.requests.length, asked, 'MusicBrainz was asked again after a restart');
 	});
 });
 
