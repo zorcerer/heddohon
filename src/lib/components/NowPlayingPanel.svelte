@@ -361,6 +361,10 @@
 					<span class="hh-numeric hh-muted">
 						{player.queue.length} · {formatDuration(queueTotal)}
 					</span>
+					<!-- A new queue from the playing track, where the queue is. -->
+					{#if player.current && !player.current.live}
+						<MixButton of="song" id={player.current.id} label="Instant mix" title="Instant mix from the playing track" variant="inline" />
+					{/if}
 				</div>
 				<!-- Focusable, as the library and the lyrics are: with no scrollbar,
 				     the keyboard scrolls a long queue. -->
@@ -552,10 +556,6 @@
 								: ''}
 						</a>
 					{/if}
-					<!-- A mix made from this track, among the things about this track. -->
-					<div class="more-like">
-						<MixButton of="song" id={song.id} label="Instant mix from this track" variant="inline" />
-					</div>
 				</div>
 			</div>
 		{/if}
@@ -1119,13 +1119,17 @@
 		padding: var(--space-4) var(--space-4) 0;
 	}
 
+	/* The heading and the count, and at the far end the instant mix. */
 	.queue-head {
 		display: flex;
 		align-items: baseline;
-		justify-content: space-between;
 		gap: var(--space-3);
 		padding-bottom: var(--space-2);
 		border-bottom: 1px solid var(--border-hairline);
+	}
+
+	.queue-head > :global(.mix) {
+		margin-left: auto;
 	}
 
 	.queue-list {
@@ -1427,10 +1431,6 @@
 
 	.facts .rating dd {
 		margin-left: -0.15rem;
-	}
-
-	.more-like {
-		margin-top: var(--space-2);
 	}
 
 	.download {
