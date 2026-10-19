@@ -1572,6 +1572,64 @@
 		</section>
 	{/if}
 
+	{#if data.nowPlaying}
+		{@const madeLink = form && 'nowPlayingToken' in form ? form.nowPlayingToken : null}
+		<section class="hh-card hh-glass group" id="now-playing" hidden={shown !== 'account'}>
+			<div class="group-head">
+				<h2>Now-playing link</h2>
+				<p class="hh-muted">
+					A link that shows what you are playing, without signing in: a page with the cover, the title and
+					the artist on a see-through background, for a browser source in OBS, and the same as JSON, for Home
+					Assistant's REST sensor or a script. It shows nothing while nothing plays or you have paused.
+					Anyone who has the link sees what you play, so share it as you would a password.
+				</p>
+			</div>
+			{#if madeLink}
+				<div class="made-token" role="status">
+					<p>Your link, shown this once. The page, for OBS:</p>
+					<input
+						class="hh-input secret"
+						readonly
+						value={`${page.url.origin}/now/${madeLink}`}
+						aria-label="The now-playing page"
+						onfocus={(event) => event.currentTarget.select()}
+					/>
+					<p class="hh-muted">The JSON, for Home Assistant or a script:</p>
+					<input
+						class="hh-input secret"
+						readonly
+						value={`${page.url.origin}/api/now-playing/${madeLink}`}
+						aria-label="The now-playing JSON"
+						onfocus={(event) => event.currentTarget.select()}
+					/>
+				</div>
+			{:else if data.nowPlaying.madeAt}
+				<p class="hh-muted note-inline">
+					You have a link, made {new Date(data.nowPlaying.madeAt).toLocaleDateString()}. It is not shown again;
+					make a new one to see it, which stops the old one working.
+				</p>
+			{/if}
+			<div class="history-links">
+				<form method="POST" action="?/makeNowPlaying" use:enhance={() => async ({ update }) => update({ reset: false })}>
+					<button class="hh-button" type="submit">
+						<Icon name="link" size={16} />
+						{data.nowPlaying.madeAt || madeLink ? 'Make a new link' : 'Make a link'}
+					</button>
+				</form>
+				{#if data.nowPlaying.madeAt || madeLink}
+					<form method="POST" action="?/withdrawNowPlaying" use:enhance={() => async ({ update }) => update({ reset: false })}>
+						<button class="hh-button danger" type="submit">Withdraw the link</button>
+					</form>
+				{/if}
+			</div>
+			{#if form && 'nowPlayingError' in form && form.nowPlayingError}
+				<p class="hh-muted note-inline" role="alert">{form.nowPlayingError}</p>
+			{:else if form && 'nowPlayingWithdrawn' in form && form.nowPlayingWithdrawn}
+				<p class="hh-muted note-inline" role="status">Withdrawn. The link no longer works.</p>
+			{/if}
+		</section>
+	{/if}
+
 	{#if data.mcp}
 		{@const mcp = data.mcp}
 		{@const made = form && 'mcpToken' in form ? form.mcpToken : null}

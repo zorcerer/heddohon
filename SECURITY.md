@@ -895,6 +895,37 @@ address, `/cast/<token>`, a public route. What it is limited to:
 browser. It makes no upstream call; an id the account cannot play gets an
 address that answers 404.
 
+## Now-playing link
+
+An account can make a link that shows what it is playing, for an OBS browser
+source or Home Assistant, under Settings, Account. It has three public routes,
+each taking the token in its path in place of a session: `/now/<token>` (a
+page on a see-through background), `/api/now-playing/<token>` (JSON) and
+`/api/now-playing/<token>/cover`. What it is limited to:
+
+- **What it shows is the account's own track while it plays**: title, artist,
+  album, length, position, and the cover. Paused or with nothing playing, the
+  JSON is `{ "playing": false }`, the page is empty and the cover answers 404.
+  It reads the reports the account's own browsers send over the remote
+  control's streams, and its other apps only where the account shows those to
+  other accounts already (`listeningOtherApps`). Without
+  `HEDDOHON_REMOTE_CONTROL` there is nothing to show, and every route answers
+  404.
+- **One link an account**, made and withdrawn by the account. The token is
+  `hhnp_` and 256 random bits; only its HMAC digest is stored, under a key of
+  its own, and it is shown once. A new link replaces the old, which stops
+  working at once.
+- **It ends with the account's sessions** (`destroyAllSessions`): a password
+  changed on the music server, a credential it refuses, or a user name
+  reused by someone else withdraws it, as it does MCP tokens.
+- **The cover is read through the account's stored credential**, as a shared
+  link's is, by the cover id the account's browser reported; the request names
+  no cover. It carries the shared media's headers (`private, max-age=300`).
+- **Every refusal is the same 404**: malformed, withdrawn, never made.
+  Answers are `no-store`, and the token is kept out of the log (`redact`).
+- **Anyone who holds the link sees what the account plays** for as long as
+  the link stands. Settings says so beside the button.
+
 ## Listening together
 
 A signed-in browser can start a live session and hand out its link,
@@ -1330,6 +1361,7 @@ Covers are cached under `$HEDDOHON_DATA_DIR/covers` (see
 | Listening history export | the account's own plays; `format` `csv` or `json`, `from` and `to` whole epoch milliseconds up to 8.64e15, `from` before `to`; read 2000 plays a query and written as read. A CSV field that starts with `=`, `+`, `-`, `@`, a tab or a carriage return takes a `'` in front, so a spreadsheet does not run a track name as a formula |
 | Playlist import | 1000 tracks a request, each with a title; title, artist and album cut to 300 characters; a length above 0 and under 86400 s or none. Each track is up to two searches of 20 songs on the music server, 8 tracks at a time, stopped when the browser goes. Nothing is written until the playlist is created through `/api/playlists` |
 | Playlist export | `format` one of `m3u`, `m3u-titles` and `csv`; a playlist the account can read. An M3U line holds no line break; CSV fields as in the history export |
+| Now-playing link | one an account; a token of `hhnp_` and 43 characters, 64 at most before it is looked up |
 | Navidrome plugin token | at least 32 characters, and not `HEDDOHON_SECRET` |
 | Navidrome plugin message | 100 plays, or a page of 2000 scrobbles; a user name and a song id of 1 to 255 characters; a time in whole seconds, at most 5 minutes ahead |
 | Scrobble history imports open at once | 4; closed after 2 minutes without a page |

@@ -25,6 +25,7 @@ import { pluginHeard, pluginOffered, requestImport } from '$lib/server/plugin';
 import { reportStatus } from '$lib/server/libraryreport';
 import { createMcpToken, listMcpTokens, MAX_MCP_TOKEN_NAME, MAX_MCP_TOKENS, revokeMcpToken } from '$lib/server/mcp';
 import { FEATURE_IDS, FEATURES, featureStates } from '$lib/server/features';
+import { makeNowPlayingLink, nowPlayingLinkMadeAt, withdrawNowPlayingLink } from '$lib/server/nowplaying';
 
 /**
  * How long the import action waits for the Navidrome plugin to send the whole
@@ -164,6 +165,8 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 				: null,
 		// As the `listeners` event carries it, which replaces it once the stream is open.
 		profile: profile && { id: profile.handle, name: profile.name, shown: profile.shown, avatar: profile.avatarAt },
+		// The now-playing link for OBS and Home Assistant, where the remote control's reports exist; see nowplaying.ts.
+		nowPlaying: cfg.remoteControl ? { madeAt: await nowPlayingLinkMadeAt(session.account.id) } : null,
 		/*
 		 * The AI tab: the account's tokens for an AI assistant and the address
 		 * its client is given, where the endpoint is on, and for an
@@ -225,6 +228,26 @@ export const actions: Actions = {
 		saveSetup({ HEDDOHON_MCP: on ? 'true' : '' });
 		log.warn('mcp-switched', { by: session.account.username, on });
 		return { mcpSaved: true };
+	},
+
+	/**
+	 * Makes the account's now-playing link, replacing the one it had; see
+	 * `nowplaying.ts`. The token is in this answer alone: only its digest is
+	 * kept.
+	 */
+	makeNowPlaying: async ({ locals }) => {
+		const session = locals.session;
+		if (!session) return fail(401, { error: 'Not signed in' });
+		if (!config().remoteControl) return fail(404, { nowPlayingError: 'This server has the remote control turned off.' });
+		return { nowPlayingToken: await makeNowPlayingLink(session.account.id) };
+	},
+
+	/** Withdraws the account's now-playing link. */
+	withdrawNowPlaying: async ({ locals }) => {
+		const session = locals.session;
+		if (!session) return fail(401, { error: 'Not signed in' });
+		await withdrawNowPlayingLink(session.account.id);
+		return { nowPlayingWithdrawn: true };
 	},
 
 	/**

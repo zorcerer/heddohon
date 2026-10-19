@@ -64,9 +64,11 @@ export const load: LayoutServerLoad = async ({ locals, url }) => {
 		settings: locals.settings ?? defaultSettings(),
 		sessionExpiresAt: session?.expiresAt ?? null,
 		isLoginPage: url.pathname === '/login',
-		// A shared link and a listen-together link each open on a page of their
-		// own, without the rail and the player column, signed in or not.
-		isSharePage: url.pathname.startsWith('/share/') || url.pathname.startsWith('/together/'),
+		// A shared link, a listen-together link and a now-playing link each open on
+		// a page of their own, without the rail and the player column, signed in
+		// or not.
+		isSharePage:
+			url.pathname.startsWith('/share/') || url.pathname.startsWith('/together/') || url.pathname.startsWith('/now/'),
 		// The living-room screen is drawn without the rail and the player panel,
 		// signed in and with the player running.
 		isScreenPage: url.pathname === '/screen'

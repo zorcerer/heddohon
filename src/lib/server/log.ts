@@ -155,7 +155,8 @@ export const log = {
 };
 
 /**
- * A path or query string with any share, cast or listen-together token taken out.
+ * A path or query string with any share, cast, listen-together or now-playing
+ * token taken out.
  *
  * Each is a bearer credential carried in the path (`/cast/<token>`, see
  * `cast.ts`), and `/login?next=` carries it again, percent-encoded. Matching
@@ -163,7 +164,7 @@ export const log = {
  * with neither such a segment nor a Last.fm callback parameter (`LINK_PARAMS`)
  * is returned as given.
  */
-const SHARE_SEGMENT = /(\/(?:share|cast|together)\/+[\s"'%]*)[^/?#&\s"]+/gi;
+const SHARE_SEGMENT = /(\/(?:share|cast|together|now|now-playing)\/+[\s"'%]*)[^/?#&\s"]+/gi;
 
 /**
  * The query parameters of the Last.fm callback (`/settings/lastfm`): last.fm's
