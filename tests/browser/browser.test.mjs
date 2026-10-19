@@ -1905,6 +1905,31 @@ describe('instant mix', () => {
 		}
 		assert.deepEqual(problems, []);
 	});
+
+	test('is at the head of the queue, from the playing track', async () => {
+		subsonic.state.audio = { type: 'audio/wav', body: silentWav(30) };
+		const { page, problems } = await watchedPage();
+		try {
+			await page.goto(app.url + '/albums/al2', { waitUntil: 'networkidle' });
+			await page.getByRole('button', { name: 'Play Song 2a', exact: true }).click();
+			await page.waitForFunction(() => document.querySelector('aside.panel h2.title')?.textContent === 'Song 2a');
+			await page.locator('aside.panel button[aria-label="Queue"]').click();
+			const mix = page.locator('aside.panel .queue-head button.mix');
+			assert.equal(await mix.getAttribute('title'), 'Instant mix from the playing track');
+			subsonic.state.mixSize = 4;
+			await mix.click();
+			// The mix starts with the track it is made from, and the queue is the mix.
+			await page.waitForFunction(() => document.querySelector('aside.panel button[aria-label="Queue"]')?.getAttribute('title') === 'Queue (5)', null, { timeout: 5000 });
+			// Not among the track's details any more.
+			await page.getByRole('button', { name: 'Track details' }).click();
+			assert.equal(await page.locator('aside.panel .facts button.mix, aside.panel .details button.mix').count(), 0);
+		} finally {
+			subsonic.state.mixSize = 0;
+			subsonic.state.audio = null;
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
 });
 
 describe('an album link', () => {
