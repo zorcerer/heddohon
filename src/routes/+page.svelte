@@ -112,10 +112,6 @@
 			<span class="hh-eyebrow">{greeting}</span>
 			<h1>Your library</h1>
 		</div>
-		<!-- On a phone, where Settings is not in the dock. -->
-		<a class="account hh-glass" href="/settings" aria-label="Settings" title="Settings">
-			<Icon name="settings" size={19} />
-		</a>
 		{#if data.discover.length > 0}
 			<button class="hh-button shuffle" onclick={() => player.playShuffled(data.discover)}>
 				<Icon name="shuffle" size={16} />
@@ -267,35 +263,10 @@
 		margin-top: var(--space-1);
 	}
 
-	.account {
-		display: none;
-	}
-
 	@media (max-width: 60rem) {
-		.account {
-			position: absolute;
-			top: 0;
-			right: 0;
-			display: grid;
-			place-items: center;
-			width: 2.75rem;
-			height: 2.75rem;
-			border-radius: var(--r-pill);
-			color: var(--text-muted);
-		}
-
-		.account:active {
-			scale: 0.92;
-		}
-
-		/*
-		 * The title takes the whole row, short of the account button's corner,
-		 * and Shuffle something goes under it. Side by side, the two buttons
-		 * overlapped by 14px at 393px wide.
-		 */
+		/* The title takes the whole row, and Shuffle something goes under it. */
 		.masthead > div {
 			flex: 1 1 100%;
-			padding-right: 3.5rem;
 		}
 
 		.masthead {

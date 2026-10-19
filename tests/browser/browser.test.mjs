@@ -1166,7 +1166,7 @@ describe('internet radio', () => {
 });
 
 describe('the bars a phone paints around the page', () => {
-	test('on the home page, the account button and Shuffle something do not overlap', async () => {
+	test('on the home page, there is no settings button, and the title and Shuffle something do not overlap', async () => {
 		for (const viewport of [
 			{ width: 393, height: 852 },
 			{ width: 360, height: 780 },
@@ -1187,12 +1187,18 @@ describe('the bars a phone paints around the page', () => {
 						const rect = document.querySelector(selector).getBoundingClientRect();
 						return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom };
 					};
-					return { account: box('.masthead .account'), shuffle: box('.masthead .shuffle'), title: box('.masthead h1'), width: innerWidth };
+					return {
+						settings: document.querySelectorAll('.masthead a[href="/settings"]').length,
+						shuffle: box('.masthead .shuffle'),
+						title: box('.masthead h1'),
+						width: innerWidth
+					};
 				});
 				const apart = (a, b) => a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top;
 				const at = `${viewport.width}px`;
-				assert.ok(apart(boxes.account, boxes.shuffle), `${at}: ${JSON.stringify(boxes)}`);
-				assert.ok(apart(boxes.account, boxes.title), `${at}: the title runs under the account button`);
+				// Settings is under the Library tab on a phone, not on the home page.
+				assert.equal(boxes.settings, 0, `${at}: a settings button on the home page`);
+				assert.ok(apart(boxes.title, boxes.shuffle), `${at}: ${JSON.stringify(boxes)}`);
 				assert.ok(boxes.shuffle.right <= boxes.width, `${at}: Shuffle something runs off the screen`);
 			} finally {
 				await phone.close();
@@ -2298,6 +2304,8 @@ describe('playing across page changes', () => {
 				['Library Playlists', () => page.locator('main a[href="/playlists"]').first().tap(), /\/playlists$/],
 				['a playlist card', () => page.locator('main a[href="/playlists/pl1"]').first().tap(), /\/playlists\/pl1$/],
 				['dock Home again', () => tab('Home').tap(), /\/$/],
+				// On a phone, Settings is under the Library tab.
+				['dock Library for Settings', () => tab('Library').tap(), /\/library$/],
 				['settings', () => page.locator('main a[href="/settings"]').first().tap(), /\/settings$/]
 			];
 			for (const [where, go, url] of steps) {
