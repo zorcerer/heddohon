@@ -1017,3 +1017,27 @@ export async function startOutside() {
 	});
 	return { ...server, calls, state, posts };
 }
+
+/**
+ * A WAV of `seconds` of silence, 8 kHz mono 8-bit, which a browser decodes and
+ * plays: for `state.audio`, where a check needs `timeupdate` to fire (the
+ * stream's body is not audio otherwise), and for `npm run dev:mock`.
+ */
+export function silentWav(seconds) {
+	const rate = 8000;
+	const data = rate * seconds;
+	const wav = Buffer.alloc(44 + data, 128);
+	wav.write('RIFF', 0);
+	wav.writeUInt32LE(36 + data, 4);
+	wav.write('WAVEfmt ', 8);
+	wav.writeUInt32LE(16, 16);
+	wav.writeUInt16LE(1, 20);
+	wav.writeUInt16LE(1, 22);
+	wav.writeUInt32LE(rate, 24);
+	wav.writeUInt32LE(rate, 28);
+	wav.writeUInt16LE(1, 32);
+	wav.writeUInt16LE(8, 34);
+	wav.write('data', 36);
+	wav.writeUInt32LE(data, 40);
+	return wav;
+}

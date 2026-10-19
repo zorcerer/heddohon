@@ -12,7 +12,7 @@ import assert from 'node:assert/strict';
 import { after, before, describe, test } from 'node:test';
 import { chromium } from 'playwright';
 import { startApp } from '../e2e/harness.mjs';
-import { HD650_PARAMETRIC, startAutoEq, startJellyfin, startStationHost, startSubsonic } from '../e2e/mocks.mjs';
+import { HD650_PARAMETRIC, silentWav, startAutoEq, startJellyfin, startStationHost, startSubsonic } from '../e2e/mocks.mjs';
 
 let subsonic;
 let jellyfin;
@@ -177,30 +177,6 @@ describe('playing from a card', () => {
 		await page.close();
 	});
 });
-
-/**
- * A WAV of `seconds` of silence, 8 kHz mono 8-bit, which Chromium decodes and
- * plays. The HTTP suite's stream body is not audio, and these checks need
- * `timeupdate` to fire.
- */
-function silentWav(seconds) {
-	const rate = 8000;
-	const data = rate * seconds;
-	const wav = Buffer.alloc(44 + data, 128);
-	wav.write('RIFF', 0);
-	wav.writeUInt32LE(36 + data, 4);
-	wav.write('WAVEfmt ', 8);
-	wav.writeUInt32LE(16, 16);
-	wav.writeUInt16LE(1, 20);
-	wav.writeUInt16LE(1, 22);
-	wav.writeUInt32LE(rate, 24);
-	wav.writeUInt32LE(rate, 28);
-	wav.writeUInt16LE(1, 32);
-	wav.writeUInt16LE(8, 34);
-	wav.write('data', 36);
-	wav.writeUInt32LE(data, 40);
-	return wav;
-}
 
 describe('the length on the seek bar', () => {
 	/*
