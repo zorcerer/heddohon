@@ -10,6 +10,7 @@
 	},
 	"scripts": {
 		"dev": "vite dev",
+		"dev:mock": "node tests/dev-mock.mjs",
 		"build": "vite build",
 		"preview": "vite preview",
 		"start": "node build/index.js",
