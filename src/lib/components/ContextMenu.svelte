@@ -27,8 +27,6 @@
 	type Item =
 		| { kind: 'rule' }
 		| { kind: 'link'; label: string; icon: IconName; href: string }
-		/** Five stars in one row; see `rate`. */
-		| { kind: 'rating'; id: string; current: number }
 		| {
 				kind: 'action';
 				label: string;
@@ -129,8 +127,6 @@
 					},
 					{ kind: 'action', label: mixLabel, icon: 'radio', run: () => startMix('song', song.id), stays: true }
 				);
-				// Where the music server keeps ratings, as the player's stars are.
-				if (page.data.ratings) list.push({ kind: 'rating', id: song.id, current: ratingOf('song', song.id, song.rating ?? 0) });
 				if (together.joined) {
 					list.push({ kind: 'action', label: 'Add to listen together', icon: 'radio', run: () => together.add(song) });
 				}
@@ -198,6 +194,16 @@
 				: subject
 					? { kind: 'Album', name: subject.album.name, by: subject.album.artist }
 					: null
+	);
+
+	/**
+	 * A song's five stars, under its name and artist in the head, where the
+	 * music server keeps ratings, as the player's stars are. See `rate`.
+	 */
+	const rating = $derived(
+		subject?.kind === 'song' && !subject.song.live && page.data.ratings
+			? { id: subject.song.id, current: ratingOf('song', subject.song.id, subject.song.rating ?? 0) }
+			: null
 	);
 
 	function choose(item: Extract<Item, { kind: 'action' }>) {
@@ -334,36 +340,34 @@
 		onkeydown={step}
 		oncontextmenu={(event) => event.preventDefault()}
 	>
-		<div class="head" aria-hidden="true">
-			<span class="name hh-truncate">{heading.name}</span>
-			{#if heading.by}<span class="by hh-truncate">{heading.by}</span>{/if}
+		<div class="head">
+			<span class="name hh-truncate" aria-hidden="true">{heading.name}</span>
+			{#if heading.by}<span class="by hh-truncate" aria-hidden="true">{heading.by}</span>{/if}
+			{#if rating}
+				{@const { id, current } = rating}
+				<span class="stars" role="group" aria-label="Rating">
+					{#each [1, 2, 3, 4, 5] as stars (stars)}
+						<button
+							class="star"
+							class:lit={stars <= current}
+							role="menuitemradio"
+							tabindex="-1"
+							type="button"
+							aria-checked={stars === current}
+							aria-label={stars === current ? `${stars} of 5, press to clear` : `Rate ${stars} of 5`}
+							data-stop={stars === Math.max(1, current) ? '' : undefined}
+							onclick={() => rate(id, stars, current)}
+							onkeydown={starKey}
+						>
+							<Icon name={stars <= current ? 'star-filled' : 'star'} size={16} />
+						</button>
+					{/each}
+				</span>
+			{/if}
 		</div>
 		{#each items as item, index (index)}
 			{#if item.kind === 'rule'}
 				<div class="rule" role="separator"></div>
-			{:else if item.kind === 'rating'}
-				<div class="rating" role="group" aria-label="Rating">
-					<Icon name="star" size={16} />
-					<span class="label" aria-hidden="true">Rate</span>
-					<span class="stars">
-						{#each [1, 2, 3, 4, 5] as stars (stars)}
-							<button
-								class="star"
-								class:lit={stars <= item.current}
-								role="menuitemradio"
-								tabindex="-1"
-								type="button"
-								aria-checked={stars === item.current}
-								aria-label={stars === item.current ? `${stars} of 5, press to clear` : `Rate ${stars} of 5`}
-								data-stop={stars === Math.max(1, item.current) ? '' : undefined}
-								onclick={() => rate(item.id, stars, item.current)}
-								onkeydown={starKey}
-							>
-								<Icon name={stars <= item.current ? 'star-filled' : 'star'} size={16} />
-							</button>
-						{/each}
-					</span>
-				</div>
 			{:else if item.kind === 'link'}
 				<a class="item" role="menuitem" tabindex="-1" href={item.href} onclick={() => contextMenu.close()}>
 					<Icon name={item.icon} size={16} />
@@ -482,24 +486,11 @@
 		cursor: progress;
 	}
 
-	/* The rating: a row laid out as an item, whose stars are the items. */
-	.rating {
-		display: flex;
-		align-items: center;
-		gap: var(--space-3);
-		padding: 0.2rem 0.25rem 0.2rem var(--space-3);
-		color: var(--text-default);
-		font-size: 0.875rem;
-	}
-
-	.rating > :global(svg) {
-		flex: none;
-		color: var(--text-muted);
-	}
-
+	/* The rating, under the artist: its stars are the items. The first star's
+	   glyph lines up with the text above it. */
 	.stars {
-		display: inline-flex;
-		margin-left: auto;
+		display: flex;
+		margin: 0.2rem 0 0 -0.25rem;
 	}
 
 	.star {

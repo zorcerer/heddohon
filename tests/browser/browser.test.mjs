@@ -3801,15 +3801,15 @@ describe('star ratings', () => {
 			assert.equal(subsonic.state.ratings.get('s34b'), 4);
 			assert.equal(await page.getByRole('menu').count(), 0, 'the menu stayed after a rating');
 
-			// From the keyboard the stars are one stop, entered at the rating.
+			// From the keyboard the stars are one stop, in the head above the first item, entered at the rating.
 			await row.focus();
 			await page.keyboard.press('ContextMenu');
 			await page.getByRole('menu').waitFor();
-			for (let press = 0; press < 12; press++) {
-				if (await page.evaluate(() => document.activeElement?.getAttribute('role') === 'menuitemradio')) break;
-				await page.keyboard.press('ArrowDown');
-			}
+			assert.equal(await focusedLabel(), null, 'the first item has the focus, not a star');
+			assert.equal(await page.evaluate(() => document.activeElement?.textContent?.trim()), 'Play');
+			await page.keyboard.press('ArrowUp');
 			assert.equal(await focusedLabel(), '4 of 5, press to clear');
+			assert.equal(await page.getByRole('menu').getByText('Rate', { exact: true }).count(), 0, 'no "Rate" label');
 			await page.keyboard.press('ArrowLeft');
 			assert.equal(await focusedLabel(), 'Rate 3 of 5');
 			saved = rated();
@@ -6570,8 +6570,11 @@ describe('the menu on a right click', () => {
 			assert.equal(await focused(), all[1]);
 			await page.keyboard.press('End');
 			assert.equal(await focused(), all.at(-1));
+			// On round to the stars under the name, the first stop, then the first item.
 			await page.keyboard.press('ArrowDown');
-			assert.equal(await focused(), all[0], 'the last item does not lead on to the first');
+			assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('role')), 'menuitemradio', 'the last item does not lead on to the stars');
+			await page.keyboard.press('ArrowDown');
+			assert.equal(await focused(), all[0], 'the stars do not lead on to the first item');
 			// Over the row, and inside the window.
 			const [box, at] = [await menu(page).boundingBox(), await row.boundingBox()];
 			assert.ok(box.x >= at.x && box.x <= at.x + at.width && box.y >= at.y && box.y <= at.y + at.height + 1, JSON.stringify([box, at]));
