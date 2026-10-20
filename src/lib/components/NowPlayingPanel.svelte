@@ -50,6 +50,7 @@
 	import { remote } from '$lib/client/remote.svelte';
 	import { together } from '$lib/client/together.svelte';
 	import Seekbar from './Seekbar.svelte';
+	import Visualiser from './Visualiser.svelte';
 
 	let { showQualityBadge = true }: { showQualityBadge?: boolean } = $props();
 
@@ -473,6 +474,8 @@
 					fill
 				/>
 			</a>
+			<!-- Over the artwork's fade, outside its mask, which would take the bars with it. -->
+			<Visualiser place="player" />
 		{/if}
 	</div>
 

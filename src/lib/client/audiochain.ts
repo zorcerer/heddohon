@@ -8,13 +8,16 @@
  *
  *   element A ─ side gain ─┐
  *                          ├─ preamp ─ correction ─ 10 peaking bands ─ level ─ duck ─ output
- *   element B ─ side gain ─┘
+ *   element B ─ side gain ─┘                                         └─ analyser
  *
  * The side gains carry each track's ReplayGain and the crossfade. The level
  * carries the volume, mute and the sleep timer's fade. The duck goes to
  * silence and back around a pause, a skip and a seek. The correction is the
  * headphone's own filters (`$lib/autoeq`), and while one is chosen the bands
- * are held flat (`processing.svelte.ts`).
+ * are held flat (`processing.svelte.ts`). The analyser is the visualiser's
+ * (`Visualiser.svelte`), made the first time one asks. It reads the sound
+ * after the bands and before the volume, so the bars do not shrink with the
+ * volume, and it leads nowhere, so it changes nothing that is heard.
  *
  * Measured in Chromium, Firefox and WebKit on 29 September 2026 (issue #32):
  *
@@ -47,6 +50,11 @@ const LEVEL_SMOOTHING_S = 0.015;
 const SUSPEND_AFTER_MS = 30_000;
 /** Points on each crossfade curve. */
 const CURVE_POINTS = 256;
+/**
+ * The analyser's window: 1024 bins of 23 Hz at 48 kHz, fine enough to keep
+ * the lowest bars apart on a log scale from 40 Hz.
+ */
+const ANALYSER_FFT_SIZE = 2048;
 
 type SinkContext = AudioContext & { setSinkId?: (id: string) => Promise<void> };
 
@@ -65,6 +73,7 @@ export class AudioChain {
 	/** Firefox's route to a chosen output, while one is chosen. */
 	#stream: { node: MediaStreamAudioDestinationNode; element: HTMLAudioElement } | null = null;
 	#suspendTimer: ReturnType<typeof setTimeout> | null = null;
+	#analyser: AnalyserNode | null = null;
 
 	constructor(elements: HTMLMediaElement[]) {
 		this.context = new AudioContext();
@@ -134,6 +143,19 @@ export class AudioChain {
 		node.connect(this.#bands[0]);
 		this.#correctionPreamp = correction?.preamp ?? 0;
 		this.#setPreamp();
+	}
+
+	/** The visualiser's tap on the sound after the bands, made on first use. */
+	analyser(): AnalyserNode {
+		if (!this.#analyser) {
+			this.#analyser = this.context.createAnalyser();
+			this.#analyser.fftSize = ANALYSER_FFT_SIZE;
+			// The range a mastered track moves in; the default -100 to -30 dB keeps quiet passages up and loud ones pinned.
+			this.#analyser.minDecibels = -85;
+			this.#analyser.maxDecibels = -20;
+			this.#bands[this.#bands.length - 1].connect(this.#analyser);
+		}
+		return this.#analyser;
 	}
 
 	#setPreamp() {

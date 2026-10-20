@@ -639,6 +639,79 @@ describe('the equaliser', () => {
 	});
 });
 
+describe('the visualiser', () => {
+	/** Eight seconds of a 440 Hz tone, so the analyser has something to show. */
+	const toneWav = () => {
+		const wav = silentWav(8);
+		for (let i = 44; i < wav.length; i++) wav[i] = 128 + Math.round(100 * Math.sin((2 * Math.PI * 440 * (i - 44)) / 8000));
+		return wav;
+	};
+	/** Whether the canvas under `selector` has a pixel drawn on it. */
+	const drawn = (selector) => {
+		const canvas = document.querySelector(selector);
+		const context = canvas?.getContext('2d');
+		return !!context && context.getImageData(0, 0, canvas.width, canvas.height).data.some((value, i) => i % 4 === 3 && value > 0);
+	};
+
+	test('is drawn from the graph only where processing and the visualiser are on, and not with reduced motion', async () => {
+		const { page, problems } = await watchedPage();
+		await page.addInitScript(() => {
+			if (!sessionStorage.getItem('seeded')) {
+				sessionStorage.setItem('seeded', '1');
+				localStorage.setItem('heddohon:audio-processing', JSON.stringify({ enabled: true, gains: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0] }));
+			}
+		});
+		subsonic.state.audio = { type: 'audio/wav', body: toneWav() };
+		try {
+			await page.goto(app.url + '/settings?tab=playback', { waitUntil: 'networkidle' });
+			const toggle = page.getByRole('checkbox', { name: /^Visualiser/ });
+			assert.equal(await toggle.isChecked(), false, 'off by default');
+			await toggle.check();
+			assert.equal((await page.evaluate(() => JSON.parse(localStorage.getItem('heddohon:audio-processing')))).visualiser, true);
+
+			// Song 7a: the screen asks for the lyrics of what plays, and the server keeps the answer,
+			// which would leave a song another test gives lyrics to without them.
+			await page.goto(app.url + '/albums/al7', { waitUntil: 'networkidle' });
+			await page.getByRole('button', { name: 'Play Song 7a', exact: true }).click();
+			await page.waitForFunction(drawn, 'aside.panel canvas.visualiser', { timeout: 5000 });
+			assert.equal(await page.locator('aside.panel canvas.visualiser').getAttribute('aria-hidden'), 'true');
+
+			await page.emulateMedia({ reducedMotion: 'reduce' });
+			await page.locator('canvas.visualiser').waitFor({ state: 'detached' });
+			await page.emulateMedia({ reducedMotion: 'no-preference' });
+
+			// The living-room screen, reached without a page load so the tone plays on.
+			await page.locator('nav.rail a[href="/screen"]').click();
+			await page.waitForURL(/\/screen$/);
+			await page.waitForFunction(drawn, '.screen canvas.visualiser', { timeout: 5000 });
+		} finally {
+			subsonic.state.audio = null;
+			await page.evaluate(() => localStorage.removeItem('heddohon:audio-processing')).catch(() => undefined);
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+
+	test('is not drawn while audio processing is off', async () => {
+		const { page, problems } = await watchedPage();
+		await page.addInitScript(() => {
+			localStorage.setItem('heddohon:audio-processing', JSON.stringify({ enabled: false, gains: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], visualiser: true }));
+		});
+		subsonic.state.audio = { type: 'audio/wav', body: toneWav() };
+		try {
+			await page.goto(app.url + '/albums/al1', { waitUntil: 'networkidle' });
+			await page.getByRole('button', { name: 'Play Song 1a', exact: true }).click();
+			await page.waitForFunction(() => [...document.querySelectorAll('audio')].some((a) => !a.paused && a.currentTime > 0.3), null, { timeout: 5000 });
+			assert.equal(await page.locator('canvas.visualiser').count(), 0);
+		} finally {
+			subsonic.state.audio = null;
+			await page.evaluate(() => localStorage.removeItem('heddohon:audio-processing')).catch(() => undefined);
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+});
+
 describe('the install card', () => {
 	const settings = (patch) => context.request.patch(`${app.url}/api/settings`, { data: patch, headers: { origin: app.url } });
 	const card = (page) => page.locator('aside[aria-label="Install the app"]');
@@ -3728,15 +3801,15 @@ describe('star ratings', () => {
 			assert.equal(subsonic.state.ratings.get('s34b'), 4);
 			assert.equal(await page.getByRole('menu').count(), 0, 'the menu stayed after a rating');
 
-			// From the keyboard the stars are one stop, entered at the rating.
+			// From the keyboard the stars are one stop, in the head above the first item, entered at the rating.
 			await row.focus();
 			await page.keyboard.press('ContextMenu');
 			await page.getByRole('menu').waitFor();
-			for (let press = 0; press < 12; press++) {
-				if (await page.evaluate(() => document.activeElement?.getAttribute('role') === 'menuitemradio')) break;
-				await page.keyboard.press('ArrowDown');
-			}
+			assert.equal(await focusedLabel(), null, 'the first item has the focus, not a star');
+			assert.equal(await page.evaluate(() => document.activeElement?.textContent?.trim()), 'Play');
+			await page.keyboard.press('ArrowUp');
 			assert.equal(await focusedLabel(), '4 of 5, press to clear');
+			assert.equal(await page.getByRole('menu').getByText('Rate', { exact: true }).count(), 0, 'no "Rate" label');
 			await page.keyboard.press('ArrowLeft');
 			assert.equal(await focusedLabel(), 'Rate 3 of 5');
 			saved = rated();
@@ -6497,8 +6570,11 @@ describe('the menu on a right click', () => {
 			assert.equal(await focused(), all[1]);
 			await page.keyboard.press('End');
 			assert.equal(await focused(), all.at(-1));
+			// On round to the stars under the name, the first stop, then the first item.
 			await page.keyboard.press('ArrowDown');
-			assert.equal(await focused(), all[0], 'the last item does not lead on to the first');
+			assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('role')), 'menuitemradio', 'the last item does not lead on to the stars');
+			await page.keyboard.press('ArrowDown');
+			assert.equal(await focused(), all[0], 'the stars do not lead on to the first item');
 			// Over the row, and inside the window.
 			const [box, at] = [await menu(page).boundingBox(), await row.boundingBox()];
 			assert.ok(box.x >= at.x && box.x <= at.x + at.width && box.y >= at.y && box.y <= at.y + at.height + 1, JSON.stringify([box, at]));
