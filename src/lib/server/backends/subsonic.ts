@@ -17,7 +17,17 @@ import {
 	upstreamUrl,
 	type UpstreamParams
 } from './http';
-import { finishLastfm, linkListenBrainz, scrobblerLinks, startLastfm, unlinkScrobbler } from './navidrome';
+import {
+	createSmartPlaylist,
+	finishLastfm,
+	linkListenBrainz,
+	scrobblerLinks,
+	setSmartPlaylistRules,
+	smartPlaylistIds,
+	smartPlaylistRules,
+	startLastfm,
+	unlinkScrobbler
+} from './navidrome';
 import type {
 	MediaBackend,
 	PlaybackReport,
@@ -365,6 +375,8 @@ function albumsFromSongs(
 function toPlaylist(raw: Record<string, any>, username: string): Playlist {
 	const changed = raw.changed ? Date.parse(raw.changed) : NaN;
 	const created = raw.created ? Date.parse(raw.created) : NaN;
+	// A server that names no owner (Subsonic before Navidrome) lists the account's own alone.
+	const editable = !raw.owner || String(raw.owner).toLowerCase() === username.toLowerCase();
 	return {
 		id: String(raw.id),
 		name: raw.name ?? 'Untitled playlist',
@@ -374,8 +386,10 @@ function toPlaylist(raw: Record<string, any>, username: string): Playlist {
 		coverArt: raw.coverArt ? String(raw.coverArt) : null,
 		owner: raw.owner ?? null,
 		isPublic: Boolean(raw.public),
-		// A server that names no owner (Subsonic before Navidrome) lists the account's own alone.
-		editable: !raw.owner || String(raw.owner).toLowerCase() === username.toLowerCase(),
+		editable,
+		// Navidrome sets `readonly` on a smart playlist, on one synced from an M3U
+		// file, and on another user's.
+		tracksEditable: editable && raw.readonly !== true,
 		createdAt: Number.isFinite(created) ? created : null,
 		changedAt: Number.isFinite(changed) ? changed : null
 	};
@@ -451,6 +465,13 @@ export const subsonicBackend: MediaBackend = {
 		unlink: unlinkScrobbler,
 		startLastfm,
 		finishLastfm
+	},
+
+	smartPlaylists: {
+		ids: smartPlaylistIds,
+		rules: smartPlaylistRules,
+		create: createSmartPlaylist,
+		setRules: setSmartPlaylistRules
 	},
 
 	async login(username, password) {

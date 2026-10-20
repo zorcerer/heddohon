@@ -327,6 +327,30 @@ later, the first to sign the link token it sends through last.fm.
   checked against its source on 2026-09-25. A change there shows as the section
   not appearing (`scrobbler-failed` in the log), not as an error elsewhere.
 
+## Smart playlists
+
+On Navidrome, an account makes and edits smart playlists: rules Navidrome
+keeps and evaluates itself (added 2026-10-20). Heddohon calls the same
+`/api/playlist` endpoints Navidrome's web interface uses, through the session
+token above (`navidrome.ts`), and plays the result through the Subsonic API
+like any playlist. Jellyfin accounts, and Subsonic servers that are not
+Navidrome, are offered none.
+
+- **The browser never sends Navidrome's rules.** It sends the editor's model,
+  which `checkRules` in `src/lib/smartrules.ts` holds to 12 fields, 10
+  operators and the bounds under **Input bounds**, and the server writes
+  Navidrome's JSON from what passed. Navidrome 0.64.2 stores a rule on a
+  field it does not know and answers 200, so this check is the only one.
+  Fields that read other playlists (`inPlaylist`) or file paths are not
+  offered.
+- **Only the account's own credential is used**, so what a rule matches is
+  what that user may read, and a play count or a rating is that user's.
+  Navidrome refuses a change to another user's playlist with 403, which ends
+  no session, and refuses any change to a smart playlist's songs.
+- **Rules a file defines are not changed here** (`409`): Navidrome would take
+  the change and import the `.nsp` file over it at its next scan.
+- **Nothing is stored here.** The rules live in Navidrome.
+
 ## Plays from the Navidrome plugin
 
 Navidrome tells a scrobbler plugin of every play of a user, whichever app made
@@ -1331,6 +1355,7 @@ Covers are cached under `$HEDDOHON_DATA_DIR/covers` (see
 | Sessions per account | 50; the oldest ends |
 | Playlist positions per removal | 1000, deduplicated |
 | Star rating | a whole number from 0 to 5 |
+| Smart playlist rules | 1 to 20 rules, each a field and an operator from an allowlist (`lib/smartrules.ts`); text 1 to 200 characters; a year 0 to 9999, a rating 0 to 5, a play count to 1,000,000, a length to 86,400 s, days 1 to 36,500; 1 to 1000 songs or no limit |
 | Remote control streams per account | 20 |
 | Remote command | one of nine types; a seek from 0 to 86400 s, a volume from 0 to 1, a queue of 1 to 1000 ids |
 | Remote state text (title, artist, album) | 300 characters, cut |

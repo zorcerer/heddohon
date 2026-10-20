@@ -1,5 +1,6 @@
 /**
- * Navidrome's own API, for linking an account to Last.fm and ListenBrainz.
+ * Navidrome's own API, for linking an account to Last.fm and ListenBrainz,
+ * and for smart playlists (at the end of the file).
  *
  * The Subsonic API has no call for this. Navidrome's web interface uses
  * `/api/lastfm/link` and `/api/listenbrainz/link`, which take the JWT that
@@ -18,7 +19,7 @@
  */
 import { upstreamFor } from '../config';
 import { tokenDigest } from '../crypto';
-import { UpstreamError, readJson, upstreamFetch, upstreamUrl } from './http';
+import { UpstreamError, assertSafeId, readJson, upstreamFetch, upstreamUrl } from './http';
 import type { StoredCredential } from './types';
 
 export type ScrobblerService = 'lastfm' | 'listenbrainz';
@@ -204,4 +205,88 @@ export async function finishLastfm(linkToken: string, token: string): Promise<bo
 	);
 	await response.body?.cancel().catch(() => undefined);
 	return response.ok;
+}
+
+/*
+ * Smart playlists, through `/api/playlist`: Navidrome's web interface keeps
+ * its playlists there, each with `rules` (null on one made by hand) and
+ * `path` (the file it was imported from, if any). A create or an update
+ * sends `name`, `public` and `rules` alone, the fields its REST adapter lets
+ * a user set; an update names only what it sends, and Navidrome leaves the
+ * rest. Checked against Navidrome 0.64.2 on the test rig on 2026-10-20: an
+ * update of another user's answers 403, an unknown id 404, an unknown
+ * operator 422, and an unknown field is stored (see `lib/smartrules.ts`).
+ */
+
+const playlistPath = (id: string) => `/api/playlist/${encodeURIComponent(assertSafeId(id))}`;
+
+async function playlistCall(
+	cred: StoredCredential,
+	path: string,
+	init: { method?: string; body?: unknown } = {}
+): Promise<Response> {
+	const response = await nativeCall(cred, path, init);
+	if (response === null) throw new UpstreamError('This music server has no smart playlists', 404, 'not_found');
+	if (response.ok) return response;
+	await response.body?.cancel().catch(() => undefined);
+	if (response.status === 403) throw new UpstreamError('The music server refused that change', 403, 'forbidden');
+	if (response.status === 404) throw new UpstreamError('Playlist not found', 404, 'not_found');
+	throw new UpstreamError(`Music server returned HTTP ${response.status}`, 502);
+}
+
+const hasRules = (rules: unknown) => typeof rules === 'object' && rules !== null && !Array.isArray(rules);
+
+/**
+ * The ids of the smart playlists the account can see, or null when the
+ * server is not Navidrome. The listing has no filter for them: its `smart`
+ * filter keeps the playlists without rules (0.64.2).
+ */
+export async function smartPlaylistIds(cred: StoredCredential): Promise<Set<string> | null> {
+	const response = await nativeCall(cred, '/api/playlist');
+	if (response === null) return null;
+	if (!response.ok) {
+		await response.body?.cancel().catch(() => undefined);
+		throw new UpstreamError(`Music server returned HTTP ${response.status}`, 502);
+	}
+	const body = await readJson(response).catch(() => null);
+	if (!Array.isArray(body)) throw new UpstreamError('The music server sent a playlist list that could not be read', 502, 'protocol');
+	return new Set(
+		body
+			.filter((entry): entry is Record<string, unknown> => typeof entry === 'object' && entry !== null)
+			.filter((entry) => hasRules(entry.rules) && typeof entry.id === 'string')
+			.map((entry) => entry.id as string)
+	);
+}
+
+/** One playlist's rules, as Navidrome holds them, or null for a playlist made by hand. */
+export async function smartPlaylistRules(
+	cred: StoredCredential,
+	id: string
+): Promise<{ criteria: Record<string, unknown>; fromFile: boolean } | null> {
+	const body = await jsonOf(await playlistCall(cred, playlistPath(id)));
+	if (!hasRules(body.rules)) return null;
+	return { criteria: body.rules as Record<string, unknown>, fromFile: typeof body.path === 'string' && body.path !== '' };
+}
+
+export async function createSmartPlaylist(
+	cred: StoredCredential,
+	name: string,
+	criteria: Record<string, unknown>
+): Promise<string> {
+	const body = await jsonOf(
+		await playlistCall(cred, '/api/playlist', { method: 'POST', body: { name, public: false, rules: criteria } })
+	);
+	if (typeof body.id !== 'string' || body.id === '') {
+		throw new UpstreamError('The music server created the playlist but did not return it', 502, 'protocol');
+	}
+	return body.id;
+}
+
+export async function setSmartPlaylistRules(
+	cred: StoredCredential,
+	id: string,
+	criteria: Record<string, unknown>
+): Promise<void> {
+	const response = await playlistCall(cred, playlistPath(id), { method: 'PUT', body: { rules: criteria } });
+	await response.body?.cancel().catch(() => undefined);
 }
