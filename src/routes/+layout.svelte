@@ -165,6 +165,8 @@
 		'/playlists',
 		'/playlists/import',
 		'/playlists/_',
+		'/people',
+		'/people/_',
 		'/folders',
 		'/folders/_',
 		'/history',

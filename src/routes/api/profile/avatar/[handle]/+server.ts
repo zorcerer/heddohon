@@ -1,6 +1,5 @@
 import { error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { config } from '$lib/server/config';
 import { readAvatar } from '$lib/server/listening';
 
 /** A handle as `listening.ts` makes one: 12 random bytes in hex. */
@@ -17,8 +16,6 @@ const HANDLE = /^[0-9a-f]{24}$/;
  */
 export const GET: RequestHandler = async ({ locals, params }) => {
 	if (!locals.session) error(401, 'Not signed in');
-	const cfg = config();
-	if (!cfg.listeners || !cfg.remoteControl) error(404, 'Not found');
 	if (!HANDLE.test(params.handle)) error(404, 'Not found');
 
 	const avatar = await readAvatar(params.handle);

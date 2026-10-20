@@ -465,3 +465,20 @@ watch((accountId) => {
 	if (!present(accountId) && !hasApps(accountId)) known.delete(accountId);
 	if (refresh(accountId)) publish();
 });
+
+/**
+ * The account's handle, making its profile row (unshown, without a name or a
+ * picture) where it has none, for a profile page (`profilepage.ts`).
+ */
+export async function ensureHandle(accountId: string): Promise<string> {
+	const database = await store();
+	await database.run(
+		`INSERT INTO profiles (account_id, handle, name, shown, avatar, avatar_at, updated_at) VALUES (?, ?, NULL, 0, NULL, NULL, ?)
+		 ON CONFLICT(account_id) DO NOTHING`,
+		accountId,
+		randomBytes(12).toString('hex'),
+		now()
+	);
+	const row = await database.get<{ handle: string }>('SELECT handle FROM profiles WHERE account_id = ?', accountId);
+	return row!.handle;
+}

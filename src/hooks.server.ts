@@ -42,7 +42,9 @@ const PUBLIC_ROUTES = [
 	'/api/plugin/navidrome',
 	// A now-playing link: the token in the path in place of a session; see nowplaying.ts.
 	'/now',
-	'/api/now-playing'
+	'/api/now-playing',
+	// A profile page's public link, its covers and its picture; see profilepage.ts.
+	'/p'
 ];
 
 /**

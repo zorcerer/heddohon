@@ -1016,6 +1016,48 @@ address, `/cast/<token>`, a public route. What it is limited to:
 browser. It makes no upstream call; an id the account cannot play gets an
 address that answers 404.
 
+## Profile pages
+
+Added 20 October 2026. An account has a page at `/people/<handle>`: four
+albums it picks, a bio, its display name and picture, and, where it turns
+each on, the albums it played lately and its most played artists of the last
+30 days, from this server's history. `lib/server/profilepage.ts` has it;
+`tests/e2e/profiles.test.mjs` covers what follows.
+
+- **Who sees it.** The account itself, always. The other accounts signed in
+  here, once it is listed (off until the account turns it on); `/people`
+  lists those. Anyone holding its public link, `/p/<token>`, while there is
+  one. A handle that is not listed answers 404 to another account, as one
+  that does not exist does.
+- **What is shown is read, not sent.** The editor sends album ids; each is
+  read through the account's own credential before it is kept, and the
+  title, artist, year and cover id kept are that read's. An id the account
+  cannot read is refused. The bio is plain text of 280 characters with
+  control and direction characters removed, shown as text.
+- **Covers by place.** A cover on the page is served through the owner's
+  stored credential, as a shared link's is, at
+  `/api/people/<handle>/cover/<slot>` (signed in) or `/p/<token>/cover/<slot>`
+  (the link): `f0` to `f3` for the albums, `r0` to `r7` for the recent ones
+  while they are shown. The address never carries a cover id, so a viewer
+  reaches the covers the page shows and no other. Cover ids are not sent to
+  the browser. On a different kind of music server from the viewer's, albums
+  and artists do not link into the library.
+- **The public link** is `hhpr_` and 43 random characters, stored as an HMAC
+  under a key of its own, shown once as it is made; a new one replaces it.
+  The public page has the owner's name (the user name where no display name
+  is set), picture, bio, albums and the lists the owner turned on, with
+  `noindex`, without the handle and without links into the library. Its
+  covers carry `private, max-age=300`, its picture the same.
+- **What ends it.** A password change seen at sign-in (on Subsonic, also how
+  a name passed to someone else looks) unlists the page and withdraws its
+  link; every session ending (`destroyAllSessions`) withdraws the link; a new
+  Jellyfin user under the name removes the page.
+- **Name and picture.** They are the profile's that "Listening now" shows.
+  Since they are the page's too, an account sets them whether or not
+  `HEDDOHON_LISTENERS` is on; being shown in that list is still offered only
+  where it is. A picture is served to signed-in accounts by its handle as
+  before.
+
 ## Now-playing link
 
 An account can make a link that shows what it is playing, for an OBS browser
@@ -1488,6 +1530,8 @@ Covers are cached under `$HEDDOHON_DATA_DIR/covers` (see
 | Playlist import | 1000 tracks a request, each with a title; title, artist and album cut to 300 characters; a length above 0 and under 86400 s or none. Each track is up to two searches of 20 songs on the music server, 8 tracks at a time, stopped when the browser goes. Nothing is written until the playlist is created through `/api/playlists` |
 | Playlist export | `format` one of `m3u`, `m3u-titles` and `csv`; a playlist the account can read. An M3U line holds no line break; CSV fields as in the history export |
 | Now-playing link | one an account; a token of `hhnp_` and 43 characters, 64 at most before it is looked up |
+| Profile page | 4 albums, each an id of 1 to 255 characters read through the account's credential, once each; a bio of 280 characters (the request's 1120); 8 recent albums and 8 artists |
+| Profile link | one an account; a token of `hhpr_` and 43 characters, 64 at most before it is looked up; a cover slot `f0` to `f3` or `r0` to `r7` |
 | Navidrome plugin token | at least 32 characters, and not `HEDDOHON_SECRET` |
 | Navidrome plugin message | 100 plays, or a page of 2000 scrobbles; a user name and a song id of 1 to 255 characters; a time in whole seconds, at most 5 minutes ahead |
 | Scrobble history imports open at once | 4; closed after 2 minutes without a page |

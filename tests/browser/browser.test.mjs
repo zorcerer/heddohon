@@ -98,6 +98,7 @@ describe('the policy', () => {
 			'/stats',
 			'/stats/recap',
 			'/search?q=song',
+			'/people',
 			'/settings'
 		];
 		for (const path of paths) {
@@ -5827,7 +5828,7 @@ describe('Terminal, the default theme', () => {
 		await settings({ theme: 'terminal' });
 		const { page, problems } = await watchedPage();
 		try {
-			for (const path of ['/', '/albums', '/albums/al1', '/artists', '/artists/ar1', '/favourites', '/genres', '/radio', '/library', '/playlists', '/playlists/import', '/folders', '/folders/d-al1', '/history', '/screen', '/stats', '/stats/recap', '/search?q=song', '/settings']) {
+			for (const path of ['/', '/albums', '/albums/al1', '/artists', '/artists/ar1', '/favourites', '/genres', '/radio', '/library', '/playlists', '/playlists/import', '/folders', '/folders/d-al1', '/history', '/screen', '/stats', '/stats/recap', '/search?q=song', '/people', '/settings']) {
 				const response = await page.goto(app.url + path, { waitUntil: 'networkidle' });
 				assert.equal(response?.status(), 200, path);
 				assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), 'terminal', path);
@@ -6429,7 +6430,7 @@ describe('Phosphor', () => {
 		await settings({ theme: 'phosphor' });
 		const { page, problems } = await watchedPage();
 		try {
-			for (const path of ['/', '/albums', '/albums/al1', '/artists', '/artists/ar1', '/favourites', '/genres', '/radio', '/library', '/playlists', '/playlists/import', '/folders', '/history', '/stats', '/stats/recap', '/search?q=song', '/settings']) {
+			for (const path of ['/', '/albums', '/albums/al1', '/artists', '/artists/ar1', '/favourites', '/genres', '/radio', '/library', '/playlists', '/playlists/import', '/folders', '/history', '/stats', '/stats/recap', '/search?q=song', '/people', '/settings']) {
 				const response = await page.goto(app.url + path, { waitUntil: 'networkidle' });
 				assert.equal(response?.status(), 200, path);
 				assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), 'phosphor', path);

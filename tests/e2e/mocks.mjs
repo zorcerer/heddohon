@@ -480,7 +480,13 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 					const hits = Array.from({ length: artistCount * 2 }, (_, k) => song(k >> 1, k % 2 ? 'b' : 'a'))
 						.filter((entry) => words.every((word) => `${entry.title} ${entry.artist} ${entry.album}`.toLowerCase().includes(word)))
 						.slice(0, Number(p.get('songCount') ?? 20));
-					return send(ok(hits.length > 0 ? { searchResult3: { song: hits } } : {}));
+					// And the albums whose name and artist hold every word, as Navidrome
+					// answers `albumCount`.
+					const albums = Array.from({ length: artistCount }, (_, k) => album(k))
+						.filter((entry) => words.every((word) => `${entry.name} ${entry.artist}`.toLowerCase().includes(word)))
+						.slice(0, Number(p.get('albumCount') ?? 20));
+					const result = { ...(hits.length > 0 ? { song: hits } : {}), ...(albums.length > 0 ? { album: albums } : {}) };
+					return send(ok(Object.keys(result).length > 0 ? { searchResult3: result } : {}));
 				}
 				const i = Number(match[1]);
 				const host = (i + 1) % artistCount;

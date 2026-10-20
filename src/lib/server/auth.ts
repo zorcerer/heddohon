@@ -34,6 +34,7 @@ import { clearProfile, hideProfile } from './listening';
 import { forgetSharedItems, revokeAllShares } from './shares';
 import { revokeMcpTokens } from './mcp';
 import { withdrawNowPlayingLink } from './nowplaying';
+import { clearPage, hidePage, withdrawProfileLink } from './profilepage';
 import { clearMixes } from './mixes';
 import { foldName } from './names';
 import { endPartiesOf } from './together';
@@ -237,6 +238,7 @@ export async function storeAccount(
 		await clearAccountState(existing.id);
 		await clearMixes(existing.id);
 		await clearProfile(existing.id);
+		await clearPage(existing.id);
 		await dropKeeper(kind, existing.id);
 		await dropIntegrations(existing.id);
 		deviceEpoch++;
@@ -257,6 +259,7 @@ export async function storeAccount(
 		// Whoever holds the name now is shown to the other accounts only once
 		// they turn it on themselves.
 		await hideProfile(existing.id);
+		await hidePage(existing.id);
 		deviceEpoch++;
 		log.warn('account-password-changed', { account: existing.id, backend: kind });
 	}
@@ -640,6 +643,8 @@ export async function destroyAllSessions(accountId: string): Promise<void> {
 	// The same for the now-playing link: kept, it would show a reused name's
 	// listening to whoever held the link before.
 	await withdrawNowPlayingLink(accountId);
+	// And the public profile link, whose covers are read through the credential.
+	await withdrawProfileLink(accountId);
 	cutSessionStreams(ending.map((row) => row.token_digest));
 	forgetAccount(accountId);
 	forgetListings(accountId);

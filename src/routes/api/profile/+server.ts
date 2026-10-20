@@ -11,12 +11,14 @@ const view = (profile: Profile) => ({
 	avatar: profile.avatarAt
 });
 
-/** What this account shows of itself to the others on this server; see `listening.ts`. */
+/**
+ * What this account shows of itself to the others on this server; see
+ * `listening.ts`. The name and the picture are its profile page's too
+ * (`profilepage.ts`), so they are offered whether or not "Listening now" is.
+ */
 export const GET: RequestHandler = async ({ locals }) => {
 	const session = locals.session;
 	if (!session) error(401, 'Not signed in');
-	const cfg = config();
-	if (!cfg.listeners || !cfg.remoteControl) error(404, 'Not found');
 	return json(view(await getProfile(session.account.id)));
 };
 
@@ -25,7 +27,6 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
 	const session = locals.session;
 	if (!session) error(401, 'Not signed in');
 	const cfg = config();
-	if (!cfg.listeners || !cfg.remoteControl) error(404, 'Not found');
 
 	const body = (await request.json().catch(() => null)) as { name?: unknown; shown?: unknown } | null;
 	if (typeof body !== 'object' || body === null) error(400, 'Expected a JSON body');
@@ -37,6 +38,8 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
 		patch.name = name;
 	}
 	if ('shown' in body) {
+		// Being shown in "Listening now" is offered only where it is on.
+		if (!cfg.listeners || !cfg.remoteControl) error(404, 'Not found');
 		if (typeof body.shown !== 'boolean') error(400, 'shown must be a boolean');
 		patch.shown = body.shown;
 	}
