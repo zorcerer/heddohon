@@ -879,7 +879,7 @@
 				<span class="label">
 					Process audio in this browser
 					<span class="hint hh-muted">
-						Plays through Web Audio at the output device's rate, which the equaliser needs. Volume
+						Plays through Web Audio at the output device's rate, which the equaliser and the visualiser need. Volume
 						normalisation can then raise quiet tracks as well as lower loud ones, and a crossfade works on
 						an iPhone or iPad. There, with this on, playing on while the app is in the background or the
 						screen is locked needs iOS 17.5 or later.
@@ -896,6 +896,21 @@
 			</label>
 
 			{#if processing.enabled}
+				<label class="row switch">
+					<span class="label">
+						Visualiser
+						<span class="hint hh-muted">
+							A spectrum of what is playing, in the theme's own style, at the foot of the artwork in the
+							player and of the living-room screen. Not drawn while your system asks for reduced motion.
+						</span>
+					</span>
+					<input
+						type="checkbox"
+						checked={processing.visualiser}
+						onchange={(event) => processing.setVisualiser(event.currentTarget.checked)}
+					/>
+				</label>
+
 				<label class="row" class:set-aside={processing.bandsOff}>
 					<span class="label">
 						Preset

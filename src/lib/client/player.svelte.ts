@@ -567,6 +567,11 @@ class Player {
 		this.#chain?.setEqualiser(gains);
 	}
 
+	/** The graph's analyser, for the visualiser; null while this page plays without the graph. */
+	analyser(): AnalyserNode | null {
+		return this.#chain?.analyser() ?? null;
+	}
+
 	/** The headphone correction ahead of the bands, or none for null; see `audiochain.ts`. */
 	setCorrection(correction: Correction | null) {
 		this.#chain?.setCorrection(correction);
