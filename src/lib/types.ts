@@ -158,6 +158,14 @@ export interface Playlist {
 	 * and the music server refuses any change to it.
 	 */
 	editable: boolean;
+	/**
+	 * Whether songs can be added to it, removed and moved: `editable`, unless
+	 * the music server fills it itself. Navidrome does for a smart playlist and
+	 * for one kept in step with an M3U file, which it marks `readonly` and
+	 * refuses any change to the entries of (code 50), while a rename or a
+	 * change of who sees it still goes through.
+	 */
+	tracksEditable: boolean;
 	/** Epoch millis the playlist was created, when the server reports it. */
 	createdAt: number | null;
 	/** Epoch millis it was last modified. */

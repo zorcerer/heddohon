@@ -175,8 +175,9 @@ function playlist(item: Playlist): Record<string, unknown> {
 		seconds: item.duration,
 		owner: item.owner,
 		public: item.isPublic,
-		// Whether this account may change it: another user's public playlist is listed too.
-		readOnly: !item.editable,
+		// Whether this account may change its songs: another user's public playlist
+		// is listed too, and a smart one is filled by the music server.
+		readOnly: !item.tracksEditable,
 		changed: iso(item.changedAt)
 	});
 }
@@ -339,7 +340,7 @@ export const TOOLS: Tool[] = [
 	{
 		name: 'list_playlists',
 		title: 'List playlists',
-		description: 'Your playlists, and the public ones of other accounts, which are marked readOnly and cannot be changed.',
+		description: 'Your playlists, and the public ones of other accounts. Those marked readOnly take no songs added or removed: another account\'s, and a smart playlist, which the music server fills from its rules.',
 		inputSchema: object({}),
 		writes: false,
 		async run({ backend, credential }) {

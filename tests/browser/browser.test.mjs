@@ -3965,6 +3965,113 @@ describe('the player on a skip', () => {
 	});
 });
 
+describe('smart playlists', () => {
+	const field = (page, n) => page.getByLabel(`Field of rule ${n}`, { exact: true });
+	const operator = (page, n) => page.getByLabel(`Operator of rule ${n}`, { exact: true });
+	const rulesLine = (page) => page.locator('main p.rules').evaluate((el) => el.textContent.replace(/\s+/g, ' ').trim());
+
+	test('one is made in the editor, opens with its songs, and takes none added', async () => {
+		const { page, problems } = await watchedPage();
+		try {
+			await page.goto(app.url + '/playlists', { waitUntil: 'networkidle' });
+			await page.getByRole('button', { name: 'New smart playlist' }).click();
+			const create = page.getByRole('button', { name: 'Create', exact: true });
+			// A name first: the rules it starts with are whole.
+			assert.equal(await create.isDisabled(), true);
+			await page.getByLabel('Name', { exact: true }).fill('Rock of the nineties');
+
+			await field(page, 1).selectOption('genre');
+			assert.equal(await operator(page, 1).inputValue(), 'contains', 'a text field kept a date operator');
+			await page.getByLabel('Value of rule 1', { exact: true }).fill('rock');
+
+			await page.getByRole('button', { name: 'Add a rule' }).click();
+			// The new rule has no value yet, and Create waits for one.
+			await page.getByText('Rule 2: genre contains needs a valid value.').waitFor();
+			assert.equal(await create.isDisabled(), true);
+			await field(page, 2).selectOption('year');
+			await operator(page, 2).selectOption('inTheRange');
+			assert.equal(await page.getByLabel('Lowest of rule 2', { exact: true }).inputValue(), '1990');
+			await page.getByLabel('Highest of rule 2', { exact: true }).fill('1985');
+			await page.getByText('Rule 2: year is between needs a valid value.').waitFor();
+			await page.getByLabel('Highest of rule 2', { exact: true }).fill('1999');
+
+			await page.getByRole('button', { name: 'Add a rule' }).click();
+			await field(page, 3).selectOption('loved');
+			await page.getByRole('button', { name: 'Remove rule 3' }).click();
+			assert.equal(await page.getByLabel('Field of rule 3', { exact: true }).count(), 0);
+
+			await page.getByLabel('Sorted by').selectOption('random');
+			assert.equal(await page.getByLabel('Order', { exact: true }).count(), 0, 'random offered an order');
+			await page.getByLabel('At most').fill('');
+
+			await create.click();
+			await page.waitForURL(/\/playlists\/sm\d+$/);
+			const id = page.url().split('/').at(-1);
+			assert.deepEqual(subsonic.state.smart.get(id).rules, {
+				all: [{ contains: { genre: 'rock' } }, { inTheRange: { year: [1990, 1999] } }],
+				sort: 'random',
+				order: 'desc'
+			});
+			assert.equal(await rulesLine(page), 'Genre contains “rock”, and year is between 1990 and 1999; in random order.');
+			await page.locator('main .track').first().waitFor();
+			assert.equal(await page.locator('main .grip').count(), 0, 'the songs can be dragged');
+
+			// The picker leaves it out: songs cannot be added to it.
+			await page.goto(app.url + '/albums/al1', { waitUntil: 'networkidle' });
+			await page.locator('.page').getByRole('button', { name: 'Add to playlist', exact: true }).first().click();
+			await page.locator('dialog.picker .row').first().waitFor();
+			const offered = await page.locator('dialog.picker .row').allTextContents();
+			assert.ok(offered.some((text) => text.includes('Mock Playlist')), offered.join());
+			assert.ok(!offered.some((text) => text.includes('Rock of the nineties')), offered.join());
+		} finally {
+			subsonic.state.smart.clear();
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+
+	test('its rules are changed on its page, and a cancel changes nothing', async () => {
+		subsonic.state.smart.set('sm-edit', {
+			name: 'Most played',
+			owner: null,
+			public: false,
+			path: '',
+			rules: { all: [{ gt: { playcount: 10 } }], sort: 'playcount', order: 'desc', limit: 50 }
+		});
+		const { page, problems } = await watchedPage();
+		try {
+			await page.goto(app.url + '/playlists/sm-edit', { waitUntil: 'networkidle' });
+			assert.equal(await rulesLine(page), 'Play count is more than 10; by play count, descending, 50 songs at most.');
+
+			await page.getByRole('button', { name: 'Edit rules' }).click();
+			await page.getByLabel('Value of rule 1', { exact: true }).fill('20');
+			await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+			await page.getByRole('button', { name: 'Edit rules' }).click();
+			assert.equal(await page.getByLabel('Value of rule 1', { exact: true }).inputValue(), '10', 'a cancelled change was kept');
+
+			await page.getByLabel('Value of rule 1', { exact: true }).fill('25');
+			await page.getByLabel('Match all or any of the rules').selectOption('any');
+			await page.getByRole('button', { name: 'Add a rule' }).click();
+			await field(page, 2).selectOption('lastplayed');
+			await operator(page, 2).selectOption('notInTheLast');
+			await page.getByLabel('Days of rule 2', { exact: true }).fill('60');
+			await page.getByRole('button', { name: 'Save rules' }).click();
+			await page.locator('main form.editor').waitFor({ state: 'detached' });
+			assert.equal(await rulesLine(page), 'Play count is more than 25, or last played not in the last 60 days; by play count, descending, 50 songs at most.');
+			assert.deepEqual(subsonic.state.smart.get('sm-edit').rules, {
+				any: [{ gt: { playcount: 25 } }, { notInTheLast: { lastplayed: 60 } }],
+				sort: 'playcount',
+				order: 'desc',
+				limit: 50
+			});
+		} finally {
+			subsonic.state.smart.clear();
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+});
+
 describe('sliders and the playlist picker', () => {
 	/** Width transitions running on the volume slider's fill. */
 	const fillGliding = (page) =>

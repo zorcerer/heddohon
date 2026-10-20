@@ -350,6 +350,8 @@ function toPlaylist(item: JellyfinItem, access: PlaylistAccess): Playlist {
 		coverArt: coverHandle(item),
 		owner: null,
 		...access,
+		// Jellyfin fills no playlist itself.
+		tracksEditable: access.editable,
 		createdAt: Number.isFinite(created) ? created : null,
 		changedAt: Number.isFinite(created) ? created : null
 	};

@@ -5,6 +5,7 @@
 	import { shareComposer } from '$lib/client/share.svelte';
 	import HeroTitle from '$lib/components/HeroTitle.svelte';
 	import Sleeve from '$lib/components/Sleeve.svelte';
+	import SmartPlaylistEditor from '$lib/components/SmartPlaylistEditor.svelte';
 	import TrackList from '$lib/components/TrackList.svelte';
 	import { formatLongDuration } from '$lib/client/format';
 	import { player } from '$lib/client/player.svelte';
@@ -14,8 +15,10 @@
 		moveTrack,
 		removeTracks,
 		renamePlaylist,
-		setPlaylistPublic
+		setPlaylistPublic,
+		setPlaylistRules
 	} from '$lib/client/playlists.svelte';
+	import { describeRules, type SmartRules } from '$lib/smartrules';
 	import { heroSweep } from '$lib/client/motion';
 	import type { Song } from '$lib/types';
 	import type { PageData } from './$types';
@@ -127,6 +130,37 @@
 	}
 
 
+	const smart = $derived(data.smart);
+	// Rules from a file on the server, or beyond what the editor edits, are shown and left alone.
+	const rulesEditable = $derived(playlist.editable && smart !== null && smart.rules !== null && !smart.fromFile);
+	let editingRules = $state(false);
+
+	/** "Private", "Smart, public", "By someone, read only". */
+	const access = $derived.by(() => {
+		const whose = playlist.editable
+			? playlist.isPublic
+				? 'public'
+				: 'private'
+			: `${playlist.owner ? `by ${playlist.owner}` : "another user's"}, read only`;
+		const text = smart ? `smart, ${whose}` : whose;
+		return text[0].toUpperCase() + text.slice(1);
+	});
+
+	async function saveRules(rules: SmartRules) {
+		if (busy) return;
+		busy = true;
+		error = null;
+		try {
+			await setPlaylistRules(playlist.id, rules);
+			await invalidateAll();
+			editingRules = false;
+		} catch (err) {
+			error = err instanceof Error ? err.message : 'Could not save these rules';
+		} finally {
+			busy = false;
+		}
+	}
+
 	async function toggleVisibility() {
 		if (busy) return;
 		busy = true;
@@ -200,12 +234,21 @@
 				{playlist.songs.length} track{playlist.songs.length === 1 ? '' : 's'}
 				{#if totalDuration}<span class="dot" aria-hidden="true">·</span>{formatLongDuration(totalDuration)}{/if}
 				<span class="dot" aria-hidden="true">·</span>
-				{#if playlist.editable}
-					{playlist.isPublic ? 'Public' : 'Private'}
-				{:else}
-					{playlist.owner ? `By ${playlist.owner}` : "Another user's"}, read only
-				{/if}
+				{access}
 			</p>
+
+			{#if smart}
+				<p class="rules hh-muted">
+					{#if smart.rules}
+						{describeRules(smart.rules)}.
+					{:else}
+						Its rules use more than Heddohon edits; change them in Navidrome.
+					{/if}
+					{#if smart.fromFile}
+						A file on the music server defines them.
+					{/if}
+				</p>
+			{/if}
 
 			<!--
 			  Two groups: playback on the left, and what changes the playlist apart
@@ -285,6 +328,19 @@
 							Save the queue
 						</button>
 					{/if}
+					{#if rulesEditable}
+						<button
+							class="hh-button hh-button--ghost"
+							onclick={() => {
+								editingRules = !editingRules;
+								error = null;
+							}}
+							disabled={busy}
+							aria-expanded={editingRules}
+						>
+							Edit rules
+						</button>
+					{/if}
 					{#if playlist.editable}
 						<button
 							class="hh-button hh-button--ghost"
@@ -321,6 +377,15 @@
 		<p class="alert" role="alert">{error}</p>
 	{/if}
 
+	{#if editingRules && smart?.rules}
+		<SmartPlaylistEditor
+			initial={smart.rules}
+			{busy}
+			onsave={saveRules}
+			oncancel={() => (editingRules = false)}
+		/>
+	{/if}
+
 	{#if confirmingDelete}
 		<div class="confirm" role="alertdialog" aria-label="Confirm deletion">
 			<p>
@@ -339,13 +404,13 @@
 	{/if}
 
 	<section class="tracks">
-		<!-- Another user's playlist offers no edits: the music server refuses them. -->
+		<!-- Another user's playlist, and one the server fills itself, offer no edits: the music server refuses them. -->
 		<TrackList
 			songs={shownSongs}
 			variant="artwork"
 			showAlbum
-			onremove={playlist.editable ? removeAll : null}
-			onmove={playlist.editable ? move : null}
+			onremove={playlist.tracksEditable ? removeAll : null}
+			onmove={playlist.tracksEditable ? move : null}
 		/>
 	</section>
 </div>
@@ -407,6 +472,12 @@
 
 	.dot {
 		margin: 0 0.45rem;
+	}
+
+	.rules {
+		margin: 0;
+		max-width: 60ch;
+		font-size: 0.8125rem;
 	}
 
 	.actions {

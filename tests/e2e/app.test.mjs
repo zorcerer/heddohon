@@ -12,7 +12,7 @@ import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFile
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { crc32, inflateRawSync } from 'node:zlib';
-import { after, before, beforeEach, describe, test } from 'node:test';
+import { after, afterEach, before, beforeEach, describe, test } from 'node:test';
 import { Client, startApp } from './harness.mjs';
 import { OUTSIDE, startAutoEq, startJellyfin, startMusicBrainz, startOutside, startStationHost, startSubsonic } from './mocks.mjs';
 
@@ -5956,6 +5956,210 @@ describe('whose a playlist is, and who sees it', () => {
 		assert.equal((await share(client, 'jother')).status, 403);
 		assert.equal((await patch(client, 'jother', { public: false })).status, 403);
 		assert.equal((await client.request('/api/settings')).status, 200, 'a refused change signed the account out');
+	});
+});
+
+describe('smart playlists', () => {
+	before(async () => {
+		assert.equal((await user.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' })).status, 303);
+	});
+	afterEach(() => {
+		subsonic.state.smart.clear();
+		subsonic.state.smartWrites.length = 0;
+	});
+
+	const make = (client, name, rules) => client.json('/api/playlists/smart', 'POST', { name, rules });
+	const setRules = (client, id, rules) => client.json(`/api/playlists/${id}/rules`, 'PUT', { rules });
+	const listed = async (client) => (await (await client.request('/api/playlists')).json()).playlists;
+	const valid = () => ({
+		match: 'all',
+		rules: [
+			{ field: 'playcount', op: 'gt', value: 3 },
+			{ field: 'lastplayed', op: 'notInTheLast', value: 90 }
+		],
+		sort: 'lastplayed',
+		order: 'desc',
+		limit: 50
+	});
+	/** A smart playlist put on the mock as Navidrome or an `.nsp` file left it. */
+	const held = (id, entry) => subsonic.state.smart.set(id, { name: id, owner: null, public: false, path: '', ...entry });
+	/** A page's words, without the marks Svelte leaves between the parts of a block. */
+	const words = async (client, path) => (await client.page(path)).html.replace(/<!--.*?-->/g, '');
+
+	test('a new one is checked here and sent in Navidrome\'s format', async () => {
+		const refused = [
+			{ ...valid(), rules: [] },
+			{ ...valid(), rules: Array.from({ length: 21 }, () => ({ field: 'year', op: 'gt', value: 1990 })) },
+			{ ...valid(), match: 'none' },
+			{ ...valid(), rules: [{ field: 'nosuchfield', op: 'gt', value: 1 }] },
+			{ ...valid(), rules: [{ field: 'year', op: 'bogus', value: 1 }] },
+			{ ...valid(), rules: [{ field: 'year', op: 'contains', value: '19' }] },
+			{ ...valid(), rules: [{ field: 'genre', op: 'contains', value: '  ' }] },
+			{ ...valid(), rules: [{ field: 'genre', op: 'is', value: 'x'.repeat(201) }] },
+			{ ...valid(), rules: [{ field: 'year', op: 'inTheRange', value: [2000, 1990] }] },
+			{ ...valid(), rules: [{ field: 'rating', op: 'gt', value: 6 }] },
+			{ ...valid(), rules: [{ field: 'year', op: 'gt', value: 1990.5 }] },
+			{ ...valid(), rules: [{ field: 'lastplayed', op: 'inTheLast', value: 0 }] },
+			{ ...valid(), rules: [{ field: 'loved', op: 'is', value: 'yes' }] },
+			{ ...valid(), rules: [{ field: 'genre', op: 'is', value: { $ne: 1 } }] },
+			{ ...valid(), sort: 'path' },
+			{ ...valid(), order: 'up' },
+			{ ...valid(), limit: 1001 },
+			{ ...valid(), limit: 0 },
+			null
+		];
+		for (const rules of refused) {
+			const answer = await make(user, 'Not made', rules);
+			assert.equal(answer.status, 400, `taken: ${JSON.stringify(rules)}`);
+		}
+		assert.equal((await make(user, '', valid())).status, 400);
+		assert.equal((await make(user, 'x'.repeat(201), valid())).status, 400);
+		assert.equal(subsonic.state.smartMade, 0, 'a refused rule set reached the music server');
+
+		const made = await make(user, '  Forgotten favourites ', valid());
+		assert.equal(made.status, 201, explain('the smart playlist was not made'));
+		const { id } = await made.json();
+		const kept = subsonic.state.smart.get(id);
+		assert.equal(kept.name, 'Forgotten favourites');
+		assert.equal(kept.public, false);
+		assert.deepEqual(kept.rules, {
+			all: [{ gt: { playcount: 3 } }, { notInTheLast: { lastplayed: 90 } }],
+			sort: 'lastplayed',
+			order: 'desc',
+			limit: 50
+		});
+
+		// No limit is every song that matches; a range is two numbers.
+		const open = await make(user, 'Nineties', { match: 'any', rules: [{ field: 'year', op: 'inTheRange', value: [1990, 1999] }, { field: 'loved', op: 'is', value: true }], sort: 'random', order: 'asc', limit: null });
+		assert.equal(open.status, 201);
+		assert.deepEqual(subsonic.state.smart.get((await open.json()).id).rules, {
+			any: [{ inTheRange: { year: [1990, 1999] } }, { is: { loved: true } }],
+			sort: 'random',
+			order: 'asc'
+		});
+	});
+
+	test('is listed as smart, plays, and takes no songs added, removed or moved', async () => {
+		held('sm-own', { name: 'Forgotten', rules: { all: [{ gt: { playcount: 3 } }], sort: 'playcount', order: 'desc', limit: 25 } });
+		const playlists = await listed(user);
+		assert.deepEqual(
+			playlists.filter(({ id }) => id === 'pl1' || id === 'sm-own').map(({ id, editable, tracksEditable }) => ({ id, editable, tracksEditable })),
+			[
+				{ id: 'pl1', editable: true, tracksEditable: true },
+				{ id: 'sm-own', editable: true, tracksEditable: false }
+			]
+		);
+
+		const list = (await user.page('/playlists')).html;
+		assert.match(list, /New smart playlist/);
+		assert.match(list, /smart · 3 tracks/);
+
+		const page = await user.page('/playlists/sm-own');
+		assert.equal(page.response.status, 200, explain('the smart playlist page failed'));
+		assert.match(page.html, /Smart, private/);
+		assert.match(page.html, /Play count is more than 3; by play count, descending, 25 songs at most\./);
+		assert.match(page.html, />\s*Edit rules\s*</);
+		assert.match(page.html, /Song 5a/);
+
+		const songs = await user.json('/api/tracks', 'POST', { source: 'playlist', id: 'sm-own' });
+		assert.equal(songs.status, 200);
+		assert.deepEqual((await songs.json()).songs.map((song) => song.id), ['s5a', 's6a', 's7a']);
+
+		// The music server refuses, and the account stays signed in.
+		assert.equal((await user.json('/api/playlists/sm-own/tracks', 'POST', { songIds: ['s1a'] })).status, 403);
+		assert.equal((await user.json('/api/playlists/sm-own/tracks', 'DELETE', { indices: [0] })).status, 403);
+		assert.equal((await user.request('/api/settings')).status, 200, 'a refused change signed the account out');
+	});
+
+	test('its rules change, and nothing else is sent with them', async () => {
+		held('sm-own', { rules: { all: [{ gt: { playcount: 3 } }] } });
+		assert.equal((await setRules(user, 'sm-own', { ...valid(), rules: [{ field: 'genre', op: 'zz', value: 'x' }] })).status, 400);
+		assert.equal(subsonic.state.smartWrites.length, 0);
+
+		const next = { match: 'any', rules: [{ field: 'genre', op: 'contains', value: 'jazz' }, { field: 'year', op: 'lt', value: 1970 }], sort: 'year', order: 'asc', limit: 100 };
+		const changed = await setRules(user, 'sm-own', next);
+		assert.equal(changed.status, 200, explain('the rules were not saved'));
+		assert.deepEqual(subsonic.state.smartWrites, [
+			{ rules: { any: [{ contains: { genre: 'jazz' } }, { lt: { year: 1970 } }], sort: 'year', order: 'asc', limit: 100 } }
+		]);
+		assert.match((await user.page('/playlists/sm-own')).html, /Genre contains “jazz”, or year is less than 1970; by year, ascending, 100 songs at most\./);
+
+		// A playlist made by hand is not made smart, and an unknown one is not found.
+		assert.equal((await setRules(user, 'pl1', valid())).status, 404);
+		assert.equal((await setRules(user, 'nosuch', valid())).status, 404);
+		assert.equal(subsonic.state.smartWrites.length, 1);
+	});
+
+	test('rules from a file, or beyond what the editor edits, are shown and left alone', async () => {
+		held('sm-file', { path: '/music/playlists/recent.nsp', rules: { all: [{ inTheLast: { dateadded: 30 } }], sort: 'dateadded', order: 'desc' } });
+		const fromFile = await words(user, '/playlists/sm-file');
+		assert.match(fromFile, /Added in the last 30 days; by added, descending\. +A file on the music server defines them\./);
+		assert.doesNotMatch(fromFile, /Edit rules/);
+		assert.equal((await setRules(user, 'sm-file', valid())).status, 409);
+
+		// Groups in groups, a tag, another playlist, a sort on two fields, a limit in percent.
+		const beyond = [
+			{ all: [{ any: [{ is: { loved: true } }, { gt: { rating: 3 } }] }] },
+			{ all: [{ contains: { mood: 'calm' } }] },
+			{ all: [{ inPlaylist: { id: 'pl1' } }] },
+			{ all: [{ gt: { year: 1990 } }], sort: '-year,title' },
+			{ all: [{ gt: { year: 1990 } }], limitPercent: 10 },
+			{ all: [{ is: { loved: true, genre: 'Rock' } }] }
+		];
+		for (const [n, rules] of beyond.entries()) {
+			held(`sm-beyond-${n}`, { rules });
+			const page = (await user.page(`/playlists/sm-beyond-${n}`)).html;
+			assert.match(page, /Its rules use more than Heddohon edits; change them in Navidrome\./, JSON.stringify(rules));
+			assert.doesNotMatch(page, /Edit rules/, JSON.stringify(rules));
+		}
+		assert.equal(subsonic.state.smartWrites.length, 0);
+
+		// As an `.nsp` file may write them: keys in any case, numbers as strings, no limit as 0.
+		held('sm-loose', { rules: { ALL: [{ GT: { PlayCount: '3' } }, { is: { loved: 'true' } }], Sort: 'Random', limit: 0 } });
+		assert.match((await user.page('/playlists/sm-loose')).html, /Play count is more than 3, and favourite is yes; in random order\./);
+	});
+
+	test('another user\'s public one is read only', async () => {
+		held('sm-theirs', { owner: 'seconduser', public: true, rules: { all: [{ gt: { playcount: 1 } }] } });
+		const page = (await user.page('/playlists/sm-theirs')).html;
+		assert.match(page, /Smart, by seconduser, read only/);
+		assert.doesNotMatch(page, /Edit rules|>\s*Rename\s*</);
+		assert.equal((await setRules(user, 'sm-theirs', valid())).status, 403);
+		assert.equal((await user.request('/api/settings')).status, 200, 'a refused change signed the account out');
+	});
+
+	test('is renamed, made public and deleted as any other', async () => {
+		held('sm-own', { name: 'Before', rules: { all: [{ gt: { playcount: 3 } }] } });
+		assert.equal((await user.json('/api/playlists/sm-own', 'PATCH', { name: 'After', public: true })).status, 200);
+		assert.equal(subsonic.state.smart.get('sm-own').name, 'After');
+		assert.equal(subsonic.state.smart.get('sm-own').public, true);
+		assert.equal((await user.request('/api/playlists/sm-own', { method: 'DELETE' })).status, 200);
+		assert.equal(subsonic.state.smart.has('sm-own'), false);
+	});
+
+	test('a Subsonic server that is not Navidrome, and a Jellyfin account, offer none', async () => {
+		const navidrome = subsonic.state.navidrome;
+		subsonic.state.navidrome = null;
+		try {
+			await asFreshAccount('plainsubsonic', async (client) => {
+				const page = await client.page('/playlists');
+				assert.equal(page.response.status, 200);
+				assert.doesNotMatch(page.html, /New smart playlist/);
+				assert.equal((await make(client, 'Nope', valid())).status, 404);
+			});
+		} finally {
+			subsonic.state.navidrome = navidrome;
+		}
+		const client = new Client(app.url);
+		assert.equal((await client.signIn({ username: 'jfuser', password: 'jfpass', backend: 'jellyfin' })).status, 303);
+		assert.doesNotMatch((await client.page('/playlists')).html, /New smart playlist/);
+		assert.equal((await make(client, 'Nope', valid())).status, 404);
+		assert.equal((await setRules(client, 'jpl', valid())).status, 404);
+		// The picker still lists the playlists songs can be added to.
+		assert.deepEqual((await listed(client)).map(({ id, tracksEditable }) => ({ id, tracksEditable })), [
+			{ id: 'jpl', tracksEditable: true },
+			{ id: 'jother', tracksEditable: false }
+		]);
 	});
 });
 

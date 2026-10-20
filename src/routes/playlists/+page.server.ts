@@ -1,5 +1,6 @@
 import type { PageServerLoad } from './$types';
 import { library } from '$lib/server/library';
+import { log, reason } from '$lib/server/log';
 import type { Playlist, PlaylistSort } from '$lib/types';
 
 const SORTS: PlaylistSort[] = [
@@ -42,9 +43,23 @@ export const load: PageServerLoad = async (event) => {
 		? (requested as PlaylistSort)
 		: 'recentlyUpdated';
 
-	const playlists = await library(event, ({ backend, credential }) =>
-		backend.getPlaylists(credential)
+	const [playlists, smart] = await library(event, ({ backend, credential }) =>
+		Promise.all([
+			backend.getPlaylists(credential),
+			// Which are smart only marks them, and offers a new one: without it the
+			// page still lists every playlist.
+			backend.smartPlaylists?.ids(credential).catch((err) => {
+				log.warn('section-failed', { section: 'smart-playlists', detail: reason(err) });
+				return null;
+			}) ?? null
+		])
 	);
 
-	return { playlists: sortPlaylists(playlists, sort), sort, sorts: SORTS };
+	return {
+		playlists: sortPlaylists(playlists, sort),
+		sort,
+		sorts: SORTS,
+		smartIds: smart ? playlists.filter((playlist) => smart.has(playlist.id)).map((playlist) => playlist.id) : [],
+		smartAvailable: smart !== null
+	};
 };
