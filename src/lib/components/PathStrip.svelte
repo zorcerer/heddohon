@@ -91,11 +91,13 @@
 	 * opaque. The negative margins take it out to the pane's edges through the
 	 * pane's own padding, and the negative `top` likewise: a sticky element is
 	 * held inside the scroller's padding, which at `top: 0` left it 24px down.
+	 * Above a hovered card (3, later in the page), or its lifted cover rides
+	 * over the strip as the pane scrolls.
 	 */
 	:global([data-theme='terminal']) .strip {
 		position: sticky;
 		top: calc(var(--space-5) * -1);
-		z-index: 3;
+		z-index: 4;
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
@@ -158,7 +160,7 @@
 	:global([data-theme='phosphor']) .strip {
 		position: sticky;
 		top: calc(var(--space-5) * -1);
-		z-index: 3;
+		z-index: 4;
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
