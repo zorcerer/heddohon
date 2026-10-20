@@ -2369,7 +2369,7 @@
 				<span class="label">
 					New releases on the home page
 					<span class="hint hh-muted">
-						Albums and EPs from the last six months, and ones announced, by the ten artists you played most
+						Albums and EPs from the last year, and ones announced, by the 25 artists you played most
 						this year, that your library does not have. To find them, this server sends those artists' names
 						to MusicBrainz once a day.
 					</span>

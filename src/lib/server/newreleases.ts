@@ -5,15 +5,15 @@
  *
  * Off unless `HEDDOHON_NEW_RELEASES` is on (Settings, Features, or the
  * environment), and then only for an account that turns it on under Settings
- * (`newReleases`). On, the names of that account's ten most played artists of
+ * (`newReleases`). On, the names of that account's 25 most played artists of
  * the last year, or the MusicBrainz ids its music server knows for them, are
  * sent from this server to MusicBrainz (or to `HEDDOHON_MUSICBRAINZ_URL`, for
  * a mirror).
  *
  * MusicBrainz takes one request a second from a client and asks it to name
  * itself (musicbrainz.org/doc/MusicBrainz_API/Rate_Limiting), so every request
- * here waits its turn in one queue for the process, and a shelf of ten
- * artists takes 10 to 20 seconds to make. Nobody waits for that but once:
+ * here waits its turn in one queue for the process, and a shelf of 25
+ * artists takes 25 to 50 seconds to make. Nobody waits for that but once:
  *
  * - The shelf is started when the account turns it on (`prepareNewReleases`),
  *   so it is usually there by the time the home page is opened.
@@ -58,9 +58,9 @@ export interface NewRelease {
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 /** How far back a release still counts as new. */
-const RECENT_DAYS = 180;
+const RECENT_DAYS = 365;
 /** The artists looked up for an account, and how far back their plays are counted. */
-const ARTISTS = 10;
+const ARTISTS = 25;
 const ARTISTS_SINCE_DAYS = 365;
 /** Releases on the shelf. */
 const SHOWN = 12;
