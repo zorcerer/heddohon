@@ -37,6 +37,7 @@ import { withdrawNowPlayingLink } from './nowplaying';
 import { clearMixes } from './mixes';
 import { foldName } from './names';
 import { endPartiesOf } from './together';
+import { clearSecondFactors } from './twofactor';
 
 const SESSION_COOKIE = 'heddohon_session';
 
@@ -146,29 +147,60 @@ export async function accountById(accountId: string): Promise<{ account: Account
 	}
 }
 
-/** Signs in upstream and stores the account with a freshly sealed credential. */
-export async function signIn(
-	kind: BackendKind,
-	username: string,
-	password: string
-): Promise<Account> {
-	const { credential, remoteUserId } = await backendFor(kind).login(username, password);
-	return storeAccount(kind, credential, remoteUserId);
+/** What the music server answered a sign-in with, before anything is stored. */
+export interface UpstreamSignIn {
+	credential: StoredCredential;
+	remoteUserId: string | null;
 }
 
-/** Completes a Quick Connect sign-in approved upstream. Stored as a password sign-in is. */
-export async function signInWithQuickConnect(
-	kind: BackendKind,
-	secret: string,
-	deviceId: string
-): Promise<Account> {
+/**
+ * Asks the music server whether the name and password are right, and stores
+ * nothing. The account is stored by `storeAccount` once any second factor it
+ * has is given (`twofactor.ts`), so a password alone changes nothing here:
+ * not the stored credential, and not the other sessions a password change
+ * ends.
+ */
+export async function checkSignIn(kind: BackendKind, username: string, password: string): Promise<UpstreamSignIn> {
+	return backendFor(kind).login(username, password);
+}
+
+/** Completes a Quick Connect request approved upstream, and stores nothing; see `checkSignIn`. */
+export async function checkQuickConnect(kind: BackendKind, secret: string, deviceId: string): Promise<UpstreamSignIn> {
 	const quickConnect = backendFor(kind).quickConnect;
 	if (!quickConnect) throw new Error(`The ${kind} backend has no Quick Connect`);
-	const { credential, remoteUserId } = await quickConnect.authenticate(secret, deviceId);
-	return storeAccount(kind, credential, remoteUserId);
+	return quickConnect.authenticate(secret, deviceId);
 }
 
-async function storeAccount(
+/**
+ * The account a sign-in the music server accepted lands on, or null where it
+ * makes a new one. Null too where a Jellyfin user other than the row's holds
+ * the name now: `storeAccount` clears that row, its second factors with it,
+ * since they were the previous holder's.
+ */
+export async function accountOfSignIn(kind: BackendKind, upstream: UpstreamSignIn): Promise<string | null> {
+	const database = await store();
+	const existing = await database.get<AccountRow>(
+		`SELECT * FROM accounts WHERE backend = ? AND ${usernameMatch(database.kind)} ORDER BY created_at LIMIT 1`,
+		kind,
+		upstream.credential.username
+	);
+	if (!existing || isAnotherUser(kind, existing.remote_user_id, upstream.remoteUserId)) return null;
+	return existing.id;
+}
+
+/** The id of the account a name signs in to on `kind`, for an administrator's form. */
+export async function accountIdByName(kind: BackendKind, username: string): Promise<string | null> {
+	const database = await store();
+	const row = await database.get<{ id: string }>(
+		`SELECT id FROM accounts WHERE backend = ? AND ${usernameMatch(database.kind)} ORDER BY created_at LIMIT 1`,
+		kind,
+		username
+	);
+	return row?.id ?? null;
+}
+
+/** Stores the account a sign-in reached, with a freshly sealed credential. */
+export async function storeAccount(
 	kind: BackendKind,
 	credential: StoredCredential,
 	remoteUserId: string | null
@@ -198,6 +230,9 @@ async function storeAccount(
 		 * an old session with the new credential.
 		 */
 		await destroyAllSessions(existing.id);
+		// The previous holder's TOTP app and passkeys would otherwise be asked
+		// of the new user.
+		await clearSecondFactors(existing.id);
 		const links = await revokeAllShares(existing.id);
 		await clearAccountState(existing.id);
 		await clearMixes(existing.id);
@@ -716,15 +751,22 @@ export async function listSessions(session: AuthenticatedSession): Promise<Sessi
  * Only sessions that began no later than this one. Otherwise a stolen session
  * could sign its owner out after every fresh sign-in. The owner's newer
  * session is out of its reach and can end it.
+ *
+ * `newer` ends those too, for a change made with a proof of the second
+ * factor or the password (`afterFactorChange` in twofactor.ts).
  */
-export async function endSessions(session: AuthenticatedSession, handles: string[] | 'others'): Promise<number> {
+export async function endSessions(
+	session: AuthenticatedSession,
+	handles: string[] | 'others',
+	{ newer = false }: { newer?: boolean } = {}
+): Promise<number> {
 	const database = await store();
 	const rows = await database.all<{ token_digest: string; created_at: number }>(
 		'SELECT token_digest, created_at FROM sessions WHERE account_id = ?',
 		session.account.id
 	);
 	const targets = rows
-		.filter((row) => Number(row.created_at) <= session.createdAt)
+		.filter((row) => newer || Number(row.created_at) <= session.createdAt)
 		.map((row) => row.token_digest)
 		.filter((digest) => {
 			const handle = sessionHandle(digest);

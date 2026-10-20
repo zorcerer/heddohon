@@ -1,6 +1,15 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { createSession, destroySession, rememberDevice, signInWithQuickConnect } from '$lib/server/auth';
+import {
+	accountOfSignIn,
+	checkQuickConnect,
+	createSession,
+	destroySession,
+	rememberDevice,
+	storeAccount,
+	type UpstreamSignIn
+} from '$lib/server/auth';
+import { beginStep } from '$lib/server/twofactor';
 import { backendFor, UpstreamError, type QuickConnectState } from '$lib/server/backends';
 import { safeNext } from '$lib/server/next';
 import { config } from '$lib/server/config';
@@ -22,7 +31,9 @@ import { log, reason } from '$lib/server/log';
  * A POST, although it mostly reads: the last answer creates a session, and a
  * POST is what the cross-origin check in hooks.server.ts covers.
  *
- * Answers `state`: `waiting`, `expired`, or `signed-in` with `next`.
+ * Answers `state`: `waiting`, `expired`, `second-step` where the account
+ * has a second factor (the page then asks for it, as after a password), or
+ * `signed-in` with `next`.
  */
 export const POST: RequestHandler = async (event) => {
 	const body = (await event.request.json().catch(() => null)) as {
@@ -68,9 +79,9 @@ export const POST: RequestHandler = async (event) => {
 	// Another request is finishing this sign-in, or already has.
 	if (!claim(pending.secret)) return json({ state: 'expired' });
 
-	let account;
+	let upstream: UpstreamSignIn;
 	try {
-		account = await signInWithQuickConnect(pending.backend, pending.secret, pending.deviceId);
+		upstream = await checkQuickConnect(pending.backend, pending.secret, pending.deviceId);
 	} catch (err) {
 		// A refused secret will be refused again. Anything else, such as a timeout,
 		// leaves the approval standing, so the secret is handed back for the next
@@ -92,6 +103,12 @@ export const POST: RequestHandler = async (event) => {
 	}
 
 	clearPending(event);
+	const step = await beginStep(event, pending.backend, await accountOfSignIn(pending.backend, upstream), upstream, 'quick-connect');
+	if (step) {
+		log.info('sign-in-step', { username: upstream.credential.username, backend: pending.backend, method: 'quick-connect', address });
+		return json({ state: 'second-step' });
+	}
+	const account = await storeAccount(pending.backend, upstream.credential, upstream.remoteUserId);
 	// A browser already signed in replaces its session. Kept, the old row was
 	// listed in Settings as another browser until it expired.
 	await destroySession(event);

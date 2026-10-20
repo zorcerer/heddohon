@@ -258,3 +258,37 @@ export async function clearLoginFailures(keys: Array<[string, number]>): Promise
 export async function pruneLoginAttempts(): Promise<void> {
 	await (await store()).run('DELETE FROM login_attempts WHERE window_from < ?', Date.now() - WINDOW_MS * 4);
 }
+
+/**
+ * Wrong second factors one account may be sent in the window, across every
+ * sign-in that reached it. Whoever sends them has the password already, so
+ * this is what stands between them and the account: with three six-digit
+ * codes valid at a time, 5 guesses in 15 minutes is 480 a day and one chance
+ * in about 700 of a day's guessing finding one. Each wrong one is logged
+ * (`second-factor-rejected`) for fail2ban.
+ */
+const MAX_SECOND_FACTOR_FAILURES = 5;
+
+export function secondFactorKeys(accountId: string): Array<[string, number]> {
+	return [[`2fa:${accountId}`, MAX_SECOND_FACTOR_FAILURES]];
+}
+
+/** Clears the count after a second factor that was right. */
+export async function clearSecondFactorFailures(accountId: string): Promise<void> {
+	await (await store()).run('DELETE FROM login_attempts WHERE key = ?', `2fa:${accountId}`);
+}
+
+/** Passkey sign-ins one visitor, and the whole deployment, may start in the window. */
+const MAX_PASSKEY_STARTS_PER_ADDRESS = 30;
+const MAX_PASSKEY_STARTS_TOTAL = 600;
+
+/**
+ * The keys a sign-in with a passkey alone counts against as it starts. Each
+ * start stores a challenge before anybody is known, so the starts are what is
+ * bounded: at most 600 challenges live at once from anonymous visitors.
+ */
+export function passkeyStartKeys(address: string): Array<[string, number]> {
+	const keys: Array<[string, number]> = [['pk:all', MAX_PASSKEY_STARTS_TOTAL]];
+	if (perVisitorAddress(address)) keys.push([`pk:${addressBucket(address)}`, MAX_PASSKEY_STARTS_PER_ADDRESS]);
+	return keys;
+}

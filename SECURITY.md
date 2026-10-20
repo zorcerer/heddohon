@@ -725,6 +725,103 @@ plant `heddohon_session` with `Domain=.example.com` and pin a session that
 signing out cannot clear. Browsers refuse a `__Host-` cookie with a `Domain`,
 which closes that. Switching between the two names signs sessions out once.
 
+## Second factor at sign-in
+
+Added 20 October 2026 (issue #225). An account can add a TOTP app, passkeys,
+or both, under Settings, Security. Heddohon holds no password of its own, so
+the factor is asked for after the music server accepts the password (or a
+Jellyfin Quick Connect approval), and guards the sign-in here whatever the
+music server does. The code is in `lib/server/twofactor.ts`, `totp.ts`,
+`webauthn.ts` and `cbor.ts`; `tests/e2e/twofactor.test.mjs` and
+`tests/browser/twofactor.test.mjs` cover what follows.
+
+**A password alone changes nothing.** For an account with a factor, the music
+server's answer is held in `sign_in_steps`, sealed under a key of its own, and
+the browser gets a `heddohon_sign_in_step` cookie (`__Host-` where Secure,
+`HttpOnly`, `SameSite=Strict`, 5 minutes) holding a 256-bit token, stored as
+its HMAC. The account's stored credential, its other sessions and the device
+cookie's generation change only once the factor is given; before that, a
+changed Subsonic password could have signed every other browser out. A
+correct password still clears the username throttle, and the page then asks
+for the factor, which tells whoever typed it that the password is right.
+
+| Limit | Value |
+| --- | --- |
+| A held sign-in | 5 minutes; 5 factors sent, then it is dropped and the password is asked for again |
+| Held sign-ins per account | 10, the newest kept |
+| Wrong factors per account | 5 in 15 minutes, across every held sign-in and every proof (`2fa:<account>` in `login_attempts`); a right one clears it |
+| TOTP | HMAC-SHA1, 6 digits, 30 seconds, one step either side; a 160-bit secret sealed under its own key |
+| Replay | a code's step is stored as taken, by one conditional update, and a code at or before it is refused |
+| Recovery codes | 10, each 10 characters of 32 (50 bits), stored as HMACs and deleted as used |
+| Passkeys per account | 20; a name of 64 characters |
+| WebAuthn challenge | 32 random bytes, 5 minutes, taken once (stored as an HMAC, deleted as it is answered); one live per held sign-in, and per account and purpose |
+| Passkey sign-ins started | 30 per address and 600 in all in 15 minutes |
+
+With three codes valid at a time, 5 guesses in 15 minutes is 480 a day, and
+the chance that a day of guessing finds a code is about 1 in 700. Each wrong
+factor logs `second-factor-rejected`, and the throttle
+`second-factor-throttled`, both at `warn`, for fail2ban. The throttle is per
+account, so whoever has the password can keep its holder from signing in for
+15 minutes at a time.
+
+**Passkeys** are checked here without a library. Registration and sign-in
+check the client data's type and origin (`event.url.origin`), the challenge
+(its purpose, and the account or held sign-in it was given for), the hash of
+the relying party id (the address's host name) and user presence. Sign-in
+checks the signature with the stored key (ES256, Ed25519, or RS256 of 2048 to
+4096 bits) and refuses a signature counter that does not move forward unless
+both sides are 0, as synced passkeys send. Attestation is not asked for or
+checked, so nothing here depends on the make of authenticator. The CBOR
+reader takes the subset WebAuthn uses, 32 levels deep at most, with every
+length checked against what remains before anything is allocated, out of 16 KB
+at most. A passkey's user handle is the account's id. Passkeys are offered
+only on an `https` address with a host name, or `localhost`, which is where a
+browser allows them; a passkey made on one address does not work on another.
+
+**A passkey signs in on its own** from the sign-in page, with user
+verification required (a PIN or a fingerprint on the authenticator), through
+the credential stored at the account's last password sign-in. The music
+server is asked first whether that credential still works (`checkCredential`:
+`ping` on Subsonic, the user on Jellyfin), so a password changed there, or a
+token revoked, ends it until the next password sign-in.
+
+**A change needs a proof.** Turning on an app, adding a passkey, removing
+either, making new recovery codes and an administrator's reset each need, in
+the same request, one of the account's factors (a code, a recovery code or a
+passkey) where it has one, and its music server password where it has none,
+counted as a sign-in is. A session left open is then not enough to put a
+factor on an account and lock its holder out. Adding a factor, and removing
+the last one, ends every other session of the account, those signed in after
+this one included.
+
+**Recovery codes** are made with the first factor and shown once. Removing
+the last factor removes them.
+
+**Requiring a factor.** `HEDDOHON_REQUIRE_TWO_FACTOR=true`, or an
+administrator under Settings, Security (saved in `setup.json`), holds every
+account to one. An account without one reaches `/settings` (a read, and the
+`save`, `endSession` and `endOtherSessions` actions only), `/api/two-factor`,
+`/api/settings` and `/logout`; a page elsewhere answers 303 to
+`/settings?tab=security`, and anything else 403 `second_factor_required`. Its
+MCP tokens open nothing meanwhile. Whether an account has a factor is held for
+5 seconds; a second process on the same PostgreSQL database sees a change up
+to 5 seconds late. While it is required, the last factor cannot be removed.
+Shared links and now-playing links already made keep working.
+
+**An administrator can clear another account's factors**, by name, on the
+same music server, with a proof of their own (and, while a factor is
+required, only with a factor of their own). The account's sessions and MCP
+tokens end with them, and `two-factor-cleared` is logged. An administrator's
+own factors are removed as anyone's are.
+
+**A new Jellyfin user under a name** (another user id) starts without the
+earlier user's factors, which are removed with the rest of that account.
+
+**What a factor does not cover.** MCP tokens, shared links, cast addresses and
+the now-playing link are made by a signed-in session and keep working without
+a second factor, as before. The music server's own sign-in, and every other
+client of it, are unchanged.
+
 ## Shared links
 
 A signed-in account can make a link to one song, one album or one playlist.
@@ -1353,6 +1450,10 @@ Covers are cached under `$HEDDOHON_DATA_DIR/covers` (see
 | Any id in a JSON body or a path | under 256 characters |
 | Albums read for one play of an artist | 200 |
 | Sessions per account | 50; the oldest ends |
+| Second factor code | 64 characters; six digits from an app, or a recovery code of 10 characters of `a-z 2-7`, spaces and dashes ignored |
+| Second factors | see [Second factor at sign-in](#second-factor-at-sign-in): 5 a held sign-in, 5 wrong ones an account in 15 minutes, 10 held sign-ins an account, 20 passkeys an account |
+| Passkey answer | a credential id of 1023 bytes; client data 4 KB, attestation 16 KB, authenticator data 4 KB, signature 1 KB, user handle 64 bytes; CBOR 32 levels deep |
+| Passkey name | 64 characters, cut; the request's 300 |
 | Playlist positions per removal | 1000, deduplicated |
 | Star rating | a whole number from 0 to 5 |
 | Smart playlist rules | 1 to 20 rules, each a field and an operator from an allowlist (`lib/smartrules.ts`); text 1 to 200 characters; a year 0 to 9999, a rating 0 to 5, a play count to 1,000,000, a length to 86,400 s, days 1 to 36,500; 1 to 1000 songs or no limit |
@@ -1534,6 +1635,19 @@ session token and any `u`, `t`, `s` or `p` query parameter.
   reports no user id to tell this apart from a password change, where the links
   belong to the same person. Withdraw them from Settings, or with "Withdraw
   all", when a name is reused.
+- **A reused Navidrome user name keeps the earlier user's second factors**,
+  for the same reason: the new holder is asked for the earlier holder's code
+  and cannot sign in until an administrator clears them (Settings, Security).
+  It fails closed.
+- **A changed `HEDDOHON_SECRET` makes TOTP apps and recovery codes unusable**,
+  as it does the stored credentials: the secret is sealed, and the codes are
+  HMACs, under keys derived from it. Passkeys keep working. Where every
+  administrator is shut out by this, the operator removes an account's
+  factors in the database: `DELETE FROM totp WHERE account_id = ...`, and the
+  same for `recovery_codes` and `passkeys`.
+- **Passkeys in the desktop app** depend on Electron's WebAuthn support, which
+  differs by platform. A TOTP app works there. The Android app is Chrome (a
+  Trusted Web Activity) and takes passkeys as Chrome does.
 - **Upstream redirects from http to https** are followed to any port on the
   same host, so that Jellyfin's 8096 to 8920 upgrade works.
 - **`GET /api/cover/[id]`** writes to the cache and sits outside the origin check.
@@ -2056,3 +2170,23 @@ it; the source has no `{@html}` or `innerHTML`, and the page's policy has no
 `'unsafe-inline'` for scripts besides. A user name from the music server
 (the listen-together queue's "Added by", the Join button) goes through the
 same escaping.
+
+### 20 October 2026
+
+The second factor (issue #225), reviewed as it was written. Each item with a
+check in `tests/e2e/twofactor.test.mjs`; four of the checks were undone in
+the code on purpose and failed as they should (the replay check, user
+verification for a passkey alone, the account stored before the factor, and
+the Settings actions open to an account without one).
+
+| Severity | Finding | Fix |
+| --- | --- | --- |
+| Medium | Every Settings action was open to an account held to setting up a factor, and `makeMcpToken` there gave it a token that reads the library past the gate | Only `save`, `endSession` and `endOtherSessions` are taken from it, and its MCP tokens open nothing while it has no factor |
+| Low | A held sign-in and a WebAuthn challenge were rows without a cap for whoever had the password, or a signed-in session: each lasted 5 minutes, and a correct password clears the sign-in throttle | 10 held sign-ins an account, the newest kept; one live challenge per held sign-in and per account and purpose |
+
+Found holding: a passkey answer for another origin, another relying party, a
+spent challenge, a counter that went back, a forged signature, another
+account's user handle, and a sign-in challenge sent as a second step, are each
+refused; a TOTP code is taken once when sent twice at the same moment (one
+conditional update); recovery codes and the secret are not in the database in
+the clear; and the held sign-in holds the password sealed.

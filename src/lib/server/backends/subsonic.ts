@@ -486,6 +486,10 @@ export const subsonicBackend: MediaBackend = {
 	 * elevated permission. A server that does not implement the method answers
 	 * with an error, reported as "not known".
 	 */
+	async checkCredential(cred) {
+		await call(cred, 'ping.view');
+	},
+
 	async isAdmin(cred) {
 		if (cred.kind !== 'subsonic') return null;
 		try {

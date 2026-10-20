@@ -1,6 +1,7 @@
 import { isRedirect, redirect, type Handle, type HandleServerError, type RequestEvent, type ServerInit } from '@sveltejs/kit';
 import { building, version } from '$app/environment';
 import { resolveSession } from '$lib/server/auth';
+import { hasSecondFactor } from '$lib/server/twofactor';
 import { getSettings, defaultSettings, groundOf } from '$lib/server/settings';
 import { ConfigError, SetupRequired, config } from '$lib/server/config';
 import { announceSetup, forgetPending } from '$lib/server/setup';
@@ -43,6 +44,29 @@ const PUBLIC_ROUTES = [
 	'/now',
 	'/api/now-playing'
 ];
+
+/**
+ * What an account without a second factor reaches while the server requires
+ * one (`HEDDOHON_REQUIRE_TWO_FACTOR`): Settings, to set one up, signing out,
+ * and the settings the page saves as it is used. Exact paths: anything else,
+ * a page or an API, sends it to Settings, Security or answers 403.
+ */
+const SETUP_FACTOR_ROUTES = new Set(['/api/two-factor', '/api/settings', '/logout']);
+
+/**
+ * The settings page is read, and of its actions only those that change no
+ * more than the page itself and the account's own sessions are taken: the
+ * rest make tokens and links (an MCP token, a now-playing link) that would
+ * reach the library past the gate.
+ */
+const SETTINGS_ACTIONS_WITHOUT_FACTOR = new Set(['?/save', '?/endSession', '?/endOtherSessions']);
+
+function reachableWithoutFactor(event: RequestEvent): boolean {
+	if (event.url.pathname === '/settings') {
+		return event.request.method === 'GET' || SETTINGS_ACTIONS_WITHOUT_FACTOR.has(event.url.search);
+	}
+	return SETUP_FACTOR_ROUTES.has(event.url.pathname);
+}
 
 const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
@@ -449,6 +473,13 @@ const handleRequest: Handle = async ({ event, resolve }) => {
 
 	if (session && event.url.pathname === '/login') {
 		return sealedRedirect(event, '/');
+	}
+
+	if (session && config().requireTwoFactor && !reachableWithoutFactor(event) && !(await hasSecondFactor(session.account.id))) {
+		if (event.url.pathname.startsWith('/api/') || event.request.headers.get('accept')?.includes('application/json')) {
+			return sealed(JSON.stringify({ error: 'second_factor_required' }), 403, 'application/json');
+		}
+		return sealedRedirect(event, '/settings?tab=security');
 	}
 
 	// Without an account (sign-in, a shared link) the page is drawn from the

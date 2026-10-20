@@ -174,10 +174,19 @@ export interface MediaBackend {
 	/**
 	 * Whether this account administers the music server, or null when the
 	 * server does not say: a Subsonic server need not implement `getUser`, or
-	 * may refuse it. Caching every cover (`coverfill.ts`) needs `true`. Nothing
-	 * else an account may do depends on it.
+	 * may refuse it. Caching every cover (`coverfill.ts`), the switches under
+	 * Settings and clearing another account's second factors (`twofactor.ts`)
+	 * need `true`.
 	 */
 	isAdmin(cred: StoredCredential): Promise<boolean | null>;
+
+	/**
+	 * Asks the music server whether a stored credential still signs in, for a
+	 * sign-in with a passkey, which sends no password (`twofactor.ts`). Throws
+	 * an `UpstreamError` of kind `auth` where it does not: the password changed,
+	 * or the token was revoked.
+	 */
+	checkCredential(cred: StoredCredential): Promise<void>;
 
 	getAlbums(cred: StoredCredential, query: AlbumQuery): Promise<Album[]>;
 	getAlbum(cred: StoredCredential, id: string): Promise<AlbumDetail>;

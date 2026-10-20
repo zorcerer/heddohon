@@ -101,6 +101,12 @@ export interface AppConfig {
 	 */
 	mcp: boolean;
 	/**
+	 * Whether every account must have a second factor (a TOTP app or a
+	 * passkey) to use the app; see `twofactor.ts`. An account without one is
+	 * held to setting it up.
+	 */
+	requireTwoFactor: boolean;
+	/**
 	 * SHA-256 fingerprints of the certificates an Android app this server
 	 * vouches for is signed with; see `routes/.well-known/assetlinks.json`.
 	 */
@@ -134,7 +140,8 @@ export class SetupRequired extends ConfigError {
  * a PostgreSQL server the setup has connected to), and what an administrator
  * can change afterwards under Settings: the addresses the deployment is opened
  * at (`ORIGIN`), the size of the cover cache, and the switch of each optional
- * feature (`FEATURES` in `features.ts`). The third-party addresses those
+ * feature (`FEATURES` in `features.ts`) and whether a second factor is
+ * required (`HEDDOHON_REQUIRE_TWO_FACTOR`). The third-party addresses those
  * features fetch from, what lets the server fetch from this network
  * (`HEDDOHON_RADIO_PRIVATE`) and the plugin's token stay with the
  * environment, where only the operator's own hands reach.
@@ -154,6 +161,7 @@ export const SETUP_NAMES = [
 	'HEDDOHON_DISCORD',
 	'HEDDOHON_LISTENBRAINZ',
 	'HEDDOHON_MCP',
+	'HEDDOHON_REQUIRE_TWO_FACTOR',
 	'HEDDOHON_COVER_CACHE_MB',
 	'HEDDOHON_DATABASE_URL',
 	'HEDDOHON_DATABASE_USER',
@@ -623,6 +631,7 @@ function build(): AppConfig {
 		// Off unless asked for: what an assistant reads through it reaches the
 		// provider of the assistant's model, which is a third party.
 		mcp: flagEnv('HEDDOHON_MCP', false),
+		requireTwoFactor: flagEnv('HEDDOHON_REQUIRE_TWO_FACTOR', false),
 		androidFingerprints: androidFingerprints(),
 		database: databaseConfig()
 	};
@@ -715,6 +724,7 @@ export function config(): AppConfig {
 			radioPrivate: false,
 			navidromePluginToken: null,
 			mcp: false,
+			requireTwoFactor: false,
 			androidFingerprints: [ANDROID_RELEASE_KEY],
 			database: { kind: 'sqlite' }
 		};
