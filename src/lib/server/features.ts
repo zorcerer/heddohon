@@ -11,11 +11,14 @@
  *
  * A new feature that is off by default goes in `FEATURES`: Settings lists it,
  * and every administrator is told of it once on the home page
- * (`featuresSeen` in settings) while it is off.
+ * (`featuresSeen` in settings) while it is off. Profile pages are the one
+ * that is on until switched off (`defaultOn`): a page is shown beyond its own
+ * account, to the others here or through a public link, only once that
+ * account chooses to.
  */
 import { config, fromEnvironment, type AppConfig, type SetupName } from './config';
 
-export const FEATURE_IDS = ['newReleases', 'lrclib', 'autoeq', 'discord', 'listenbrainz', 'mcp'] as const;
+export const FEATURE_IDS = ['newReleases', 'lrclib', 'autoeq', 'discord', 'listenbrainz', 'mcp', 'profiles'] as const;
 export type FeatureId = (typeof FEATURE_IDS)[number];
 
 interface Feature {
@@ -25,6 +28,8 @@ interface Feature {
 	/** What it does and what it sends where, for the administrator deciding. */
 	detail: string;
 	on: (cfg: AppConfig) => boolean;
+	/** On unless switched off. The rest are off until switched on. */
+	defaultOn?: boolean;
 }
 
 export const FEATURES: readonly Feature[] = [
@@ -74,6 +79,15 @@ export const FEATURES: readonly Feature[] = [
 		detail:
 			'Each account can make a token for an AI assistant, which then reads its library and, if the token allows it, changes its playlists. What it reads goes to whoever runs its model.',
 		on: (cfg) => cfg.mcp
+	},
+	{
+		id: 'profiles',
+		variable: 'HEDDOHON_PROFILES',
+		title: 'Profile pages',
+		detail:
+			'Each account has a page under People with four albums it picks, a bio, its name and picture, and if it chooses what it played lately. It can show the page to the other accounts here, and to anyone through a public link it makes. Off, the pages, People and the public links answer as pages that do not exist; what was saved stays.',
+		on: (cfg) => cfg.profiles,
+		defaultOn: true
 	}
 ];
 

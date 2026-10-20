@@ -106,6 +106,8 @@ export interface AppConfig {
 	 * held to setting it up.
 	 */
 	requireTwoFactor: boolean;
+	/** Whether profile pages, People and their public links are on; see `profilepage.ts`. On unless switched off. */
+	profiles: boolean;
 	/**
 	 * SHA-256 fingerprints of the certificates an Android app this server
 	 * vouches for is signed with; see `routes/.well-known/assetlinks.json`.
@@ -162,6 +164,7 @@ export const SETUP_NAMES = [
 	'HEDDOHON_LISTENBRAINZ',
 	'HEDDOHON_MCP',
 	'HEDDOHON_REQUIRE_TWO_FACTOR',
+	'HEDDOHON_PROFILES',
 	'HEDDOHON_COVER_CACHE_MB',
 	'HEDDOHON_DATABASE_URL',
 	'HEDDOHON_DATABASE_USER',
@@ -632,6 +635,7 @@ function build(): AppConfig {
 		// provider of the assistant's model, which is a third party.
 		mcp: flagEnv('HEDDOHON_MCP', false),
 		requireTwoFactor: flagEnv('HEDDOHON_REQUIRE_TWO_FACTOR', false),
+		profiles: flagEnv('HEDDOHON_PROFILES', true),
 		androidFingerprints: androidFingerprints(),
 		database: databaseConfig()
 	};
@@ -725,6 +729,7 @@ export function config(): AppConfig {
 			navidromePluginToken: null,
 			mcp: false,
 			requireTwoFactor: false,
+			profiles: true,
 			androidFingerprints: [ANDROID_RELEASE_KEY],
 			database: { kind: 'sqlite' }
 		};

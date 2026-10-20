@@ -19,7 +19,7 @@
 		...(page.data.radio ? [{ href: '/radio', label: 'Radio', icon: 'radio' as const, exact: false }] : []),
 		{ href: '/history', label: 'History', icon: 'history' as const, exact: false, also: '/stats' },
 		{ href: '/favourites', label: 'Favourites', icon: 'heart' as const, exact: false },
-		{ href: '/people', label: 'People', icon: 'people' as const, exact: false },
+		...(page.data.profiles ? [{ href: '/people', label: 'People', icon: 'people' as const, exact: false }] : []),
 		{ href: '/search', label: 'Search', icon: 'search' as const, exact: false }
 	]);
 

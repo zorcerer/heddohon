@@ -12,6 +12,8 @@
 	import SectionHeader from '$lib/components/SectionHeader.svelte';
 	import TrackList from '$lib/components/TrackList.svelte';
 	import Icon from '$lib/components/Icon.svelte';
+	import Avatar from '$lib/components/Avatar.svelte';
+	import { avatarUrl } from '$lib/client/listeners.svelte';
 	import { playContainer } from '$lib/client/actions';
 	import type { RememberedAlbum } from '$lib/server/history';
 	import type { PageData } from './$types';
@@ -108,9 +110,17 @@
 
 <div class="page">
 	<header class="masthead">
-		<div>
-			<span class="hh-eyebrow">{greeting}</span>
-			<h1>Your library</h1>
+		<div class="hello">
+			<!-- The account's picture, or its initial, leading to its profile page. -->
+			{#if data.me}
+				<a class="me" href="/people/{data.me.handle}" aria-label="Your profile" title="Your profile">
+					<Avatar name={data.me.name} src={avatarUrl(data.me.handle, data.me.avatar)} size={3.25} />
+				</a>
+			{/if}
+			<div>
+				<span class="hh-eyebrow">{greeting}</span>
+				<h1>Your library</h1>
+			</div>
 		</div>
 		{#if data.discover.length > 0}
 			<button class="hh-button shuffle" onclick={() => player.playShuffled(data.discover)}>
@@ -261,6 +271,34 @@
 
 	.masthead h1 {
 		margin-top: var(--space-1);
+	}
+
+	.hello {
+		display: flex;
+		align-items: center;
+		gap: var(--space-4);
+		min-width: 0;
+	}
+
+	.me {
+		flex: none;
+		border-radius: 50%;
+		transition: transform var(--dur-press) var(--ease-out);
+	}
+
+	.me:hover {
+		transform: scale(1.05);
+	}
+
+	.me:focus-visible {
+		outline: 2px solid var(--accent);
+		outline-offset: 3px;
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.me {
+			transition: none;
+		}
 	}
 
 	@media (max-width: 60rem) {

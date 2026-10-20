@@ -272,8 +272,8 @@ export const actions: Actions = {
 		for (const feature of FEATURES) {
 			if (fromEnvironment(feature.variable)) continue;
 			const wanted = form.get(feature.id) === 'on';
-			// Off is the default, so it is saved as no value.
-			values[feature.variable] = wanted ? 'true' : '';
+			// The default is saved as no value, so a later default applies to it.
+			values[feature.variable] = wanted === (feature.defaultOn ?? false) ? '' : String(wanted);
 			if (wanted) on.push(feature.id);
 		}
 		saveSetup(values);

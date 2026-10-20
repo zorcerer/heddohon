@@ -1052,6 +1052,11 @@ each on, the albums it played lately and its most played artists of the last
   a name passed to someone else looks) unlists the page and withdraws its
   link; every session ending (`destroyAllSessions`) withdraws the link; a new
   Jellyfin user under the name removes the page.
+- **Switched off** (`HEDDOHON_PROFILES=false`, or an administrator under
+  Settings, Features), every route of it answers 404 as for a page that does
+  not exist, public links included, People leaves the rail and the home page
+  loses the picture that leads to it. What was saved stays, and comes back
+  with the switch.
 - **Name and picture.** They are the profile's that "Listening now" shows.
   Since they are the page's too, an account sets them whether or not
   `HEDDOHON_LISTENERS` is on; being shown in that list is still offered only

@@ -172,3 +172,35 @@ test('a changed password takes the page out of sight and withdraws its link', as
 		subsonic.state.password = 'testpass';
 	}
 });
+
+test('switched off under Features, every profile route answers as one that does not exist, and the page is kept', async () => {
+	// The test before changed the password, which signed this browser out.
+	owner = new Client(app.url);
+	assert.equal((await owner.signIn(OWNER)).status, 303);
+	const { url } = await (await owner.json('/api/profile/page', 'POST', {})).json();
+	const link = new URL(url).pathname;
+	const save = (fields) =>
+		owner.request('/settings?/saveFeatures', {
+			method: 'POST',
+			headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json', 'x-sveltekit-action': 'true' },
+			body: new URLSearchParams(fields).toString()
+		});
+	assert.equal((await save({})).status, 200);
+	try {
+		for (const path of ['/people', `/people/${handle}`, `/api/people/${handle}/cover/f0`, '/api/profile/page', link, `${link}/cover/f0`]) {
+			assert.equal((await owner.request(path, { headers: { accept: 'text/html' } })).status, 404, path);
+		}
+		assert.equal((await new Client(app.url).page(link)).response.status, 404);
+		const home = await owner.page('/');
+		assert.doesNotMatch(home.html, /aria-label="Your profile"/);
+		assert.doesNotMatch(home.html, /href="\/people"/);
+		// The name and picture stay, for "Listening now".
+		assert.equal((await owner.request('/api/profile')).status, 200);
+	} finally {
+		assert.equal((await save({ profiles: 'on' })).status, 200);
+	}
+	// Back on, the page is as it was, link included.
+	assert.equal((await owner.page(`/people/${handle}`)).response.status, 200);
+	assert.equal((await new Client(app.url).page(link)).response.status, 200);
+	assert.match((await owner.page('/')).html, /aria-label="Your profile"/);
+});

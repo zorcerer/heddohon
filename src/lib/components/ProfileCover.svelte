@@ -8,16 +8,23 @@
 	 * `/api/cover` address and cannot reach those.
 	 */
 	let { src, alt = '' }: { src: string | null; alt?: string } = $props();
-	let failed = $state(false);
-	$effect(() => {
-		void src;
-		failed = false;
-	});
+
+	let failedSrc = $state<string | null>(null);
+
+	// A listener, not `onerror`: for that Svelte writes an inline handler into
+	// the server-rendered markup, which the Content-Security-Policy refuses (as
+	// in `Avatar.svelte`).
+	function watch(image: HTMLImageElement) {
+		const fail = () => (failedSrc = image.getAttribute('src'));
+		if (image.complete && image.naturalWidth === 0 && image.currentSrc) fail();
+		image.addEventListener('error', fail);
+		return () => image.removeEventListener('error', fail);
+	}
 </script>
 
 <span class="cover">
-	{#if src && !failed}
-		<img {src} {alt} loading="lazy" decoding="async" onerror={() => (failed = true)} />
+	{#if src && failedSrc !== src}
+		<img {src} {alt} loading="lazy" decoding="async" {@attach watch} />
 	{:else}
 		<span class="none" aria-hidden="true"><Icon name="album" size={28} /></span>
 	{/if}
