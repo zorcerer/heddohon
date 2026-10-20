@@ -25,10 +25,12 @@ function freePort() {
 }
 
 /** Starts the app and resolves once `/healthz` answers. */
-export async function startApp({ subsonicUrl, jellyfinUrl, env = {}, dataDir: given = null }) {
+export async function startApp({ subsonicUrl, jellyfinUrl, env = {}, dataDir: given = null, host = '127.0.0.1' }) {
 	if (!existsSync(BUILD)) throw new Error('build/index.js is missing. Run `npm run build` first.');
 	const port = await freePort();
-	const url = `http://127.0.0.1:${port}`;
+	// `host` names the address the app is opened at; it listens on 127.0.0.1
+	// either way. A passkey needs a name (`localhost`), not an IP.
+	const url = `http://${host}:${port}`;
 	// A directory of the caller's, for a database that has to be there before
 	// the app opens it (an upgrade from an earlier schema).
 	const dataDir = given ?? mkdtempSync(join(tmpdir(), 'heddohon-e2e-'));

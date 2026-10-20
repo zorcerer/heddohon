@@ -678,6 +678,10 @@ export const jellyfinBackend: MediaBackend = {
 	 * Jellyfin states this on the user record, so reading it costs one request
 	 * and no special permission.
 	 */
+	async checkCredential(cred) {
+		await call(cred, `/Users/${seg(creds(cred).userId)}`);
+	},
+
 	async isAdmin(cred) {
 		try {
 			const user = await call<{ Policy?: { IsAdministrator?: boolean } }>(

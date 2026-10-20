@@ -331,11 +331,18 @@ export const MAX_COVER_CACHE_MB = 65_536;
  * What of the setup the environment already decides. A value it gives is not
  * asked for, and would not be read if it were saved.
  */
-export function decidedByEnvironment(): { origin: boolean; coverCache: boolean; mcp: boolean; database: boolean } {
+export function decidedByEnvironment(): {
+	origin: boolean;
+	coverCache: boolean;
+	mcp: boolean;
+	requireTwoFactor: boolean;
+	database: boolean;
+} {
 	return {
 		origin: fromEnvironment('ORIGIN'),
 		coverCache: fromEnvironment('HEDDOHON_COVER_CACHE_MB'),
 		mcp: fromEnvironment('HEDDOHON_MCP'),
+		requireTwoFactor: fromEnvironment('HEDDOHON_REQUIRE_TWO_FACTOR'),
 		database: fromEnvironment('HEDDOHON_DATABASE_URL')
 	};
 }

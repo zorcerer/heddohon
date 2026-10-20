@@ -23,6 +23,8 @@ import type { StoredCredential } from './backends';
 import { mcpDigest, openJson, randomToken } from './crypto';
 import { now, store } from './db';
 import { log } from './log';
+import { config } from './config';
+import { hasSecondFactor } from './twofactor';
 
 /** Tokens one account may hold. */
 export const MAX_MCP_TOKENS = 20;
@@ -165,6 +167,9 @@ export async function mcpAccess(header: string | null): Promise<McpAccess | null
 		mcpDigest(token)
 	);
 	if (!row) return null;
+	// While the server requires a second factor, an account without one reaches
+	// nothing but Settings (`hooks.server.ts`), and its tokens nothing at all.
+	if (config().requireTwoFactor && !(await hasSecondFactor(row.account_id))) return null;
 
 	let credential: StoredCredential;
 	try {

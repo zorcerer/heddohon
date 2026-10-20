@@ -746,7 +746,7 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
  * A Jellyfin server with three album artists and two artists that only appear
  * on tracks. `Artist B` is album artist of two albums.
  */
-export async function startJellyfin() {
+export async function startJellyfin({ quickConnect = false } = {}) {
 	const calls = counter();
 	const artists = [
 		{ Id: 'a1', Name: 'Artist A', Type: 'MusicArtist', ImageTags: {} },
@@ -813,7 +813,12 @@ export async function startJellyfin() {
 	 */
 	/** Item ids the user has made a favourite, which every item it answers with carries in `UserData`. */
 	/** `playlistPublic`: whether `jpl` is public, as a new Jellyfin playlist is. */
-	const state = { played: [], favourites: new Set(), playlistPublic: true };
+	/**
+	 * `quickConnect`: whether Quick Connect is on, and `quickConnectApproved`
+	 * whether the one request it holds (secret `qc-secret`, code `123456`) has
+	 * been approved by a signed-in user.
+	 */
+	const state = { played: [], favourites: new Set(), playlistPublic: true, quickConnect, quickConnectApproved: false };
 
 	/** An item as Jellyfin answers with it for this user: with its favourite state. */
 	const withUserData = (item) =>
@@ -842,7 +847,18 @@ export async function startJellyfin() {
 			});
 			return;
 		}
-		if (url.pathname === '/QuickConnect/Enabled') return send(false);
+		if (url.pathname === '/QuickConnect/Enabled') return send(state.quickConnect);
+		if (state.quickConnect && req.method === 'POST' && url.pathname === '/QuickConnect/Initiate') {
+			return send({ Secret: 'qc-secret', Code: '123456' });
+		}
+		if (state.quickConnect && url.pathname === '/QuickConnect/Connect') {
+			return url.searchParams.get('secret') === 'qc-secret' ? send({ Authenticated: state.quickConnectApproved }) : send({}, 404);
+		}
+		if (state.quickConnect && req.method === 'POST' && url.pathname === '/Users/AuthenticateWithQuickConnect') {
+			return state.quickConnectApproved
+				? send({ AccessToken: 'jf-token', User: { Id: 'u1', Name: 'jfuser' } })
+				: send({}, 400);
+		}
 		// Favourites, by the route Heddohon uses: POST adds, DELETE removes, and
 		// the answer is the item's user data.
 		const favourite = /^\/Users\/u1\/FavoriteItems\/([^/]+)$/.exec(url.pathname);

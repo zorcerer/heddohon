@@ -7,6 +7,7 @@
 	import Cover from '$lib/components/Cover.svelte';
 	import Avatar from '$lib/components/Avatar.svelte';
 	import Icon from '$lib/components/Icon.svelte';
+	import SecuritySettings from '$lib/components/SecuritySettings.svelte';
 	import { avatarUrl, listeners } from '$lib/client/listeners.svelte';
 	import { player } from '$lib/client/player.svelte';
 	import { EQ_FREQUENCIES, EQ_RANGE_DB } from '$lib/client/audiochain';
@@ -255,6 +256,7 @@
 		{ id: 'playback', label: 'Playback' },
 		{ id: 'history', label: 'Listening history' },
 		{ id: 'account', label: 'Account' },
+		{ id: 'security', label: 'Security' },
 		{ id: 'ai', label: 'AI' },
 		{ id: 'sharing', label: 'Shared links' },
 		{ id: 'storage', label: 'Cover cache' },
@@ -1255,6 +1257,22 @@
 				</form>
 			{/if}
 		</div>
+	</section>
+
+	<!-- The account's second factors; see `twofactor.ts`. Mounted while shown,
+	     since it reads them from the server when it starts. -->
+	<section class="hh-card hh-glass group" id="security" hidden={shown !== 'security'}>
+		<div class="group-head">
+			<h2>Two-step sign-in</h2>
+			<p class="hh-muted">
+				A second factor after your music server password: a code from an app, or a passkey. It guards the sign-in
+				here; the music server's own sign-in does not change. AI assistant tokens, shared links and the
+				now-playing link keep working without it.
+			</p>
+		</div>
+		{#if shown === 'security'}
+			<SecuritySettings serverLabel={data.serverLabel} admin={data.twoFactorAdmin} />
+		{/if}
 	</section>
 
 	<!-- Only where the operator has left it on; see `HEDDOHON_LISTENERS`. -->

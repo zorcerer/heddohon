@@ -185,6 +185,67 @@ CREATE TABLE IF NOT EXISTS profiles (
   updated_at  INTEGER NOT NULL
 );
 
+-- A second factor at sign-in; see twofactor.ts. The TOTP secret is sealed as
+-- a credential is, under a key of its own. confirmed is 0 while it is being
+-- set up, until the first code from the app. last_step is the time step of
+-- the last code taken, so no code is taken twice.
+CREATE TABLE IF NOT EXISTS totp (
+  account_id  TEXT PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
+  secret      TEXT NOT NULL,
+  confirmed   INTEGER NOT NULL,
+  last_step   INTEGER,
+  created_at  INTEGER NOT NULL
+);
+
+-- Single-use codes for when the second factor is lost: the HMAC digest of
+-- each, deleted as it is used.
+CREATE TABLE IF NOT EXISTS recovery_codes (
+  account_id  TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  digest      TEXT NOT NULL,
+  created_at  INTEGER NOT NULL,
+  PRIMARY KEY (account_id, digest)
+);
+
+-- An account's passkeys: the credential id as the browser names it
+-- (base64url) and the public key (SubjectPublicKeyInfo, base64url).
+CREATE TABLE IF NOT EXISTS passkeys (
+  id            TEXT PRIMARY KEY,
+  account_id    TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  public_key    TEXT NOT NULL,
+  algorithm     INTEGER NOT NULL,
+  sign_count    INTEGER NOT NULL,
+  name          TEXT NOT NULL,
+  created_at    INTEGER NOT NULL,
+  last_used_at  INTEGER
+);
+CREATE INDEX IF NOT EXISTS passkeys_account_idx ON passkeys(account_id);
+
+-- A sign-in the music server accepted, waiting for its second factor: the
+-- HMAC digest of the token in the browser's cookie, and the music server's
+-- answer sealed, stored as the account's only once the factor is given.
+CREATE TABLE IF NOT EXISTS sign_in_steps (
+  token_digest  TEXT PRIMARY KEY,
+  account_id    TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  upstream      TEXT NOT NULL,
+  created_at    INTEGER NOT NULL,
+  expires_at    INTEGER NOT NULL,
+  attempts      INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS sign_in_steps_expiry_idx ON sign_in_steps(expires_at);
+
+-- WebAuthn challenges handed out and not yet answered, by the HMAC digest of
+-- the challenge. Each is taken once. account_id is null for a sign-in with a
+-- passkey alone, where the account is not known until the answer; step is
+-- the digest of the sign-in a second-step challenge belongs to.
+CREATE TABLE IF NOT EXISTS passkey_challenges (
+  digest      TEXT PRIMARY KEY,
+  purpose     TEXT NOT NULL,
+  account_id  TEXT REFERENCES accounts(id) ON DELETE CASCADE,
+  step        TEXT,
+  expires_at  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS passkey_challenges_expiry_idx ON passkey_challenges(expires_at);
+
 -- Values the server keeps for itself, not for an account: whose cover fill is
 -- repeated daily (coverfill.ts) and, on PostgreSQL, whether the SQLite import
 -- has run.
@@ -278,8 +339,9 @@ export interface Store {
  * The tables that move between databases, and their columns: read from a
  * SQLite file into PostgreSQL (`importFromSqlite`) and written from
  * PostgreSQL into a SQLite file (`backup`). Accounts first: the others refer
- * to them. `sessions`, `mcp_tokens`, `now_playing_links` and `login_attempts`
- * are not in it.
+ * to them. `sessions`, `mcp_tokens`, `now_playing_links`, `login_attempts`,
+ * `sign_in_steps` and `passkey_challenges` are not in it. The second factors
+ * are: restored without them, every account would lose its own.
  */
 const COPIED_TABLES = {
 	accounts: ['id', 'backend', 'username', 'remote_user_id', 'credential', 'created_at', 'last_login_at', 'device_epoch'],
@@ -289,6 +351,9 @@ const COPIED_TABLES = {
 	plays: ['account_id', 'song_id', 'played_at', 'title', 'artist', 'artist_id', 'album', 'album_id', 'cover_art', 'duration', 'source', 'device'],
 	integrations: ['account_id', 'kind', 'secret', 'created_at'],
 	profiles: ['account_id', 'handle', 'name', 'shown', 'avatar', 'avatar_at', 'updated_at'],
+	totp: ['account_id', 'secret', 'confirmed', 'last_step', 'created_at'],
+	recovery_codes: ['account_id', 'digest', 'created_at'],
+	passkeys: ['id', 'account_id', 'public_key', 'algorithm', 'sign_count', 'name', 'created_at', 'last_used_at'],
 	meta: ['key', 'value']
 } as const;
 
@@ -356,7 +421,9 @@ class SqliteStore implements Store {
 		await this.handle.backup(file);
 		const copy = new Database(file);
 		try {
-			copy.exec('DELETE FROM sessions; DELETE FROM mcp_tokens; DELETE FROM login_attempts;');
+			copy.exec(
+				'DELETE FROM sessions; DELETE FROM mcp_tokens; DELETE FROM login_attempts; DELETE FROM sign_in_steps; DELETE FROM passkey_challenges;'
+			);
 			// One file, without a `-wal` beside it, and without the deleted rows.
 			copy.pragma('journal_mode = DELETE');
 			copy.exec('VACUUM');

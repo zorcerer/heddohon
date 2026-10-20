@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
-	import { goto } from '$app/navigation';
+	import { goto, invalidateAll } from '$app/navigation';
+	import { passkeyFailure, passkeysAvailable, usePasskey } from '$lib/client/webauthn';
 	import { onMount, untrack } from 'svelte';
 	import { forgetSavedOutput } from '$lib/client/output.svelte';
 	import { page } from '$app/state';
@@ -167,6 +168,14 @@
 			quickConnect = { step: 'expired' };
 			return;
 		}
+		if (body?.state === 'second-step') {
+			// The account has a second factor: the page reloads its data and asks
+			// for it, as after a password.
+			stopPolling();
+			quickConnect = { step: 'idle' };
+			await invalidateAll();
+			return;
+		}
 		pollTimer = setTimeout(() => poll(code), POLL_MS);
 	}
 
@@ -176,6 +185,53 @@
 		quickConnectError = null;
 		// Drops the sealed request from this browser. Jellyfin expires its own copy.
 		fetch('/login/quick-connect', { method: 'DELETE' }).catch(() => undefined);
+	}
+
+	/*
+	 * Passkeys: as the second step after a password (`step`), or alone
+	 * (`sign-in`). The server hands out a challenge, the browser asks the
+	 * authenticator to sign it, and the server checks the answer and signs in.
+	 * Offered only where both ends can: the browser has WebAuthn, and the
+	 * server is on an address a passkey can be made for (`data.passkeys`).
+	 */
+	let canPasskey = $state(false);
+	let passkeyBusy = $state(false);
+	let passkeyError = $state<string | null>(null);
+	/** A numeric keypad for the app's code; letters for a recovery code. */
+	let recovery = $state(false);
+	let stepBusy = $state(false);
+
+	onMount(() => {
+		canPasskey = passkeysAvailable();
+	});
+
+	async function signInWithPasskey(purpose: 'step' | 'sign-in') {
+		passkeyBusy = true;
+		passkeyError = null;
+		const post = (body: unknown) =>
+			fetch('/login/passkey', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json', accept: 'application/json' },
+				body: JSON.stringify(body)
+			});
+		try {
+			const asked = await post({ action: 'options', for: purpose });
+			const options = await asked.json().catch(() => null);
+			if (!asked.ok) throw new Error(options?.error ?? 'Passkeys are not available here.');
+			const credential = await usePasskey(options);
+			const answered = await post({ action: 'verify', for: purpose, credential, next });
+			const body = await answered.json().catch(() => null);
+			if (!answered.ok || body?.state !== 'signed-in') {
+				if (body?.restart) await invalidateAll();
+				throw new Error(body?.error ?? 'The passkey was not accepted.');
+			}
+			await leave();
+			await goto(body.next ?? '/', { invalidateAll: true });
+		} catch (err) {
+			passkeyError = passkeyFailure(err);
+		} finally {
+			passkeyBusy = false;
+		}
 	}
 
 	// The page the user was trying to reach before being redirected here. Parsed
@@ -261,11 +317,80 @@
 			{/if}
 		</header>
 
-		{#if quickConnectError ?? form?.error}
-			<p class="alert" role="alert">{quickConnectError ?? form?.error}</p>
+		{#if quickConnectError ?? passkeyError ?? form?.error}
+			<p class="alert" role="alert">{quickConnectError ?? passkeyError ?? form?.error}</p>
 		{/if}
 
-		{#if quickConnect.step === 'idle' || quickConnect.step === 'starting'}
+		{#if data.step}
+			<!-- The music server accepted the sign-in; the account has a second
+			     factor. The code posts to the same action as the password. -->
+			<section class="second-step" aria-live="polite">
+				<p class="hh-muted note">
+					Signing in as <strong>{data.step.username}</strong>.
+					{#if data.step.totp && !recovery}
+						Enter the six-digit code from your authenticator app.
+					{:else}
+						Enter one of your recovery codes. Each works once.
+					{/if}
+				</p>
+				<form
+					method="POST"
+					use:enhance={() => {
+						stepBusy = true;
+						return async ({ result, update }) => {
+							if (result.type === 'redirect') await leave();
+							await update();
+							stepBusy = false;
+						};
+					}}
+				>
+					<label class="field">
+						<span class="hh-eyebrow label">{data.step.totp && !recovery ? 'Code' : 'Recovery code'}</span>
+						<!-- svelte-ignore a11y_autofocus -->
+						<input
+							class="hh-input code-input"
+							name="code"
+							autocomplete="one-time-code"
+							inputmode={data.step.totp && !recovery ? 'numeric' : 'text'}
+							maxlength="64"
+							required
+							autofocus
+							autocapitalize="none"
+							spellcheck="false"
+						/>
+					</label>
+					<input type="hidden" name="next" value={next} />
+					<button class="hh-button hh-button--primary submit" class:busy={stepBusy} type="submit" disabled={stepBusy}>
+						{stepBusy ? 'Checking…' : 'Verify'}
+					</button>
+				</form>
+
+				{#if data.step.passkey && canPasskey}
+					<div class="divider" aria-hidden="true"><span class="hh-eyebrow">or</span></div>
+					<button
+						class="hh-button quick"
+						class:busy={passkeyBusy}
+						type="button"
+						onclick={() => signInWithPasskey('step')}
+						disabled={passkeyBusy || stepBusy}
+					>
+						{passkeyBusy ? 'Waiting for your passkey…' : 'Use a passkey'}
+					</button>
+				{/if}
+
+				<div class="step-links">
+					{#if data.step.totp}
+						<button class="hh-button hh-button--ghost" type="button" onclick={() => (recovery = !recovery)}>
+							{recovery ? 'Use the app’s code' : 'Use a recovery code'}
+						</button>
+					{/if}
+					<form method="POST" use:enhance={() => async ({ update }) => update()}>
+						<input type="hidden" name="cancel" value="1" />
+						<button class="hh-button hh-button--ghost" type="submit">Start again</button>
+					</form>
+				</div>
+			</section>
+		{:else if quickConnect.step === 'idle' || quickConnect.step === 'starting'}
 			<form
 				method="POST"
 				use:enhance={() => {
@@ -348,6 +473,21 @@
 					disabled={quickConnect.step === 'starting' || submitting}
 				>
 					{quickConnect.step === 'starting' ? 'Asking the server for a code…' : 'Sign in with Quick Connect'}
+				</button>
+			{/if}
+
+			{#if data.passkeys && canPasskey}
+				{#if !selectedServer?.quickConnect}
+					<div class="divider" aria-hidden="true"><span class="hh-eyebrow">or</span></div>
+				{/if}
+				<button
+					class="hh-button quick passkey"
+					class:busy={passkeyBusy}
+					type="button"
+					onclick={() => signInWithPasskey('sign-in')}
+					disabled={passkeyBusy || submitting}
+				>
+					{passkeyBusy ? 'Waiting for your passkey…' : 'Sign in with a passkey'}
 				</button>
 			{/if}
 		{:else}
@@ -756,6 +896,27 @@
 	.quick-connect {
 		display: grid;
 		gap: var(--space-3);
+	}
+
+	.quick + .passkey {
+		margin-top: var(--space-2);
+	}
+
+	.second-step {
+		display: grid;
+		gap: var(--space-3);
+	}
+
+	.code-input {
+		font-family: var(--font-mono);
+		letter-spacing: 0.15em;
+	}
+
+	.step-links {
+		display: flex;
+		flex-wrap: wrap;
+		justify-content: space-between;
+		gap: var(--space-2);
 	}
 
 	.code {

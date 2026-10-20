@@ -187,7 +187,10 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 					}
 				: null,
 		// The Features tab: each optional feature's switch, for an administrator of the music server.
-		features: isAdmin === true ? featureStates() : null
+		features: isAdmin === true ? featureStates() : null,
+		// Settings, Security: the switch that requires a second factor of every account, for an administrator.
+		twoFactorAdmin:
+			isAdmin === true ? { required: cfg.requireTwoFactor, fromEnvironment: decidedByEnvironment().requireTwoFactor } : null
 	};
 };
 

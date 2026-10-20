@@ -153,3 +153,21 @@ export function mcpDigest(token: string): string {
 export function nowPlayingDigest(token: string): string {
 	return createHmac('sha256', keyFor('now-playing')).update(token).digest('base64url');
 }
+
+/**
+ * The digest of a recovery code, over the account and the code; see
+ * `twofactor.ts`. Keyed apart from the tokens, as each of them is.
+ */
+export function recoveryDigest(accountId: string, code: string): string {
+	return createHmac('sha256', keyFor('recovery-code')).update(`${accountId}:${code}`).digest('base64url');
+}
+
+/** The digest of a sign-in waiting for its second factor; see `twofactor.ts`. */
+export function signInStepDigest(token: string): string {
+	return createHmac('sha256', keyFor('sign-in-step')).update(token).digest('base64url');
+}
+
+/** The digest a WebAuthn challenge is stored by; see `twofactor.ts`. */
+export function passkeyChallengeDigest(challenge: string): string {
+	return createHmac('sha256', keyFor('passkey-challenge')).update(challenge).digest('base64url');
+}
