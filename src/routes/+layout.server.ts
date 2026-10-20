@@ -24,6 +24,7 @@ export const load: LayoutServerLoad = async ({ locals, url }) => {
 			autoeq: false,
 			folders: false,
 			radio: false,
+			profiles: false,
 			ratings: false,
 			account: null,
 			serverLabel: '',
@@ -54,6 +55,8 @@ export const load: LayoutServerLoad = async ({ locals, url }) => {
 		folders: cfg.folders,
 		// Whether the music server keeps internet radio stations (Navidrome does) and they are offered.
 		radio: radioEnabled(session),
+		// Whether profile pages and People are on; see `profilepage.ts`.
+		profiles: cfg.profiles,
 		// Whether the music server keeps star ratings (Navidrome does, Jellyfin
 		// does not). The stars are drawn only where a press can be saved.
 		ratings: Boolean(session && backendFor(session.account.backend).setRating),

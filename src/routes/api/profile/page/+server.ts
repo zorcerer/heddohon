@@ -9,6 +9,7 @@ import {
 	MAX_BIO,
 	ownPage,
 	pageSettings,
+	profilesOn,
 	savePage,
 	withdrawProfileLink
 } from '$lib/server/profilepage';
@@ -17,6 +18,7 @@ import {
 export const GET: RequestHandler = async ({ locals }) => {
 	const session = locals.session;
 	if (!session) error(401, 'Not signed in');
+	if (!profilesOn()) error(404, 'Not found');
 	const [page, settings] = await Promise.all([ownPage(session.account.id), pageSettings(session.account.id)]);
 	return json({ page, settings, maxBio: MAX_BIO });
 };
@@ -29,6 +31,7 @@ export const GET: RequestHandler = async ({ locals }) => {
 export const PATCH: RequestHandler = async ({ locals, request }) => {
 	const session = locals.session;
 	if (!session) error(401, 'Not signed in');
+	if (!profilesOn()) error(404, 'Not found');
 	const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
 	if (typeof body !== 'object' || body === null) error(400, 'Expected a JSON body');
 
@@ -83,6 +86,7 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
 export const POST: RequestHandler = async ({ locals, url }) => {
 	const session = locals.session;
 	if (!session) error(401, 'Not signed in');
+	if (!profilesOn()) error(404, 'Not found');
 	const token = await makeProfileLink(session.account);
 	return json({ url: `${url.origin}/p/${token}`, settings: await pageSettings(session.account.id) });
 };
@@ -91,6 +95,7 @@ export const POST: RequestHandler = async ({ locals, url }) => {
 export const DELETE: RequestHandler = async ({ locals }) => {
 	const session = locals.session;
 	if (!session) error(401, 'Not signed in');
+	if (!profilesOn()) error(404, 'Not found');
 	await withdrawProfileLink(session.account.id);
 	return json({ settings: await pageSettings(session.account.id) });
 };

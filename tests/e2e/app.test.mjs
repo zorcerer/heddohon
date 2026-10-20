@@ -1444,7 +1444,10 @@ describe('playback on another browser', () => {
 			try {
 				// Each stream opens with the list and the account's own profile.
 				assert.deepEqual((await b.next('listeners')).listeners, []);
-				assert.deepEqual((await a.next('listeners')).you, { id: null, name: null, shown: false, avatar: null });
+				// The home page makes the profile's row, with its handle, unshown.
+				const { id, ...you } = (await a.next('listeners')).you;
+				assert.ok(id === null || /^[0-9a-f]{24}$/.test(id));
+				assert.deepEqual(you, { name: null, shown: false, avatar: null });
 
 				// Playing, and not shown: the other account is told nothing.
 				assert.equal((await first.json('/api/remote/state', 'POST', { peer: a.id, state: playing })).status, 200);
@@ -4290,7 +4293,9 @@ describe('optional features', () => {
 				autoeq: 'off',
 				discord: 'off',
 				listenbrainz: 'off',
-				mcp: 'off'
+				mcp: 'off',
+				// The one on until switched off.
+				profiles: 'on'
 			});
 			try {
 				assert.equal((await action(client, 'saveFeatures', { newReleases: 'on', mcp: 'on' })).type, 'success');
@@ -4308,7 +4313,7 @@ describe('optional features', () => {
 					subsonic.state.admin = true;
 				}
 			} finally {
-				await action(client, 'saveFeatures', {});
+				await action(client, 'saveFeatures', { profiles: 'on' });
 			}
 			assert.equal((await switches(client)).newReleases, 'off');
 		});
@@ -4347,7 +4352,7 @@ describe('optional features', () => {
 			await client.json('/api/settings', 'PATCH', { featuresSeen: ['lrclib', 'autoeq', 'discord', 'listenbrainz', 'mcp'] });
 			assert.deepEqual(await notice(client), ['New releases from MusicBrainz']);
 			// Saving under Settings, Features marks every one seen.
-			assert.equal((await action(client, 'saveFeatures', {})).type, 'success');
+			assert.equal((await action(client, 'saveFeatures', { profiles: 'on' })).type, 'success');
 			assert.deepEqual(await notice(client), []);
 		});
 	});

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
 	import type { ProfileView } from '$lib/server/profilepage';
+	import Avatar from './Avatar.svelte';
 	import ProfileCover from './ProfileCover.svelte';
 
 	/**
@@ -27,18 +28,10 @@
 		slot?: Snippet<[number]>;
 	} = $props();
 
-	let avatarFailed = $state(false);
-	const initial = $derived(Array.from(page.name)[0]?.toUpperCase() ?? '?');
 </script>
 
 <header class="who">
-	<span class="avatar" aria-hidden="true">
-		{#if avatarSrc && !avatarFailed}
-			<img src={avatarSrc} alt="" onerror={() => (avatarFailed = true)} />
-		{:else}
-			<span class="initial">{initial}</span>
-		{/if}
-	</span>
+	<Avatar name={page.name} src={avatarSrc} size={6} />
 	<div class="names">
 		<span class="hh-eyebrow">Profile</span>
 		<h1 class="hh-display">{page.name}</h1>
@@ -123,29 +116,6 @@
 		align-items: center;
 		padding-bottom: var(--space-4);
 		border-bottom: 1px solid var(--border-hairline);
-	}
-
-	.avatar {
-		flex: none;
-		width: 6rem;
-		height: 6rem;
-		border-radius: 50%;
-		overflow: hidden;
-		background: var(--field-face);
-		display: grid;
-		place-items: center;
-	}
-
-	.avatar img {
-		width: 100%;
-		height: 100%;
-		object-fit: cover;
-	}
-
-	.initial {
-		font-size: 2.5rem;
-		font-weight: 600;
-		color: var(--text-strong);
 	}
 
 	.names {

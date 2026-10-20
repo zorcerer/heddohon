@@ -31,6 +31,15 @@ import { backendFor, UpstreamError } from './backends';
 import { profileLinkDigest, randomToken } from './crypto';
 import { now, store } from './db';
 import { ensureHandle } from './listening';
+import { config } from './config';
+
+/**
+ * Whether profile pages are on (`HEDDOHON_PROFILES`, switched under Settings,
+ * Features). Off, every route of theirs answers 404 and what was saved stays.
+ */
+export function profilesOn(): boolean {
+	return config().profiles;
+}
 
 export const FAVOURITE_SLOTS = 4;
 /** Characters in a bio, counted as a reader would (code points). */
@@ -291,6 +300,7 @@ export async function ownPage(accountId: string): Promise<ProfileView> {
 
 /** The account a handle names, if `viewer` may see its page: its own, or a listed one. */
 export async function accountOfHandle(handle: string, viewer: string): Promise<string | null> {
+	if (!profilesOn()) return null;
 	if (!HANDLE.test(handle)) return null;
 	const row = await (await store()).get<{ account_id: string; listed: number | null }>(
 		`SELECT p.account_id, g.listed FROM profiles p LEFT JOIN profile_pages g ON g.account_id = p.account_id WHERE p.handle = ?`,
@@ -365,6 +375,7 @@ export async function withdrawProfileLink(accountId: string): Promise<boolean> {
 
 /** The account a public link's token is for, or null: a malformed token is not looked up. */
 export async function accountOfProfileLink(token: string): Promise<string | null> {
+	if (!profilesOn()) return null;
 	if (!token.startsWith(LINK_PREFIX) || token.length > MAX_TOKEN_LENGTH) return null;
 	const row = await (await store()).get<{ account_id: string }>(
 		'SELECT account_id FROM profile_pages WHERE link_digest = ?',
