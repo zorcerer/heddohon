@@ -1,6 +1,5 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { config } from '$lib/server/config';
 import { jpegSize, MAX_AVATAR_BYTES, MAX_AVATAR_SIDE, setAvatar, stripJpeg } from '$lib/server/listening';
 
 /**
@@ -12,8 +11,6 @@ import { jpegSize, MAX_AVATAR_BYTES, MAX_AVATAR_SIDE, setAvatar, stripJpeg } fro
 export const PUT: RequestHandler = async ({ locals, request }) => {
 	const session = locals.session;
 	if (!session) error(401, 'Not signed in');
-	const cfg = config();
-	if (!cfg.listeners || !cfg.remoteControl) error(404, 'Not found');
 
 	// Refused by its declared length before any of it is read.
 	if (Number(request.headers.get('content-length') ?? 0) > MAX_AVATAR_BYTES) error(413, 'The picture is too large');
@@ -36,8 +33,6 @@ export const PUT: RequestHandler = async ({ locals, request }) => {
 export const DELETE: RequestHandler = async ({ locals }) => {
 	const session = locals.session;
 	if (!session) error(401, 'Not signed in');
-	const cfg = config();
-	if (!cfg.listeners || !cfg.remoteControl) error(404, 'Not found');
 
 	const profile = await setAvatar(session.account, null);
 	return json({ id: profile.handle, avatar: profile.avatarAt });

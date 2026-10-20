@@ -246,6 +246,22 @@ CREATE TABLE IF NOT EXISTS passkey_challenges (
 );
 CREATE INDEX IF NOT EXISTS passkey_challenges_expiry_idx ON passkey_challenges(expires_at);
 
+-- An account's profile page; see profilepage.ts. albums is a JSON array of
+-- four slots, each null or the album as it was when picked. listed shows the
+-- page to the other accounts here; recent and top_artists add the account's
+-- history to it. link_digest is the HMAC digest of the public link's token.
+CREATE TABLE IF NOT EXISTS profile_pages (
+  account_id    TEXT PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
+  bio           TEXT,
+  albums        TEXT NOT NULL,
+  listed        INTEGER NOT NULL,
+  recent        INTEGER NOT NULL,
+  top_artists   INTEGER NOT NULL,
+  link_digest   TEXT UNIQUE,
+  link_made_at  INTEGER,
+  updated_at    INTEGER NOT NULL
+);
+
 -- Values the server keeps for itself, not for an account: whose cover fill is
 -- repeated daily (coverfill.ts) and, on PostgreSQL, whether the SQLite import
 -- has run.
@@ -354,6 +370,7 @@ const COPIED_TABLES = {
 	totp: ['account_id', 'secret', 'confirmed', 'last_step', 'created_at'],
 	recovery_codes: ['account_id', 'digest', 'created_at'],
 	passkeys: ['id', 'account_id', 'public_key', 'algorithm', 'sign_count', 'name', 'created_at', 'last_used_at'],
+	profile_pages: ['account_id', 'bio', 'albums', 'listed', 'recent', 'top_artists', 'link_digest', 'link_made_at', 'updated_at'],
 	meta: ['key', 'value']
 } as const;
 

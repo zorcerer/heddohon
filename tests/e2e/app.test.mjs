@@ -1675,7 +1675,7 @@ describe('playback on another browser', () => {
 			}
 		});
 
-		test('with HEDDOHON_LISTENERS=false nothing is sent and the routes are gone', async () => {
+		test('with HEDDOHON_LISTENERS=false nothing is sent and nobody can be shown', async () => {
 			const off = await startApp({ subsonicUrl: subsonic.url, jellyfinUrl: jellyfin.url, env: { HEDDOHON_LISTENERS: 'false' } });
 			try {
 				const client = new Client(off.url);
@@ -1687,9 +1687,12 @@ describe('playback on another browser', () => {
 				} finally {
 					a.cancel();
 				}
-				assert.equal((await client.request('/api/profile')).status, 404);
+				// The name and the picture are the profile page's too, and stay; being
+				// shown in the list is what goes.
+				assert.equal((await client.request('/api/profile')).status, 200);
 				assert.equal((await client.json('/api/profile', 'PATCH', { shown: true })).status, 404);
-				assert.equal((await picture(client, jpeg(256, 256))).status, 404);
+				assert.equal((await client.json('/api/profile', 'PATCH', { name: 'Still named' })).status, 200);
+				assert.equal((await picture(client, jpeg(256, 256))).status, 200);
 				assert.equal((await client.request(`/api/profile/avatar/${'0'.repeat(24)}`)).status, 404);
 				assert.doesNotMatch((await client.page('/settings?tab=account')).html, /Show others what I play/);
 			} finally {

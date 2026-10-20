@@ -23,7 +23,7 @@ const ROUTES = resolve(import.meta.dirname, '../../src/routes');
  * lists them. Written out here, so making a route public takes a change to
  * this file as well.
  */
-const PUBLIC = ['/login', '/healthz', '/share', '/cast', '/together', '/manifest.webmanifest', '/.well-known/assetlinks.json', '/api/plugin/navidrome', '/now', '/api/now-playing'];
+const PUBLIC = ['/login', '/healthz', '/share', '/cast', '/together', '/manifest.webmanifest', '/.well-known/assetlinks.json', '/api/plugin/navidrome', '/now', '/api/now-playing', '/p'];
 const isPublic = (path) => PUBLIC.some((route) => path === route || path.startsWith(`${route}/`));
 
 /**

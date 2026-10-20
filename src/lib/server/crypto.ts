@@ -171,3 +171,11 @@ export function signInStepDigest(token: string): string {
 export function passkeyChallengeDigest(challenge: string): string {
 	return createHmac('sha256', keyFor('passkey-challenge')).update(challenge).digest('base64url');
 }
+
+/**
+ * The digest of a public profile link's token; see `profilepage.ts`. Keyed
+ * apart from the other tokens, so none digests to a value in another's table.
+ */
+export function profileLinkDigest(token: string): string {
+	return createHmac('sha256', keyFor('profile-link')).update(token).digest('base64url');
+}
