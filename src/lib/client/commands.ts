@@ -118,6 +118,8 @@ export interface Context {
 	chosen: Found | null;
 	/** The page's address, for `cd ..`. */
 	path: string;
+	/** Every colour scheme on offer: the built-in ones and those from files (`schemes.ts`). */
+	schemes: readonly string[];
 }
 
 export interface Command {
@@ -415,9 +417,9 @@ export const COMMANDS: Command[] = [
 		usage: 'scheme <nord|dracula|…>',
 		help: "Changes Terminal's colour scheme.",
 		takes: 'scheme',
-		async run(arg) {
+		async run(arg, context) {
 			const scheme = arg.trim().toLowerCase();
-			if (!(SCHEMES as readonly string[]).includes(scheme)) throw new Refused(`Schemes: ${SCHEMES.join(', ')}.`);
+			if (!context.schemes.includes(scheme)) throw new Refused(`Schemes: ${context.schemes.join(', ')}.`);
 			await saveSettings({ scheme });
 			return `scheme ${scheme}`;
 		}

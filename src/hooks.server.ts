@@ -3,6 +3,7 @@ import { building, version } from '$app/environment';
 import { resolveSession } from '$lib/server/auth';
 import { hasSecondFactor } from '$lib/server/twofactor';
 import { getSettings, defaultSettings, groundOf } from '$lib/server/settings';
+import { customSchemeStyle } from '$lib/server/schemes';
 import { ConfigError, SetupRequired, config } from '$lib/server/config';
 import { announceSetup, forgetPending } from '$lib/server/setup';
 import { FALLBACK_HTML_CSP, SECURITY_HEADERS } from '$lib/headers';
@@ -516,6 +517,8 @@ const handleRequest: Handle = async ({ event, resolve }) => {
 				// would resize the page in front of the reader.
 				.replace('data-scale="100"', `data-scale="${shown.uiScale}"`)
 				.replace('data-font="manrope"', `data-font="${shown.font}"`)
+				// Colour schemes from files, from checked colours alone (`schemes.ts`).
+				.replace('</head>', `${customSchemeStyle()}</head>`)
 	});
 
 	harden(response.headers);

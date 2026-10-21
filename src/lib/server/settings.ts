@@ -5,6 +5,7 @@
 import { config } from './config';
 import { now, store } from './db';
 import { FEATURE_IDS, type FeatureId } from './features';
+import { customSchemes } from './schemes';
 import type { AlbumSort } from '$lib/types';
 
 /**
@@ -24,7 +25,8 @@ const ACCENTS = ['artwork', 'green', 'amber', 'cyan', 'violet', 'rose', 'white']
 /**
  * Terminal's colour schemes: its own, and nine editor themes whose grounds,
  * text tones and six accents are in `terminal-schemes.css`. A fixed list for
- * the reason the accents are one: the name is written into the HTML.
+ * the reason the accents are one: the name is written into the HTML. Those
+ * an administrator adds as files (`schemes.ts`) are offered beside them.
  */
 const SCHEMES = [
 	'heddohon',
@@ -76,7 +78,7 @@ export interface UserSettings {
 	 * changes the grounds, the text and what each fixed accent is. The accent
 	 * from the artwork is the same in all of them.
 	 */
-	scheme: (typeof SCHEMES)[number];
+	scheme: string;
 	/** The dot grid behind the page in Terminal. See `[data-dots]` in terminal.css. */
 	dots: (typeof DOTS)[number];
 	/**
@@ -183,7 +185,7 @@ export const THEME_GROUND: Record<ThemeName, string> = {
 };
 
 /** The same for Terminal under a colour scheme: `--bg-base` of each in `terminal-schemes.css`. */
-const SCHEME_GROUND: Record<UserSettings['scheme'], string> = {
+const SCHEME_GROUND: Record<(typeof SCHEMES)[number], string> = {
 	heddohon: THEME_GROUND.terminal,
 	nord: '#2e3440',
 	dracula: '#282a36',
@@ -198,7 +200,11 @@ const SCHEME_GROUND: Record<UserSettings['scheme'], string> = {
 
 /** The ground the page is drawn on, for `theme-color`: the scheme's in Terminal, the theme's otherwise. */
 export function groundOf(settings: Pick<UserSettings, 'theme' | 'scheme'>): string {
-	return settings.theme === 'terminal' ? SCHEME_GROUND[settings.scheme] : THEME_GROUND[settings.theme];
+	if (settings.theme !== 'terminal') return THEME_GROUND[settings.theme];
+	if (Object.prototype.hasOwnProperty.call(SCHEME_GROUND, settings.scheme)) {
+		return SCHEME_GROUND[settings.scheme as keyof typeof SCHEME_GROUND];
+	}
+	return customSchemes().find((scheme) => scheme.id === settings.scheme)?.ground ?? THEME_GROUND.terminal;
 }
 
 const DEFAULT_SETTINGS: UserSettings = {
@@ -294,6 +300,7 @@ function sanitizeSettings(input: unknown, base: UserSettings = defaultSettings()
 		const value = raw[key];
 		return typeof value === 'boolean' ? value : base[key];
 	};
+	const schemes: string[] = [...SCHEMES, ...customSchemes().map((scheme) => scheme.id)];
 
 	return {
 		theme: pick(
@@ -306,7 +313,9 @@ function sanitizeSettings(input: unknown, base: UserSettings = defaultSettings()
 				: base.theme
 		),
 		// All four allowlisted like the theme: interpolated into the served HTML.
-		scheme: pick('scheme', SCHEMES, base.scheme),
+		// A scheme from a file (`schemes.ts`) while the file is there; an account
+		// whose file was taken away is back on Terminal's own.
+		scheme: pick('scheme', schemes, schemes.includes(base.scheme) ? base.scheme : 'heddohon'),
 		accent: pick('accent', ACCENTS, base.accent),
 		dots: pick('dots', DOTS, base.dots),
 		playerArt: pick('playerArt', PLAYER_ART, base.playerArt),

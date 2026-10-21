@@ -416,6 +416,65 @@ describe('settings', () => {
 		}
 	});
 
+	/*
+	 * #182: colour schemes for Terminal from files in the data directory. A
+	 * good file is offered and drawn from the first byte; a bad one is named in
+	 * the log and not offered; a scheme whose file is taken away falls back.
+	 */
+	test('a colour scheme from a file in the data directory is offered, checked, and drawn from the first byte', async () => {
+		const dataDir = mkdtempSync(join(tmpdir(), 'heddohon-e2e-schemes-'));
+		mkdirSync(join(dataDir, 'themes'));
+		const scheme = (body) => ({
+			heddohon: 1,
+			name: 'Rosé Pine',
+			ground: '#191724',
+			raised: '#26233a',
+			foreground: '#e0def4',
+			accents: { green: '#9ccfd8', amber: '#f6c177', cyan: '#9ccfd8', violet: '#c4a7e7', rose: '#ebbcba', white: '#e0def4' },
+			...body
+		});
+		writeFileSync(join(dataDir, 'themes', 'rose-pine.json'), JSON.stringify(scheme({})));
+		writeFileSync(join(dataDir, 'themes', 'too-light.json'), JSON.stringify(scheme({ name: 'Too light', ground: '#f4f4f4' })));
+		writeFileSync(join(dataDir, 'themes', 'nord.json'), JSON.stringify(scheme({ name: 'Not Nord' })));
+		writeFileSync(join(dataDir, 'themes', 'sneaky.json'), JSON.stringify(scheme({ name: 'Sneaky', ground: 'url(//x)' })));
+		const start = () => startApp({ subsonicUrl: subsonic.url, jellyfinUrl: jellyfin.url, dataDir, env: { HEDDOHON_DEFAULT_THEME: 'terminal' } });
+		const client = new Client('');
+		let app = await start();
+		try {
+			client.base = app.url;
+			await client.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' });
+			const saved = await (await client.json('/api/settings', 'PATCH', { scheme: 'rose-pine' })).json();
+			assert.equal(saved.scheme, 'rose-pine');
+			for (const refused of ['too-light', 'sneaky']) {
+				const kept = await (await client.json('/api/settings', 'PATCH', { scheme: refused })).json();
+				assert.equal(kept.scheme, 'rose-pine', `${refused} was taken`);
+			}
+			const output = app.output();
+			assert.match(output, /scheme-refused.*too-light\.json.*too light/);
+			assert.match(output, /scheme-refused.*nord\.json.*built-in/);
+			assert.match(output, /scheme-refused.*sneaky\.json.*#rrggbb/);
+
+			const { html } = await client.page('/');
+			assert.match(html, /data-scheme="rose-pine"/);
+			assert.match(html, /name="theme-color" content="#191724"/);
+			const style = html.match(/<style id="hh-schemes">([\s\S]*?)<\/style>/)?.[1] ?? '';
+			assert.match(style, /\[data-scheme='rose-pine'\] \{\n\t--bg-base: #191724;/);
+			assert.match(style, /\[data-scheme='rose-pine'\]\[data-accent='amber'\]/);
+			assert.doesNotMatch(style, /too-light|sneaky|url\(/);
+			assert.match((await client.page('/settings')).html, /<option value="rose-pine"[^>]*>Rosé Pine<\/option>/);
+			await app.stop({ keepData: true });
+
+			// The file taken away: back on Terminal's own, and nothing in the head.
+			rmSync(join(dataDir, 'themes', 'rose-pine.json'));
+			app = await start();
+			client.base = app.url;
+			assert.equal((await (await client.json('/api/settings', 'GET')).json()).scheme, 'heddohon');
+			assert.doesNotMatch((await client.page('/')).html, /hh-schemes/);
+		} finally {
+			await app.stop();
+		}
+	});
+
 	test('settings saved before Terminal existed move to the default theme once, and a choice made since is kept', async () => {
 		const { default: Database } = await import('better-sqlite3');
 		const dataDir = mkdtempSync(join(tmpdir(), 'heddohon-e2e-themes-'));
