@@ -1642,30 +1642,40 @@ dialog:not([open])::backdrop {
 /*
  * The cover flying between the player sheet and the dock on a phone
  * (`client/sheet-morph.svelte.ts`). Over the sheet and the dock, under
- * dialogs, and holding no glass, so it can move and change size. The tone
- * layer is there for Terminal's duotone only, multiplied into the picture
- * alone.
+ * dialogs, and holding no glass, so it can move and change size. Inside, the
+ * picture and a copy of the sheet's layer over it, both under a copy of the
+ * sheet's mask: on the box inside, as a mask on the ghost would cut off its
+ * shadow. The layer's blend (Duotone's multiply) reaches the picture alone.
  */
 .hh-cover-ghost {
 	position: fixed;
 	z-index: 50;
 	overflow: hidden;
-	isolation: isolate;
 	pointer-events: none;
 	box-shadow: 0 6px 24px rgb(0 0 0 / 0.3);
 }
 
-.hh-cover-ghost > img {
+.hh-cover-ghost > div {
+	position: absolute;
+	inset: 0;
+	isolation: isolate;
+	border-radius: inherit;
+	-webkit-mask-repeat: no-repeat;
+	mask-repeat: no-repeat;
+	-webkit-mask-position: 0 0;
+	mask-position: 0 0;
+}
+
+.hh-cover-ghost img {
 	display: block;
 	width: 100%;
 	height: 100%;
 	object-fit: cover;
 }
 
-.hh-cover-ghost > span {
+.hh-cover-ghost span {
 	position: absolute;
 	inset: 0;
-	mix-blend-mode: multiply;
 }
 
 /*

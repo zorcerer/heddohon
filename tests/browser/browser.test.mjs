@@ -4825,6 +4825,62 @@ describe('on a phone', () => {
 			assert.deepEqual(problems, []);
 		});
 
+		/*
+		 * Every other way of drawing the sheet's cover: the flying one took
+		 * neither its layer (scanlines, dots, grain) nor the fade at its foot,
+		 * and both snapped on as it landed. Scanlines here, and the fade in
+		 * Liquid, which has its grain under the same mask.
+		 */
+		for (const [theme, playerArt] of [
+			['terminal', 'scanlines'],
+			['terminal', 'dither'],
+			['dark', 'dither']
+		]) {
+			test(`in ${theme} with ${playerArt}, the flying cover takes on the sheet's layer and fade on the way`, async () => {
+				const settings = (patch) => phone.request.patch(`${app.url}/api/settings`, { data: patch, headers: { origin: app.url } });
+				await settings({ theme, playerArt });
+				const { page, problems } = await phonePage('/');
+				const at = (time) =>
+					page.evaluate((time) => {
+						for (const animation of document.getAnimations()) {
+							animation.pause();
+							animation.currentTime = time;
+						}
+						const art = document.querySelector('aside.panel .stage .art');
+						const ghost = document.querySelector('.hh-cover-ghost');
+						const inside = getComputedStyle(ghost.firstElementChild);
+						const layer = getComputedStyle(ghost.querySelector('span'));
+						const sheet = getComputedStyle(art, '::after');
+						return {
+							layer: layer.opacity,
+							same: layer.backgroundImage === sheet.backgroundImage && layer.maskImage === sheet.maskImage,
+							drawn: sheet.backgroundImage,
+							mask: inside.maskImage || inside.webkitMaskImage,
+							sheetMask: getComputedStyle(art).maskImage || getComputedStyle(art).webkitMaskImage,
+							size: inside.maskSize || inside.webkitMaskSize
+						};
+					}, time);
+				try {
+					await playAlbum(page, 19);
+					await tap(page, page.locator('#dock-open'));
+					await page.waitForFunction(() => document.querySelector('.hh-cover-ghost'));
+					const leaving = await at(0);
+					assert.equal(leaving.layer, '0', 'the cover leaves the dock with the sheet\'s layer on');
+					assert.equal(leaving.size, '100% 200%', 'the cover leaves the dock faded');
+					const landing = await at(479);
+					assert.notEqual(landing.drawn, 'none', 'the sheet\'s cover has no layer to take');
+					assert.ok(landing.same, 'the flying cover takes another layer than the sheet\'s');
+					assert.ok(Number(landing.layer) > 0.99, `the layer is at ${landing.layer} as the cover lands`);
+					assert.equal(landing.mask, landing.sheetMask, 'the flying cover takes another fade than the sheet\'s');
+					assert.match(landing.size, /^100% 100\.\d+%$|^100% 100%$/, `the fade is at ${landing.size} as the cover lands`);
+				} finally {
+					await settings({ theme: 'dark', playerArt: 'dither' });
+					await page.close();
+				}
+				assert.deepEqual(problems, []);
+			});
+		}
+
 		test('the sheet closes into the dock, and leaves nothing behind', async () => {
 			const { page, problems } = await phonePage('/');
 			try {
