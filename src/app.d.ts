@@ -20,6 +20,8 @@ declare global {
 			settings?: UserSettings;
 			sharing?: boolean;
 			downloads?: boolean;
+			/** Terminal's colour schemes from files (`schemes.ts`). */
+			customSchemes?: { id: string; name: string }[];
 		}
 	}
 }

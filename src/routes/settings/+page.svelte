@@ -615,6 +615,9 @@
 						<option value="one-dark">One Dark</option>
 						<option value="monokai">Monokai</option>
 						<option value="everforest">Everforest</option>
+						{#each data.customSchemes as scheme (scheme.id)}
+							<option value={scheme.id}>{scheme.name}</option>
+						{/each}
 					</select>
 				</label>
 			{/if}

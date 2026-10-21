@@ -7172,3 +7172,101 @@ describe('features that are off', () => {
 		assert.deepEqual(problems, []);
 	});
 });
+
+/*
+ * #182: a colour scheme from a file in the data directory, chosen in Settings,
+ * repaints the page at once, its fixed accents included, and the page comes
+ * back in it.
+ */
+describe('a colour scheme from a file', () => {
+	test('chosen under Settings, it paints the page at once and after a reload', async () => {
+		const { mkdtempSync, mkdirSync, writeFileSync } = await import('node:fs');
+		const { tmpdir } = await import('node:os');
+		const { join } = await import('node:path');
+		const dataDir = mkdtempSync(join(tmpdir(), 'heddohon-browser-schemes-'));
+		mkdirSync(join(dataDir, 'themes'));
+		writeFileSync(
+			join(dataDir, 'themes', 'rose-pine.json'),
+			JSON.stringify({
+				heddohon: 1,
+				name: 'Rosé Pine',
+				ground: '#191724',
+				raised: '#26233a',
+				foreground: '#e0def4',
+				accents: { green: '#9ccfd8', amber: '#f6c177', cyan: '#9ccfd8', violet: '#c4a7e7', rose: '#ebbcba', white: '#e0def4' }
+			})
+		);
+		const own = await startApp({
+			subsonicUrl: subsonic.url,
+			jellyfinUrl: jellyfin.url,
+			dataDir,
+			env: { HEDDOHON_REMOTE_CONTROL: 'false', HEDDOHON_DEFAULT_THEME: 'terminal' }
+		});
+		const view = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+		try {
+			const signIn = await view.request.post(`${own.url}/login`, {
+				form: { username: 'testuser', password: 'testpass', backend: 'subsonic', next: '/' },
+				headers: { origin: own.url, accept: 'text/html' },
+				maxRedirects: 0
+			});
+			assert.equal(signIn.status(), 303);
+			await view.request.patch(`${own.url}/api/settings`, { data: { accent: 'amber', aurora: 'off' }, headers: { origin: own.url } });
+			const page = await view.newPage();
+			const tokens = () =>
+				page.evaluate(() => {
+					const root = getComputedStyle(document.documentElement);
+					return { ground: root.getPropertyValue('--bg-base').trim(), accent: root.getPropertyValue('--accent').trim() };
+				});
+			await page.goto(`${own.url}/settings`, { waitUntil: 'networkidle' });
+			await page.locator('select[name="scheme"]').selectOption('rose-pine');
+			await page.getByRole('button', { name: 'Save settings' }).click();
+			await page.waitForFunction(() => document.documentElement.dataset.scheme === 'rose-pine');
+			assert.deepEqual(await tokens(), { ground: '#191724', accent: '#f6c177' });
+			await page.reload({ waitUntil: 'networkidle' });
+			assert.deepEqual(await tokens(), { ground: '#191724', accent: '#f6c177' }, 'the choice was not kept');
+			assert.equal(await page.locator('meta[name="theme-color"]').getAttribute('content'), '#191724');
+
+			// Held to what the built-in schemes are held to: the text tones and the
+			// signals at 4.5:1 on the pane, and the label at 4.5:1 on each accent.
+			const low = await page.evaluate(() => {
+				const root = document.documentElement;
+				const probe = document.createElement('div');
+				document.body.append(probe);
+				const canvas = document.createElement('canvas').getContext('2d', { willReadFrequently: true });
+				const rgb = (value) => {
+					probe.style.color = value;
+					canvas.clearRect(0, 0, 1, 1);
+					canvas.fillStyle = getComputedStyle(probe).color;
+					canvas.fillRect(0, 0, 1, 1);
+					return [...canvas.getImageData(0, 0, 1, 1).data].slice(0, 3);
+				};
+				const luminance = (colour) =>
+					colour.reduce((sum, c, at) => {
+						const v = c / 255;
+						return sum + (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4) * [0.2126, 0.7152, 0.0722][at];
+					}, 0);
+				const ratio = (one, two) => {
+					const [hi, lo] = [luminance(rgb(one)), luminance(rgb(two))].sort((a, b) => b - a);
+					return (hi + 0.05) / (lo + 0.05);
+				};
+				const found = [];
+				for (const token of ['--text-strong', '--text-default', '--text-muted', '--text-faint', '--danger', '--positive']) {
+					const at = ratio(`var(${token})`, 'var(--bg-surface)');
+					if (at < 4.5) found.push(`${token} at ${at.toFixed(2)}`);
+				}
+				for (const accent of ['artwork', 'green', 'amber', 'cyan', 'violet', 'rose', 'white']) {
+					root.dataset.accent = accent;
+					const at = ratio('var(--accent-contrast)', 'var(--accent)');
+					if (at < 4.5) found.push(`the label on ${accent} at ${at.toFixed(2)}`);
+				}
+				probe.remove();
+				return found;
+			});
+			assert.deepEqual(low, []);
+			await page.close();
+		} finally {
+			await view.close();
+			await own.stop();
+		}
+	});
+});

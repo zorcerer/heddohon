@@ -23,6 +23,9 @@
 	 */
 	let { open = $bindable(false) }: { open?: boolean } = $props();
 
+	// The built-in colour schemes and those from files.
+	const schemes = $derived([...SCHEMES, ...(page.data.customSchemes ?? []).map((scheme) => scheme.id)]);
+
 	/*
 	 * The button names the line and its shortcut, so it is found without the
 	 * README. Until the line has been opened once in this browser it is drawn in
@@ -164,7 +167,7 @@
 				.map((option) => ({ line: `${command!.name} ${option}`, text: option, detail: '', found: null }));
 		if (command?.takes === 'place') suggestions = options(['~', '..', ...PLACES]);
 		else if (command?.takes === 'theme') suggestions = options(THEMES);
-		else if (command?.takes === 'scheme') suggestions = options(SCHEMES);
+		else if (command?.takes === 'scheme') suggestions = options(schemes);
 		else if (command?.takes === 'search' && scoped(arg).query.length >= 2) {
 			searchTimer = setTimeout(async () => {
 				const results = await search(arg).catch(() => null);
@@ -199,7 +202,8 @@
 		const result = await run(typed, {
 			search,
 			chosen: chosen?.found ?? null,
-			path: page.url.pathname
+			path: page.url.pathname,
+			schemes
 		});
 		busy = false;
 		remember(chosen?.found ? chosen.line : typed.trim());

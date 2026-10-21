@@ -25,6 +25,8 @@ still lands on it. Each one opens that section in the wiki.
 
 ## [Cover cache](https://github.com/zorcerer/heddohon/wiki/Configuration#cover-cache)
 
+## [Colour schemes from files](https://github.com/zorcerer/heddohon/wiki/Configuration#colour-schemes-from-files)
+
 ## [Discord and ListenBrainz](https://github.com/zorcerer/heddohon/wiki/Configuration#discord-and-listenbrainz)
 
 ### [A Discord channel](https://github.com/zorcerer/heddohon/wiki/Configuration#a-discord-channel)
