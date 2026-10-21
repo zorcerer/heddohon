@@ -1280,6 +1280,44 @@ describe('the bars a phone paints around the page', () => {
 		}
 	});
 
+	/*
+	 * iOS zooms in on a field under 16px as it is focused and stays zoomed:
+	 * signing in on a phone left the home page a little too large. Every field
+	 * shown on a touch screen is at least 16px, in Terminal's mono as well.
+	 */
+	test('on a touch screen no field is small enough for iOS to zoom in on', async () => {
+		const phone = await browser.newContext({ viewport: { width: 393, height: 852 }, isMobile: true, hasTouch: true });
+		const settings = (patch) => phone.request.patch(`${app.url}/api/settings`, { data: patch, headers: { origin: app.url } });
+		const small = (page) =>
+			page.evaluate(() =>
+				[...document.querySelectorAll('input, select, textarea')]
+					.filter((field) => field.getClientRects().length && field.type !== 'hidden')
+					.map((field) => `${field.name || field.type || field.tagName}: ${getComputedStyle(field).fontSize}`)
+					.filter((entry) => Number.parseFloat(entry.split(': ')[1]) < 16)
+			);
+		const page = await phone.newPage();
+		try {
+			await page.goto(app.url + '/login', { waitUntil: 'networkidle' });
+			assert.deepEqual(await small(page), [], 'fields on the sign-in page');
+			const signIn = await phone.request.post(`${app.url}/login`, {
+				form: { username: 'testuser', password: 'testpass', backend: 'subsonic', next: '/' },
+				headers: { origin: app.url, accept: 'text/html' },
+				maxRedirects: 0
+			});
+			assert.equal(signIn.status(), 303);
+			for (const theme of ['dark', 'terminal']) {
+				await settings({ theme });
+				for (const path of ['/search', '/settings']) {
+					await page.goto(app.url + path, { waitUntil: 'networkidle' });
+					assert.deepEqual(await small(page), [], `fields on ${path} in ${theme}`);
+				}
+			}
+		} finally {
+			await settings({ theme: 'dark' });
+			await phone.close();
+		}
+	});
+
 	test('under the status bar of an installed app on iOS, the strip the clock is read against is dark in both themes', async () => {
 		const settings = (patch) => context.request.patch(`${app.url}/api/settings`, { data: patch, headers: { origin: app.url } });
 		const phone = await browser.newContext({ viewport: { width: 393, height: 852 }, isMobile: true, hasTouch: true });
