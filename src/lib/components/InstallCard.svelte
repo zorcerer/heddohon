@@ -54,9 +54,9 @@
 		<Icon name="download" size={17} />
 		<p>
 			{#if kind}
-				<strong>{appName} for {kind.system}</strong>: {kind.files}, with the latest release.
+				<strong>{appName} for {kind.system}</strong>
 			{:else}
-				<strong>Install {appName}</strong> as an app, in a window of its own.
+				<strong>Install {appName}</strong>
 				{#if route === 'safari-mac' || route === 'safari-ios' || route === 'edge'}{INSTALL_STEPS[route]}{/if}
 			{/if}
 		</p>
