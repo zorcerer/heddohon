@@ -5,11 +5,18 @@
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
+
+	/** The owner's editor, a dialog over the page as others see it. */
+	let editing = $state(false);
 </script>
 
 <svelte:head>
 	<title>{data.page.name} · Heddohon</title>
 </svelte:head>
+
+{#snippet edit()}
+	<button class="hh-button" type="button" onclick={() => (editing = true)}>Edit profile</button>
+{/snippet}
 
 <div class="page">
 	<ProfileView
@@ -17,10 +24,11 @@
 		coverBase="/api/people/{data.page.handle}/cover"
 		avatarSrc={avatarUrl(data.page.handle, data.page.avatar)}
 		linked={data.linked}
+		actions={data.own && data.settings ? edit : undefined}
 	/>
 
 	{#if data.own && data.settings}
-		<ProfileEditor page={data.page} settings={data.settings} maxBio={data.maxBio} username={data.account?.username ?? ''} />
+		<ProfileEditor bind:open={editing} page={data.page} settings={data.settings} maxBio={data.maxBio} username={data.account?.username ?? ''} />
 	{/if}
 </div>
 

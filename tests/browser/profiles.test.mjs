@@ -57,7 +57,20 @@ test('an album is picked and the page listed, and another account sees it under 
 	const owner = await signedIn('testuser', 'testpass');
 	await owner.page.goto(`${app.url}/people`);
 	await owner.page.getByRole('link', { name: 'Your profile' }).first().click();
-	await owner.page.getByRole('heading', { name: 'Edit your profile' }).waitFor();
+	// The page as the others see it, and the editor only once asked for.
+	const edit = owner.page.getByRole('button', { name: 'Edit profile' });
+	await edit.waitFor();
+	const heading = owner.page.getByRole('heading', { name: 'Edit your profile' });
+	assert.equal(await heading.isVisible(), false, 'the editor is on the page before it is opened');
+
+	// Escape closes it and drops what was typed.
+	await edit.click();
+	await heading.waitFor();
+	await owner.page.getByRole('textbox', { name: /Bio/ }).fill('Not kept.');
+	await owner.page.keyboard.press('Escape');
+	await heading.waitFor({ state: 'hidden' });
+	await edit.click();
+	assert.equal(await owner.page.getByRole('textbox', { name: /Bio/ }).inputValue(), '');
 
 	await owner.page.getByLabel('Search for an album').fill('Album');
 	await owner.page.getByRole('button', { name: /Album 3/ }).click();
@@ -65,7 +78,8 @@ test('an album is picked and the page listed, and another account sees it under 
 	await owner.page.getByRole('textbox', { name: /Bio/ }).fill('Records I keep coming back to.');
 	await owner.page.getByLabel(/The other accounts on this server/).check();
 	await owner.page.getByRole('button', { name: 'Save', exact: true }).click();
-	await owner.page.getByText('Saved.').waitFor();
+	// A save closes the editor.
+	await heading.waitFor({ state: 'hidden' });
 	const tile = owner.page.locator('.favourites li').first();
 	await tile.getByText('Album 3').waitFor();
 	// Read through the owner's credential by its place on the page.
@@ -78,6 +92,7 @@ test('an album is picked and the page listed, and another account sees it under 
 	await other.page.getByRole('link', { name: /testuser/ }).click();
 	await other.page.getByText('Records I keep coming back to.').waitFor();
 	await other.page.locator('.favourites').getByText('Album 3').waitFor();
+	assert.equal(await other.page.getByRole('button', { name: 'Edit profile' }).count(), 0);
 	assert.equal(await other.page.getByRole('heading', { name: 'Edit your profile' }).count(), 0);
 
 	// A full load of the page, covers drawn on the server: an `onerror` there
@@ -97,6 +112,6 @@ test('the picture on the home page leads to the account’s own profile', async 
 	const me = owner.page.getByRole('link', { name: 'Your profile' });
 	await me.click();
 	await owner.page.waitForURL(/\/people\/[0-9a-f]{24}$/);
-	await owner.page.getByRole('heading', { name: 'Edit your profile' }).waitFor();
+	await owner.page.getByRole('button', { name: 'Edit profile' }).waitFor();
 	assert.deepEqual(owner.problems, []);
 });
