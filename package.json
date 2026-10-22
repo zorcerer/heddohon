@@ -2,7 +2,7 @@
 	"name": "heddohon",
 	"description": "Server-rendered, high-resolution music player for Navidrome/Subsonic and Jellyfin libraries.",
 	"private": true,
-	"version": "0.7.1",
+	"version": "0.8.0",
 	"type": "module",
 	"license": "MIT",
 	"engines": {
