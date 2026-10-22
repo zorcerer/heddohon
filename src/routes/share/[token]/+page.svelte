@@ -76,11 +76,6 @@
 		return ready.item.subtitle ? `${ready.item.subtitle} · ${count}` : count;
 	});
 	const signedIn = $derived(Boolean(data.account));
-	const expires = $derived(
-		ready
-			? new Date(ready.expiresAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
-			: null
-	);
 	/** The playing track's cover, or the album's or playlist's own where the track has none. */
 	const coverPath = $derived(
 		!ready ? null : song?.hasCover ? `${ready.media}/cover/${current}` : ready.item.hasCover ? `${ready.media}/cover` : null
@@ -331,12 +326,6 @@
 			{/if}
 		</h1>
 
-		{#if expires}
-			<p class="assurance">
-				<span class="hh-eyebrow">Shared link</span>
-				<span class="hh-muted">Anyone with this link can listen here until {expires}.</span>
-			</p>
-		{/if}
 	</aside>
 
 	{#if ready && song}
@@ -511,22 +500,16 @@
 				{@attach watchFailure}
 			></audio>
 		</article>
-		<p class="expiry hh-muted">Anyone with this link can listen until {expires}.</p>
 	{:else}
 		<div class="panel hh-glass hh-float">
 			<header>
 				{#if data.state === 'disabled'}
 					<h2>Sharing is turned off</h2>
-					<p class="hh-muted sub">This server does not open shared links at the moment.</p>
-				{:else if data.state === 'unavailable'}
+					{:else if data.state === 'unavailable'}
 					<h2>This music is not available</h2>
-					<p class="hh-muted sub">
-						The music server no longer returns it for this link. It may have been removed.
-					</p>
 				{:else}
 					<h2>This link no longer works</h2>
-					<p class="hh-muted sub">It has expired or been withdrawn. Ask whoever sent it for a new one.</p>
-				{/if}
+					{/if}
 			</header>
 		</div>
 	{/if}
@@ -673,16 +656,6 @@
 	.lede strong {
 		color: var(--text-strong);
 		font-weight: 700;
-	}
-
-	.assurance {
-		margin: var(--space-2) 0 0;
-		max-width: 22rem;
-		display: grid;
-		gap: var(--space-1);
-		font-size: 0.8125rem;
-		padding-left: var(--space-4);
-		border-left: 1px solid var(--border-hairline);
 	}
 
 	/* ── The card: the player panel at card size ──────────────────────── */
@@ -964,15 +937,6 @@
 		display: none;
 	}
 
-	/* The assurance's expiry, under the card, where a phone puts it. */
-	.expiry {
-		display: none;
-		grid-area: expiry;
-		margin: 0;
-		font-size: 0.8125rem;
-		text-align: center;
-	}
-
 	/* ── The pane for a link that cannot be played: the login panel ──── */
 
 	.panel {
@@ -984,11 +948,6 @@
 	.panel h2 {
 		font-size: 1.375rem;
 		margin: 0;
-	}
-
-	.sub {
-		margin: var(--space-2) 0 0;
-		font-size: 0.875rem;
 	}
 
 	/* ── Footer ───────────────────────────────────────────────────────── */
@@ -1103,14 +1062,6 @@
 		.lede {
 			font-size: 1rem;
 			max-width: none;
-		}
-
-		.assurance {
-			display: none;
-		}
-
-		.expiry {
-			display: block;
 		}
 
 		.art {

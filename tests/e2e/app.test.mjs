@@ -3475,7 +3475,7 @@ describe('signed in on', () => {
 		// A browser signs out only sessions older than its own: the iPhone, signed
 		// in second, is offered the phone, and the phone is told to use the iPhone.
 		assert.ok((await handles(iphone)).length >= 1);
-		assert.match(html, /Signed in after this browser\.\s*<span class="later-how[^"]*">Sign it out there, or sign in again here\.</);
+		assert.match(html, /Signed in after this browser\.<\/span>/);
 		assert.ok(!html.includes('Mozilla/5.0'), 'the whole user agent reached the page');
 		await iphone.request('/logout', { method: 'POST' });
 		await phone.request('/logout', { method: 'POST' });
@@ -3879,7 +3879,7 @@ describe('the security review of 2026-09-28', () => {
 				assert.equal((await last.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' })).status, 303);
 			}
 			const { html } = await last.page('/settings');
-			const count = Number(/Signed in on<\/h3>\s*<span[^>]*>(\d+)</.exec(html)?.[1]);
+			const count = html.match(/<li class="session[\s"]/g)?.length;
 			assert.equal(count, 50, separate.output());
 		} finally {
 			await separate.stop();
@@ -4436,7 +4436,7 @@ describe('a now-playing link', () => {
 			assert.equal(made.type, 'success', explain('the link was not made'));
 			const token = made.nowPlayingToken;
 			assert.match(token, /^hhnp_[\w-]{43}$/);
-			assert.match((await client.page('/settings?tab=account')).html, /You have a link, made/);
+			assert.match((await client.page('/settings?tab=account')).html, /Link made /);
 
 			// Nobody signed in.
 			const visitor = new Client(app.url);
@@ -4889,13 +4889,13 @@ describe('plays sent to a Discord channel and to ListenBrainz', () => {
 		try {
 			assert.match(await section(client), /ListenBrainz user token/);
 			assert.equal((await action(client, 'linkIntegration', { kind: 'listenbrainz', value: OUTSIDE.listenBrainzToken })).status, 200);
-			assert.match(await section(client), /Scrobbling to listener, and showing/);
+			assert.match(await section(client), /hint[^>]*>listener</);
 		} finally {
 			subsonic.state.navidrome.enabled.listenbrainz = true;
 		}
 		// Linked here from before: the row stays, to unlink it, and Navidrome is
 		// not given a token while this server holds one.
-		assert.match(await section(client), /Scrobbling to listener from this server\..*unlink it here to link it there/s);
+		assert.match(await section(client), /hint[^>]*>listener<[\s\S]*Unlink/);
 		const other = await client.request('/settings?/linkListenBrainz', {
 			method: 'POST',
 			headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json', 'x-sveltekit-action': 'true' },
@@ -4907,7 +4907,7 @@ describe('plays sent to a Discord channel and to ListenBrainz', () => {
 
 		assert.equal((await action(client, 'linkIntegration', { kind: 'discord', value: address })).status, 200);
 		const linked = await section(client);
-		assert.match(linked, /through the webhook “Now playing”/);
+		assert.match(linked, /hint[^>]*>Now playing</);
 		assert.ok(!(await client.page('/settings?tab=account')).html.includes('w'.repeat(20)), 'the webhook token reached the page');
 
 		// A title written to be a link, and a mention: shown as text, pinging nobody.
@@ -4957,11 +4957,11 @@ describe('plays sent to a Discord channel and to ListenBrainz', () => {
 		try {
 			await play(client, 's4a');
 			let html = await section(client);
-			for (let attempt = 0; attempt < 50 && /through the webhook/.test(html); attempt++) {
+			for (let attempt = 0; attempt < 50 && /hint[^>]*>Now playing</.test(html); attempt++) {
 				await new Promise((done) => setTimeout(done, 20));
 				html = await section(client);
 			}
-			assert.doesNotMatch(html, /through the webhook/);
+			assert.doesNotMatch(html, /hint[^>]*>Now playing</);
 		} finally {
 			outside.state.webhookGone = false;
 			outside.posts.length = 0;
@@ -4976,7 +4976,7 @@ describe('plays sent to a Discord channel and to ListenBrainz', () => {
 			assert.equal((await action(client, 'linkIntegration', { kind: 'discord', value: `https://discord.com${OUTSIDE.webhook}` })).status, 200);
 			subsonic.state.password = 'another-password';
 			const next = await signedIn(on.url, 'outlet', 'another-password', 'subsonic');
-			assert.doesNotMatch(await section(next), /through the webhook/);
+			assert.doesNotMatch(await section(next), /hint[^>]*>Now playing</);
 			await play(next, 's3a');
 			await new Promise((done) => setTimeout(done, 200));
 			assert.equal(outside.posts.length, 0, 'a play went to the channel of whoever held the name before');
@@ -4994,7 +4994,7 @@ describe('plays sent to a Discord channel and to ListenBrainz', () => {
 		});
 		assert.equal((await action(client, 'linkIntegration', { kind: 'listenbrainz', value: OUTSIDE.listenBrainzToken })).status, 200);
 		const html = (await client.page('/settings?tab=account')).html;
-		assert.match(html, /Scrobbling to listener/);
+		assert.match(html, /hint[^>]*>listener</);
 		assert.ok(!html.includes(OUTSIDE.listenBrainzToken), 'the token reached the page');
 
 		await client.json('/api/playback', 'POST', { songId: 't1', event: 'start', position: 0 });
@@ -5386,7 +5386,7 @@ describe('plays from other apps, through the Navidrome plugin', () => {
 			for (const id of ['s3a', 's4b', 's5a']) subsonic.state.played.set(id, new Date().toISOString());
 			try {
 				await plugin({ type: 'poll' });
-				assert.match((await client.page('/settings?tab=history')).html, /Navidrome keeps every play in its scrobble history/);
+				assert.doesNotMatch((await client.page('/settings?tab=history')).html, /has not been heard from/);
 				const asked = action(client, 'importHistory');
 				assert.deepEqual(await untilWanted('collector'), { username: 'collector', from: 0 });
 
@@ -5462,7 +5462,6 @@ describe('plays from other apps, through the Navidrome plugin', () => {
 			await client.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' });
 			const settings = (await client.page('/settings?tab=history')).html;
 			assert.match(settings, /has not been heard from in the last minute/);
-			assert.match(settings, /keeps the date each track was last\s+played/);
 			const result = await action(client, 'importHistory');
 			assert.deepEqual(result.data, { historyImported: { found: 1, imported: 1 } });
 		} finally {
@@ -6294,7 +6293,6 @@ describe('daily mixes', () => {
 
 				const page = (await client.page('/mixes/1')).html;
 				assert.match(page, /Daily mix 1/);
-				assert.match(page, /Made today from Artist 0005/);
 
 				// The next day, they are made again.
 				const { default: Database } = await import('better-sqlite3');

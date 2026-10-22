@@ -11,9 +11,8 @@
 
 	let {
 		album,
-		eyebrow = 'Latest addition',
 		onplay
-	}: { album: Album; eyebrow?: string; onplay: () => void } = $props();
+	}: { album: Album; onplay: () => void } = $props();
 
 	const facts = $derived(
 		[album.genre, album.songCount ? `${album.songCount} tracks` : null].filter(Boolean) as string[]
@@ -38,8 +37,6 @@
 		<a class="open" href="/albums/{album.id}" aria-label="Open {album.name}"></a>
 
 		<div class="body">
-			<span class="hh-eyebrow eyebrow">{eyebrow}</span>
-
 			<a href="/albums/{album.id}" tabindex="-1">
 				<h2 class="hh-display title">{album.name}</h2>
 			</a>
@@ -189,10 +186,6 @@
 	.body a,
 	.body button {
 		pointer-events: auto;
-	}
-
-	.eyebrow {
-		color: rgb(255 255 255 / 0.7);
 	}
 
 	.title {

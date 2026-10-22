@@ -204,7 +204,6 @@
 			/>
 		</div>
 		<div class="details" {@attach sweep}>
-			<span class="hh-eyebrow">Playlist</span>
 
 			{#if renaming}
 				<form class="rename" onsubmit={commitRename}>

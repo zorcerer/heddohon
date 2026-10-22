@@ -124,7 +124,6 @@
 	<div class="pane">
 		<header>
 			<div>
-				<span class="hh-eyebrow">On this server</span>
 				<h2 id="listening-title">Listening now</h2>
 			</div>
 			<button class="close" onclick={() => (listeners.open = false)} aria-label="Close">
@@ -137,7 +136,7 @@
 		{/if}
 
 		{#if others.length === 0}
-			<p class="hh-muted empty">Nobody else is playing anything right now.</p>
+			<p class="hh-muted empty">Nobody else is playing.</p>
 		{:else}
 			<ul class="list">
 				{#each others as listener (listener.id)}
@@ -192,15 +191,16 @@
 
 		{#if you}
 			<footer>
-				<Avatar name={you.name ?? username} src={avatarUrl(you.id, you.avatar)} size={2} />
+				<!-- The picture leads to where it and the name are set. -->
+				<a
+					href="/settings?tab=account#listening"
+					onclick={() => (listeners.open = false)}
+					aria-label="Name and picture"
+				>
+					<Avatar name={you.name ?? username} src={avatarUrl(you.id, you.avatar)} size={2} />
+				</a>
 				<label class="mine">
-					<span class="label">
-						Show others what I play
-						<span class="hint hh-muted">
-							{you.shown ? `Shown as ${you.name ?? username}.` : 'You are not shown.'}
-							<a href="/settings?tab=account#listening" onclick={() => (listeners.open = false)}>Name and picture</a>
-						</span>
-					</span>
+					<span class="label">Show others what I play</span>
 					<input
 						type="checkbox"
 						checked={you.shown}
@@ -543,21 +543,6 @@
 		font-size: 0.875rem;
 		font-weight: 500;
 		color: var(--text-strong);
-	}
-
-	.hint {
-		font-size: 0.8125rem;
-		font-weight: 400;
-	}
-
-	.hint a {
-		color: inherit;
-		text-decoration: underline;
-		text-underline-offset: 2px;
-	}
-
-	.hint a:hover {
-		color: var(--glow-color);
 	}
 
 	input[type='checkbox'] {

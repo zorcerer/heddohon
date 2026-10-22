@@ -50,9 +50,7 @@
 <div class="page">
 	<header>
 		<div class="heading">
-			{#if folder.id === null}
-				<span class="hh-eyebrow">Library</span>
-			{:else}
+			{#if folder.id !== null}
 				<!-- The way back up, a level to a link, as a path is written. -->
 				<nav class="trail hh-eyebrow" aria-label="Folders above this one">
 					<a href="/folders">Folders</a>

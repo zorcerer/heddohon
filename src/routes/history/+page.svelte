@@ -38,7 +38,6 @@
 
 <div class="page">
 	<header>
-		<span class="hh-eyebrow">Library</span>
 		<h1 class="hh-display">Recently played</h1>
 		<p class="meta hh-numeric hh-muted">
 			{data.page.total.toLocaleString()} play{data.page.total === 1 ? '' : 's'}{data.historyDays === 365
@@ -56,9 +55,7 @@
 			<TrackList songs={day.songs} variant="artwork" showAlbum />
 		</section>
 	{:else}
-		<p class="empty hh-muted">
-			Nothing yet. A track is added here once it has played for half its length, or four minutes.
-		</p>
+		<p class="empty hh-muted">Nothing yet.</p>
 	{/each}
 
 	<Pager

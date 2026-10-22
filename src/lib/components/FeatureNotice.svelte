@@ -27,10 +27,7 @@
 		<Icon name="info" size={18} />
 		<div class="text">
 			<p class="title">{features.length === 1 ? 'A feature is off on this server' : 'Features are off on this server'}</p>
-			<p class="hh-muted">
-				{features.map((feature) => feature.title).join(', ')}. Each sends something to another service, so it is
-				off until an administrator turns it on.
-			</p>
+			<p class="hh-muted">{features.map((feature) => feature.title).join(', ')}</p>
 		</div>
 		<div class="actions">
 			<a class="hh-button hh-button--primary" href="/settings?tab=features">Open Features</a>

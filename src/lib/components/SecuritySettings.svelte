@@ -361,9 +361,6 @@
 	{#if freshCodes}
 		<div class="codes hh-glass">
 			<p class="title">Your recovery codes</p>
-			<p class="hh-muted small">
-				Keep these somewhere safe. Each signs in once in place of your app or passkey. They are not shown again.
-			</p>
 			<ol class="code-list hh-numeric">
 				{#each freshCodes as code (code)}
 					<li>{code}</li>
@@ -379,15 +376,10 @@
 	<div class="block">
 		<h3>Authenticator app</h3>
 		{#if status.totp}
-			<p class="hh-muted small">On. Sign-in asks for the six-digit code from the app after your password.</p>
 			<div class="actions">
 				<button class="hh-button danger" type="button" disabled={busy !== null || !!asking} onclick={removeTotp}>Remove</button>
 			</div>
 		{:else if enrolling}
-			<p class="hh-muted small">
-				Scan this with an authenticator app (Aegis, 2FAS, Google Authenticator, a password manager), or type the key into it.
-				Then enter the code it shows.
-			</p>
 			<div class="enrol">
 				<QrCode text={enrolling.uri} label="QR code for your authenticator app" />
 				<div class="enrol-side">
@@ -419,7 +411,6 @@
 				</div>
 			</div>
 		{:else}
-			<p class="hh-muted small">Off. An app on your phone makes a new code every 30 seconds, asked for after your password.</p>
 			<div class="actions">
 				<button class="hh-button" type="button" disabled={busy !== null || !!asking} onclick={startTotp}>Set up</button>
 			</div>
@@ -429,16 +420,9 @@
 	<div class="block">
 		<h3>Passkeys</h3>
 		{#if !status.passkeysOffered}
-			<p class="hh-muted small">
-				Passkeys need this server opened on an https address with a domain name. They cannot be made on this one.
-			</p>
+			<p class="hh-muted small">Passkeys need an https address with a domain name.</p>
 		{:else if !canPasskey}
 			<p class="hh-muted small">This browser cannot use passkeys.</p>
-		{:else}
-			<p class="hh-muted small">
-				A passkey on this device, your phone or a security key. It stands in for the code after your password, or signs in
-				on its own from the sign-in page. A passkey works on this address ({page.url.hostname}) only.
-			</p>
 		{/if}
 		{#if status.passkeyList.length > 0}
 			<ul class="keys">
@@ -509,17 +493,12 @@
 			{#if oidc.link}
 				<p class="hh-muted small">
 					Linked <span class="hh-numeric">{date(oidc.link.createdAt)}</span>{#if oidc.link.lastUsedAt}
-						· last used <span class="hh-numeric">{date(oidc.link.lastUsedAt)}</span>{/if}. “Sign in with {oidc.provider}” on the
-					sign-in page signs in to this account{hasFactor ? ', then asks for your second factor' : ''}.
+						· last used <span class="hh-numeric">{date(oidc.link.lastUsedAt)}</span>{/if}
 				</p>
 				<div class="actions">
 					<button class="hh-button danger" type="button" disabled={busy !== null || !!asking} onclick={unlinkOidc}>Unlink</button>
 				</div>
 			{:else}
-				<p class="hh-muted small">
-					Link your {oidc.provider} account, and the sign-in page signs in to this one through it, without your password for
-					{serverLabel || 'the music server'}.
-				</p>
 				<div class="actions">
 					<button class="hh-button" type="button" disabled={busy !== null || !!asking} onclick={linkOidc}>Link {oidc.provider}</button>
 				</div>
@@ -531,7 +510,7 @@
 		<div class="block">
 			<h3>Recovery codes</h3>
 			<p class="hh-muted small">
-				<span class="hh-numeric">{status.recoveryCodes}</span> left. Each signs in once if your app and passkeys are lost.
+				<span class="hh-numeric">{status.recoveryCodes}</span> left
 			</p>
 			<div class="actions">
 				<button class="hh-button" type="button" disabled={busy !== null || !!asking} onclick={newCodes}>Make new codes</button>
@@ -542,7 +521,6 @@
 	{#if admin}
 		<div class="block">
 			<h3>For every account on this server</h3>
-			<p class="hh-muted small">Shown to administrators of {serverLabel || 'the music server'}.</p>
 			<form
 				class="inline"
 				onsubmit={(event) => {
@@ -554,11 +532,9 @@
 					<input type="checkbox" bind:checked={requireOn} disabled={admin.fromEnvironment} />
 					<span>
 						Require a second factor
-						<span class="hh-muted small">
-							{admin.fromEnvironment
-								? 'Set by HEDDOHON_REQUIRE_TWO_FACTOR in the environment.'
-								: 'An account without one reaches only this page until it sets one up. Saved in setup.json.'}
-						</span>
+						{#if admin.fromEnvironment}
+							<span class="hh-muted small">Set by HEDDOHON_REQUIRE_TWO_FACTOR in the environment.</span>
+						{/if}
 					</span>
 				</label>
 				{#if !admin.fromEnvironment}
@@ -578,10 +554,6 @@
 				</label>
 				<button class="hh-button danger" type="submit" disabled={busy !== null || !!asking}>Clear</button>
 			</form>
-			<p class="hh-muted small">
-				For someone who has lost their app, passkeys and recovery codes. They are signed out everywhere and sign in again with
-				their password alone.
-			</p>
 		</div>
 	{/if}
 {/if}

@@ -72,7 +72,6 @@
 	</div>
 
 	{#if !data.searched}
-		<p class="hint hh-muted">Type at least two characters to search your library.</p>
 		<!-- Somewhere to go before anything is typed. Streamed; see the loader. -->
 		{#await data.genres then genres}
 			{#if genres.length > 0}

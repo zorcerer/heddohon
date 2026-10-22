@@ -341,7 +341,7 @@ describe('the second factor, and the link going', () => {
 		assert.ok(client.cookies.has('heddohon_sign_in_step'));
 
 		const { html: page } = await client.page('/login?next=%2Falbums');
-		assert.match(page, /Signing in as <strong>testuser<\/strong>/);
+		assert.match(page, /name="code"/);
 		const done = await client.request('/login', {
 			method: 'POST',
 			headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'text/html' },

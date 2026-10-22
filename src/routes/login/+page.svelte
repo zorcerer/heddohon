@@ -306,15 +306,11 @@
 			<Logo size={52} />
 			<h1 class="wordmark">{data.appName}</h1>
 		</div>
-		<p class="lede">Your music server, in a room lit by whatever is playing.</p>
 	</aside>
 
 	<div class="panel hh-glass hh-float">
 		<header>
-			<h2>Sign in</h2>
-			{#if data.servers.length === 1}
-				<p class="hh-muted sub">to {data.servers[0].label}</p>
-			{/if}
+			<h2>Sign in{data.servers.length === 1 ? ` to ${data.servers[0].label}` : ''}</h2>
 		</header>
 
 		{#if quickConnectError ?? passkeyError ?? form?.error ?? data.oidcProblem}
@@ -325,14 +321,6 @@
 			<!-- The music server accepted the sign-in; the account has a second
 			     factor. The code posts to the same action as the password. -->
 			<section class="second-step" aria-live="polite">
-				<p class="hh-muted note">
-					Signing in as <strong>{data.step.username}</strong>.
-					{#if data.step.totp && !recovery}
-						Enter the six-digit code from your authenticator app.
-					{:else}
-						Enter one of your recovery codes. Each works once.
-					{/if}
-				</p>
 				<form
 					method="POST"
 					use:enhance={() => {
@@ -345,7 +333,7 @@
 					}}
 				>
 					<label class="field">
-						<span class="hh-eyebrow label">{data.step.totp && !recovery ? 'Code' : 'Recovery code'}</span>
+						<span class="hh-eyebrow label">{data.step.totp && !recovery ? 'Code from your app' : 'Recovery code'}</span>
 						<!-- svelte-ignore a11y_autofocus -->
 						<input
 							class="hh-input code-input"
@@ -417,7 +405,6 @@
 									class="hh-visually-hidden"
 								/>
 								<span class="server-name">{server.label}</span>
-								<span class="hh-eyebrow">{server.kind}</span>
 							</label>
 						{/each}
 					</fieldset>
@@ -504,13 +491,8 @@
 		{:else}
 			<section class="quick-connect" aria-live="polite">
 				{#if quickConnect.step === 'waiting'}
-					<span class="hh-eyebrow">Quick Connect code</span>
+					<span class="hh-eyebrow">Quick Connect code for {selectedServer?.label ?? 'Jellyfin'}</span>
 					<p class="code">{quickConnect.code}</p>
-					<p class="hh-muted note">
-						In {selectedServer?.label ?? 'Jellyfin'}, open your user settings, choose Quick Connect
-						and enter this code. This page signs in once the code is approved.
-					</p>
-					<p class="hh-muted note">The code expires after 10 minutes.</p>
 				{:else if quickConnect.step === 'expired'}
 					<p class="alert" role="alert">The code expired before it was approved.</p>
 					<button class="hh-button hh-button--primary submit" type="button" onclick={startQuickConnect}>
@@ -542,7 +524,6 @@
 			<Icon name="github" size={18} />
 			<span>Source on GitHub</span>
 		</a>
-		<span class="version hh-numeric">v{data.appVersion}</span>
 	</footer>
 </main>
 
@@ -705,13 +686,6 @@
 		color: var(--text-strong);
 	}
 
-	.lede {
-		margin: 0;
-		max-width: 22rem;
-		font-size: 1rem;
-		color: var(--text-muted);
-	}
-
 	/* The radius, the edge and the lift all come from `.hh-float`. */
 	.panel {
 		grid-area: panel;
@@ -725,11 +699,6 @@
 	h2 {
 		font-size: 1.375rem;
 		margin: 0;
-	}
-
-	.sub {
-		margin: var(--space-1) 0 0;
-		font-size: 0.875rem;
 	}
 
 	.alert {
@@ -978,13 +947,6 @@
 			text-shadow var(--transition);
 	}
 
-	/* Under the source link, quieter than it: a fact for a bug report. */
-	.version {
-		font-size: 0.6875rem;
-		color: var(--text-faint);
-		opacity: 0.8;
-	}
-
 	.source:hover,
 	.source:focus-visible {
 		color: var(--glow-color);
@@ -1013,10 +975,6 @@
 
 		.lockup {
 			gap: var(--space-3);
-		}
-
-		.lede {
-			display: none;
 		}
 
 		/* One column puts the panel in the middle, so the crest goes with it. It

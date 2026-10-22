@@ -124,7 +124,7 @@ test('an account with a second factor is asked for it after the provider', async
 	await page.goto(`${app.url}/login`);
 	await page.getByRole('link', { name: 'Sign in with Pocket ID' }).click();
 	await atProvider();
-	await page.getByText('Signing in as').waitFor();
+	await page.locator('input[name=code]').waitFor();
 	assert.equal(new URL(page.url()).pathname, '/login');
 	// The app's code was taken by the confirmation a moment ago, and is taken once.
 	await page.getByRole('button', { name: 'Use a recovery code' }).click();

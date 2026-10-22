@@ -36,7 +36,6 @@
 <header class="who">
 	<Avatar name={page.name} src={avatarSrc} size={6} />
 	<div class="names">
-		<span class="hh-eyebrow">Profile</span>
 		<h1 class="hh-display">{page.name}</h1>
 		{#if page.bio}
 			<p class="bio">{page.bio}</p>

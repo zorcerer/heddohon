@@ -245,24 +245,14 @@
 	<div class="panel hh-glass hh-float">
 		<header>
 			<Logo size={36} />
-			<div>
-				<span class="hh-eyebrow">First run</span>
-				<h1>Set up Heddohon</h1>
-			</div>
+			<h1>Set up Heddohon</h1>
 		</header>
 
 		{#if step === 'code'}
-				<p class="lede">
-					This server has not been told its music server yet. When it started it printed a code to its
-					log, which only someone running it can read. Enter the code to continue.
-				</p>
-				<p class="how hh-muted">
-					With Docker: <code>docker logs heddohon</code>, with the name of your container.
-				</p>
 				{#if message}<p class="alert" role="alert">{message}</p>{/if}
 				<form onsubmit={enter}>
 					<label class="field">
-						<span class="label">Setup code</span>
+						<span class="label">Setup code, from the server's log</span>
 						<input
 							class="hh-input code"
 							bind:value={code}
@@ -283,10 +273,6 @@
 			{#if message}<p class="alert" role="alert">{message}</p>{/if}
 			<form onsubmit={save}>
 				{#if missing.upstream}
-					<p class="lede">
-						Give the address of at least one music server, as this server reaches it on its own network.
-						It is not shown to anyone who signs in.
-					</p>
 					{#each SERVERS as { kind, title, example, name } (kind)}
 						{@const server = servers[kind]}
 						<fieldset>
@@ -329,8 +315,6 @@
 							</div>
 						</fieldset>
 					{/each}
-				{:else}
-					<p class="lede">The music server is set in the environment. What is left is below.</p>
 				{/if}
 
 				{#if !decided.origin}
@@ -348,14 +332,6 @@
 								maxlength="1024"
 							/>
 						</label>
-						<p class="how hh-muted">
-							The address in this browser's bar, filled in. Sign-in and every change are accepted from it
-							and refused from any other site. Add a second one after a space, such as the public
-							<code>https://</code> address it will have behind a proxy; an administrator can change the list
-							later under Settings, Storage. On a plain <code>http://</code> address on the local network the
-							sign-in cookie is sent without <code>Secure</code>, since the browser would not send it back
-							otherwise.
-						</p>
 					</fieldset>
 				{/if}
 
@@ -364,17 +340,11 @@
 						<legend>Database</legend>
 						<label class="check">
 							<input type="radio" bind:group={database.kind} value="sqlite" name="database" />
-							<span>
-								SQLite
-								<span class="hint hh-muted">A file in the data directory. Nothing to set up.</span>
-							</span>
+							<span>SQLite</span>
 						</label>
 						<label class="check">
 							<input type="radio" bind:group={database.kind} value="postgres" name="database" />
-							<span>
-								PostgreSQL
-								<span class="hint hh-muted">A server of your own. The database has to exist; Heddohon makes its tables in a schema of its own.</span>
-							</span>
+							<span>PostgreSQL</span>
 						</label>
 						{#if database.kind === 'postgres'}
 							{@const reset = () => (database.probe = { state: 'idle' })}
@@ -398,10 +368,6 @@
 							<label class="field">
 								<span class="label">Password</span>
 								<input class="hh-input" bind:value={database.password} oninput={reset} name="database-password" type="password" autocomplete="new-password" maxlength="1024" />
-								<span class="hint hh-muted">
-									Saved in <code>setup.json</code> with the rest. Set <code>HEDDOHON_DATABASE_PASSWORD</code> in the
-									environment to keep it out of the data directory.
-								</span>
 							</label>
 							<label class="field">
 								<span class="label">Encryption</span>
@@ -448,46 +414,31 @@
 						<label class="field">
 							<span class="label">Cover cache, in megabytes</span>
 							<input class="hh-input" bind:value={coverCacheMb} name="coverCacheMb" type="number" min="0" max="65536" step="1" inputmode="numeric" />
-							<span class="hint hh-muted">Covers kept on this server's disk, in the data directory. 0 switches the cache off.</span>
 						</label>
 					{/if}
 					<label class="check">
 						<input type="checkbox" bind:checked={sharing} name="sharing" />
-						<span>
-							Shared links and listening together
-							<span class="hint hh-muted">An account can make a link that plays a song, an album or a playlist without signing in.</span>
-						</span>
+						<span>Shared links and listening together</span>
 					</label>
 					<label class="check">
 						<input type="checkbox" bind:checked={downloads} name="downloads" />
-						<span>
-							Downloads
-							<span class="hint hh-muted">The original file can be saved from the player.</span>
-						</span>
+						<span>Downloads</span>
 					</label>
 					<!-- The optional features, off until ticked; an administrator changes them later under Settings, Features. -->
 					{#each data.features as feature (feature.id)}
 						<label class="check">
 							<input type="checkbox" bind:checked={features[feature.id]} name={feature.id} />
-							<span>
-								{feature.title}
-								<span class="hint hh-muted">{feature.detail}</span>
-							</span>
+							<span>{feature.title}</span>
 						</label>
 					{/each}
 				</fieldset>
-
-				<p class="how hh-muted">
-					Every other setting is an environment variable; <code>.env.example</code> lists them. A variable
-					set there takes precedence over what is saved here.
-				</p>
 
 				<button class="hh-button hh-button--primary" type="submit" disabled={busy}>
 					{busy ? 'Saving…' : 'Save and finish'}
 				</button>
 			</form>
 		{:else}
-			<p class="lede" role="status">Heddohon is set up. What was entered is saved in <code>setup.json</code> in the data directory.</p>
+			<p class="lede" role="status">Heddohon is set up.</p>
 
 			{#if secret}
 				<section class="notice" aria-labelledby="key-title">
@@ -642,9 +593,7 @@
 		line-height: 1.55;
 	}
 
-	.how,
-	.small,
-	.hint {
+	.small {
 		font-size: 0.8125rem;
 		line-height: 1.5;
 	}
@@ -728,10 +677,6 @@
 	.check input {
 		margin-top: 0.25rem;
 		accent-color: var(--accent);
-	}
-
-	.hint {
-		display: block;
 	}
 
 	.alert {

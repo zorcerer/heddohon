@@ -239,7 +239,7 @@ describe('TOTP', () => {
 		assert.equal((await client.request('/api/two-factor')).status, 401);
 		const page = await client.page('/login');
 		assert.equal(page.response.status, 200);
-		assert.match(page.html, /authenticator app/);
+		assert.match(page.html, /Code from your app/);
 
 		const wrong = await postCode(client, totp(secret, 5));
 		assert.equal(wrong.status, 401);

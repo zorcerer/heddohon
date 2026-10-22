@@ -28,12 +28,7 @@
 			<Sleeve coverArt={mix.coverArt} size={640} alt="" radius="var(--r-lg)" />
 		</div>
 		<div class="details" {@attach sweep}>
-			<span class="hh-eyebrow">Daily mix</span>
 			<HeroTitle text={mix.title} max={3.2} />
-			<p class="lede hh-muted">
-				Made today from {mix.artists.join(' and ')}, and music like theirs you have not played in the
-				last three days. A new one comes tomorrow.
-			</p>
 			<p class="meta hh-numeric hh-muted">
 				{mix.songs.length} track{mix.songs.length === 1 ? '' : 's'}
 				{#if totalDuration}<span class="dot" aria-hidden="true">·</span>{formatLongDuration(totalDuration)}{/if}
@@ -88,12 +83,6 @@
 		justify-items: start;
 		min-width: 0;
 		width: 100%;
-	}
-
-	.lede {
-		margin: 0;
-		max-width: 56ch;
-		font-size: 0.9375rem;
 	}
 
 	.meta {

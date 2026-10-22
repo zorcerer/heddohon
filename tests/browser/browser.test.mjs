@@ -612,23 +612,23 @@ describe('the equaliser', () => {
 		const { page, problems } = await watchedPage();
 		try {
 			await page.goto(app.url + '/settings?tab=playback', { waitUntil: 'networkidle' });
-			const toggle = page.getByRole('checkbox', { name: /Process audio in this browser/ });
+			const toggle = page.getByRole('checkbox', { name: /^Process audio/ });
 			assert.equal(await toggle.isChecked(), false);
 			assert.equal(await page.getByRole('group', { name: 'Equaliser bands' }).count(), 0);
 
 			await toggle.check();
-			await page.getByRole('combobox', { name: 'Preset' }).selectOption('bass');
+			await page.getByRole('combobox', { name: 'Equaliser' }).selectOption('bass');
 			const band = page.getByRole('slider', { name: '31Hz, in dB' });
 			assert.equal(await band.inputValue(), '6');
 			await band.fill('-4');
-			assert.equal(await page.getByRole('combobox', { name: 'Preset' }).inputValue(), '', 'bands set by hand read as Custom');
+			assert.equal(await page.getByRole('combobox', { name: 'Equaliser' }).inputValue(), '', 'bands set by hand read as Custom');
 			const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('heddohon:audio-processing')));
 			assert.deepEqual(saved, { enabled: true, gains: [-4, 5, 4, 2, 0, 0, 0, 0, 0, 0] });
 
 			await page.reload({ waitUntil: 'networkidle' });
 			assert.equal(await page.getByRole('slider', { name: '31Hz, in dB' }).inputValue(), '-4');
 
-			await page.getByRole('checkbox', { name: /Process audio in this browser/ }).uncheck();
+			await page.getByRole('checkbox', { name: /^Process audio/ }).uncheck();
 			const off = await page.evaluate(() => JSON.parse(localStorage.getItem('heddohon:audio-processing')));
 			assert.equal(off.enabled, false);
 			assert.deepEqual(off.gains, [-4, 5, 4, 2, 0, 0, 0, 0, 0, 0], 'the bands are kept for the next time');
@@ -964,13 +964,13 @@ describe('the headphone correction', () => {
 		try {
 			await countBiquads(page);
 			await page.goto(app.url + '/settings?tab=playback', { waitUntil: 'networkidle' });
-			await page.getByRole('checkbox', { name: /Process audio in this browser/ }).check();
+			await page.getByRole('checkbox', { name: /^Process audio/ }).check();
 			assert.equal(await page.getByRole('searchbox', { name: 'Search headphones' }).count(), 0, 'no search where the database is off');
 			assert.equal(await page.evaluate(() => window.__biquads), 10);
 
 			// The bands, set before the correction: 31 Hz is the first biquad made.
 			const band = page.getByRole('slider', { name: '31Hz, in dB' });
-			const preset = page.getByRole('combobox', { name: 'Preset' });
+			const preset = page.getByRole('combobox', { name: 'Equaliser' });
 			const inGraph = (db) => page.waitForFunction((want) => Math.abs(window.__filters[0].gain.value - want) < 0.05, db);
 			await preset.selectOption('bass');
 			await inGraph(6);
@@ -1042,7 +1042,7 @@ describe('the headphone correction', () => {
 			const problems = [];
 			page.on('pageerror', (err) => problems.push(err.message));
 			await page.goto(on.url + '/settings?tab=playback', { waitUntil: 'networkidle' });
-			await page.getByRole('checkbox', { name: /Process audio in this browser/ }).check();
+			await page.getByRole('checkbox', { name: /^Process audio/ }).check();
 
 			await page.getByRole('searchbox', { name: 'Search headphones' }).fill('hd 650');
 			const matches = page.getByRole('list', { name: 'Headphones found' }).getByRole('button');
@@ -2038,7 +2038,7 @@ describe('an album link', () => {
 			});
 			await page.goto(app.url + '/albums/al10', { waitUntil: 'networkidle' });
 			await page.getByRole('button', { name: 'Share a link to this album' }).click();
-			await page.getByText('Share an album').waitFor();
+			await page.getByRole('button', { name: 'Create link' }).waitFor();
 			// The reminder about rights is one line of the small print, not a box of its own.
 			const reminder = page.locator('dialog.share p', { hasText: 'Only share music you have the right to share.' });
 			assert.equal((await reminder.innerText()).trim(), 'Only share music you have the right to share.');
@@ -3103,13 +3103,10 @@ describe('playback on another browser', () => {
 			assert.equal(await page.locator('dialog.devices li.peer').first().getByText('Symfonium', { exact: true }).count(), 1, 'the app is not first in the list');
 			await app.getByText('Song 7a').waitFor();
 			await app.getByText(/^at about 0:0\d$/).waitFor();
-			await app.getByText(/few report their position so far/).waitFor();
 
-			// One that says where it is: the time is its own, and the notice goes.
+			// One that says where it is: the time is its own.
 			await report('playing', 12_000);
 			await app.getByText(/^at 0:1\d$/).waitFor({ timeout: 5000 });
-			await app.getByText(/Continues from where Symfonium is/).waitFor();
-			assert.equal(await app.getByText(/few report their position/).count(), 0);
 
 			await app.getByRole('button', { name: 'Continue here' }).click();
 			await titleIs(page, 'Song 7a');
@@ -3192,7 +3189,6 @@ describe('playback on another browser', () => {
 			await section.locator('input[type=file]').setInputFiles({ name: 'me.png', mimeType: 'image/png', buffer: Buffer.from(png) });
 			await section.locator('.avatar img').waitFor({ timeout: 5000 });
 			await section.getByRole('checkbox', { name: /Show others what I play/ }).check();
-			await section.getByText('You are shown as Mira.').waitFor({ timeout: 5000 });
 
 			await pill.waitFor({ timeout: 5000 });
 			assert.equal(await pill.getAttribute('aria-label'), 'Listening now: Mira');

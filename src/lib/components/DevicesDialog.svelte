@@ -45,7 +45,6 @@
 <dialog bind:this={dialog} onclose={() => (remote.open = false)} class="devices hh-glass" aria-labelledby="devices-title">
 	<header>
 		<div>
-			<span class="hh-eyebrow">{remote.apps.length > 0 ? 'Your other browsers and apps' : 'Your other browsers'}</span>
 			<h2 id="devices-title">Devices</h2>
 		</div>
 		<button class="close" onclick={() => (remote.open = false)} aria-label="Close">
@@ -58,9 +57,7 @@
 	{/if}
 
 	{#if remote.peers.length === 0 && remote.apps.length === 0}
-		<p class="hh-muted empty">
-			Heddohon is not open in another browser signed in as you. Open it on another device and it shows here.
-		</p>
+		<p class="hh-muted empty">Not open anywhere else.</p>
 	{:else}
 		<ul class="list">
 			{#each remote.apps as app (app.id)}
@@ -92,15 +89,6 @@
 						</span>
 					</div>
 
-					<p class="hh-muted app-note">
-						{#if app.exact}
-							Continues from where {name} is. It goes on playing there until you stop it.
-						{:else}
-							{name} tells the music server that a track started and not where it is in it, as most apps
-							do: few report their position so far. The time is where the track would be had it played
-							without a pause. It goes on playing there until you stop it.
-						{/if}
-					</p>
 				</li>
 			{/each}
 			{#each remote.peers as peer (peer.id)}
@@ -395,12 +383,6 @@
 		min-width: 0;
 		text-align: left;
 		align-self: center;
-	}
-
-	.app-note {
-		margin: 0;
-		font-size: 0.75rem;
-		line-height: 1.45;
 	}
 
 	.moves .hh-button:disabled {

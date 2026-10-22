@@ -14,11 +14,8 @@
 
 <div class="page">
 	<header>
-		<span class="hh-eyebrow">On this server</span>
 		<h1 class="hh-display">People</h1>
-		<p class="hh-muted meta">
-			The profiles their owners show to the accounts here. <a href="/people/{data.ownHandle}">Your profile</a>
-		</p>
+		<p class="meta"><a href="/people/{data.ownHandle}">Your profile</a></p>
 	</header>
 
 	{#if data.people.length > 0}
@@ -46,7 +43,7 @@
 			{/each}
 		</ul>
 	{:else}
-		<p class="empty hh-muted">Nobody here shows a profile yet. Yours can be the first, from <a href="/people/{data.ownHandle}">your profile</a>.</p>
+		<p class="empty hh-muted">Nobody here shows a profile yet.</p>
 	{/if}
 </div>
 
