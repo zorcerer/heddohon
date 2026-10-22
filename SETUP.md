@@ -87,6 +87,12 @@ These are off until you turn them on. Each is in
   a new one included after an update. A variable set in the environment (`HEDDOHON_MCP` and the like)
   takes precedence and locks the switch.
 - The plugin for Navidrome: `HEDDOHON_NAVIDROME_PLUGIN_TOKEN`, from `openssl rand -hex 32`.
+- Single sign-on through an OpenID Connect provider (Authelia, Authentik, Keycloak, Pocket ID):
+  register Heddohon there with the redirect address `/login/oidc/callback` and the scope `openid`, set
+  `HEDDOHON_OIDC_ISSUER`, `HEDDOHON_OIDC_CLIENT_ID` and `HEDDOHON_OIDC_CLIENT_SECRET`, and each account
+  links its identity under Settings, Security.
+  [Single sign-on](https://github.com/zorcerer/heddohon/wiki/Configuration#single-sign-on-openid-connect)
+  has the steps and what is checked.
 
 ## Updating
 
