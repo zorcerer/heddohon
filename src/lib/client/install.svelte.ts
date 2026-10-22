@@ -60,10 +60,10 @@ export const INSTALL_STEPS: Record<'safari-mac' | 'safari-ios' | 'edge', string>
 };
 
 /** What each of our apps is, for the card and for Settings. */
-export const APP_KINDS: Record<'app-windows' | 'app-linux' | 'app-android', { system: string; files: string; action: string }> = {
-	'app-windows': { system: 'Windows', files: 'an installer or a portable .exe', action: 'Get the app' },
-	'app-linux': { system: 'Linux', files: 'an AppImage', action: 'Get the app' },
-	'app-android': { system: 'Android', files: 'an APK to install', action: 'Get the APK' }
+export const APP_KINDS: Record<'app-windows' | 'app-linux' | 'app-android', { system: string; action: string }> = {
+	'app-windows': { system: 'Windows', action: 'Get the app' },
+	'app-linux': { system: 'Linux', action: 'Get the app' },
+	'app-android': { system: 'Android', action: 'Get the APK' }
 };
 
 /** The latest release, whose files the apps are. */

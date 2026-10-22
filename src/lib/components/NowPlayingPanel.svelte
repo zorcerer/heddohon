@@ -1858,49 +1858,6 @@
 		mask-image: none;
 	}
 
-	/*
-	 * The track as three labelled lines. The labels are drawn by the stylesheet
-	 * beside text that already says what it is to a screen reader (a heading, and
-	 * links to the artist and the album). Only for a track of the library:
-	 * `.rounds` is there for one and not for a station or an empty player.
-	 */
-	:global([data-theme='terminal']) .head:has(.rounds) .title,
-	:global([data-theme='terminal']) .head:has(.rounds) .artist,
-	:global([data-theme='terminal']) .head:has(.rounds) .album {
-		position: relative;
-		padding-left: 3.5rem;
-	}
-
-	:global([data-theme='terminal']) .head:has(.rounds) .title::before,
-	:global([data-theme='terminal']) .head:has(.rounds) .artist::before,
-	:global([data-theme='terminal']) .head:has(.rounds) .album::before {
-		position: absolute;
-		left: 0;
-		color: var(--text-muted);
-		font-size: 0.8125rem;
-		font-weight: 400;
-		letter-spacing: 0;
-	}
-
-	/* Each with an empty alternative text, so it is drawn and not read into the
-	   heading's or the link's line; the plain declaration is for Safari before
-	   17.4. */
-	:global([data-theme='terminal']) .head:has(.rounds) .title::before {
-		content: 'title';
-		content: 'title' / '';
-		top: 0.2rem;
-	}
-
-	:global([data-theme='terminal']) .head:has(.rounds) .artist::before {
-		content: 'artist';
-		content: 'artist' / '';
-	}
-
-	:global([data-theme='terminal']) .head:has(.rounds) .album::before {
-		content: 'album';
-		content: 'album' / '';
-	}
-
 	:global([data-theme='terminal']) .title {
 		font-size: 1.0625rem;
 		line-height: 1.35;

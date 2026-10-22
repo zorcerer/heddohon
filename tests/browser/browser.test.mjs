@@ -764,7 +764,7 @@ describe('the install card', () => {
 
 			await play(page);
 			await card(page).waitFor();
-			assert.match(await card(page).innerText(), /Heddohon for Linux: an AppImage, with the latest release\./);
+			assert.match(await card(page).innerText(), /^Heddohon for Linux$/m);
 			const link = card(page).getByRole('link', { name: 'Get the app' });
 			assert.deepEqual(
 				await link.evaluate((a) => [a.href, a.target, a.rel]),
@@ -900,12 +900,12 @@ describe('the install card', () => {
 		const SAFARI = (version) => `AppleWebKit/605.1.15 (KHTML, like Gecko) Version/${version} Safari/605.1.15`;
 		/** [user agent, the browser offers its own install, what the card should hold] */
 		const cases = {
-			'Chrome on Windows': [`Mozilla/5.0 (Windows NT 10.0; Win64; x64) ${CHROME}`, true, { text: /for Windows: an installer or a portable \.exe/, link: 'Get the app', install: false }],
+			'Chrome on Windows': [`Mozilla/5.0 (Windows NT 10.0; Win64; x64) ${CHROME}`, true, { text: /for Windows/, link: 'Get the app', install: false }],
 			'Firefox on Windows': ['Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0', false, { text: /for Windows/, link: 'Get the app', install: false }],
-			'Firefox on Linux': ['Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0', false, { text: /for Linux: an AppImage/, link: 'Get the app', install: false }],
-			'Chrome on Android': [`Mozilla/5.0 (Linux; Android 14; Pixel 8) ${CHROME.replace('Safari', 'Mobile Safari')}`, false, { text: /for Android: an APK to install/, link: 'Get the APK', install: false }],
+			'Firefox on Linux': ['Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0', false, { text: /for Linux/, link: 'Get the app', install: false }],
+			'Chrome on Android': [`Mozilla/5.0 (Linux; Android 14; Pixel 8) ${CHROME.replace('Safari', 'Mobile Safari')}`, false, { text: /for Android/, link: 'Get the APK', install: false }],
 			'Chrome on Android, offering to install': [`Mozilla/5.0 (Linux; Android 14; Pixel 8) ${CHROME.replace('Safari', 'Mobile Safari')}`, true, { text: /for Android/, link: 'Get the APK', install: true }],
-			'Chrome on a Mac, offering to install': [`Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) ${CHROME}`, true, { text: /Install Heddohon as an app/, link: null, install: true }],
+			'Chrome on a Mac, offering to install': [`Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) ${CHROME}`, true, { text: /Install Heddohon/, link: null, install: true }],
 			'Chrome on a Mac, not offering': [`Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) ${CHROME}`, false, null],
 			'Edge on a Mac, not offering': [`Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) ${CHROME} Edg/140.0.0.0`, false, { text: /choose Apps, then Install this site as an app/, link: null, install: false }],
 			'Safari 18 on a Mac': [`Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) ${SAFARI('18.0')}`, false, { text: /File, then Add to Dock/, link: null, install: false }],
@@ -913,7 +913,7 @@ describe('the install card', () => {
 			'Firefox on a Mac': ['Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:140.0) Gecko/20100101 Firefox/140.0', false, null],
 			'Safari on an iPhone': ['Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1', false, { text: /Share, then Add to Home Screen/, link: null, install: false }],
 			'Chrome on an iPhone': ['Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/128.0.6613.98 Mobile/15E148 Safari/604.1', false, null],
-			'ChromeOS, offering to install': [`Mozilla/5.0 (X11; CrOS x86_64 14541.0.0) ${CHROME}`, true, { text: /Install Heddohon as an app/, link: null, install: true }],
+			'ChromeOS, offering to install': [`Mozilla/5.0 (X11; CrOS x86_64 14541.0.0) ${CHROME}`, true, { text: /Install Heddohon/, link: null, install: true }],
 			// Inside our own desktop app, which names itself.
 			'the desktop app': [`Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) heddohon-desktop/0.5.0 Chrome/140.0.0.0 Electron/44.5.1 Safari/537.36`, false, null]
 		};
