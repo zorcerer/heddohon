@@ -246,6 +246,18 @@ CREATE TABLE IF NOT EXISTS passkey_challenges (
 );
 CREATE INDEX IF NOT EXISTS passkey_challenges_expiry_idx ON passkey_challenges(expires_at);
 
+-- An account's identity at the OpenID Connect provider; see oidc.ts. issuer
+-- and subject are the ID token's iss and sub, which the provider gives to
+-- one person for good. One identity an account, and one account an identity.
+CREATE TABLE IF NOT EXISTS oidc_links (
+  account_id    TEXT PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
+  issuer        TEXT NOT NULL,
+  subject       TEXT NOT NULL,
+  created_at    INTEGER NOT NULL,
+  last_used_at  INTEGER,
+  UNIQUE (issuer, subject)
+);
+
 -- An account's profile page; see profilepage.ts. albums is a JSON array of
 -- four slots, each null or the album as it was when picked. listed shows the
 -- page to the other accounts here; recent and top_artists add the account's
@@ -357,7 +369,8 @@ export interface Store {
  * PostgreSQL into a SQLite file (`backup`). Accounts first: the others refer
  * to them. `sessions`, `mcp_tokens`, `now_playing_links`, `login_attempts`,
  * `sign_in_steps` and `passkey_challenges` are not in it. The second factors
- * are: restored without them, every account would lose its own.
+ * are, and the links to an identity provider: restored without them, every
+ * account would lose its own.
  */
 const COPIED_TABLES = {
 	accounts: ['id', 'backend', 'username', 'remote_user_id', 'credential', 'created_at', 'last_login_at', 'device_epoch'],
@@ -370,6 +383,7 @@ const COPIED_TABLES = {
 	totp: ['account_id', 'secret', 'confirmed', 'last_step', 'created_at'],
 	recovery_codes: ['account_id', 'digest', 'created_at'],
 	passkeys: ['id', 'account_id', 'public_key', 'algorithm', 'sign_count', 'name', 'created_at', 'last_used_at'],
+	oidc_links: ['account_id', 'issuer', 'subject', 'created_at', 'last_used_at'],
 	profile_pages: ['account_id', 'bio', 'albums', 'listed', 'recent', 'top_artists', 'link_digest', 'link_made_at', 'updated_at'],
 	meta: ['key', 'value']
 } as const;

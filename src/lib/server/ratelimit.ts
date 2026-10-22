@@ -292,3 +292,19 @@ export function passkeyStartKeys(address: string): Array<[string, number]> {
 	if (perVisitorAddress(address)) keys.push([`pk:${addressBucket(address)}`, MAX_PASSKEY_STARTS_PER_ADDRESS]);
 	return keys;
 }
+
+/** Returns from the identity provider one visitor, and the whole deployment, may bring in the window. */
+const MAX_OIDC_RETURNS_PER_ADDRESS = 30;
+const MAX_OIDC_RETURNS_TOTAL = 600;
+
+/**
+ * The keys a return from the identity provider counts against (`oidc.ts`).
+ * Whoever holds a pending sign-in's cookie can send it back with any code,
+ * and each one this server takes is a request to the provider's token
+ * endpoint, so the returns are what is bounded.
+ */
+export function oidcKeys(address: string): Array<[string, number]> {
+	const keys: Array<[string, number]> = [['oidc:all', MAX_OIDC_RETURNS_TOTAL]];
+	if (perVisitorAddress(address)) keys.push([`oidc:${addressBucket(address)}`, MAX_OIDC_RETURNS_PER_ADDRESS]);
+	return keys;
+}

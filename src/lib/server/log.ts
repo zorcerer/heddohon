@@ -168,11 +168,12 @@ const SHARE_SEGMENT = /(\/(?:share|cast|together|now|now-playing)\/+[\s"'%]*)[^/
 
 /**
  * The query parameters of the Last.fm callback (`/settings/lastfm`): last.fm's
- * token, Navidrome's link token and Heddohon's state. Each is a credential
- * while valid, and the callback URL reaches the log as a request query or
- * inside `next`.
+ * token, Navidrome's link token and Heddohon's state; and of the identity
+ * provider's return (`/login/oidc/callback`), its code and the state. Each is
+ * a credential while valid, and the callback URL reaches the log as a request
+ * query or inside `next`.
  */
-const LINK_PARAMS = /([?&](?:token|uid|state)=)[^&#\s"]+/gi;
+const LINK_PARAMS = /([?&](?:token|uid|state|code)=)[^&#\s"]+/gi;
 
 /**
  * One layer of percent-encoding removed, byte by byte, never throwing.

@@ -219,8 +219,9 @@ describe('the Unraid template', () => {
 			assert.ok(attrs.Description.length >= 20, `${label} is not described`);
 			// A setting somebody has to fill in is on the first screen.
 			if (attrs.Required === 'true') assert.equal(attrs.Display, 'always', label);
-			// What is typed into a secret is not shown again.
-			if (/SECRET|PASSWORD$|TOKEN/.test(attrs.Target)) assert.equal(attrs.Mask, 'true', `${label} is not masked`);
+			// What is typed into a secret is not shown again. The path of a file
+			// that holds one (`_FILE`) is not a secret.
+			if (/SECRET$|PASSWORD$|TOKEN/.test(attrs.Target)) assert.equal(attrs.Mask, 'true', `${label} is not masked`);
 		}
 		for (const key of ['Name', 'Target']) {
 			const values = settings.map((setting) => setting.attrs[key]);

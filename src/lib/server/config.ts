@@ -22,6 +22,19 @@ export interface UpstreamConfig {
 	label: string;
 }
 
+export interface OidcConfig {
+	/**
+	 * The issuer as given, a trailing slash kept: Authentik's ends in one and
+	 * Keycloak's does not, and the `iss` of a token is compared with it.
+	 */
+	issuer: string;
+	clientId: string;
+	/** Null for a public client, which proves itself with PKCE alone. */
+	clientSecret: string | null;
+	/** The provider's name on the sign-in button. */
+	label: string;
+}
+
 /**
  * Where accounts, sessions, settings and links are kept. SQLite in the data
  * directory unless `HEDDOHON_DATABASE_URL` names a PostgreSQL server.
@@ -106,6 +119,11 @@ export interface AppConfig {
 	 * held to setting it up.
 	 */
 	requireTwoFactor: boolean;
+	/**
+	 * The OpenID Connect provider an account may link and then sign in
+	 * through, or null when none is configured; see `oidc.ts`.
+	 */
+	oidc: OidcConfig | null;
 	/** Whether profile pages, People and their public links are on; see `profilepage.ts`. On unless switched off. */
 	profiles: boolean;
 	/**
@@ -635,10 +653,47 @@ function build(): AppConfig {
 		// provider of the assistant's model, which is a third party.
 		mcp: flagEnv('HEDDOHON_MCP', false),
 		requireTwoFactor: flagEnv('HEDDOHON_REQUIRE_TWO_FACTOR', false),
+		oidc: oidcConfig(),
 		profiles: flagEnv('HEDDOHON_PROFILES', true),
 		androidFingerprints: androidFingerprints(),
 		database: databaseConfig()
 	};
+}
+
+/**
+ * `HEDDOHON_OIDC_ISSUER` and the client the provider was given for this
+ * server. The secret can come from a file (a Docker secret) through
+ * `HEDDOHON_OIDC_CLIENT_SECRET_FILE`, as the database password can. The
+ * error messages name the variable and never the secret.
+ */
+function oidcConfig(): OidcConfig | null {
+	const issuer = env('HEDDOHON_OIDC_ISSUER');
+	if (!issuer) return null;
+	let parsed: URL;
+	try {
+		parsed = new URL(issuer);
+	} catch {
+		throw new ConfigError(`HEDDOHON_OIDC_ISSUER is not a valid URL: ${JSON.stringify(issuer)}`);
+	}
+	if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+		throw new ConfigError(`HEDDOHON_OIDC_ISSUER must be http:// or https://, got ${parsed.protocol}`);
+	}
+	if (parsed.search || parsed.hash) throw new ConfigError('HEDDOHON_OIDC_ISSUER must not contain a query string or fragment');
+
+	const clientId = env('HEDDOHON_OIDC_CLIENT_ID');
+	if (!clientId) throw new ConfigError('HEDDOHON_OIDC_CLIENT_ID is required with HEDDOHON_OIDC_ISSUER');
+
+	let clientSecret = env('HEDDOHON_OIDC_CLIENT_SECRET') ?? null;
+	const secretFile = env('HEDDOHON_OIDC_CLIENT_SECRET_FILE');
+	if (secretFile) {
+		try {
+			clientSecret = readFileSync(secretFile, 'utf8').trim() || null;
+		} catch {
+			throw new ConfigError(`HEDDOHON_OIDC_CLIENT_SECRET_FILE ${secretFile} could not be read`);
+		}
+	}
+
+	return { issuer, clientId, clientSecret, label: env('HEDDOHON_OIDC_LABEL') ?? 'single sign-on' };
 }
 
 /**
@@ -729,6 +784,7 @@ export function config(): AppConfig {
 			navidromePluginToken: null,
 			mcp: false,
 			requireTwoFactor: false,
+			oidc: null,
 			profiles: true,
 			androidFingerprints: [ANDROID_RELEASE_KEY],
 			database: { kind: 'sqlite' }

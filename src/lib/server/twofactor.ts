@@ -645,7 +645,7 @@ function stepCookieName(url: URL): string {
 interface HeldSignIn {
 	kind: BackendKind;
 	upstream: UpstreamSignIn;
-	method: 'password' | 'quick-connect';
+	method: 'password' | 'quick-connect' | 'oidc';
 }
 
 export interface StepMethods {

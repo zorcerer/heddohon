@@ -47,9 +47,37 @@ export const load: PageServerLoad = async (event) => {
 		),
 		step: step ? { ...(await stepMethods(event, step)), username: step.held.upstream.credential.username } : null,
 		// Whether this address can sign in with a passkey at all; see `passkeysOffered`.
-		passkeys: passkeysOffered(event.url)
+		passkeys: passkeysOffered(event.url),
+		// The identity provider's name for its button, or null where there is none.
+		oidc: cfg.oidc?.label ?? null,
+		oidcProblem: oidcProblem(event.url.searchParams.get('oidc'), cfg.oidc?.label ?? null)
 	};
 };
+
+/**
+ * What a return from the identity provider that did not sign in says, by the
+ * `oidc` the callback sends back here (`routes/login/oidc/callback`). Fixed
+ * words: the parameter is in the address, which anyone can write.
+ */
+function oidcProblem(result: string | null, provider: string | null): string | null {
+	if (!result || !provider) return null;
+	switch (result) {
+		case 'unlinked':
+			return `No account here is linked to that ${provider} account. Sign in with your password, then link it under Settings, Security.`;
+		case 'stale':
+			return 'The music server no longer takes the password stored here. Sign in with your password once.';
+		case 'cancelled':
+			return `The sign-in was cancelled at ${provider}.`;
+		case 'expired':
+			return 'That sign-in took too long, or was finished in another browser. Try again.';
+		case 'unreachable':
+			return `${provider} or the music server could not be reached. Try again shortly.`;
+		case 'throttled':
+			return `Too many sign-ins through ${provider}. Try again in a few minutes.`;
+		default:
+			return `${provider} did not complete the sign-in. Try again.`;
+	}
+}
 
 export const actions: Actions = {
 	default: async (event) => {
