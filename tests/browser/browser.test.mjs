@@ -6067,7 +6067,7 @@ describe('Terminal, the default theme', () => {
 		return (hi + 0.05) / (lo + 0.05);
 	};
 
-	test('the playing track is an inverted row that reads at 4.5:1, and the player\'s title ends as the title after a skip', async () => {
+	test('the playing track is a raised row with its title in the accent, read at 4.5:1, and the player\'s title ends as the title after a skip', async () => {
 		await settings({ theme: 'terminal' });
 		subsonic.state.audio = { type: 'audio/wav', body: silentWav(30) };
 		const { page, problems } = await watchedPage();
@@ -6093,7 +6093,8 @@ describe('Terminal, the default theme', () => {
 					other: rgb(getComputedStyle(document.querySelector('.track:not(.current)')).backgroundColor)
 				};
 			});
-			assert.deepEqual(row.ground, (await computed(page, 'var(--accent)')).slice(0, 3), 'the playing row is not the accent');
+			assert.deepEqual(row.ground, (await computed(page, 'var(--bg-raised)')).slice(0, 3), 'the playing row is not a step of the ground');
+			assert.deepEqual(row.title, (await computed(page, 'var(--accent)')).slice(0, 3), 'the playing title is not the accent');
 			for (const part of ['title', 'artist', 'time']) {
 				const ratio = contrast(row[part], row.ground);
 				assert.ok(ratio >= 4.5, `the ${part} on the playing row: ${ratio.toFixed(1)} to 1`);

@@ -941,15 +941,11 @@
 
 	/*
 	 * Rows as lines of a listing. Hover is a flat step of the ground, with
-	 * nothing in the row moving. The playing row is inverted: the accent as its
-	 * ground and every tone in it the dark one, which the row gets by setting the
-	 * colour tokens for its own contents. `--row-accent` holds the accent for the
-	 * ground, since the row redefines `--accent` for what is inside it.
+	 * nothing in the row moving. The playing row is a step of the ground with its
+	 * title and its number in the accent, as the queue's is. It was the accent
+	 * as the whole row's ground, which on an album of a few tracks was the
+	 * largest area of colour on the screen.
 	 */
-	:global([data-theme='terminal']) .tracks {
-		--row-accent: var(--accent);
-	}
-
 	:global([data-theme='terminal']) .track::before {
 		background: var(--bg-hover);
 		scale: none;
@@ -958,8 +954,8 @@
 
 	/* A picked row is the accent's ground, faint, with its edge. */
 	:global([data-theme='terminal']) .track.selected::before {
-		background: color-mix(in srgb, var(--row-accent) 20%, transparent);
-		box-shadow: inset 3px 0 0 var(--row-accent);
+		background: color-mix(in srgb, var(--accent) 20%, transparent);
+		box-shadow: inset 3px 0 0 var(--accent);
 	}
 
 	:global([data-theme='terminal']) .track:hover .meta {
@@ -987,23 +983,14 @@
 	}
 
 	:global([data-theme='terminal']) .track.current {
-		--accent: var(--accent-contrast);
-		--accent-strong: var(--accent-contrast);
-		--text-strong: var(--accent-contrast);
-		--text-default: var(--accent-contrast);
-		--text-muted: color-mix(in srgb, var(--accent-contrast) 80%, var(--row-accent));
-		--text-faint: color-mix(in srgb, var(--accent-contrast) 80%, var(--row-accent));
-		--glow-color: var(--accent-contrast);
-		--highres: var(--accent-contrast);
-		--border-strong: color-mix(in srgb, var(--accent-contrast) 45%, var(--row-accent));
-		background: var(--row-accent);
+		background: var(--bg-raised);
 		border-top-color: transparent;
 		border-radius: var(--r-sm);
-		color: var(--accent-contrast);
 	}
 
-	:global([data-theme='terminal']) .track.current::before {
-		display: none;
+	:global([data-theme='terminal']) .track.current .title,
+	:global([data-theme='terminal']) .track.current .index {
+		color: var(--accent);
 	}
 
 	:global([data-theme='terminal']) .track.current .title {
@@ -1022,7 +1009,7 @@
 	}
 
 	:global([data-theme='terminal']) .tracks.reorderable > li.dragged .track {
-		box-shadow: inset 0 0 0 1px var(--row-accent);
+		box-shadow: inset 0 0 0 1px var(--accent);
 	}
 
 	/* The bars move in three hard steps. */
