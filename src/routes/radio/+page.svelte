@@ -30,7 +30,6 @@
 
 <div class="page">
 	<header>
-		<span class="hh-eyebrow">Library</span>
 		<h1>Radio</h1>
 		<p class="meta hh-numeric hh-muted">
 			{data.stations.length} station{data.stations.length === 1 ? '' : 's'}
@@ -38,10 +37,7 @@
 	</header>
 
 	{#if data.stations.length === 0}
-		<p class="hh-muted empty">
-			{data.serverLabel || 'The music server'} has no radio stations. Its administrator adds them in its own
-			settings.
-		</p>
+		<p class="hh-muted empty">No radio stations.</p>
 	{:else}
 		<ul class="stations hh-stagger">
 			{#each data.stations as station (station.id)}
@@ -66,10 +62,6 @@
 				</li>
 			{/each}
 		</ul>
-		<p class="hh-muted note">
-			A station plays through {data.appName}'s server, which fetches its stream. It is live: there is no seeking,
-			and nothing is added to your listening history.
-		</p>
 	{/if}
 </div>
 
@@ -165,7 +157,6 @@
 		text-underline-offset: 3px;
 	}
 
-	.note,
 	.empty {
 		margin: 0;
 		font-size: 0.8125rem;

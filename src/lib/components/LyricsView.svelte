@@ -76,9 +76,7 @@
 
 <div class="lyrics">
 	<div class="head">
-		<span class="hh-eyebrow">
-			Lyrics{#if lyricsWindow.lyrics?.synced}&nbsp;· synced{/if}{#if lyricsWindow.lyrics?.source === 'lrclib'}&nbsp;· LRCLIB{/if}
-		</span>
+		<span class="hh-eyebrow">Lyrics</span>
 		{#if !lyricsWindow.following}
 			<span class="hh-numeric hh-muted paused">following paused</span>
 		{/if}
@@ -108,12 +106,9 @@
 		{:else if lyricsWindow.error}
 			<p class="notice" role="alert">{lyricsWindow.error}</p>
 		{:else if !song}
-			<p class="notice hh-muted">Play something to see its lyrics.</p>
+			<p class="notice hh-muted">Nothing playing.</p>
 		{:else if !lyricsWindow.lyrics || lyricsWindow.lyrics.lines.length === 0}
-			<p class="notice hh-muted">
-				Your music server has no lyrics for this track. Navidrome and Jellyfin both read them from
-				the file's tags or a matching <code>.lrc</code>.
-			</p>
+			<p class="notice hh-muted">No lyrics for this track.</p>
 		{:else}
 			{@const lyrics = lyricsWindow.lyrics}
 			<ol class="lines" class:synced={lyrics.synced}>

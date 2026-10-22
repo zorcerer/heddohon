@@ -14,7 +14,6 @@
 	let newName = $state('');
 
 	const open = $derived(playlistPicker.visible);
-	const count = $derived(playlistPicker.request?.songIds.length ?? 0);
 
 	$effect(() => {
 		if (!dialog) return;
@@ -36,11 +35,7 @@
 <dialog bind:this={dialog} onclose={() => playlistPicker.close()} class="picker hh-glass">
 	{#if playlistPicker.request}
 		<header>
-			<div>
-				<span class="hh-eyebrow">Add to playlist</span>
-				<h2>{playlistPicker.request.label}</h2>
-				<p class="hh-numeric hh-muted count">{count} track{count === 1 ? '' : 's'}</p>
-			</div>
+			<h2 class="hh-clamp-2">Add “{playlistPicker.request.label}” to a playlist</h2>
 			<button class="close" onclick={() => playlistPicker.close()} aria-label="Close">
 				<Icon name="close" size={18} />
 			</button>
@@ -134,11 +129,6 @@
 	h2 {
 		font-size: 1.15rem;
 		margin: 0.15rem 0 0;
-	}
-
-	.count {
-		margin: 0.2rem 0 0;
-		font-size: 0.6875rem;
 	}
 
 	.close {

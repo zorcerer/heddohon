@@ -20,14 +20,6 @@
 
 	let { data }: { data: PageData } = $props();
 
-	const greeting = $derived.by(() => {
-		const hour = new Date().getHours();
-		if (hour < 5) return 'Still up';
-		if (hour < 12) return 'Good morning';
-		if (hour < 18) return 'Good afternoon';
-		return 'Good evening';
-	});
-
 	// The newest release is promoted out of the shelf and given the lead.
 	const featured = $derived(data.recentlyAdded[0] ?? null);
 	const restOfRecent = $derived(data.recentlyAdded.slice(1));
@@ -117,10 +109,7 @@
 					<Avatar name={data.me.name} src={avatarUrl(data.me.handle, data.me.avatar)} size={3.25} />
 				</a>
 			{/if}
-			<div>
-				<span class="hh-eyebrow">{greeting}</span>
-				<h1>Your library</h1>
-			</div>
+			<h1>Your library</h1>
 		</div>
 		{#if data.discover.length > 0}
 			<button class="hh-button shuffle" onclick={() => player.playShuffled(data.discover)}>
@@ -194,7 +183,7 @@
 	-->
 	{#await data.mixes then mixes}
 		{#if mixes.length > 0}
-			<MediaShelf title="Made for you" eyebrow="Daily mixes, new each day" index={albumShelves + 1}>
+			<MediaShelf title="Made for you" index={albumShelves + 1}>
 				{#each mixes as mix (mix.n)}
 					<MediaCard
 						href="/mixes/{mix.n}"
@@ -228,7 +217,6 @@
 			<section>
 				<SectionHeader
 					title="Something different"
-					eyebrow="Picked at random"
 					index={aboveFavourites + (favouriteSongs.length > 0 ? 2 : 1)}
 				/>
 				<TrackList songs={data.discover} variant="artwork" showAlbum showQuality={false} columns />
@@ -238,10 +226,6 @@
 		{#if !featured && favouriteSongs.length === 0}
 			<div class="empty">
 				<h2>Nothing to show yet</h2>
-				<p class="hh-muted">
-					Heddohon could not read any albums from your music server. Check that the library has
-					finished scanning, then reload.
-				</p>
 			</div>
 		{/if}
 	{/await}
@@ -391,8 +375,4 @@
 		border-radius: var(--r-lg);
 	}
 
-	.empty p {
-		max-width: 32rem;
-		margin: 0;
-	}
 </style>

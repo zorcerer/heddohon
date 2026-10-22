@@ -106,11 +106,6 @@
 	<header>
 		<span class="hh-eyebrow"><a href="/playlists">Playlists</a></span>
 		<h1>Import a playlist</h1>
-		<p class="hh-muted lede">
-			From an M3U file, a CSV or text export (Exportify, Apple Music, Heddohon), Spotify's account data
-			(<code>Playlist1.json</code>) or an Apple Music XML export. Each track is looked for in your library by
-			its title, artist, album and length, and you see what was found before the playlist is saved.
-		</p>
 	</header>
 
 	<label class="file hh-button">
@@ -164,11 +159,10 @@
 				your library.
 			</p>
 
-			{#snippet rows(list: Row[], heading: string, note: string)}
+			{#snippet rows(list: Row[], heading: string)}
 				{#if list.length > 0}
 					<h2>{heading} <span class="hh-numeric hh-muted">{list.length}</span></h2>
-					<p class="hh-muted note">{note}</p>
-					<ul>
+						<ul>
 						{#each list as row, index (index)}
 							<li class:none={!row.song}>
 								{#if row.song}
@@ -193,9 +187,9 @@
 				{/if}
 			{/snippet}
 
-			{@render rows(close, 'Close', 'The title matches with what is in brackets or after a dash left out, and the artist or the length agrees. Untick any that are another version.')}
-			{@render rows(missing, 'Not in your library', 'Left out of the playlist.')}
-			{@render rows(found, 'Found', 'The title, the artist and the length agree.')}
+			{@render rows(close, 'Close')}
+			{@render rows(missing, 'Not in your library')}
+			{@render rows(found, 'Found')}
 
 			<div class="save">
 				<button
@@ -230,12 +224,6 @@
 		margin: 0;
 	}
 
-	.lede {
-		margin: 0;
-		max-width: 60ch;
-		font-size: 0.875rem;
-	}
-
 	.file {
 		justify-self: start;
 		cursor: pointer;
@@ -260,7 +248,6 @@
 	}
 
 	.count,
-	.note,
 	.summary {
 		margin: 0;
 		font-size: 0.875rem;

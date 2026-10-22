@@ -143,7 +143,6 @@
 
 <div class="page">
 	<header>
-		<span class="hh-eyebrow">Kept on this server, for you alone</span>
 		<h1 class="hh-display">Your listening</h1>
 		<ListeningTabs />
 		<nav class="periods" aria-label="Period">
@@ -161,10 +160,7 @@
 	</header>
 
 	{#if stats.plays === 0}
-		<p class="empty hh-muted">
-			Nothing played {since ? `since ${since}` : 'yet'}. A track counts once it has played for half its length, or
-			four minutes.
-		</p>
+		<p class="empty hh-muted">Nothing played {since ? `since ${since}` : 'yet'}.</p>
 	{:else}
 		<section class="figures" aria-label="In numbers">
 			<div class="figure hero">
@@ -199,7 +195,7 @@
 		{#if local}
 			<section class="when">
 				<div>
-					<SectionHeader title="Time of day" eyebrow={`Most at ${hourName(busiestHour)}`} />
+					<SectionHeader title="Time of day" />
 					{@render columns(
 						byLocalTime.hourOfDay,
 						Array.from({ length: 24 }, (_, h) => hourName(h)),
@@ -208,7 +204,7 @@
 					)}
 				</div>
 				<div>
-					<SectionHeader title="Day of the week" eyebrow={`Most on ${weekdayNames[busiestDay]}`} />
+					<SectionHeader title="Day of the week" />
 					{@render columns(byLocalTime.dayOfWeek, weekdayNames, 'Day of the week', (d) => weekdayNames[d].slice(0, 3))}
 				</div>
 			</section>
@@ -274,7 +270,7 @@
 
 		{#if stats.newArtists.length > 0}
 			<section>
-				<SectionHeader title="New to you" eyebrow="First played in this period" />
+				<SectionHeader title="New to you" />
 				<ul class="new">
 					{#each stats.newArtists as artist (artist.id ?? artist.name)}
 						<li>

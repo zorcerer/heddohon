@@ -108,7 +108,6 @@
 		</div>
 
 		<div class="details" {@attach sweep}>
-			<span class="hh-eyebrow">Album</span>
 			<HeroTitle text={album.name} />
 
 			{#if album.artist}
@@ -215,8 +214,7 @@
 		{#if artistAlbums.length > 0 && album.artist && album.artistId}
 			<section>
 				<SectionHeader
-					title={album.artist}
-					eyebrow="More from"
+					title="More from {album.artist}"
 					href="/artists/{album.artistId}"
 				/>
 				<MediaGrid density="compact" wholeRows>
@@ -245,7 +243,7 @@
 	{#await data.similar then similar}
 		{#if similar.length > 0}
 			<section>
-				<SectionHeader title="You might like" eyebrow="Related" />
+				<SectionHeader title="You might like" />
 				<!-- Compact: a suggestion is secondary to the page it is under. -->
 				<MediaGrid density="compact" wholeRows>
 					{#each similar as suggestion (suggestion.id)}

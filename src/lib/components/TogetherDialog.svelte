@@ -20,10 +20,6 @@
 		} else if ((!together.open || !together.party) && dialog.open) dialog.close();
 	});
 
-	const ends = $derived(
-		together.party ? new Date(together.party.expiresAt).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) : ''
-	);
-
 	async function copy() {
 		try {
 			await navigator.clipboard.writeText(together.link);
@@ -38,7 +34,6 @@
 	{#if together.party}
 		<header>
 			<div>
-				<span class="hh-eyebrow">Live</span>
 				<h2 id="together-title">Listening together</h2>
 			</div>
 			<button class="close" onclick={() => (together.open = false)} aria-label="Close">
@@ -47,15 +42,6 @@
 		</header>
 
 		<div class="body">
-			<p class="hh-muted note">
-				Anyone with this link hears what you play, as you play it: the same track, paused and skipped when
-				you do. They need no account, and can send a reaction. It ends at {ends}, when you end it, or when you
-				sign out.
-			</p>
-			<p class="hh-muted note">
-				Someone signed in to this Heddohon on the same music server as you can join by name and add tracks
-				to your queue. Their tracks play after the current one, in the order they were added.
-			</p>
 			<p class="hh-muted note">Only share music you have the right to share.</p>
 
 			<span class="link-row">

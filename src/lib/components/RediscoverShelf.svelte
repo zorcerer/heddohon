@@ -27,7 +27,7 @@
 </script>
 
 <div class="stacks">
-	<MediaShelf title="Rediscover" eyebrow="Played often, not in the last six months" {index}>
+	<MediaShelf title="Rediscover" {index}>
 		{#each albums as album (album.id)}
 			<MediaCard
 				href="/albums/{album.id}"

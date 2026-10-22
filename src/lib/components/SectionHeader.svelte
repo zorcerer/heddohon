@@ -6,13 +6,11 @@
 		title,
 		/** Two-digit index, printed in the margin like a catalogue entry. */
 		index = null,
-		eyebrow = null,
 		href = null,
 		actions
 	}: {
 		title: string;
 		index?: number | null;
-		eyebrow?: string | null;
 		href?: string | null;
 		actions?: Snippet;
 	} = $props();
@@ -29,9 +27,6 @@
 	{/if}
 
 	<div class="titles">
-		{#if eyebrow}
-			<span class="hh-eyebrow">{eyebrow}</span>
-		{/if}
 		{#if href}
 			<a class="link" {href}>
 				<h2>{title}</h2>
@@ -114,8 +109,8 @@
 		/*
 		 * The actions go to a line of their own under the title where the two do
 		 * not fit side by side. Neither can shrink, so on the favourites page,
-		 * with its long eyebrow, "Play these" ran 60px past the right-hand edge
-		 * of a 393px screen.
+		 * with a long line over its title, "Play these" ran 60px past the
+		 * right-hand edge of a 393px screen.
 		 */
 		.section-header {
 			flex-wrap: wrap;

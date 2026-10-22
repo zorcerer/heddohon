@@ -230,7 +230,6 @@
 <section class="trend">
 	<SectionHeader
 		title={trend.weekly ? 'Week by week' : 'Day by day'}
-		eyebrow={`Most: ${plural(trend.buckets[trend.peak]?.plays ?? 0, 'play')}, ${trend.buckets[trend.peak]?.label ?? ''}`}
 	/>
 	<figure class="chart">
 		<!-- A slider along the line: one stop for the keyboard, moved by the
@@ -264,8 +263,6 @@
 		<p class="readout hh-numeric">
 			{#if shown}
 				{shown.label} · {plural(shown.plays, 'play')}{shown.seconds > 0 ? ` · ${length(shown.seconds)}` : ''}
-			{:else}
-				<span class="hh-muted">Point at the line, or use the arrow keys on it, for a {trend.weekly ? 'week' : 'day'}.</span>
 			{/if}
 		</p>
 		<details class="table">
@@ -285,7 +282,7 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div class="maps" onpointermove={point} onpointerleave={() => (tip = null)}>
 	<section>
-		<SectionHeader title="Calendar" eyebrow={calendar.cut ? `The last ${CALENDAR_WEEKS} weeks` : 'Each day of the period'} />
+		<SectionHeader title="Calendar" />
 		<figure class="chart">
 			<!-- Where a year does not fit the column it scrolls, and opens on its
 			     last weeks: the newest days are the ones looked for. -->
@@ -338,7 +335,6 @@
 	<section>
 		<SectionHeader
 			title="Hour by day of the week"
-			eyebrow={busiestCell.plays > 0 ? `Most on ${weekdayNames[busiestCell.day]} at ${hourName(busiestCell.hour)}` : undefined}
 		/>
 		<figure class="chart">
 			<div class="punch">
@@ -373,7 +369,7 @@
 </div>
 
 <section>
-	<SectionHeader title="Part of the day" eyebrow={`Most in the ${PARTS[busiestPart].name.toLowerCase()}`} />
+	<SectionHeader title="Part of the day" />
 	<ol class="parts">
 		{#each PARTS as part, i (part.name)}
 			<li>

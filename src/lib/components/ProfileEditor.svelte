@@ -188,7 +188,6 @@
 <dialog bind:this={dialog} onclose={() => (open = false)} class="editor hh-glass" aria-labelledby="profile-editor-title">
 	<header>
 		<div>
-			<span class="hh-eyebrow">Profile</span>
 			<h2 id="profile-editor-title">Edit your profile</h2>
 		</div>
 		<button class="close" type="button" onclick={() => (open = false)} aria-label="Close">
@@ -283,7 +282,6 @@
 			<label class="check"><input type="checkbox" bind:checked={listed} /> The other accounts on this server, under People</label>
 			<label class="check"><input type="checkbox" bind:checked={recent} /> Show the albums I listened to lately</label>
 			<label class="check"><input type="checkbox" bind:checked={top} /> Show my most played artists of the last 30 days</label>
-			<p class="hh-muted small">Both lists come from what you played here. Your picture, name and bio are on the page either way.</p>
 		</fieldset>
 
 		{#if problem}
@@ -299,10 +297,6 @@
 
 		<div class="field link">
 			<span class="hh-eyebrow">Public link</span>
-			<p class="hh-muted small">
-				Anyone with the link sees this page, without an account: your name (your user name where you have set none),
-				picture, bio, the four albums and their covers, and the lists above where they are on. It is shown once as it is made; making a new one replaces it.
-			</p>
 			{#if link}
 				<div class="row">
 					<code class="url">{link}</code>

@@ -23,7 +23,7 @@
 	}
 </script>
 
-<MediaShelf title="New releases" eyebrow="From the artists you play most, not in your library" {index}>
+<MediaShelf title="New releases" {index}>
 	{#each releases as release (release.id)}
 		<a class="release" href={release.url} target="_blank" rel="noopener noreferrer">
 			<span class="sleeve" aria-hidden="true">

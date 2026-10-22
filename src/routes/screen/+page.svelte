@@ -152,13 +152,8 @@
 	{:else}
 		<main class="stage empty">
 			<h1 class="hh-display">Nothing playing</h1>
-			<p class="hh-muted">
-				Start something from another browser with Devices, or leave the screen to pick from the library.
-			</p>
 		</main>
 	{/if}
-
-	<p class="keys hh-muted">Enter plays and pauses · ← → skip · ↑ ↓ volume · F full screen · Esc leaves</p>
 </div>
 
 <style>
@@ -166,7 +161,7 @@
 		position: fixed;
 		inset: 0;
 		display: grid;
-		grid-template-rows: auto minmax(0, 1fr) auto;
+		grid-template-rows: auto minmax(0, 1fr);
 		padding: clamp(1rem, 3vw, 3rem);
 		/* Clear of the status bar where an installed app draws under it. */
 		padding-top: max(clamp(1rem, 3vw, 3rem), calc(env(safe-area-inset-top, 0px) + var(--space-2)));
@@ -201,15 +196,7 @@
 		color: var(--glow-color);
 	}
 
-	.keys {
-		justify-self: center;
-		margin: 0;
-		font-size: 0.8125rem;
-		transition: opacity var(--dur-state) var(--ease-out);
-	}
-
-	.idle .leave,
-	.idle .keys {
+	.idle .leave {
 		opacity: 0;
 	}
 
@@ -339,8 +326,7 @@
 
 	@media (prefers-reduced-motion: reduce) {
 		.bar span,
-		.leave,
-		.keys {
+		.leave {
 			transition: none;
 		}
 	}

@@ -97,7 +97,6 @@
 <div class="page">
 	<header>
 		<div>
-			<span class="hh-eyebrow">Library</span>
 			<h1>Playlists</h1>
 		</div>
 		<div class="controls">
@@ -197,10 +196,7 @@
 			{/each}
 		</MediaGrid>
 	{:else}
-		<p class="empty hh-muted">
-			No playlists yet. Make one here, or create it in your music server — either way it shows up in
-			both.
-		</p>
+		<p class="empty hh-muted">No playlists yet.</p>
 	{/if}
 </div>
 

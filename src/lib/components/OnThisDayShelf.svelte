@@ -35,7 +35,7 @@
 	);
 </script>
 
-<MediaShelf title="On this day" eyebrow="In earlier years" {index}>
+<MediaShelf title="On this day" {index}>
 	<div class="leaf">
 		<p class="mark today"><span class="when hh-numeric">Today</span></p>
 		<time class="page" {datetime}>

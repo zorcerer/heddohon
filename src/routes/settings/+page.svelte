@@ -509,12 +509,6 @@
 			linking = null;
 		};
 	};
-
-	const hoursLeft = $derived(
-		data.sessionExpiresAt
-			? Math.max(0, Math.round((data.sessionExpiresAt - Date.now()) / 3_600_000))
-			: 0
-	);
 </script>
 
 <svelte:head>
@@ -523,12 +517,7 @@
 
 <div class="page">
 	<header>
-		<span class="hh-eyebrow">Your account</span>
 		<h1>Settings</h1>
-		<p class="hh-muted lede">
-			These preferences are stored on the server against your account, not in this browser. Sign in
-			anywhere and you get the same setup.
-		</p>
 	</header>
 
 	<nav class="tabs" aria-label="Settings" bind:this={tabRow}>
@@ -570,19 +559,10 @@
 		<section class="hh-card hh-glass group" hidden={shown !== 'appearance'}>
 			<div class="group-head">
 				<h2>Appearance</h2>
-				<p class="hh-muted">How the library is drawn.</p>
 			</div>
 
 			<label class="row">
-				<span class="label">
-					Theme
-					<span class="hint hh-muted">
-						Terminal is flat panes on hairlines, set in a mono face, with a command line on <kbd>:</kbd>
-						or <kbd>Ctrl</kbd>+<kbd>K</kbd>. Liquid is dark glass lit by the
-						artwork. Paper is parchment and ink, tinted by it. Phosphor is dark metal and rubber
-						keys, with its readouts lit like the display of a car stereo.
-					</span>
-				</span>
+				<span class="label">Theme</span>
 				<select class="hh-input control" name="theme" bind:value={settings.theme}>
 					<option value="terminal">Terminal</option>
 					<option value="dark">Liquid</option>
@@ -596,14 +576,7 @@
 			     the player's artwork one way. -->
 			{#if settings.theme === 'terminal'}
 				<label class="row">
-					<span class="label">
-						Colour scheme
-						<span class="hint hh-muted">
-							The grounds and the text: Terminal's own, or those of an editor theme. Each
-							scheme has its own green, amber, cyan, violet, rose and white for the accent
-							below.
-						</span>
-					</span>
+					<span class="label">Colour scheme</span>
 					<select class="hh-input control" name="scheme" bind:value={settings.scheme}>
 						<option value="heddohon">Heddohon</option>
 						<option value="nord">Nord</option>
@@ -624,14 +597,7 @@
 
 			{#if settings.theme === 'terminal' || settings.theme === 'phosphor'}
 				<label class="row">
-					<span class="label">
-						Accent
-						<span class="hint hh-muted">
-							{settings.theme === 'phosphor'
-								? 'The colour the display and the readouts glow in: the cover of what is playing, or one colour that stays. The indicator lamps take a colour that sets it off.'
-								: 'The colour of the primary controls and the playing row: the cover of what is playing, or one colour that stays.'}
-						</span>
-					</span>
+					<span class="label">Accent</span>
 					<select class="hh-input control" name="accent" bind:value={settings.accent}>
 						<option value="artwork">From the artwork</option>
 						<option value="green">Green</option>
@@ -646,10 +612,7 @@
 
 			{#if settings.theme === 'terminal'}
 				<label class="row">
-					<span class="label">
-						Background dots
-						<span class="hint hh-muted">The dot grid behind the page.</span>
-					</span>
+					<span class="label">Background dots</span>
 					<select class="hh-input control" name="dots" bind:value={settings.dots}>
 						<option value="off">Off</option>
 						<option value="faint">Faint</option>
@@ -659,13 +622,7 @@
 				</label>
 
 				<label class="row">
-					<span class="label">
-						Player artwork
-						<span class="hint hh-muted">
-							How the cover meets the panel under it: dissolved into dots at its foot, faded
-							plainly, crossed by scanlines, or drawn in two tones, the cover's colour and black.
-						</span>
-					</span>
+					<span class="label">Player artwork</span>
 					<select class="hh-input control" name="playerArt" bind:value={settings.playerArt}>
 						<option value="dither">Dots</option>
 						<option value="plain">Plain</option>
@@ -676,13 +633,7 @@
 			{/if}
 
 			<label class="row">
-				<span class="label">
-					Interface scale
-					<span class="hint hh-muted">
-						Sizes the whole interface, the way the browser's own zoom does. The
-						player column takes a larger share of the screen as this goes up.
-					</span>
-				</span>
+				<span class="label">Interface scale</span>
 				<select class="hh-input control" name="uiScale" bind:value={settings.uiScale}>
 					<option value="100">100%</option>
 					<option value="110">110%</option>
@@ -695,10 +646,6 @@
 			<label class="row">
 				<span class="label">
 					Font
-					<span class="hint hh-muted">
-						The typeface across the interface. Figures and labels stay in the mono face. The first
-						is the theme's own.
-					</span>
 					<!-- In the face chosen, before it is saved; see `[data-font]` in app.css. -->
 					<span class="font-sample" data-font={settings.font} aria-hidden="true">
 						Album of the year · 24 tracks
@@ -717,10 +664,7 @@
 			</label>
 
 			<label class="row">
-				<span class="label">
-					Grid density
-					<span class="hint hh-muted">Card size on library pages.</span>
-				</span>
+				<span class="label">Grid density</span>
 				<select class="hh-input control" name="gridSize" bind:value={settings.gridSize}>
 					<option value="compact">Compact</option>
 					<option value="comfortable">Comfortable</option>
@@ -744,27 +688,14 @@
 			</label>
 
 			<label class="row switch">
-				<span class="label">
-					Show quality badge
-					<span class="hint hh-muted">
-						The FLAC 24/96 tag beside the transport controls. Pressing it turns transcoding on
-						and off.
-					</span>
-				</span>
+				<span class="label">Show quality badge</span>
 				<input type="checkbox" name="showQualityBadge" bind:checked={settings.showQualityBadge} />
 			</label>
 
 			<!-- Terminal and Phosphor have no glass and no room behind it for a glow. -->
 			{#if settings.theme !== 'terminal' && settings.theme !== 'phosphor'}
 				<label class="row">
-					<span class="label">
-						Aurora
-						<span class="hint hh-muted">
-							A glow in the artwork's colours behind the glass. Moving, it drifts slowly, and the glass
-							redraws its blur as it does; still or off costs nothing, for older or low-powered
-							hardware and for battery.
-						</span>
-					</span>
+					<span class="label">Aurora</span>
 					<select class="hh-input control" name="aurora" bind:value={settings.aurora}>
 						<option value="moving">Moving</option>
 						<option value="still">Still</option>
@@ -777,20 +708,10 @@
 		<section class="hh-card hh-glass group" hidden={shown !== 'playback'}>
 			<div class="group-head">
 				<h2>Playback</h2>
-				<p class="hh-muted">
-					Audio is streamed in its original format unless you ask for otherwise below. Nothing in
-					the chain resamples, so what your library holds is what your browser decodes.
-				</p>
 			</div>
 
 			<label class="row">
-				<span class="label">
-					Track transitions
-					<span class="hint hh-muted">
-						Tight handoff buffers the next track so the join does not wait on the
-						network. Crossfade overlaps the two.
-					</span>
-				</span>
+				<span class="label">Track transitions</span>
 				<select class="hh-input control" name="transition" bind:value={settings.transition}>
 					<option value="off">Hard cut</option>
 					<option value="gapless">Tight handoff</option>
@@ -803,10 +724,7 @@
 					<span class="label">
 						Crossfade length
 						{#if !player.rampsVolume && !processing.enabled}
-							<span class="hint hh-muted">
-								On this device only its buttons set the volume, as on an iPhone or iPad, so tracks
-								change with a tight handoff instead.
-							</span>
+							<span class="hint hh-muted">Not on this device: it changes tracks with a tight handoff.</span>
 						{/if}
 					</span>
 					<span class="control range">
@@ -823,13 +741,7 @@
 				</label>
 
 				<label class="row switch">
-					<span class="label">
-						Crossfade within an album
-						<span class="hint hh-muted">
-							Off, a track followed by the next one on its album gets the tight handoff, so a live
-							album or a mix runs on as it was recorded.
-						</span>
-					</span>
+					<span class="label">Crossfade within an album</span>
 					<input type="checkbox" name="crossfadeWithinAlbum" bind:checked={settings.crossfadeWithinAlbum} />
 				</label>
 			{:else}
@@ -840,229 +752,35 @@
 			{/if}
 
 			<label class="row switch">
-				<span class="label">
-					Preload the next track
-					<span class="hint hh-muted">
-						Buffers ahead so transitions do not wait on the network. Uses more bandwidth.
-					</span>
-				</span>
+				<span class="label">Preload the next track</span>
 				<input type="checkbox" name="preloadNext" bind:checked={settings.preloadNext} />
 			</label>
 
 			<label class="row switch">
-				<span class="label">
-					Volume normalisation
-					<span class="hint hh-muted">
-						Uses the ReplayGain data {data.serverLabel || 'the music server'} reports to bring loud
-						tracks down to the level of quieter ones. Tracks without that data play unchanged. The
-						file itself is not altered; only the playback level is.
-					</span>
-				</span>
+				<span class="label">Volume normalisation</span>
 				<input type="checkbox" name="normalizeVolume" bind:checked={settings.normalizeVolume} />
 			</label>
 
 			<label class="row switch">
 				<span class="label">
 					Report playback to {data.serverLabel}
-					<span class="hint hh-muted">
-						Sends now-playing and play counts so scrobbling and “recently played” work.
-					</span>
 				</span>
 				<input type="checkbox" name="reportPlayback" bind:checked={settings.reportPlayback} />
 			</label>
-
-			<!--
-				Unlike the rows above, these are kept in this browser, for the
-				headphones or speakers it plays through, and apply as they are
-				changed. Their inputs have no names, so the save form does not post
-				them.
-			-->
-			<h3 class="subhead">Equaliser</h3>
-			<p class="hh-muted note">Kept in this browser only. Applied as you change it.</p>
-
-			<label class="row switch">
-				<span class="label">
-					Process audio in this browser
-					<span class="hint hh-muted">
-						Plays through Web Audio at the output device's rate, which the equaliser and the visualiser need. Volume
-						normalisation can then raise quiet tracks as well as lower loud ones, and a crossfade works on
-						an iPhone or iPad. There, with this on, playing on while the app is in the background or the
-						screen is locked needs iOS 17.5 or later.
-						{#if player.processing && !processing.enabled}
-							Switched off; this page keeps processing until it is loaded again.
-						{/if}
-					</span>
-				</span>
-				<input
-					type="checkbox"
-					checked={processing.enabled}
-					onchange={(event) => processing.setEnabled(event.currentTarget.checked)}
-				/>
-			</label>
-
-			{#if processing.enabled}
-				<label class="row switch">
-					<span class="label">
-						Visualiser
-						<span class="hint hh-muted">
-							A spectrum of what is playing, in the theme's own style, at the foot of the artwork in the
-							player and of the living-room screen. Not drawn while your system asks for reduced motion.
-						</span>
-					</span>
-					<input
-						type="checkbox"
-						checked={processing.visualiser}
-						onchange={(event) => processing.setVisualiser(event.currentTarget.checked)}
-					/>
-				</label>
-
-				<label class="row" class:set-aside={processing.bandsOff}>
-					<span class="label">
-						Preset
-						{#if processing.bandsOff}
-							<span class="hint hh-muted">
-								The bands are off while a headphone correction is in use, and come back as
-								they were when it is removed.
-							</span>
-						{/if}
-					</span>
-					<select
-						class="hh-input control"
-						disabled={processing.bandsOff}
-						value={processing.preset ?? ''}
-						onchange={(event) => processing.applyPreset(event.currentTarget.value)}
-					>
-						{#if processing.preset === null}
-							<option value="">Custom</option>
-						{/if}
-						{#each Object.entries(EQ_PRESETS) as [key, preset] (key)}
-							<option value={key}>{preset.label}</option>
-						{/each}
-					</select>
-				</label>
-
-				<div class="eq" class:set-aside={processing.bandsOff} role="group" aria-label="Equaliser bands">
-					{#each EQ_FREQUENCIES as frequency, band (frequency)}
-						<label class="band">
-							<span class="gain hh-numeric">{processing.gains[band] > 0 ? '+' : ''}{processing.gains[band]}</span>
-							<input
-								type="range"
-								min={-EQ_RANGE_DB}
-								max={EQ_RANGE_DB}
-								step="1"
-								value={processing.gains[band]}
-								aria-label="{bandLabel(frequency)}Hz, in dB"
-								disabled={processing.bandsOff}
-								oninput={(event) => processing.setGain(band, Number(event.currentTarget.value))}
-							/>
-							<span class="hz hh-numeric">{bandLabel(frequency)}</span>
-						</label>
-					{/each}
-				</div>
-
-				<div class="correction">
-					<div class="label">
-						Headphone correction
-						<span class="hint hh-muted">
-							A preamp and filters measured for one headphone. While one is in use the bands above are off.
-							{#if data.autoeq}
-								Search the AutoEq database, or import a ParametricEQ.txt.
-							{:else}
-								Import a ParametricEQ.txt, the file AutoEq and Equalizer APO use.
-							{/if}
-						</span>
-					</div>
-
-					{#if processing.correction}
-						{@const chosen = processing.correction}
-						<p class="chosen">
-							<span>
-								<strong>{chosen.name}</strong>
-								<span class="hh-muted">
-									{chosen.source ? `${chosen.source} · ` : ''}{chosen.filters.length} filter{chosen.filters.length === 1 ? '' : 's'},
-									preamp {signed(chosen.preamp)} dB
-								</span>
-							</span>
-							<button class="hh-button" type="button" onclick={() => processing.setCorrection(null)}>Remove</button>
-						</p>
-					{/if}
-
-					<div class="correction-actions">
-						{#if data.autoeq}
-							<!-- Enter would submit the settings form this sits in. -->
-							<input
-								class="hh-input"
-								type="search"
-								placeholder="Search headphones"
-								aria-label="Search headphones"
-								autocomplete="off"
-								bind:value={headphoneQuery}
-								oninput={searchHeadphones}
-								onkeydown={(event) => event.key === 'Enter' && event.preventDefault()}
-							/>
-						{/if}
-						<label class="hh-button import">
-							<Icon name="plus" size={16} />
-							Import ParametricEQ.txt
-							<input
-								class="hh-visually-hidden"
-								type="file"
-								accept=".txt,text/plain"
-								onchange={(event) => void importCorrection(event.currentTarget)}
-							/>
-						</label>
-					</div>
-
-					{#if headphoneMatches}
-						{#if headphoneMatches.length === 0}
-							<p class="hh-muted note">No headphone by that name in the database.</p>
-						{:else}
-							<ul class="matches" aria-label="Headphones found">
-								{#each headphoneMatches as match (match.id)}
-									<li>
-										<button type="button" disabled={correctionBusy} onclick={() => void chooseHeadphone(match)}>
-											<span>{match.name}</span>
-											<span class="hh-muted">{match.source}{match.rig ? ` on ${match.rig}` : ''}</span>
-										</button>
-									</li>
-								{/each}
-							</ul>
-						{/if}
-					{/if}
-					{#if correctionError}<p class="note" role="alert">{correctionError}</p>{/if}
-				</div>
-			{/if}
 		</section>
 
 		<section class="hh-card hh-glass group" hidden={shown !== 'playback'}>
 			<div class="group-head">
 				<h2>Transcoding</h2>
-				<p class="hh-muted">
-					Asks {data.serverLabel} to convert each track as it is sent, instead of sending the file.
-					For a connection that will not carry the original, or a browser that cannot decode it.
-					The conversion happens on the music server, so what it can produce is decided there.
-				</p>
 			</div>
 
 			<label class="row switch">
-				<span class="label">
-					Transcode audio
-					<span class="hint hh-muted">
-						The quality badge in the player turns this on and off too, without interrupting what
-						is playing.
-					</span>
-				</span>
+				<span class="label">Transcode audio</span>
 				<input type="checkbox" name="transcode" bind:checked={settings.transcode} />
 			</label>
 
 			<label class="row">
-				<span class="label">
-					Codec
-					<span class="hint hh-muted">
-						Opus is the most efficient of the three and is not decoded by every device. MP3 is
-						decoded by all of them.
-					</span>
-				</span>
+				<span class="label">Codec</span>
 				<select class="hh-input control" name="transcodeCodec" bind:value={settings.transcodeCodec}>
 					<option value="mp3">MP3</option>
 					<option value="opus">Opus</option>
@@ -1071,12 +789,7 @@
 			</label>
 
 			<label class="row">
-				<span class="label">
-					Bitrate
-					<span class="hint hh-muted">
-						A ceiling, not a promise: a music server configured lower will send less.
-					</span>
-				</span>
+				<span class="label">Bitrate</span>
 				<select
 					class="hh-input control"
 					name="transcodeBitrateKbps"
@@ -1098,20 +811,152 @@
 		</div>
 	</form>
 
+	<!--
+		Kept in this browser, for the headphones or speakers it plays through, and
+		applied as they are changed. Below the save button, outside its form, so
+		where it stands says it is not saved with the rest. Its inputs have no
+		names either way.
+	-->
+	<section class="hh-card hh-glass group" id="this-browser" hidden={shown !== 'playback'}>
+		<div class="group-head">
+			<h2>This browser</h2>
+		</div>
+
+		<label class="row switch">
+			<span class="label">
+				Process audio
+				{#if player.processing && !processing.enabled}
+					<span class="hint hh-muted">Switched off; this page keeps processing until it is loaded again.</span>
+				{/if}
+			</span>
+			<input
+				type="checkbox"
+				checked={processing.enabled}
+				onchange={(event) => processing.setEnabled(event.currentTarget.checked)}
+			/>
+		</label>
+
+		{#if processing.enabled}
+			<label class="row switch">
+				<span class="label">Visualiser</span>
+				<input
+					type="checkbox"
+					checked={processing.visualiser}
+					onchange={(event) => processing.setVisualiser(event.currentTarget.checked)}
+				/>
+			</label>
+
+			<label class="row" class:set-aside={processing.bandsOff}>
+				<span class="label">Equaliser</span>
+				<select
+					class="hh-input control"
+					disabled={processing.bandsOff}
+					value={processing.preset ?? ''}
+					onchange={(event) => processing.applyPreset(event.currentTarget.value)}
+				>
+					{#if processing.preset === null}
+						<option value="">Custom</option>
+					{/if}
+					{#each Object.entries(EQ_PRESETS) as [key, preset] (key)}
+						<option value={key}>{preset.label}</option>
+					{/each}
+				</select>
+			</label>
+
+			<div class="eq" class:set-aside={processing.bandsOff} role="group" aria-label="Equaliser bands">
+				{#each EQ_FREQUENCIES as frequency, band (frequency)}
+					<label class="band">
+						<span class="gain hh-numeric">{processing.gains[band] > 0 ? '+' : ''}{processing.gains[band]}</span>
+						<input
+							type="range"
+							min={-EQ_RANGE_DB}
+							max={EQ_RANGE_DB}
+							step="1"
+							value={processing.gains[band]}
+							aria-label="{bandLabel(frequency)}Hz, in dB"
+							disabled={processing.bandsOff}
+							oninput={(event) => processing.setGain(band, Number(event.currentTarget.value))}
+						/>
+						<span class="hz hh-numeric">{bandLabel(frequency)}</span>
+					</label>
+				{/each}
+			</div>
+
+			<div class="correction">
+				<div class="label">
+					Headphone correction
+				</div>
+
+				{#if processing.correction}
+					{@const chosen = processing.correction}
+					<p class="chosen">
+						<span>
+							<strong>{chosen.name}</strong>
+							<span class="hh-muted">
+								{chosen.source ? `${chosen.source} · ` : ''}{chosen.filters.length} filter{chosen.filters.length === 1 ? '' : 's'},
+								preamp {signed(chosen.preamp)} dB
+							</span>
+						</span>
+						<button class="hh-button" type="button" onclick={() => processing.setCorrection(null)}>Remove</button>
+					</p>
+				{/if}
+
+				<div class="correction-actions">
+					{#if data.autoeq}
+						<!-- Enter in a search field would submit a form around it. -->
+						<input
+							class="hh-input"
+							type="search"
+							placeholder="Search headphones"
+							aria-label="Search headphones"
+							autocomplete="off"
+							bind:value={headphoneQuery}
+							oninput={searchHeadphones}
+							onkeydown={(event) => event.key === 'Enter' && event.preventDefault()}
+						/>
+					{/if}
+					<label class="hh-button import">
+						<Icon name="plus" size={16} />
+						Import ParametricEQ.txt
+						<input
+							class="hh-visually-hidden"
+							type="file"
+							accept=".txt,text/plain"
+							onchange={(event) => void importCorrection(event.currentTarget)}
+						/>
+					</label>
+				</div>
+
+				{#if headphoneMatches}
+					{#if headphoneMatches.length === 0}
+						<p class="hh-muted note">No headphone by that name in the database.</p>
+					{:else}
+						<ul class="matches" aria-label="Headphones found">
+							{#each headphoneMatches as match (match.id)}
+								<li>
+									<button type="button" disabled={correctionBusy} onclick={() => void chooseHeadphone(match)}>
+										<span>{match.name}</span>
+										<span class="hh-muted">{match.source}{match.rig ? ` on ${match.rig}` : ''}</span>
+									</button>
+								</li>
+							{/each}
+						</ul>
+					{/if}
+				{/if}
+				{#if correctionError}<p class="note" role="alert">{correctionError}</p>{/if}
+			</div>
+		{/if}
+	</section>
+
 	<!-- Outside the save form: nothing here is posted with it. -->
 	<section class="hh-card hh-glass group" id="install" hidden={shown !== 'appearance'}>
 		<div class="group-head">
 			<h2>Install the app</h2>
-			<p class="hh-muted">A window of its own, with an icon in the dock, Start menu or home screen.</p>
 		</div>
 
 		{#if installer.installed}
 			<p class="note">You are using the app.</p>
 		{:else if appKind}
-			<p class="note">
-				{data.appName} for {appKind.system} is {appKind.files}, with the latest release. It opens this server
-				in a window of its own.
-			</p>
 			<div class="install-ways">
 				<!-- Another site: a new tab, told nothing about this one. -->
 				<a class="hh-button" href={APP_RELEASES} target="_blank" rel="noopener noreferrer">
@@ -1132,10 +977,7 @@
 		{:else if installer.route === 'safari-mac' || installer.route === 'safari-ios' || installer.route === 'edge'}
 			<p class="note">{INSTALL_STEPS[installer.route]}</p>
 		{:else}
-			<p class="hh-muted note">
-				This browser does not install web apps. On a Mac, Chrome and Edge do, and Safari 17 or later; on
-				iPhone and iPad, Safari does.
-			</p>
+			<p class="hh-muted note-inline">This browser does not install web apps.</p>
 		{/if}
 	</section>
 
@@ -1151,14 +993,11 @@
 			</div>
 			<div>
 				<dt>Music server</dt>
-				<dd>{data.serverLabel} <span class="hh-eyebrow">{data.account.backend}</span></dd>
+				<dd>{data.serverLabel}</dd>
 			</div>
 			<div>
 				<dt>This session expires</dt>
-				<dd>
-					{expiry}
-					<span class="hh-numeric hh-muted">({hoursLeft}h left)</span>
-				</dd>
+				<dd>{expiry}</dd>
 			</div>
 		</dl>
 
@@ -1167,10 +1006,7 @@
 			with this one marked. Another can be signed out from here. This one
 			signs out with the button below, which also clears its cookie.
 		-->
-		<div class="sessions-head">
-			<h3>Signed in on</h3>
-			<span class="hh-numeric hh-muted">{data.sessions.length}</span>
-		</div>
+		<h3 class="subhead">Signed in on</h3>
 
 		{#if form && 'sessionError' in form && form.sessionError}
 			<p class="hh-muted note-inline" role="alert">{form.sessionError}</p>
@@ -1192,11 +1028,8 @@
 					{#if !entry.current && !entry.endable}
 						<!-- Signed in after this browser; see `endSessions` in auth.ts. A
 						     greyed "Sign out from that browser" read as a button that did
-						     not work, so this says why there is none and what to do. -->
-						<span class="hh-muted later">
-							Signed in after this browser.
-							<span class="later-how">Sign it out there, or sign in again here.</span>
-						</span>
+						     not work, so this says why there is none. -->
+						<span class="hh-muted later">Signed in after this browser.</span>
 					{:else if !entry.current}
 						<form
 							method="POST"
@@ -1224,13 +1057,6 @@
 				</li>
 			{/each}
 		</ul>
-
-		<p class="hh-muted note">
-			A sign-in lasts {sessionLifetime} and is not extended by activity: when the time is up,
-			you sign in again. Your music server password is held
-			encrypted on the server and is never sent to this browser. Signing out does not withdraw
-			shared links; see below.
-		</p>
 
 		<div class="session-actions">
 			<form method="POST" action="/logout">
@@ -1267,11 +1093,6 @@
 	<section class="hh-card hh-glass group" id="security" hidden={shown !== 'security'}>
 		<div class="group-head">
 			<h2>Two-step sign-in</h2>
-			<p class="hh-muted">
-				A second factor after your music server password: a code from an app, or a passkey. It guards the sign-in
-				here; the music server's own sign-in does not change. AI assistant tokens, shared links and the
-				now-playing link keep working without it.
-			</p>
 		</div>
 		{#if shown === 'security'}
 			<SecuritySettings serverLabel={data.serverLabel} admin={data.twoFactorAdmin} />
@@ -1283,11 +1104,6 @@
 		<section class="hh-card hh-glass group" id="listening" hidden={shown !== 'account'}>
 			<div class="group-head">
 				<h2>Listening now</h2>
-				<p class="hh-muted">
-					Accounts on this server can show each other what they are playing. While you are shown,
-					everyone signed in here sees your name, your picture and the track you are playing, for as
-					long as it plays. You see the others whether or not you are shown.
-				</p>
 			</div>
 
 			{#if listeners.error}
@@ -1295,14 +1111,7 @@
 			{/if}
 
 			<label class="row switch">
-				<span class="label">
-					Show others what I play
-					<span class="hint hh-muted">
-						{profile.shown
-							? `You are shown as ${profile.name ?? data.account.username}.`
-							: 'Off, nothing you play is shown to anyone.'}
-					</span>
-				</span>
+				<span class="label">Show others what I play</span>
 				<input
 					type="checkbox"
 					checked={profile.shown}
@@ -1317,17 +1126,7 @@
 			<!-- Only with the Navidrome plugin, which is what hears of the other apps. -->
 			{#if data.plugin}
 				<label class="row switch">
-					<span class="label">
-						Include what I play in other apps
-						<span class="hint hh-muted">
-							{data.serverLabel || 'Navidrome'} tells this server what you play in any other app signed in as
-							you, and with this on the others see that too, with no browser of yours open here. Most apps
-							do not say when they pause or stop, so a track is shown until it would have ended.
-							{#if !profile.shown}
-								It applies once you are shown.
-							{/if}
-						</span>
-					</span>
+					<span class="label">Include what I play in other apps</span>
 					<input
 						type="checkbox"
 						checked={listeningOtherApps}
@@ -1339,10 +1138,6 @@
 			<div class="row">
 				<label class="label" for="profile-name">
 					Display name
-					<span class="hint hh-muted">
-						The name the others see, up to 32 characters. Left empty, it is your user name,
-						{data.account.username}.
-					</span>
 				</label>
 				<form class="profile-name" onsubmit={saveName}>
 					<input
@@ -1362,13 +1157,7 @@
 			</div>
 
 			<div class="row">
-				<span class="label">
-					Picture
-					<span class="hint hh-muted">
-						This browser cuts the middle of the image to a square and scales it to 256 pixels before
-						it is sent.
-					</span>
-				</span>
+				<span class="label">Picture</span>
 				<div class="profile-picture">
 					<Avatar
 						name={profile.name ?? data.account.username}
@@ -1408,10 +1197,6 @@
 			<section class="hh-card hh-glass group" id="scrobbling" hidden={shown !== 'account'}>
 				<div class="group-head">
 					<h2>Scrobbling</h2>
-					<p class="hh-muted">
-						Links your account on {data.serverLabel} to Last.fm or ListenBrainz. The music server sends
-						what you play to them, from Heddohon or any other player, while “Report playback” above is on.
-					</p>
 				</div>
 
 				{#if lastfmNotice}
@@ -1423,14 +1208,7 @@
 
 				{#if links.lastfm.available}
 					<div class="row switch">
-						<span class="label">
-							Last.fm
-							<span class="hint hh-muted">
-								{links.lastfm.linked
-									? 'Linked.'
-									: 'You approve access on last.fm, which brings you back here.'}
-							</span>
-						</span>
+						<span class="label">Last.fm</span>
 						{#if links.lastfm.linked}
 							<form method="POST" action="?/unlinkScrobbler" use:enhance={refreshAfter('lastfm')}>
 								<input type="hidden" name="service" value="lastfm" />
@@ -1450,14 +1228,7 @@
 
 				{#if links.listenbrainz.available}
 					<div class="row switch">
-						<span class="label">
-							ListenBrainz
-							<span class="hint hh-muted">
-								{links.listenbrainz.linked
-									? 'Linked.'
-									: 'Paste the user token from your ListenBrainz settings page.'}
-							</span>
-						</span>
+						<span class="label">ListenBrainz</span>
 						{#if links.listenbrainz.linked}
 							<form method="POST" action="?/unlinkScrobbler" use:enhance={refreshAfter('listenbrainz')}>
 								<input type="hidden" name="service" value="listenbrainz" />
@@ -1492,11 +1263,6 @@
 					{/if}
 				{/if}
 
-				<p class="hh-muted note">
-					Heddohon keeps neither. A ListenBrainz token is passed to the music server once, which checks
-					it with ListenBrainz and stores it. Last.fm access is granted on last.fm to the music server.
-					Unlinking here removes it from the music server.
-				</p>
 			</section>
 		{/if}
 	{/await}
@@ -1506,11 +1272,6 @@
 		<section class="hh-card hh-glass group" id="activity" hidden={shown !== 'account'}>
 			<div class="group-head">
 				<h2>Your plays, elsewhere</h2>
-				<p class="hh-muted">
-					Sends the title, artist and album of each track you play past half its length, or four
-					minutes, from this server to what you link here, while “Report playback” under Playback is on.
-					A Discord channel gets the cover too.
-				</p>
 			</div>
 
 			{#if form && 'integrationError' in form && form.integrationError}
@@ -1522,11 +1283,7 @@
 				<div class="row switch">
 					<span class="label">
 						Discord channel
-						<span class="hint hh-muted">
-							{name
-								? `Posting each play through the webhook “${name}”.`
-								: 'Paste a webhook address from the channel: Edit channel, Integrations, Webhooks.'}
-						</span>
+						{#if name}<span class="hint hh-muted">{name}</span>{/if}
 					</span>
 					{#if name}
 						<form method="POST" action="?/unlinkIntegration" use:enhance={integrationSubmit('discord')}>
@@ -1563,13 +1320,7 @@
 				<div class="row switch">
 					<span class="label">
 						ListenBrainz
-						<span class="hint hh-muted">
-							{user && data.integrations.viaMusicServer
-								? `Scrobbling to ${user} from this server. ${data.serverLabel} links ListenBrainz itself, under Scrobbling: unlink it here to link it there.`
-								: user
-								? `Scrobbling to ${user}, and showing what is playing now.`
-								: 'Paste the user token from your own ListenBrainz settings page. This server sends what you play here.'}
-						</span>
+						{#if user}<span class="hint hh-muted">{user}</span>{/if}
 					</span>
 					{#if user}
 						<form method="POST" action="?/unlinkIntegration" use:enhance={integrationSubmit('listenbrainz')}>
@@ -1601,10 +1352,6 @@
 				{/if}
 			{/if}
 
-			<p class="hh-muted note">
-				A webhook address or a token is kept encrypted on this server and is not shown again. Unlinking
-				removes it, and so does a changed password on {data.serverLabel || 'the music server'}.
-			</p>
 		</section>
 	{/if}
 
@@ -1613,16 +1360,10 @@
 		<section class="hh-card hh-glass group" id="now-playing" hidden={shown !== 'account'}>
 			<div class="group-head">
 				<h2>Now-playing link</h2>
-				<p class="hh-muted">
-					A link that shows what you are playing, without signing in: a page with the cover, the title and
-					the artist on a see-through background, for a browser source in OBS, and the same as JSON, for Home
-					Assistant's REST sensor or a script. It shows nothing while nothing plays or you have paused.
-					Anyone who has the link sees what you play, so share it as you would a password.
-				</p>
 			</div>
 			{#if madeLink}
 				<div class="made-token" role="status">
-					<p>Your link, shown this once. The page, for OBS:</p>
+					<p>Shown this once.</p>
 					<input
 						class="hh-input secret"
 						readonly
@@ -1630,7 +1371,6 @@
 						aria-label="The now-playing page"
 						onfocus={(event) => event.currentTarget.select()}
 					/>
-					<p class="hh-muted">The JSON, for Home Assistant or a script:</p>
 					<input
 						class="hh-input secret"
 						readonly
@@ -1640,10 +1380,7 @@
 					/>
 				</div>
 			{:else if data.nowPlaying.madeAt}
-				<p class="hh-muted note-inline">
-					You have a link, made {new Date(data.nowPlaying.madeAt).toLocaleDateString()}. It is not shown again;
-					make a new one to see it, which stops the old one working.
-				</p>
+				<p class="hh-muted note-inline">Link made {new Date(data.nowPlaying.madeAt).toLocaleDateString()}.</p>
 			{/if}
 			<div class="history-links">
 				<form method="POST" action="?/makeNowPlaying" use:enhance={() => async ({ update }) => update({ reset: false })}>
@@ -1673,11 +1410,6 @@
 			<section class="hh-card hh-glass group" id="assistants-server" hidden={shown !== 'ai'}>
 				<div class="group-head">
 					<h2>AI assistants on this server</h2>
-					<p class="hh-muted">
-						Shown to administrators of {data.serverLabel || 'the music server'}. On, every account here can
-						make tokens for an AI assistant on this tab. Off, the endpoint answers as one that does not exist,
-						and tokens already made open nothing until it is on again.
-					</p>
 				</div>
 				<form
 					method="POST"
@@ -1694,11 +1426,9 @@
 					<label class="row switch">
 						<span class="label">
 							Allow AI assistants (MCP)
-							<span class="hint hh-muted">
-								{mcp.admin.fromEnvironment
-									? 'Set by HEDDOHON_MCP in the environment.'
-									: 'What an assistant reads goes to whoever runs its model. Saved with the setup in setup.json, and taken at once.'}
-							</span>
+							{#if mcp.admin.fromEnvironment}
+								<span class="hint hh-muted">Set by HEDDOHON_MCP in the environment.</span>
+							{/if}
 						</span>
 						<input type="checkbox" name="mcp" checked={mcp.on} disabled={mcp.admin.fromEnvironment} />
 					</label>
@@ -1720,18 +1450,11 @@
 			<section class="hh-card hh-glass group" id="assistants" hidden={shown !== 'ai'}>
 				<div class="group-head">
 					<h2>AI assistants</h2>
-					<p class="hh-muted">
-						An assistant that speaks the Model Context Protocol (MCP), such as Claude Code, can search your
-						library and read your favourites, playlists and history here with a token, and, if the token
-						allows it, make and change playlists, favourites and ratings. It acts as your account on
-						{data.serverLabel || 'the music server'}, and what it reads goes to whoever runs its model.
-					</p>
 				</div>
 	
 				{#if !mcp.on}
 					<p class="hh-muted note-inline">
-						AI assistants are turned off on this server, so these tokens open nothing. They work again if it
-						is turned back on, unless you withdraw them.
+						AI assistants are turned off on this server.
 					</p>
 				{/if}
 	
@@ -1741,7 +1464,7 @@
 	
 				{#if made}
 					<div class="made-token" role="status">
-						<p>The token for “{made.name}”, shown this once:</p>
+						<p>“{made.name}”, shown this once.</p>
 						<input
 							class="hh-input secret"
 							readonly
@@ -1749,7 +1472,6 @@
 							aria-label="The new token"
 							onfocus={(event) => event.currentTarget.select()}
 						/>
-						<p class="hh-muted">To add it to Claude Code:</p>
 						<textarea
 							class="hh-input secret"
 							readonly
@@ -1758,10 +1480,14 @@
 							onfocus={(event) => event.currentTarget.select()}
 							value={`claude mcp add --transport http heddohon ${mcp.endpoint} --header "Authorization: Bearer ${made.token}"`}
 						></textarea>
-						<p class="hh-muted">
-							Another client takes the address <code>{mcp.endpoint}</code> and the header
-							<code>Authorization: Bearer</code> followed by the token.
-						</p>
+						<!-- The address, for a client other than Claude Code. -->
+						<input
+							class="hh-input secret"
+							readonly
+							value={mcp.endpoint}
+							aria-label="The endpoint"
+							onfocus={(event) => event.currentTarget.select()}
+						/>
 					</div>
 				{/if}
 	
@@ -1781,13 +1507,7 @@
 							</button>
 						</div>
 						<label class="row switch">
-							<span class="label">
-								May change the library
-								<span class="hint hh-muted">
-									Make, rename and delete playlists, and set favourites and ratings. Off, the token reads and
-									changes nothing.
-								</span>
-							</span>
+							<span class="label">May change the library</span>
 							<input type="checkbox" name="writes" checked />
 						</label>
 					</form>
@@ -1821,12 +1541,6 @@
 					</ul>
 				{/if}
 	
-				<p class="hh-muted note">
-					The server keeps a fingerprint of each token rather than the token, so it cannot be shown again.
-					Withdrawing one stops it at once. Every token ends when you sign in with a changed password, and when
-					{data.serverLabel || 'the music server'} stops accepting this account. An account holds up to
-					{mcp.max}.
-				</p>
 			</section>
 		{/if}
 	{/if}
@@ -1837,16 +1551,11 @@
 	<section class="hh-card hh-glass group" hidden={shown !== 'sharing'}>
 		<div class="group-head">
 			<h2>Shared links</h2>
-			<p class="hh-muted">
-				Links you have made to songs, albums and playlists. Anyone who has one can listen without an
-				account, and it plays through your account on the music server.
-			</p>
 		</div>
 
 		{#if !data.sharing}
 			<p class="hh-muted note-inline">
-				Sharing is turned off on this server, so these links do not open. They work again if it is
-				turned back on, unless you withdraw them.
+				Sharing is turned off on this server.
 			</p>
 		{/if}
 
@@ -1855,10 +1564,7 @@
 		{/if}
 
 		{#if data.shares.length === 0}
-			<p class="hh-muted empty">
-				No live links. Use the share button in the player, on a track, or on an album or playlist
-				page to make one.
-			</p>
+			<p class="hh-muted empty">No live links.</p>
 		{:else}
 			<ul class="shares">
 				{#each data.shares as share (share.id)}
@@ -1902,13 +1608,6 @@
 				{/each}
 			</ul>
 		{/if}
-
-		<p class="hh-muted note">
-			A link is shown once, when it is made. The server keeps a fingerprint of it rather than the
-			link, so it cannot be shown again, and withdrawing it stops it working at once, including for
-			anyone listening at the time. Links expire on their own after the period chosen when they were
-			made. Signing out does not withdraw them.
-		</p>
 
 		{#if data.shares.length > 1}
 			<form
@@ -1956,12 +1655,7 @@
 			</div>
 			<div>
 				<dt>Shared with</dt>
-				<dd>
-					Everyone signed in to {data.serverLabel || 'the music server'}
-					{#if data.isAdmin === false}
-						<span class="hh-muted sub">Your account is not an administrator there.</span>
-					{/if}
-				</dd>
+				<dd>Everyone signed in to {data.serverLabel || 'the music server'}</dd>
 			</div>
 		</dl>
 
@@ -1971,12 +1665,6 @@
 			may clear it: a clear costs each cover being fetched upstream once
 			more.
 		-->
-		<p class="hh-muted note">
-			Artwork is kept on the server the first time it is fetched, so a second
-			device does not ask the music server to render it again. The cache holds
-			artwork, never audio. Clearing it is safe at any time: the next request
-			for each cover fetches it once more, for everyone.
-		</p>
 
 		{#if cache.limitBytes > 0}
 			<form
@@ -2007,25 +1695,8 @@
 		-->
 		{#if cache.limitBytes > 0 && data.isAdmin}
 			<h3 class="subhead">Cache every cover</h3>
-			<p class="hh-muted note">
-				Reads the albums, artists and playlists of {data.serverLabel || 'the music server'} and
-				stores each cover at the sizes the pages draw: 96, 384, 512 and 1024 pixels for an album,
-				96 and 384 for an artist or a playlist. It runs on this server and carries on with the page
-				closed. Covers already held are skipped, and it stops at the limit above. A track with
-				artwork of its own is cached when it is played.
-				{#if data.account.backend === 'jellyfin'}
-					Jellyfin limits libraries per user, so these covers are held for your account only.
-				{/if}
-			</p>
 			<label class="row switch">
-				<span class="label">
-					Keep it filled
-					<span class="hint hh-muted">
-						The server does this itself once a day, and after a restart, so covers added since
-						are cached before anyone opens them. It uses your sign-in to
-						{data.serverLabel || 'the music server'} as stored here, and stays on when you sign out.
-					</span>
-				</span>
+				<span class="label">Keep it filled</span>
 				<input type="checkbox" bind:checked={daily} onchange={saveDaily} />
 			</label>
 			{#if filling}
@@ -2070,14 +1741,7 @@
 				<h2>Database backup</h2>
 			</div>
 
-			<p class="hh-muted note">
-				Downloads a ZIP of this server's database: every account with its sign-in to
-				{data.serverLabel || 'the music server'} encrypted, settings, saved queues, shared links,
-				listening history, linked services and profiles. Sign-ins are left out, so everyone signs in
-				once after a restore, and covers are fetched again. The file opens only with this server's
-				HEDDOHON_SECRET, which is not in it: keep a copy of that as well. The steps to restore are in
-				the archive.
-			</p>
+			<p class="hh-muted note-inline">Opens only with this server's HEDDOHON_SECRET, which is not in it.</p>
 			<button class="hh-button" type="button" onclick={downloadBackup} disabled={backingUp}>
 				<Icon name="download" size={16} />
 				{backingUp ? 'Making the backup…' : 'Download a backup'}
@@ -2094,12 +1758,6 @@
 		<section class="hh-card hh-glass group" id="library-report" hidden={shown !== 'storage'}>
 			<div class="group-head">
 				<h2>Library report</h2>
-				<p class="hh-muted">
-					What the library on {data.serverLabel || 'the music server'} is made of, by format and resolution,
-					and what it lacks: albums in more than one format, the same album held twice, tracks without
-					ReplayGain, a genre or a year. Read from the whole library, a page of tracks at a time, and kept
-					for a day.
-				</p>
 			</div>
 
 			{#if report.state === 'running'}
@@ -2118,10 +1776,7 @@
 			{#if report.state === 'done'}
 				{@const r = report.report}
 				{#if r.tracks === 0}
-					<p class="hh-muted note-inline">
-						The music server listed no tracks. A Subsonic server other than Navidrome may not list its whole
-						library this way.
-					</p>
+					<p class="hh-muted note-inline">The music server listed no tracks.</p>
 				{:else}
 					<dl class="report-figures hh-numeric">
 						<div><dt>Tracks</dt><dd>{r.tracks.toLocaleString()}</dd></div>
@@ -2195,10 +1850,6 @@
 							</ul>
 						</details>
 					{/if}
-					<p class="hh-muted note">
-						Made {shortDate(r.madeAt)}. Covers are not checked: the music server gives every album a cover
-						whether or not there is art behind it. Caching every cover, above, reads them all.
-					</p>
 				{/if}
 			{/if}
 		</section>
@@ -2215,12 +1866,6 @@
 				<h2>This server</h2>
 			</div>
 
-			<p class="hh-muted note">
-				Shown to an administrator of {data.serverLabel || 'the music server'}. Both take effect at once,
-				for every account, and are saved in <code>setup.json</code> in the data directory. A value set in
-				the server's environment is shown and cannot be changed here.
-			</p>
-
 			<form
 				method="POST"
 				action="?/saveServer"
@@ -2230,15 +1875,7 @@
 					}}
 			>
 				<label class="row">
-					<span class="label">
-						Addresses
-						<span class="hint hh-muted">
-							Where this server is opened, one to a line: <code>http://192.168.1.10:3000</code>,
-							<code>https://music.example.com</code>. Sign-in and every change are accepted from these
-							and refused from any other site. An <code>https://</code> address reached through a proxy
-							that passes the host on works without being listed.
-						</span>
-					</span>
+					<span class="label">Addresses</span>
 					{#if server.fromEnvironment.origin}
 						<span class="hh-muted control">Set by ORIGIN in the environment.</span>
 					{:else}
@@ -2265,13 +1902,7 @@
 				{/if}
 
 				<label class="row">
-					<span class="label">
-						Cover cache size
-						<span class="hint hh-muted">
-							In megabytes. Covers past it are removed, the least recently used first. 0 switches the
-							cache off.
-						</span>
-					</span>
+					<span class="label">Cover cache size (MB)</span>
 					{#if server.fromEnvironment.coverCache}
 						<span class="hh-muted control">
 							{server.coverCacheMb.toLocaleString()} MB, set by HEDDOHON_COVER_CACHE_MB in the environment.
@@ -2306,12 +1937,6 @@
 		<section class="hh-card hh-glass group" id="features" hidden={shown !== 'features'}>
 			<div class="group-head">
 				<h2>Features</h2>
-				<p class="hh-muted">
-					Shown to administrators of {data.serverLabel || 'the music server'}. Each of these is off until it is
-					turned on here, for every account on this server, since each sends something to another service. Saved
-					with the setup in setup.json, and taken at once. One set in the server's environment is shown and cannot
-					be changed here.
-				</p>
 			</div>
 			<form
 				method="POST"
@@ -2329,12 +1954,9 @@
 					<label class="row switch">
 						<span class="label">
 							{feature.title}
-							<span class="hint hh-muted">
-								{feature.detail}
-								{#if feature.fromEnvironment}
-									Set by {feature.variable} in the environment.
-								{/if}
-							</span>
+							{#if feature.fromEnvironment}
+								<span class="hint hh-muted">Set by {feature.variable} in the environment.</span>
+							{/if}
 						</span>
 						<input type="checkbox" name={feature.id} checked={feature.on} disabled={feature.fromEnvironment} />
 					</label>
@@ -2354,21 +1976,8 @@
 			<h2>Listening history</h2>
 		</div>
 
-		<p class="hh-muted note">
-			Each track that plays past half its length, or four minutes, is noted on this server for
-			<a href="/history">Recently played</a>, whether or not plays are reported to
-			{data.serverLabel || 'the music server'}. How long it is kept is chosen below. It
-			is yours alone: no other account can read it.
-		</p>
-
 		<label class="row">
-			<span class="label">
-				Keep
-				<span class="hint hh-muted">
-					How far back <a href="/stats?period=all">Your listening</a> can sum up. A shorter time drops
-					older plays at the next play.
-				</span>
-			</span>
+			<span class="label">Keep</span>
 			<select
 				class="hh-input"
 				value={String(historyDays)}
@@ -2384,13 +1993,9 @@
 			<label class="row switch">
 				<span class="label">
 					Plays from other apps
-					<span class="hint hh-muted">
-						{data.serverLabel || 'Navidrome'} tells this server of each track you finish in another app, and it
-						is noted here with the rest.
-						{#if !data.plugin.heard}
-							Its Heddohon plugin has not been heard from in the last minute.
-						{/if}
-					</span>
+					{#if !data.plugin.heard}
+						<span class="hint hh-muted">Its Heddohon plugin has not been heard from in the last minute.</span>
+					{/if}
 				</span>
 				<input
 					type="checkbox"
@@ -2402,14 +2007,7 @@
 
 		{#if data.newReleasesOffered}
 			<label class="row switch">
-				<span class="label">
-					New releases on the home page
-					<span class="hint hh-muted">
-						Albums and EPs from the last year, and ones announced, by the 25 artists you played most
-						this year, that your library does not have. To find them, this server sends those artists' names
-						to MusicBrainz once a day.
-					</span>
-				</span>
+				<span class="label">New releases on the home page</span>
 				<input type="checkbox" checked={newReleases} onchange={(event) => void showNewReleases(event.currentTarget.checked)} />
 			</label>
 		{/if}
@@ -2423,13 +2021,6 @@
 		</div>
 
 		<h3 class="subhead">Export</h3>
-		<p class="hh-muted note">
-			Each play with its time, track, artist, album and length, the browser it was played in here, and its
-			source: <code>heddohon</code> for a play here, <code>navidrome</code> for one Navidrome reported (another
-			app, or its scrobble history), <code>music-server</code> for an imported last play. CSV opens in a
-			spreadsheet. JSON is a list of ListenBrainz listens, which ListenBrainz and other scrobble tools import; a
-			play kept without its track's name, from before Heddohon kept one, is left out of it.
-		</p>
 		<label class="row">
 			<span class="label">Format</span>
 			<select class="hh-input control" bind:value={exportFormat}>
@@ -2438,10 +2029,7 @@
 			</select>
 		</label>
 		<label class="row">
-			<span class="label">
-				From
-				<span class="hint hh-muted">Both left empty, every play is exported.</span>
-			</span>
+			<span class="label">From</span>
 			<input class="hh-input control" type="date" bind:value={exportFrom} max={exportTo || undefined} />
 		</label>
 		<label class="row">
@@ -2462,20 +2050,6 @@
 		</div>
 
 		<h3 class="subhead">Import from {data.serverLabel || 'the music server'}</h3>
-		{#if data.plugin?.heard}
-			<p class="hh-muted note">
-				Navidrome keeps every play in its scrobble history, and its Heddohon plugin sends it here. The import
-				adds each play the history lacks, at its date, so the listening from before Heddohon and in other apps
-				shows in the history and the stats. It starts within 15 seconds, and plays already here are skipped.
-			</p>
-		{:else}
-			<p class="hh-muted note">
-				{data.account.backend === 'jellyfin' ? 'Jellyfin' : 'Navidrome'} keeps the date each track was last
-				played, and a count of plays without their dates. The import adds one play per track played, at that
-				date, so the listening from before Heddohon shows in the history and the stats. Plays already here are
-				skipped, and importing again adds only tracks played elsewhere since.
-			</p>
-		{/if}
 		<form
 			method="POST"
 			action="?/importHistory"
@@ -2597,16 +2171,9 @@
 	}
 
 	.later {
-		display: grid;
-		justify-items: end;
 		font-size: 0.75rem;
 		text-align: right;
 		max-width: 16rem;
-	}
-
-	.lede {
-		margin: var(--space-2) 0 0;
-		max-width: 54ch;
 	}
 
 	/* Fades in. Opacity only, on the notice itself: it is a pane of glass, and
@@ -2646,12 +2213,6 @@
 		gap: 0.2rem;
 		padding-bottom: var(--space-3);
 		border-bottom: 1px solid var(--border-hairline);
-	}
-
-	.group-head p {
-		margin: 0;
-		font-size: 0.875rem;
-		max-width: 56ch;
 	}
 
 	.row {
@@ -2864,13 +2425,6 @@
 		margin: 0;
 		color: var(--text-strong);
 		font-weight: 500;
-	}
-
-	/* A second line under a fact: it is a sentence, and the eyebrow treatment
-	   set it in tracked uppercase that wrapped. */
-	.sub {
-		display: block;
-		font-size: 0.8125rem;
 	}
 
 	.note {
@@ -3113,20 +2667,13 @@
 		gap: var(--space-3);
 	}
 
-	.sessions-head {
-		display: flex;
-		align-items: baseline;
-		gap: var(--space-2);
-	}
-
 	.history-links {
 		display: flex;
 		flex-wrap: wrap;
 		gap: var(--space-2);
 	}
 
-	.subhead,
-	.sessions-head h3 {
+	.subhead {
 		margin: 0;
 		font-size: 0.9375rem;
 		font-weight: 600;

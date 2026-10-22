@@ -71,7 +71,6 @@
 <div class="page">
 	<header>
 		<div>
-			<span class="hh-eyebrow">Library</span>
 			<h1>Artists</h1>
 			<p class="meta hh-numeric hh-muted">
 				{data.libraryTotal.toLocaleString()} artist{data.libraryTotal === 1 ? '' : 's'}

@@ -132,7 +132,10 @@ test('an authenticator app is set up from Settings, with a QR code that reads ba
 	codes = await page.locator('.code-list li').allTextContents();
 	assert.equal(codes.length, 10);
 	await page.getByRole('button', { name: 'I have saved them' }).click();
-	await page.getByText('On. Sign-in asks for the six-digit code').waitFor();
+	await page
+		.locator('.block', { has: page.getByRole('heading', { name: 'Authenticator app' }) })
+		.getByRole('button', { name: 'Remove' })
+		.waitFor();
 });
 
 test('a passkey is added from Settings with a recovery code as the proof', async () => {
@@ -148,7 +151,7 @@ test('a passkey is added from Settings with a recovery code as the proof', async
 test('the sign-in page asks for the second factor after the password, and a passkey gives it', async () => {
 	await context.clearCookies();
 	await signInWithPassword();
-	await page.getByText('Signing in as').waitFor();
+	await page.locator('input[name=code]').waitFor();
 	assert.equal(new URL(page.url()).pathname, '/login');
 	await page.getByRole('button', { name: 'Use a passkey' }).click();
 	await page.waitForURL((url) => url.pathname === '/');

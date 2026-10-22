@@ -68,7 +68,7 @@
 </svelte:head>
 
 <div class="page">
-	<SectionHeader title="Favourites" eyebrow="Starred in your music server">
+	<SectionHeader title="Favourites">
 		{#snippet actions()}
 			{#if pageSongs.length > 0}
 				<button class="hh-button hh-button--primary" onclick={() => player.playNow(pageSongs)}>
@@ -83,10 +83,6 @@
 		<div class="empty">
 			<Icon name="heart" size={28} />
 			<h2>No favourites yet</h2>
-			<p class="hh-muted">
-				Star a track, album or artist anywhere in Heddohon and it will collect here. Favourites are
-				stored in your music server, so they follow you to any other client.
-			</p>
 		</div>
 	{:else}
 		<div class="bar">
@@ -208,11 +204,6 @@
 		color: var(--text-faint);
 		border: 1px solid var(--border-hairline);
 		border-radius: var(--r-lg);
-	}
-
-	.empty p {
-		max-width: 40ch;
-		margin: 0;
 	}
 
 	/* ── Terminal ────────────────────────────────────────────────────────────── */

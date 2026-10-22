@@ -30,7 +30,6 @@
 
 <div class="page">
 	<header>
-		<span class="hh-eyebrow">Your collection</span>
 		<h1>Library</h1>
 	</header>
 
@@ -48,7 +47,6 @@
 		<a class="settings hh-glass" href="/people">
 			<Icon name="people" size={19} />
 			<span>People</span>
-			<span class="hh-muted note">Your profile, and the others here</span>
 			<Icon name="chevron-right" size={16} />
 		</a>
 	{/if}
@@ -56,21 +54,18 @@
 	<a class="settings hh-glass" href="/stats">
 		<Icon name="history" size={19} />
 		<span>Your listening</span>
-		<span class="hh-muted note">What you played, and when</span>
 		<Icon name="chevron-right" size={16} />
 	</a>
 
 	<a class="settings hh-glass" href="/screen">
 		<Icon name="screen" size={19} />
 		<span>Living-room screen</span>
-		<span class="hh-muted note">Now playing, full screen, for a TV</span>
 		<Icon name="chevron-right" size={16} />
 	</a>
 
 	<a class="settings hh-glass" href="/settings">
 		<Icon name="settings" size={19} />
 		<span>Settings</span>
-		<span class="hh-muted note">Theme, playback, account</span>
 		<Icon name="chevron-right" size={16} />
 	</a>
 
@@ -210,11 +205,4 @@
 		text-shadow: var(--text-shade);
 	}
 
-	.note {
-		font-size: 0.8125rem;
-		font-weight: 400;
-		white-space: nowrap;
-		overflow: hidden;
-		text-overflow: ellipsis;
-	}
 </style>

@@ -283,10 +283,8 @@
 
 		{#if removed}
 			<h1 class="hh-display">You were removed</h1>
-			<p class="hh-muted">The host removed you from this listening session.</p>
 		{:else if ended}
 			<h1 class="hh-display">It has ended</h1>
-			<p class="hh-muted">The host ended listening together, or it ran its course.</p>
 		{:else if current}
 			<h1 class="hh-display hh-clamp-2">{current.title}</h1>
 			<p class="artist hh-truncate">{current.artist ?? 'Unknown artist'}</p>
@@ -296,18 +294,12 @@
 			</p>
 		{:else}
 			<h1 class="hh-display">Waiting for the host</h1>
-			<p class="hh-muted">Nothing is playing yet. The page follows as soon as it does.</p>
 		{/if}
 
 		{#if !ended && !removed}
 			<div class="controls">
 				{#if !joined}
 					<button class="hh-button hh-button--primary join" onclick={join}>Join{mayAdd ? ` as ${data.viewer?.name}` : ''}</button>
-					{#if mayAdd}
-						<p class="hh-muted hint">Joining shows your name to the host, and to everyone here on the tracks you add.</p>
-					{:else if data.viewer?.standing === 'listener'}
-						<p class="hh-muted hint">Your account is on another music server than the host's, so you can listen here and not add tracks.</p>
-					{/if}
 				{:else}
 					<label class="volume">
 						<span class="hh-visually-hidden">Volume</span>
@@ -502,12 +494,6 @@
 	.problem {
 		color: var(--danger);
 		font-size: 0.875rem;
-	}
-
-	.hint {
-		margin-top: var(--space-2) !important;
-		font-size: 0.8125rem;
-		line-height: 1.5;
 	}
 
 	/* What is up next, and a member's search, under the track and across both columns. */

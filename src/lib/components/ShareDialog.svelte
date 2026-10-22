@@ -21,7 +21,6 @@
 
 	const subject = $derived(shareComposer.subject);
 	/** "a song", "an album" or "a playlist", as the dialog's words say it. */
-	const aNoun = $derived(subject?.kind === 'album' ? 'an album' : `a ${subject?.kind ?? 'song'}`);
 	const link = $derived(shareComposer.link);
 	// Phones, and Chrome, Edge and Safari on a desktop. Not Firefox, and not the desktop app.
 	const canShare = browser && typeof navigator.share === 'function';
@@ -64,7 +63,6 @@
 
 		<div class="chrome">
 			<header>
-				<span class="hh-eyebrow">Share {aNoun}</span>
 				<h2 id="share-title" class="title hh-clamp-2">{subject.title}</h2>
 				{#if subject.kind !== 'playlist'}
 					<p class="artist hh-truncate hh-muted">{subject.subtitle ?? 'Unknown artist'}</p>
@@ -98,15 +96,6 @@
 						{/each}
 					</fieldset>
 
-					<p class="note hh-muted">
-						Anyone who has the link can listen, without an account. It plays through your account on
-						the music server, and opens this {subject.kind} and nothing else in your library.
-						{#if subject.kind === 'playlist'}
-							It plays the playlist as it is when opened, so a change you make to it shows there
-							too.
-						{/if}
-					</p>
-
 					<p class="note hh-muted">Only share music you have the right to share.</p>
 
 					<button
@@ -124,10 +113,6 @@
 					<!-- Live, not something to keep: what this browser plays, as it
 					     plays it, for as long as the party lasts. -->
 					<div class="together">
-						<p class="hh-muted note">
-							<strong>Or listen together.</strong> A live link: whoever opens it hears what you play, as you
-							play it.
-						</p>
 						<button
 							class="hh-button"
 							type="button"
@@ -171,13 +156,10 @@
 					</label>
 
 					<p class="status" role="status">
-						{shareComposer.copied ? 'Copied to the clipboard.' : 'Select the link above to copy it.'}
+						{shareComposer.copied ? 'Copied to the clipboard.' : ''}
 					</p>
 
-					<p class="note hh-muted">
-						Works until {expires}. This is the only time the link is shown: the server keeps a
-						fingerprint of it, not the link. Withdraw it at any time from Settings.
-					</p>
+					<p class="note hh-muted">Works until {expires}. Shown this once.</p>
 
 					{#if canShare}
 						<button class="hh-button hh-button--primary submit" type="button" onclick={() => void shareComposer.share()}>
@@ -433,14 +415,6 @@
 		gap: var(--space-2);
 		padding-top: var(--space-4);
 		border-top: 1px solid var(--border-hairline);
-	}
-
-	.together .note {
-		margin: 0;
-	}
-
-	.together .note strong {
-		color: var(--text-strong);
 	}
 
 	.together .hh-button {

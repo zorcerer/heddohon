@@ -501,7 +501,6 @@
 					</p>
 				{:else}
 					<h2 class="title">Nothing playing</h2>
-					<p class="album hh-muted">Pick something from your library</p>
 				{/if}
 				<!-- While this browser hosts listening together: who is with it, and
 				     the way back to the link. -->
@@ -770,10 +769,6 @@
 						{/if}
 					</div>
 					{#if !audioOutputs.named}
-						<p class="output-note hh-muted">
-							This browser names your outputs once Heddohon may use the microphone. Nothing is
-							recorded: the microphone is closed as soon as the list is read.
-						</p>
 						<div>
 							<button
 								class="chip"
