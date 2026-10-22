@@ -128,10 +128,10 @@
 
 	/* ── Terminal ────────────────────────────────────────────────────────────── */
 
+	/* The rule carries the index's job here, and the page's path names where it
+	   is; the numbers are drawn in the other themes. */
 	:global([data-theme='terminal']) .index {
-		font-size: 0.75rem;
-		letter-spacing: 0;
-		padding-top: 0;
+		display: none;
 	}
 
 	:global([data-theme='terminal']) .titles :global(h2) {

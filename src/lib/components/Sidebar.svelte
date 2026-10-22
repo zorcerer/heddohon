@@ -363,9 +363,11 @@
 	/* ── Terminal ────────────────────────────────────────────────────────────── */
 
 	/*
-	 * The destination is a filled block in the accent with its glyph in the dark
-	 * tone, as a selection is drawn in a terminal. The sliding marker is that
-	 * block, behind the glyphs, and travels without the stretch.
+	 * The destination is a step of the ground with an edge in the accent and its
+	 * glyph in the accent, as a picked row is drawn. It was a block filled with
+	 * the accent, which with the playing row's fill made two solid blocks of
+	 * colour on most pages. The sliding marker is that step, behind the glyphs,
+	 * and travels without the stretch.
 	 */
 	:global([data-theme='terminal']) .mark {
 		background: none;
@@ -385,11 +387,8 @@
 		background: var(--bg-hover);
 	}
 
-	/* The glyph darkens once the block is most of the way there: at once, it was
-	   a dark glyph on the dark pane for the length of the slide. */
 	:global([data-theme='terminal']) .link.active {
-		color: var(--accent-contrast);
-		transition: color 0s linear 180ms;
+		color: var(--accent);
 	}
 
 	:global([data-theme='terminal']) .link.active::before {
@@ -399,8 +398,14 @@
 	/* Until the marker has a position (the server-rendered page), and for
 	   Settings, which is outside the list, the link draws the block itself. */
 	:global([data-theme='terminal']) .rail:not(.measured) .link.active,
+	:global([data-theme='terminal']) .foot .link.active,
+	:global([data-theme='terminal']) .marker {
+		background: var(--bg-raised);
+		box-shadow: inset 2px 0 0 var(--accent);
+	}
+
+	:global([data-theme='terminal']) .rail:not(.measured) .link.active,
 	:global([data-theme='terminal']) .foot .link.active {
-		background: var(--accent);
 		transition: none;
 	}
 

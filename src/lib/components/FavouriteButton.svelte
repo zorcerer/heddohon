@@ -143,11 +143,14 @@
 	:global([data-theme='terminal']) .fav.labelled::before {
 		content: '[';
 		content: '[' / '';
+		/* Against the label, as `.hh-button`'s are (`terminal.css`). */
+		margin-right: -0.35rem;
 	}
 
 	:global([data-theme='terminal']) .fav.labelled::after {
 		content: ']';
 		content: ']' / '';
+		margin-left: -0.35rem;
 	}
 
 	:global([data-theme='terminal']) .fav.labelled:hover,
