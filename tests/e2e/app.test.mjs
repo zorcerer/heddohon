@@ -333,7 +333,7 @@ describe('settings', () => {
 
 	test('Terminal\'s scheme, accent, dot grid and player artwork are each one of those offered, and are in the first byte of the page', async () => {
 		const fresh = await (await user.json('/api/settings', 'PATCH', {})).json();
-		assert.deepEqual([fresh.scheme, fresh.accent, fresh.dots, fresh.playerArt], ['heddohon', 'artwork', 'faint', 'duotone']);
+		assert.deepEqual([fresh.scheme, fresh.accent, fresh.dots, fresh.playerArt], ['heddohon', 'artwork', 'faint', 'scanlines']);
 		try {
 			const saved = await (
 				await user.json('/api/settings', 'PATCH', { theme: 'terminal', scheme: 'tokyo-night', accent: 'green', dots: 'off', playerArt: 'duotone' })
@@ -353,7 +353,7 @@ describe('settings', () => {
 			await user.json('/api/settings', 'PATCH', { theme: 'dark' });
 			assert.match((await user.page('/albums')).html, /name="theme-color" content="#0b0c0f"/);
 		} finally {
-			await user.json('/api/settings', 'PATCH', { theme: 'dark', scheme: 'heddohon', accent: 'artwork', dots: 'faint', playerArt: 'duotone' });
+			await user.json('/api/settings', 'PATCH', { theme: 'dark', scheme: 'heddohon', accent: 'artwork', dots: 'faint', playerArt: 'scanlines' });
 		}
 	});
 

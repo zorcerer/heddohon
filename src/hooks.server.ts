@@ -512,7 +512,7 @@ const handleRequest: Handle = async ({ event, resolve }) => {
 				.replace('data-scheme="heddohon"', `data-scheme="${shown.scheme}"`)
 				.replace('data-accent="artwork"', `data-accent="${shown.accent}"`)
 				.replace('data-dots="faint"', `data-dots="${shown.dots}"`)
-				.replace('data-art="duotone"', `data-art="${shown.playerArt}"`)
+				.replace('data-art="scanlines"', `data-art="${shown.playerArt}"`)
 				// The scale and the font likewise: applied after hydration, they
 				// would resize the page in front of the reader.
 				.replace('data-scale="100"', `data-scale="${shown.uiScale}"`)
