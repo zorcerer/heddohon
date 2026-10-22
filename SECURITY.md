@@ -822,6 +822,96 @@ the now-playing link are made by a signed-in session and keep working without
 a second factor, as before. The music server's own sign-in, and every other
 client of it, are unchanged.
 
+## Single sign-on (OpenID Connect)
+
+Added 22 October 2026 (issue #202). With `HEDDOHON_OIDC_ISSUER` and a client
+registered at an OpenID Connect provider, an account can link its identity
+there under Settings, Security, and then sign in from the sign-in page
+through the provider. The code is in `lib/server/oidc.ts` and the routes
+`/login/oidc`, `/login/oidc/callback` and `/api/oidc`;
+`tests/e2e/oidc.test.mjs` covers what follows.
+
+**The provider never vouches for a music server account.** Heddohon holds no
+password of its own, and the provider holds none of the music server's. An
+identity is linked to an account by a session of that account, with the same
+proof adding a passkey takes (a factor where it has one, its music server
+password where it has none). A sign-in through the provider then opens the
+credential stored at the account's last password sign-in, after asking the
+music server whether it still takes it (`checkCredential`), as a passkey on
+its own does. Nothing maps a claim to a user name, so an administrator of
+the provider, or a person who can change their own name or email address
+there, cannot point an identity at an account they did not sign in to here.
+
+**An identity is the token's `iss` and `sub`**, held in `oidc_links`, unique
+both ways: one identity an account, and one account an identity. Only the
+`openid` scope is asked for, and no other claim is stored. A second
+account that tries to link an identity already linked is refused
+(`oidc-rejected`, `linked to another account`) and has to have it unlinked
+there first.
+
+**The round trip.** The authorization code flow with PKCE (S256), a 256-bit
+`state` and a 256-bit `nonce`. The state, the nonce, the verifier, the
+redirect address, the purpose and, for a link, the account are held in a
+`heddohon_oidc` cookie (`__Host-` where Secure, `HttpOnly`, `SameSite=Lax`,
+10 minutes), sealed with AES-256-GCM under a key of its own; nothing is
+written to the database before the browser comes back. `Lax` is needed: the
+provider sends the browser back with a navigation from its own site. The
+return is refused before the token endpoint is asked unless its `state`
+matches the cookie's, so a return sent to another browser does nothing, and
+the cookie is cleared on any return. A link completes only where the
+browser is still signed in to the account that started it.
+
+**The ID token** is checked by hand with node:crypto, as WebAuthn is: the
+signature against the provider's published keys (RS256, RS384, RS512, PS256,
+PS384, PS512 with RSA keys of 2048 bits or more; ES256, ES384, ES512 on their
+own curves; EdDSA with Ed25519), a key whose `use` is `enc` or whose `alg` is
+another refused; `none` and the HMAC algorithms refused; a `crit` header
+refused; then `iss` equal to the discovery document's issuer, this client in
+`aud` (and as `azp` where there are several audiences or an `azp`), `exp`
+and `iat` within 60 seconds of this server's clock, the `nonce` sent, and a
+`sub` of 1 to 255 characters. The discovery document's `issuer` has to be
+the configured one, a trailing slash aside. Discovery is held for an hour
+(a failure for 30 seconds, and starts at one moment share one request), and
+the keys are read again for a `kid` not held at most once a minute.
+Every request to the provider has a 10-second timeout, a 256 KB cap on the
+answer, and refuses redirects, so the client secret goes to the token
+endpoint the discovery document names and nowhere else. The secret is sent
+in a Basic header unless the provider lists only `client_secret_post`, and a
+public client (no secret) sends its id alone and is held to PKCE.
+
+**A second factor is still asked for.** The provider's sign-in stands in for
+the password, not for the factor: an account with one goes through
+`beginStep` as a password sign-in does. The step's cookie is
+`SameSite=Strict`, and a browser does not send it on a redirect that is part
+of a navigation the provider's site started, so the callback answers that
+case with a page that moves on to `/login` by itself (`onwards`).
+
+**A link goes** when a new Jellyfin user holds the account's name, and when
+a password sign-in stores a password other than the one held: on Subsonic a
+name given to someone else looks the same as a password change. The same
+person links again from Settings. An unlink takes no proof, since it only
+takes a way in away.
+
+| Limit | Value |
+| --- | --- |
+| A pending sign-in or link | 10 minutes, one per browser |
+| Returns from the provider | 30 per address and 600 in all in 15 minutes (`oidc:` in `login_attempts`); each return that passes the state check is one request to the token endpoint |
+| ID token | 16 KB; a `sub` of 255 characters |
+| Code and state in a return | 2048 and 128 characters |
+| Provider answers | 256 KB each, 10 seconds; 100 published keys read |
+
+`oidc-linked`, `oidc-unlinked`, `oidc-rejected` (with the step and the reason)
+and `oidc-throttled` are logged at `warn`, `oidc-failed` when the provider
+cannot be read, and a sign-in through it as `signed-in` with `method=oidc`.
+`code` and `state` are redacted from logged addresses, as the Last.fm
+callback's parameters are.
+
+**What it does not cover.** The provider's own security (its sign-in, its
+factors, who it lets have an account) is the provider's. An identity linked
+on a Jellyfin account goes on signing in for as long as Jellyfin takes the
+stored token, which a password change on Jellyfin may not end; the same holds
+for a passkey.
+
 ## Shared links
 
 A signed-in account can make a link to one song, one album or one playlist.
@@ -1498,6 +1588,7 @@ Covers are cached under `$HEDDOHON_DATA_DIR/covers` (see
 | Albums read for one play of an artist | 200 |
 | Sessions per account | 50; the oldest ends |
 | Second factor code | 64 characters; six digits from an app, or a recovery code of 10 characters of `a-z 2-7`, spaces and dashes ignored |
+| A return from the identity provider | `code` 2048 and `state` 128 characters; an ID token of 16 KB, its `sub` 255 characters |
 | Second factors | see [Second factor at sign-in](#second-factor-at-sign-in): 5 a held sign-in, 5 wrong ones an account in 15 minutes, 10 held sign-ins an account, 20 passkeys an account |
 | Passkey answer | a credential id of 1023 bytes; client data 4 KB, attestation 16 KB, authenticator data 4 KB, signature 1 KB, user handle 64 bytes; CBOR 32 levels deep |
 | Passkey name | 64 characters, cut; the request's 300 |

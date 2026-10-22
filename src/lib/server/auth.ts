@@ -39,6 +39,7 @@ import { clearMixes } from './mixes';
 import { foldName } from './names';
 import { endPartiesOf } from './together';
 import { clearSecondFactors } from './twofactor';
+import { unlinkIdentity } from './oidc';
 
 const SESSION_COOKIE = 'heddohon_session';
 
@@ -234,6 +235,9 @@ export async function storeAccount(
 		// The previous holder's TOTP app and passkeys would otherwise be asked
 		// of the new user.
 		await clearSecondFactors(existing.id);
+		// And their identity at the provider would sign in to the new user's
+		// library.
+		await unlinkIdentity(existing.id);
 		const links = await revokeAllShares(existing.id);
 		await clearAccountState(existing.id);
 		await clearMixes(existing.id);
@@ -260,6 +264,10 @@ export async function storeAccount(
 		// they turn it on themselves.
 		await hideProfile(existing.id);
 		await hidePage(existing.id);
+		// A link signs in through the stored credential with no password, so
+		// the previous holder of a reused name would reach the new holder's
+		// library through it. The same person links again from Settings.
+		await unlinkIdentity(existing.id);
 		deviceEpoch++;
 		log.warn('account-password-changed', { account: existing.id, backend: kind });
 	}

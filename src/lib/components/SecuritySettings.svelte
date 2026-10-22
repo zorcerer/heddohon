@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
+	import { replaceState } from '$app/navigation';
 	import QrCode from './QrCode.svelte';
 	import { createPasskey, passkeyFailure, passkeysAvailable, usePasskey } from '$lib/client/webauthn';
 
@@ -36,8 +37,14 @@
 		maxPasskeys: number;
 		maxPasskeyName: number;
 	}
+	/** The link to the identity provider (`/api/oidc`); `provider` is null where none is configured. */
+	interface OidcStatus {
+		provider: string | null;
+		link: { createdAt: number; lastUsedAt: number | null } | null;
+	}
 
 	let status = $state<Status | null>(null);
+	let oidc = $state<OidcStatus | null>(null);
 	let loadError = $state<string | null>(null);
 	let canPasskey = $state(false);
 	let busy = $state<string | null>(null);
@@ -69,10 +76,11 @@
 		canPasskey = passkeysAvailable();
 		requireOn = admin?.required ?? false;
 		void refresh();
+		void refreshOidc().then(reportOidcReturn);
 	});
 
-	async function call(body: Record<string, unknown>): Promise<Record<string, any>> {
-		const response = await fetch('/api/two-factor', {
+	async function call(body: Record<string, unknown>, path = '/api/two-factor'): Promise<Record<string, any>> {
+		const response = await fetch(path, {
 			method: 'POST',
 			headers: { 'content-type': 'application/json', accept: 'application/json' },
 			body: JSON.stringify(body)
@@ -91,6 +99,35 @@
 		} catch {
 			loadError = 'Could not read your sign-in settings. Reload the page to try again.';
 		}
+	}
+
+	async function refreshOidc() {
+		try {
+			const response = await fetch('/api/oidc', { headers: { accept: 'application/json' } });
+			if (response.ok) oidc = await response.json();
+		} catch {
+			// The block is left out, and the rest of the page still works.
+		}
+	}
+
+	/**
+	 * What a return from the provider to a link says, in `?oidc=` (the
+	 * callback in `routes/login/oidc`). Taken off the address once shown, so a
+	 * reload does not show it again.
+	 */
+	function reportOidcReturn() {
+		const result = page.url.searchParams.get('oidc');
+		const provider = oidc?.provider;
+		if (!result || !provider) return;
+		if (result === 'linked') message = `Linked. “Sign in with ${provider}” on the sign-in page now signs in to this account.`;
+		else if (result === 'taken') problem = `That ${provider} account is linked to another account here. Unlink it there first.`;
+		else if (result === 'cancelled') problem = `The link was cancelled at ${provider}.`;
+		else if (result === 'expired') problem = 'That link took too long, or was finished in another browser. Try again.';
+		else if (result === 'unreachable') problem = `${provider} could not be reached. Try again shortly.`;
+		else problem = `${provider} did not complete the link. Try again.`;
+		const url = new URL(page.url);
+		url.searchParams.delete('oidc');
+		replaceState(url, page.state);
 	}
 
 	/** Runs `work` with the buttons held, and reports what it threw. */
@@ -199,6 +236,22 @@
 			const done = await call({ action: 'passkey-remove', id: key.id, proof });
 			message = `Passkey removed.${ended(done.sessionsEnded)}`;
 			await refresh();
+		});
+	}
+
+	function linkOidc() {
+		ask(`link your ${oidc?.provider} account`, async (proof) => {
+			const answer = await call({ action: 'link', proof }, '/api/oidc');
+			// The provider's own page, which sends the browser back to Settings.
+			location.assign(answer.url);
+		});
+	}
+
+	async function unlinkOidc() {
+		await act('oidc-unlink', async () => {
+			await call({ action: 'unlink' }, '/api/oidc');
+			message = `Unlinked. ${oidc?.provider} no longer signs in to this account.`;
+			await refreshOidc();
 		});
 	}
 
@@ -449,6 +502,30 @@
 			</form>
 		{/if}
 	</div>
+
+	{#if oidc?.provider}
+		<div class="block">
+			<h3>Single sign-on</h3>
+			{#if oidc.link}
+				<p class="hh-muted small">
+					Linked <span class="hh-numeric">{date(oidc.link.createdAt)}</span>{#if oidc.link.lastUsedAt}
+						· last used <span class="hh-numeric">{date(oidc.link.lastUsedAt)}</span>{/if}. “Sign in with {oidc.provider}” on the
+					sign-in page signs in to this account{hasFactor ? ', then asks for your second factor' : ''}.
+				</p>
+				<div class="actions">
+					<button class="hh-button danger" type="button" disabled={busy !== null || !!asking} onclick={unlinkOidc}>Unlink</button>
+				</div>
+			{:else}
+				<p class="hh-muted small">
+					Link your {oidc.provider} account, and the sign-in page signs in to this one through it, without your password for
+					{serverLabel || 'the music server'}.
+				</p>
+				<div class="actions">
+					<button class="hh-button" type="button" disabled={busy !== null || !!asking} onclick={linkOidc}>Link {oidc.provider}</button>
+				</div>
+			{/if}
+		</div>
+	{/if}
 
 	{#if hasFactor}
 		<div class="block">

@@ -317,8 +317,8 @@
 			{/if}
 		</header>
 
-		{#if quickConnectError ?? passkeyError ?? form?.error}
-			<p class="alert" role="alert">{quickConnectError ?? passkeyError ?? form?.error}</p>
+		{#if quickConnectError ?? passkeyError ?? form?.error ?? data.oidcProblem}
+			<p class="alert" role="alert">{quickConnectError ?? passkeyError ?? form?.error ?? data.oidcProblem}</p>
 		{/if}
 
 		{#if data.step}
@@ -489,6 +489,17 @@
 				>
 					{passkeyBusy ? 'Waiting for your passkey…' : 'Sign in with a passkey'}
 				</button>
+			{/if}
+
+			{#if data.oidc}
+				{#if !selectedServer?.quickConnect && !(data.passkeys && canPasskey)}
+					<div class="divider" aria-hidden="true"><span class="hh-eyebrow">or</span></div>
+				{/if}
+				<!-- A link, not a form: see `routes/login/oidc`. A full navigation, since it
+				     goes on to the provider's site. -->
+				<a class="hh-button quick oidc" href="/login/oidc?next={encodeURIComponent(next)}" data-sveltekit-reload>
+					Sign in with {data.oidc}
+				</a>
 			{/if}
 		{:else}
 			<section class="quick-connect" aria-live="polite">
@@ -898,7 +909,8 @@
 		gap: var(--space-3);
 	}
 
-	.quick + .passkey {
+	.quick + .passkey,
+	.quick + .oidc {
 		margin-top: var(--space-2);
 	}
 
