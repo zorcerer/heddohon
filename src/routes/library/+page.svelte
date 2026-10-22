@@ -44,6 +44,15 @@
 		{/each}
 	</nav>
 
+	{#if data.profiles}
+		<a class="settings hh-glass" href="/people">
+			<Icon name="people" size={19} />
+			<span>People</span>
+			<span class="hh-muted note">Your profile, and the others here</span>
+			<Icon name="chevron-right" size={16} />
+		</a>
+	{/if}
+
 	<a class="settings hh-glass" href="/stats">
 		<Icon name="history" size={19} />
 		<span>Your listening</span>

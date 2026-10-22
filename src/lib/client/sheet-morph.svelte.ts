@@ -9,8 +9,8 @@
  * Everything that moves obeys the glass rules in `app.css`. The sheet's
  * wrapper is transformed, and a transform is not a backdrop root, so the panel
  * keeps its blur. Opacity goes on the panel's contents, never on the panel or
- * anything around it. The flying cover is an image of its own, over
- * everything, holding no glass.
+ * anything around it. The flying cover is a box of its own, over everything,
+ * holding no glass.
  *
  * The CSS slide stays for what this does not cover: a wider screen, reduced
  * motion, and nothing playing (so no dock row to land in).
@@ -28,7 +28,7 @@ import { takeRelease } from './sheet.svelte';
 export const sheetMorph = $state<{ phase: 'morphing' | 'parking' | null }>({ phase: null });
 
 let running: Animation[] = [];
-let ghost: HTMLImageElement | null = null;
+let ghost: HTMLElement | null = null;
 let hiddenArt: HTMLElement | null = null;
 
 function cleanUp() {
@@ -126,13 +126,54 @@ function run(opening: boolean, pulled: number) {
 	if (sheetArt && big && image) {
 		const start = opening ? small : new DOMRect(big.left, big.top + pulled, big.width, big.height);
 		const end = opening ? big : small;
-		ghost = document.createElement('img');
-		ghost.src = image.currentSrc || image.src;
-		ghost.alt = '';
+		ghost = document.createElement('div');
 		ghost.setAttribute('aria-hidden', 'true');
 		ghost.className = 'hh-cover-ghost';
+		const inside = document.createElement('div');
+		const picture = document.createElement('img');
+		picture.src = image.currentSrc || image.src;
+		picture.alt = '';
+		const layer = document.createElement('span');
+		inside.append(picture, layer);
+		ghost.append(inside);
 		place(ghost, start);
 		document.body.append(ghost);
+		// The sheet's cover is drawn its own way: a filter on the picture (grey,
+		// for Duotone), a layer over it (grain, Terminal's dots, scanlines, or
+		// Duotone's colour), and a mask that fades its foot into the controls.
+		// The dock's is drawn plainly. The flying one copies the sheet's and turns
+		// from one to the other on the way. It flew plain, and the layer and the
+		// fade snapped on as the sheet's cover was shown at the end of an open.
+		const turn = (from: Keyframe, to: Keyframe) => (opening ? [from, to] : [to, from]);
+		const sheetCover = sheetArt.querySelector('.cover');
+		const filter = sheetCover ? getComputedStyle(sheetCover).filter : 'none';
+		const drawn = getComputedStyle(sheetArt, '::after');
+		for (const name of [
+			'background-image',
+			'background-color',
+			'background-size',
+			'background-position',
+			'background-repeat',
+			'mix-blend-mode',
+			'mask-image',
+			'-webkit-mask-image'
+		]) {
+			layer.style.setProperty(name, drawn.getPropertyValue(name));
+		}
+		running.push(
+			picture.animate(turn({ filter: 'none' }, { filter }), options),
+			layer.animate(turn({ opacity: 0 }, { opacity: 1 }), options)
+		);
+		// The fade: the sheet's mask, drawn twice as tall at the dock, where it
+		// reaches no part of the picture, and shrunk to the cover on the way.
+		const style = getComputedStyle(sheetArt);
+		const mask = style.getPropertyValue('mask-image') || style.getPropertyValue('-webkit-mask-image');
+		if (mask && mask !== 'none') {
+			inside.style.setProperty('mask-image', mask);
+			inside.style.setProperty('-webkit-mask-image', mask);
+			const size = (value: string): Keyframe => ({ maskSize: value, webkitMaskSize: value });
+			running.push(inside.animate(turn(size('100% 200%'), size('100% 100%')), options));
+		}
 		// The sheet's cover rounds its top corners only, on the image itself.
 		const bigRadius = getComputedStyle(sheetArt.querySelector('img') ?? sheetArt).borderRadius;
 		const smallRadius = getComputedStyle(dockArt).borderRadius;

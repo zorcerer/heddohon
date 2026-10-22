@@ -35,14 +35,22 @@
 
 	/*
 	 * The section from the address, then the name of the thing shown. The id in
-	 * the address is the music server's and is not written. Settings shows its
-	 * tab, which is in the query.
+	 * the address is the music server's and is not written; a page of the app's
+	 * own under a section is (`PAGES`). Settings shows its tab, which is in the
+	 * query.
 	 */
+	const PAGES = new Set(['import', 'recap']);
 	const segments = $derived.by(() => {
-		const [section] = page.url.pathname.split('/').filter(Boolean);
+		const [section, sub] = page.url.pathname.split('/').filter(Boolean);
 		if (!section) return [];
 		const out = [{ label: section, href: `/${section}` }];
-		const last = named ? slug(named) : section === 'settings' ? page.url.searchParams.get('tab') : null;
+		const last = named
+			? slug(named)
+			: section === 'settings'
+				? page.url.searchParams.get('tab')
+				: sub && PAGES.has(sub)
+					? sub
+					: null;
 		if (last) out.push({ label: last, href: '' });
 		return out;
 	});
@@ -83,11 +91,13 @@
 	 * opaque. The negative margins take it out to the pane's edges through the
 	 * pane's own padding, and the negative `top` likewise: a sticky element is
 	 * held inside the scroller's padding, which at `top: 0` left it 24px down.
+	 * Above a hovered card (3, later in the page), or its lifted cover rides
+	 * over the strip as the pane scrolls.
 	 */
 	:global([data-theme='terminal']) .strip {
 		position: sticky;
 		top: calc(var(--space-5) * -1);
-		z-index: 3;
+		z-index: 4;
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
@@ -150,7 +160,7 @@
 	:global([data-theme='phosphor']) .strip {
 		position: sticky;
 		top: calc(var(--space-5) * -1);
-		z-index: 3;
+		z-index: 4;
 		display: flex;
 		align-items: center;
 		justify-content: space-between;

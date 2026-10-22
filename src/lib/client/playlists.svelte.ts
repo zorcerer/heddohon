@@ -6,6 +6,7 @@
  * playlist list.
  */
 import type { Playlist, Song } from '$lib/types';
+import type { SmartRules } from '$lib/smartrules';
 
 interface AddRequest {
 	songIds: string[];
@@ -28,13 +29,23 @@ async function send(url: string, method: string, body?: unknown): Promise<unknow
 
 async function fetchPlaylists(): Promise<Playlist[]> {
 	const payload = (await send('/api/playlists', 'GET')) as { playlists?: Playlist[] };
-	// The picker adds to a playlist, which the music server allows to its owner alone.
-	return (payload.playlists ?? []).filter((playlist) => playlist.editable);
+	// The picker adds to a playlist, which the music server allows to its owner
+	// alone, and not to one it fills itself (a smart playlist).
+	return (payload.playlists ?? []).filter((playlist) => playlist.tracksEditable);
 }
 
 export async function createPlaylist(name: string, songIds: string[] = []): Promise<string> {
 	const payload = (await send('/api/playlists', 'POST', { name, songIds })) as { id: string };
 	return payload.id;
+}
+
+export async function createSmartPlaylist(name: string, rules: SmartRules): Promise<string> {
+	const payload = (await send('/api/playlists/smart', 'POST', { name, rules })) as { id: string };
+	return payload.id;
+}
+
+export async function setPlaylistRules(id: string, rules: SmartRules): Promise<void> {
+	await send(`/api/playlists/${encodeURIComponent(id)}/rules`, 'PUT', { rules });
 }
 
 export async function setPlaylistPublic(id: string, isPublic: boolean): Promise<void> {

@@ -24,6 +24,7 @@
 		| 'home'
 		| 'album'
 		| 'artist'
+		| 'people'
 		| 'playlist'
 		| 'library'
 		| 'search'
@@ -85,6 +86,8 @@
 		home: 'M4 10.5 12 4l8 6.5V19a1.4 1.4 0 0 1-1.4 1.4H5.4A1.4 1.4 0 0 1 4 19v-8.5ZM9.5 20.4v-6h5v6',
 		album: 'M12 3.8a8.2 8.2 0 1 0 0 16.4 8.2 8.2 0 0 0 0-16.4ZM12 10.4a1.6 1.6 0 1 0 0 3.2 1.6 1.6 0 0 0 0-3.2Z',
 		artist: 'M12 3.5a3.8 3.8 0 1 1 0 7.6 3.8 3.8 0 0 1 0-7.6ZM4.5 20.5a7.5 7.5 0 0 1 15 0',
+		// Two heads, one behind the other: the profiles of the accounts here.
+		people: 'M9 4.5a3.3 3.3 0 1 1 0 6.6 3.3 3.3 0 0 1 0-6.6ZM2.8 19.5a6.2 6.2 0 0 1 12.4 0M15.6 5a3 3 0 0 1 0 5.8M17.6 13.6a6.2 6.2 0 0 1 3.6 5.9',
 		playlist: 'M4 6h13M4 11h13M4 16h6M18 9.5v8.2M18 17.7a1.9 1.9 0 1 1-2-1.9',
 		// Two spines upright and a third leaning on them, on a shelf: the usual mark for a library.
 		library: 'M4.5 4.5v15M8.5 4.5v15M12.4 5.2l3.9 14.1M19.5 19.5h-15',

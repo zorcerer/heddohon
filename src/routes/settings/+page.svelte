@@ -7,6 +7,7 @@
 	import Cover from '$lib/components/Cover.svelte';
 	import Avatar from '$lib/components/Avatar.svelte';
 	import Icon from '$lib/components/Icon.svelte';
+	import SecuritySettings from '$lib/components/SecuritySettings.svelte';
 	import { avatarUrl, listeners } from '$lib/client/listeners.svelte';
 	import { player } from '$lib/client/player.svelte';
 	import { EQ_FREQUENCIES, EQ_RANGE_DB } from '$lib/client/audiochain';
@@ -168,6 +169,40 @@
 			body: JSON.stringify({ historyOtherApps: on })
 		}).catch(() => undefined);
 	}
+	/*
+	 * The history as a file. The dates are days in this browser's time zone,
+	 * the start from its first moment and the end to its last, sent as the
+	 * epoch millis the server reads (`/api/history/export`).
+	 */
+	let exportFormat = $state<'csv' | 'json'>('csv');
+	let exportFrom = $state('');
+	let exportTo = $state('');
+	const exportRange = $derived.by(() => {
+		const from = exportFrom ? new Date(`${exportFrom}T00:00`).getTime() : null;
+		let to: number | null = null;
+		if (exportTo) {
+			const end = new Date(`${exportTo}T00:00`);
+			end.setDate(end.getDate() + 1);
+			to = end.getTime();
+		}
+		return { from, to, wrong: from !== null && to !== null && from >= to };
+	});
+	const exportHref = $derived.by(() => {
+		const query = new URLSearchParams({ format: exportFormat });
+		if (exportRange.from !== null) query.set('from', String(exportRange.from));
+		if (exportRange.to !== null) query.set('to', String(exportRange.to));
+		return `/api/history/export?${query}`;
+	});
+	/** Whether the home page has the "New releases" shelf, saved as it is changed. */
+	let newReleases = $state(untrack(() => data.settings.newReleases));
+	async function showNewReleases(on: boolean) {
+		newReleases = on;
+		await fetch('/api/settings', {
+			method: 'PATCH',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ newReleases: on })
+		}).catch(() => undefined);
+	}
 	/** The session lifetime in days where it is a whole number of them, and in hours otherwise. */
 	const sessionLifetime = $derived(
 		data.sessionMaxHours % 24 === 0
@@ -221,15 +256,22 @@
 		{ id: 'playback', label: 'Playback' },
 		{ id: 'history', label: 'Listening history' },
 		{ id: 'account', label: 'Account' },
+		{ id: 'security', label: 'Security' },
 		{ id: 'ai', label: 'AI' },
 		{ id: 'sharing', label: 'Shared links' },
-		{ id: 'storage', label: 'Cover cache' }
+		{ id: 'storage', label: 'Cover cache' },
+		{ id: 'features', label: 'Features' }
 	] as const;
 	type Tab = (typeof TABS)[number]['id'];
 
 	const sharingShown = $derived(data.sharing || data.shares.length > 0);
 	const tabs = $derived(
-		TABS.filter((entry) => (entry.id !== 'sharing' || sharingShown) && (entry.id !== 'ai' || data.mcp !== null))
+		TABS.filter(
+			(entry) =>
+				(entry.id !== 'sharing' || sharingShown) &&
+				(entry.id !== 'ai' || data.mcp !== null) &&
+				(entry.id !== 'features' || data.features !== null)
+		)
 	);
 
 	function tabFrom(url: URL): Tab {
@@ -242,8 +284,17 @@
 	let tab = $state<Tab>(untrack(() => tabFrom(page.url)));
 	// A link to a tab that is not offered: sharing off with no links left, or AI with nothing to show.
 	const shown = $derived<Tab>(
-		(tab === 'sharing' && !sharingShown) || (tab === 'ai' && data.mcp === null) ? 'appearance' : tab
+		(tab === 'sharing' && !sharingShown) || (tab === 'ai' && data.mcp === null) || (tab === 'features' && data.features === null)
+			? 'appearance'
+			: tab
 	);
+
+	// On a phone the row scrolls sideways; the chosen tab is brought into it.
+	let tabRow = $state<HTMLElement | null>(null);
+	$effect(() => {
+		void shown;
+		tabRow?.querySelector<HTMLElement>('.tab.active')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+	});
 
 	function selectTab(event: MouseEvent, next: Tab) {
 		// A modified click opens the tab's link as a link would.
@@ -414,6 +465,7 @@
 
 	/** The MCP token form waiting on the server: `make`, or the id of one being withdrawn. */
 	let mcpBusy = $state<string | null>(null);
+	let featuresBusy = $state(false);
 
 	function mcpSubmit(busy: string): SubmitFunction {
 		return () => {
@@ -479,7 +531,7 @@
 		</p>
 	</header>
 
-	<nav class="tabs" aria-label="Settings">
+	<nav class="tabs" aria-label="Settings" bind:this={tabRow}>
 		{#each tabs as entry (entry.id)}
 			<a
 				class="tab"
@@ -563,6 +615,9 @@
 						<option value="one-dark">One Dark</option>
 						<option value="monokai">Monokai</option>
 						<option value="everforest">Everforest</option>
+						{#each data.customSchemes as scheme (scheme.id)}
+							<option value={scheme.id}>{scheme.name}</option>
+						{/each}
 					</select>
 				</label>
 			{/if}
@@ -829,7 +884,7 @@
 				<span class="label">
 					Process audio in this browser
 					<span class="hint hh-muted">
-						Plays through Web Audio at the output device's rate, which the equaliser needs. Volume
+						Plays through Web Audio at the output device's rate, which the equaliser and the visualiser need. Volume
 						normalisation can then raise quiet tracks as well as lower loud ones, and a crossfade works on
 						an iPhone or iPad. There, with this on, playing on while the app is in the background or the
 						screen is locked needs iOS 17.5 or later.
@@ -846,6 +901,21 @@
 			</label>
 
 			{#if processing.enabled}
+				<label class="row switch">
+					<span class="label">
+						Visualiser
+						<span class="hint hh-muted">
+							A spectrum of what is playing, in the theme's own style, at the foot of the artwork in the
+							player and of the living-room screen. Not drawn while your system asks for reduced motion.
+						</span>
+					</span>
+					<input
+						type="checkbox"
+						checked={processing.visualiser}
+						onchange={(event) => processing.setVisualiser(event.currentTarget.checked)}
+					/>
+				</label>
+
 				<label class="row" class:set-aside={processing.bandsOff}>
 					<span class="label">
 						Preset
@@ -1192,6 +1262,22 @@
 		</div>
 	</section>
 
+	<!-- The account's second factors; see `twofactor.ts`. Mounted while shown,
+	     since it reads them from the server when it starts. -->
+	<section class="hh-card hh-glass group" id="security" hidden={shown !== 'security'}>
+		<div class="group-head">
+			<h2>Two-step sign-in</h2>
+			<p class="hh-muted">
+				A second factor after your music server password: a code from an app, or a passkey. It guards the sign-in
+				here; the music server's own sign-in does not change. AI assistant tokens, shared links and the
+				now-playing link keep working without it.
+			</p>
+		</div>
+		{#if shown === 'security'}
+			<SecuritySettings serverLabel={data.serverLabel} admin={data.twoFactorAdmin} />
+		{/if}
+	</section>
+
 	<!-- Only where the operator has left it on; see `HEDDOHON_LISTENERS`. -->
 	{#if profile}
 		<section class="hh-card hh-glass group" id="listening" hidden={shown !== 'account'}>
@@ -1519,6 +1605,64 @@
 				A webhook address or a token is kept encrypted on this server and is not shown again. Unlinking
 				removes it, and so does a changed password on {data.serverLabel || 'the music server'}.
 			</p>
+		</section>
+	{/if}
+
+	{#if data.nowPlaying}
+		{@const madeLink = form && 'nowPlayingToken' in form ? form.nowPlayingToken : null}
+		<section class="hh-card hh-glass group" id="now-playing" hidden={shown !== 'account'}>
+			<div class="group-head">
+				<h2>Now-playing link</h2>
+				<p class="hh-muted">
+					A link that shows what you are playing, without signing in: a page with the cover, the title and
+					the artist on a see-through background, for a browser source in OBS, and the same as JSON, for Home
+					Assistant's REST sensor or a script. It shows nothing while nothing plays or you have paused.
+					Anyone who has the link sees what you play, so share it as you would a password.
+				</p>
+			</div>
+			{#if madeLink}
+				<div class="made-token" role="status">
+					<p>Your link, shown this once. The page, for OBS:</p>
+					<input
+						class="hh-input secret"
+						readonly
+						value={`${page.url.origin}/now/${madeLink}`}
+						aria-label="The now-playing page"
+						onfocus={(event) => event.currentTarget.select()}
+					/>
+					<p class="hh-muted">The JSON, for Home Assistant or a script:</p>
+					<input
+						class="hh-input secret"
+						readonly
+						value={`${page.url.origin}/api/now-playing/${madeLink}`}
+						aria-label="The now-playing JSON"
+						onfocus={(event) => event.currentTarget.select()}
+					/>
+				</div>
+			{:else if data.nowPlaying.madeAt}
+				<p class="hh-muted note-inline">
+					You have a link, made {new Date(data.nowPlaying.madeAt).toLocaleDateString()}. It is not shown again;
+					make a new one to see it, which stops the old one working.
+				</p>
+			{/if}
+			<div class="history-links">
+				<form method="POST" action="?/makeNowPlaying" use:enhance={() => async ({ update }) => update({ reset: false })}>
+					<button class="hh-button" type="submit">
+						<Icon name="link" size={16} />
+						{data.nowPlaying.madeAt || madeLink ? 'Make a new link' : 'Make a link'}
+					</button>
+				</form>
+				{#if data.nowPlaying.madeAt || madeLink}
+					<form method="POST" action="?/withdrawNowPlaying" use:enhance={() => async ({ update }) => update({ reset: false })}>
+						<button class="hh-button danger" type="submit">Withdraw the link</button>
+					</form>
+				{/if}
+			</div>
+			{#if form && 'nowPlayingError' in form && form.nowPlayingError}
+				<p class="hh-muted note-inline" role="alert">{form.nowPlayingError}</p>
+			{:else if form && 'nowPlayingWithdrawn' in form && form.nowPlayingWithdrawn}
+				<p class="hh-muted note-inline" role="status">Withdrawn. The link no longer works.</p>
+			{/if}
 		</section>
 	{/if}
 
@@ -2158,6 +2302,53 @@
 		</section>
 	{/if}
 
+	{#if data.features}
+		<section class="hh-card hh-glass group" id="features" hidden={shown !== 'features'}>
+			<div class="group-head">
+				<h2>Features</h2>
+				<p class="hh-muted">
+					Shown to administrators of {data.serverLabel || 'the music server'}. Each of these is off until it is
+					turned on here, for every account on this server, since each sends something to another service. Saved
+					with the setup in setup.json, and taken at once. One set in the server's environment is shown and cannot
+					be changed here.
+				</p>
+			</div>
+			<form
+				method="POST"
+				action="?/saveFeatures"
+				use:enhance={() => {
+					featuresBusy = true;
+					return async ({ update }) => {
+						await update({ reset: false });
+						await invalidateAll();
+						featuresBusy = false;
+					};
+				}}
+			>
+				{#each data.features as feature (feature.id)}
+					<label class="row switch">
+						<span class="label">
+							{feature.title}
+							<span class="hint hh-muted">
+								{feature.detail}
+								{#if feature.fromEnvironment}
+									Set by {feature.variable} in the environment.
+								{/if}
+							</span>
+						</span>
+						<input type="checkbox" name={feature.id} checked={feature.on} disabled={feature.fromEnvironment} />
+					</label>
+				{/each}
+				{#if form && 'featuresError' in form && form.featuresError}
+					<p class="hh-muted note-inline" role="alert">{form.featuresError}</p>
+				{:else if form && 'featuresSaved' in form && form.featuresSaved}
+					<p class="hh-muted note-inline" role="status">Saved.</p>
+				{/if}
+				<button class="hh-button" type="submit" disabled={featuresBusy}>{featuresBusy ? 'Saving…' : 'Save'}</button>
+			</form>
+		</section>
+	{/if}
+
 	<section class="hh-card hh-glass group" hidden={shown !== 'history'}>
 		<div class="group-head">
 			<h2>Listening history</h2>
@@ -2209,12 +2400,65 @@
 			</label>
 		{/if}
 
+		{#if data.newReleasesOffered}
+			<label class="row switch">
+				<span class="label">
+					New releases on the home page
+					<span class="hint hh-muted">
+						Albums and EPs from the last year, and ones announced, by the 25 artists you played most
+						this year, that your library does not have. To find them, this server sends those artists' names
+						to MusicBrainz once a day.
+					</span>
+				</span>
+				<input type="checkbox" checked={newReleases} onchange={(event) => void showNewReleases(event.currentTarget.checked)} />
+			</label>
+		{/if}
+
 		<div class="history-links">
 			<a class="hh-button" href="/history">
 				<Icon name="history" size={16} />
 				Recently played
 			</a>
 			<a class="hh-button" href="/stats">Your listening</a>
+		</div>
+
+		<h3 class="subhead">Export</h3>
+		<p class="hh-muted note">
+			Each play with its time, track, artist, album and length, the browser it was played in here, and its
+			source: <code>heddohon</code> for a play here, <code>navidrome</code> for one Navidrome reported (another
+			app, or its scrobble history), <code>music-server</code> for an imported last play. CSV opens in a
+			spreadsheet. JSON is a list of ListenBrainz listens, which ListenBrainz and other scrobble tools import; a
+			play kept without its track's name, from before Heddohon kept one, is left out of it.
+		</p>
+		<label class="row">
+			<span class="label">Format</span>
+			<select class="hh-input control" bind:value={exportFormat}>
+				<option value="csv">CSV</option>
+				<option value="json">JSON (ListenBrainz)</option>
+			</select>
+		</label>
+		<label class="row">
+			<span class="label">
+				From
+				<span class="hint hh-muted">Both left empty, every play is exported.</span>
+			</span>
+			<input class="hh-input control" type="date" bind:value={exportFrom} max={exportTo || undefined} />
+		</label>
+		<label class="row">
+			<span class="label">To</span>
+			<input class="hh-input control" type="date" bind:value={exportTo} min={exportFrom || undefined} />
+		</label>
+		<div class="history-links">
+			{#if data.historyCount === 0}
+				<button class="hh-button" type="button" disabled>No listening history</button>
+			{:else if exportRange.wrong}
+				<button class="hh-button" type="button" disabled>The start is after the end</button>
+			{:else}
+				<a class="hh-button" href={exportHref} download>
+					<Icon name="download" size={16} />
+					Download listening history
+				</a>
+			{/if}
 		</div>
 
 		<h3 class="subhead">Import from {data.serverLabel || 'the music server'}</h3>
@@ -2319,6 +2563,14 @@
 		overflow-x: auto;
 		/* Five tabs are wider than a phone; the row scrolls sideways there. */
 		scrollbar-width: none;
+	}
+
+	/* Eight tabs are wider than the column too: there they wrap to a second line. */
+	@media (min-width: 40rem) {
+		.tabs {
+			flex-wrap: wrap;
+			overflow-x: visible;
+		}
 	}
 
 	.tab {

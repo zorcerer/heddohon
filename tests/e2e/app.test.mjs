@@ -8,13 +8,13 @@
  * state (settings, credentials) says so and puts it back.
  */
 import assert from 'node:assert/strict';
-import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { crc32, inflateRawSync } from 'node:zlib';
-import { after, before, beforeEach, describe, test } from 'node:test';
+import { after, afterEach, before, beforeEach, describe, test } from 'node:test';
 import { Client, startApp } from './harness.mjs';
-import { OUTSIDE, startAutoEq, startJellyfin, startOutside, startStationHost, startSubsonic } from './mocks.mjs';
+import { OUTSIDE, startAutoEq, startJellyfin, startMusicBrainz, startOutside, startStationHost, startSubsonic } from './mocks.mjs';
 
 let subsonic;
 let jellyfin;
@@ -333,7 +333,7 @@ describe('settings', () => {
 
 	test('Terminal\'s scheme, accent, dot grid and player artwork are each one of those offered, and are in the first byte of the page', async () => {
 		const fresh = await (await user.json('/api/settings', 'PATCH', {})).json();
-		assert.deepEqual([fresh.scheme, fresh.accent, fresh.dots, fresh.playerArt], ['heddohon', 'artwork', 'faint', 'duotone']);
+		assert.deepEqual([fresh.scheme, fresh.accent, fresh.dots, fresh.playerArt], ['heddohon', 'artwork', 'faint', 'scanlines']);
 		try {
 			const saved = await (
 				await user.json('/api/settings', 'PATCH', { theme: 'terminal', scheme: 'tokyo-night', accent: 'green', dots: 'off', playerArt: 'duotone' })
@@ -353,7 +353,7 @@ describe('settings', () => {
 			await user.json('/api/settings', 'PATCH', { theme: 'dark' });
 			assert.match((await user.page('/albums')).html, /name="theme-color" content="#0b0c0f"/);
 		} finally {
-			await user.json('/api/settings', 'PATCH', { theme: 'dark', scheme: 'heddohon', accent: 'artwork', dots: 'faint', playerArt: 'duotone' });
+			await user.json('/api/settings', 'PATCH', { theme: 'dark', scheme: 'heddohon', accent: 'artwork', dots: 'faint', playerArt: 'scanlines' });
 		}
 	});
 
@@ -413,6 +413,65 @@ describe('settings', () => {
 			assert.deepEqual(await colours(paper.url, '?theme=terminal'), ['#08090a', '#08090a']);
 		} finally {
 			await paper.stop();
+		}
+	});
+
+	/*
+	 * #182: colour schemes for Terminal from files in the data directory. A
+	 * good file is offered and drawn from the first byte; a bad one is named in
+	 * the log and not offered; a scheme whose file is taken away falls back.
+	 */
+	test('a colour scheme from a file in the data directory is offered, checked, and drawn from the first byte', async () => {
+		const dataDir = mkdtempSync(join(tmpdir(), 'heddohon-e2e-schemes-'));
+		mkdirSync(join(dataDir, 'themes'));
+		const scheme = (body) => ({
+			heddohon: 1,
+			name: 'Rosé Pine',
+			ground: '#191724',
+			raised: '#26233a',
+			foreground: '#e0def4',
+			accents: { green: '#9ccfd8', amber: '#f6c177', cyan: '#9ccfd8', violet: '#c4a7e7', rose: '#ebbcba', white: '#e0def4' },
+			...body
+		});
+		writeFileSync(join(dataDir, 'themes', 'rose-pine.json'), JSON.stringify(scheme({})));
+		writeFileSync(join(dataDir, 'themes', 'too-light.json'), JSON.stringify(scheme({ name: 'Too light', ground: '#f4f4f4' })));
+		writeFileSync(join(dataDir, 'themes', 'nord.json'), JSON.stringify(scheme({ name: 'Not Nord' })));
+		writeFileSync(join(dataDir, 'themes', 'sneaky.json'), JSON.stringify(scheme({ name: 'Sneaky', ground: 'url(//x)' })));
+		const start = () => startApp({ subsonicUrl: subsonic.url, jellyfinUrl: jellyfin.url, dataDir, env: { HEDDOHON_DEFAULT_THEME: 'terminal' } });
+		const client = new Client('');
+		let app = await start();
+		try {
+			client.base = app.url;
+			await client.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' });
+			const saved = await (await client.json('/api/settings', 'PATCH', { scheme: 'rose-pine' })).json();
+			assert.equal(saved.scheme, 'rose-pine');
+			for (const refused of ['too-light', 'sneaky']) {
+				const kept = await (await client.json('/api/settings', 'PATCH', { scheme: refused })).json();
+				assert.equal(kept.scheme, 'rose-pine', `${refused} was taken`);
+			}
+			const output = app.output();
+			assert.match(output, /scheme-refused.*too-light\.json.*too light/);
+			assert.match(output, /scheme-refused.*nord\.json.*built-in/);
+			assert.match(output, /scheme-refused.*sneaky\.json.*#rrggbb/);
+
+			const { html } = await client.page('/');
+			assert.match(html, /data-scheme="rose-pine"/);
+			assert.match(html, /name="theme-color" content="#191724"/);
+			const style = html.match(/<style id="hh-schemes">([\s\S]*?)<\/style>/)?.[1] ?? '';
+			assert.match(style, /\[data-scheme='rose-pine'\] \{\n\t--bg-base: #191724;/);
+			assert.match(style, /\[data-scheme='rose-pine'\]\[data-accent='amber'\]/);
+			assert.doesNotMatch(style, /too-light|sneaky|url\(/);
+			assert.match((await client.page('/settings')).html, /<option value="rose-pine"[^>]*>Rosé Pine<\/option>/);
+			await app.stop({ keepData: true });
+
+			// The file taken away: back on Terminal's own, and nothing in the head.
+			rmSync(join(dataDir, 'themes', 'rose-pine.json'));
+			app = await start();
+			client.base = app.url;
+			assert.equal((await (await client.json('/api/settings', 'GET')).json()).scheme, 'heddohon');
+			assert.doesNotMatch((await client.page('/')).html, /hh-schemes/);
+		} finally {
+			await app.stop();
 		}
 	});
 
@@ -1416,11 +1475,19 @@ describe('playback on another browser', () => {
 		});
 	});
 	describe('listening now', () => {
-		/** The frame header of a JPEG that declares this size, and nothing after it: what `jpegSize` reads. */
-		const jpeg = (width, height, padding = 0) =>
+		const JFIF = [0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00];
+		/** A segment with this marker and body. */
+		const segment = (marker, body) => [0xff, marker, (body.length + 2) >> 8, (body.length + 2) & 255, ...body];
+		/**
+		 * The frame header of a JPEG that declares this size (what `jpegSize`
+		 * reads), a scan of `padding` bytes and the end, with `extra` segments
+		 * after the start.
+		 */
+		const jpeg = (width, height, padding = 0, extra = JFIF) =>
 			new Uint8Array([
-				...[0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00],
+				...[0xff, 0xd8, ...extra],
 				...[0xff, 0xc0, 0x00, 0x11, 0x08, height >> 8, height & 255, width >> 8, width & 255, 0x03, 0x01, 0x11, 0x00, 0x02, 0x11, 0x01, 0x03, 0x11, 0x01],
+				...segment(0xda, [0x01, 0x01, 0x00, 0x00, 0x3f, 0x00]),
 				...new Array(padding).fill(0),
 				...[0xff, 0xd9]
 			]);
@@ -1436,7 +1503,10 @@ describe('playback on another browser', () => {
 			try {
 				// Each stream opens with the list and the account's own profile.
 				assert.deepEqual((await b.next('listeners')).listeners, []);
-				assert.deepEqual((await a.next('listeners')).you, { id: null, name: null, shown: false, avatar: null });
+				// The home page makes the profile's row, with its handle, unshown.
+				const { id, ...you } = (await a.next('listeners')).you;
+				assert.ok(id === null || /^[0-9a-f]{24}$/.test(id));
+				assert.deepEqual(you, { name: null, shown: false, avatar: null });
 
 				// Playing, and not shown: the other account is told nothing.
 				assert.equal((await first.json('/api/remote/state', 'POST', { peer: a.id, state: playing })).status, 200);
@@ -1559,7 +1629,8 @@ describe('playback on another browser', () => {
 				assert.equal(served.headers.get('x-content-type-options'), 'nosniff');
 				assert.equal(served.headers.get('content-security-policy'), "default-src 'none'; sandbox");
 				assert.match(served.headers.get('cache-control'), /^private, /);
-				assert.deepEqual(new Uint8Array(await served.arrayBuffer()), bytes);
+				// Without JFIF's segment, which can hold a thumbnail.
+				assert.deepEqual(new Uint8Array(await served.arrayBuffer()), jpeg(256, 256, 2000, []));
 
 				assert.equal((await new Client(app.url).request(`/api/profile/avatar/${id}`)).status, 401);
 				assert.equal((await other.request(`/api/profile/avatar/${'0'.repeat(24)}`)).status, 404);
@@ -1570,6 +1641,59 @@ describe('playback on another browser', () => {
 
 				assert.equal((await client.request('/api/profile/avatar', { method: 'DELETE' })).status, 200);
 				assert.equal((await other.request(`/api/profile/avatar/${id}`)).status, 404);
+			} finally {
+				await client.request('/api/profile/avatar', { method: 'DELETE' });
+			}
+		});
+
+		test('a picture is kept without its metadata, and with its colour profile', async () => {
+			const client = await signedIn();
+			const other = await signedIn('seconduser', 'secondpass');
+			const text = (value) => [...new TextEncoder().encode(value)];
+			try {
+				const icc = segment(0xe2, [...text('ICC_PROFILE\0'), 0x01, 0x01, ...text('sRGB')]);
+				const adobe = segment(0xee, [...text('Adobe'), 0x00, 0x64, 0x00, 0x00, 0x00, 0x00, 0x01]);
+				const exif = segment(0xe1, text('Exif\0\0MM\0*\0\0\0\x08GPS 52.3676N 4.9041E'));
+				const xmp = segment(0xe1, text('http://ns.adobe.com/xap/1.0/\0<x:xmpmeta>Canon EOS R5 0123456789</x:xmpmeta>'));
+				const comment = segment(0xfe, text('taken at home'));
+				const photoshop = segment(0xed, text('Photoshop 3.0\0author'));
+				const sent = new Uint8Array([
+					...jpeg(256, 256, 64, [...JFIF, ...exif, ...icc, ...xmp, ...photoshop, ...adobe, ...comment]),
+					// A second file after the end, as a polyglot carries one.
+					...text('PK\x03\x04hidden.txt')
+				]);
+				const set = await picture(client, sent);
+				assert.equal(set.status, 200);
+				const { id } = await set.json();
+				const served = new Uint8Array(await (await other.request(`/api/profile/avatar/${id}`)).arrayBuffer());
+				assert.deepEqual(served, jpeg(256, 256, 64, [...icc, ...adobe]));
+				const latin = Buffer.from(served).toString('latin1');
+				for (const left of ['Exif', 'GPS', 'xmpmeta', 'Canon', 'taken at home', 'Photoshop', 'JFIF', 'hidden']) {
+					assert.ok(!latin.includes(left), `${left} is still in the picture`);
+				}
+
+				// A scan's stuffed bytes and restart markers are its data, and a segment
+				// after a scan (a progressive JPEG's next table) is walked like the rest.
+				const scans = new Uint8Array([
+					0xff, 0xd8,
+					...[0xff, 0xc2, 0x00, 0x11, 0x08, 0x01, 0x00, 0x01, 0x00, 0x03, 0x01, 0x11, 0x00, 0x02, 0x11, 0x01, 0x03, 0x11, 0x01],
+					...segment(0xda, [0x01, 0x01, 0x00, 0x00, 0x00, 0x00]),
+					...[0x12, 0xff, 0x00, 0x34, 0xff, 0xd0, 0x56],
+					...comment,
+					...segment(0xc4, [0x10, ...new Array(16).fill(0)]),
+					...segment(0xda, [0x01, 0x01, 0x00, 0x01, 0x3f, 0x00]),
+					...[0x78, 0xff, 0xd9]
+				]);
+				const progressive = await picture(client, scans);
+				assert.equal(progressive.status, 200);
+				const kept = new Uint8Array(await (await other.request(`/api/profile/avatar/${(await progressive.json()).id}`)).arrayBuffer());
+				const without = [...scans];
+				without.splice(scans.indexOf(0x56) + 1, comment.length);
+				assert.deepEqual(kept, new Uint8Array(without));
+
+				// A scan that never ends, or a segment longer than what is left, is not a picture.
+				assert.equal((await picture(client, jpeg(256, 256, 64).slice(0, -2))).status, 400);
+				assert.equal((await picture(client, new Uint8Array([0xff, 0xd8, 0xff, 0xe1, 0x40, 0x00, 0x00]))).status, 400);
 			} finally {
 				await client.request('/api/profile/avatar', { method: 'DELETE' });
 			}
@@ -1613,7 +1737,7 @@ describe('playback on another browser', () => {
 			}
 		});
 
-		test('with HEDDOHON_LISTENERS=false nothing is sent and the routes are gone', async () => {
+		test('with HEDDOHON_LISTENERS=false nothing is sent and nobody can be shown', async () => {
 			const off = await startApp({ subsonicUrl: subsonic.url, jellyfinUrl: jellyfin.url, env: { HEDDOHON_LISTENERS: 'false' } });
 			try {
 				const client = new Client(off.url);
@@ -1625,9 +1749,12 @@ describe('playback on another browser', () => {
 				} finally {
 					a.cancel();
 				}
-				assert.equal((await client.request('/api/profile')).status, 404);
+				// The name and the picture are the profile page's too, and stay; being
+				// shown in the list is what goes.
+				assert.equal((await client.request('/api/profile')).status, 200);
 				assert.equal((await client.json('/api/profile', 'PATCH', { shown: true })).status, 404);
-				assert.equal((await picture(client, jpeg(256, 256))).status, 404);
+				assert.equal((await client.json('/api/profile', 'PATCH', { name: 'Still named' })).status, 200);
+				assert.equal((await picture(client, jpeg(256, 256))).status, 200);
 				assert.equal((await client.request(`/api/profile/avatar/${'0'.repeat(24)}`)).status, 404);
 				assert.doesNotMatch((await client.page('/settings?tab=account')).html, /Show others what I play/);
 			} finally {
@@ -1812,10 +1939,10 @@ describe('listening history', () => {
 		});
 	});
 
-	test('Recently played and Your listening are tabs of each other, under History on the rail', async () => {
+	test('Recently played, Your listening and Recap are tabs of each other, under History on the rail', async () => {
 		const current = (html) => /<nav class="tabs[^"]*" aria-label="Listening history">[\s\S]*?aria-current="page"[^>]*>([^<]+)</.exec(html)?.[1];
 		const rail = (html) => /title="([^"]+)" aria-current="page"/.exec(html)?.[1];
-		for (const [path, tab] of [['/history', 'Recently played'], ['/stats', 'Your listening']]) {
+		for (const [path, tab] of [['/history', 'Recently played'], ['/stats', 'Your listening'], ['/stats/recap', 'Recap']]) {
 			const { html } = await user.page(path);
 			assert.equal(current(html), tab, `${path} does not mark its tab`);
 			assert.equal(rail(html), 'History', `${path} does not light History on the rail`);
@@ -1889,6 +2016,120 @@ describe('listening history', () => {
 		} finally {
 			jellyfin.state.played = [];
 		}
+	});
+
+	test('the history downloads as CSV and as ListenBrainz listens, with each play\'s source and browser, whole or for a range', async () => {
+		await asFreshAccount('exporter', async (client) => {
+			await client.json('/api/settings', 'PATCH', { reportPlayback: false });
+			const firefox = { headers: { 'user-agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:131.0) Gecko/20100101 Firefox/131.0' } };
+			// A title a spreadsheet would run as a formula.
+			subsonic.state.songTitles.set('s3a', '=HYPERLINK("https://evil.example","x")');
+			subsonic.state.played.set('s5a', daysAgo(30));
+			let middle;
+			try {
+				await client.json('/api/playback', 'POST', { songId: 's3a', event: 'stop', position: 100, completed: true }, firefox);
+				await new Promise((done) => setTimeout(done, 5));
+				middle = Date.now();
+				await new Promise((done) => setTimeout(done, 5));
+				await play(client, 's4b');
+				assert.equal((await importHistory(client)).imported, 1);
+			} finally {
+				subsonic.state.songTitles.clear();
+				subsonic.state.played.clear();
+			}
+
+			const csv = await client.request('/api/history/export?format=csv');
+			assert.equal(csv.status, 200, explain('the CSV export failed'));
+			assert.match(csv.headers.get('content-type'), /^text\/csv; charset=utf-8/);
+			assert.match(csv.headers.get('content-disposition'), /^attachment; filename="heddohon-listening-\d{4}-\d\d-\d\d\.csv"$/);
+			assert.match(csv.headers.get('cache-control'), /no-store/);
+			const lines = (await csv.text()).split('\r\n');
+			assert.equal(lines.pop(), '', 'the last line does not end');
+			assert.equal(lines[0], 'played_at,track,artist,album,duration_seconds,device,source,song_id');
+			// Oldest first: the imported play, 30 days back, then the two made here.
+			assert.equal(lines.length, 4, lines.join('\n'));
+			assert.match(lines[1], /^\d{4}-\d\d-\d\dT[\d:.]+Z,Song 5a,Artist 0005,Album 5,180,,music-server,s5a$/);
+			assert.match(lines[2], /,"'=HYPERLINK\(""https:\/\/evil\.example"",""x""\)",Artist 0003,Album 3,180,Firefox on Linux,heddohon,s3a$/);
+			assert.match(lines[3], /,Song 4b,Artist 0004,Album 4,180,,heddohon,s4b$/);
+
+			const json = await client.request('/api/history/export?format=json');
+			assert.equal(json.status, 200);
+			assert.match(json.headers.get('content-disposition'), /\.json"$/);
+			const listens = await json.json();
+			assert.equal(listens.length, 3);
+			assert.equal(listens[1].listened_at, Math.floor(Date.parse(lines[2].split(',')[0]) / 1000));
+			assert.deepEqual(listens[1].track_metadata, {
+				artist_name: 'Artist 0003',
+				track_name: '=HYPERLINK("https://evil.example","x")',
+				release_name: 'Album 3',
+				additional_info: {
+					media_player: 'Heddohon',
+					submission_client: 'Heddohon',
+					submission_client_version: listens[1].track_metadata.additional_info.submission_client_version,
+					duration: 180,
+					heddohon_song_id: 's3a',
+					heddohon_source: 'heddohon',
+					heddohon_device: 'Firefox on Linux'
+				}
+			});
+			assert.equal(listens[0].track_metadata.additional_info.media_player, undefined, 'an imported play was given a player');
+			assert.equal(listens[0].track_metadata.additional_info.heddohon_source, 'music-server');
+
+			const rows = async (query) => (await (await client.request(`/api/history/export?${query}`)).text()).trim().split('\r\n').slice(1);
+			assert.deepEqual((await rows(`from=${middle}`)).map((line) => line.split(',').at(-1)), ['s4b']);
+			assert.deepEqual((await rows(`to=${middle}`)).map((line) => line.split(',').at(-1)), ['s5a', 's3a']);
+
+			for (const query of ['format=xml', 'from=soon', 'from=-1', 'from=10&to=5', 'to=99999999999999999']) {
+				assert.equal((await client.request(`/api/history/export?${query}`)).status, 400, `${query} was taken`);
+			}
+
+			await asFreshAccount('bystander', async (other) => {
+				assert.deepEqual(await (await other.request('/api/history/export?format=json')).json(), []);
+			});
+		});
+	});
+
+	test('a recap sums up a year or a month of it, against the one before, and an empty one says so', async () => {
+		await asFreshAccount('recapper', async (client) => {
+			const year = new Date().getUTCFullYear() - 1;
+			subsonic.state.played.set('s5a', `${year}-03-15T12:00:00.000Z`);
+			subsonic.state.played.set('s6b', `${year}-03-20T20:00:00.000Z`);
+			subsonic.state.played.set('s7a', `${year - 1}-03-02T09:00:00.000Z`);
+			try {
+				assert.equal((await importHistory(client)).imported, 3);
+			} finally {
+				subsonic.state.played.clear();
+			}
+			const recap = async (query) => {
+				const { response, html } = await client.page(`/stats/recap${query}`);
+				assert.equal(response.status, 200, explain(`the recap ${query} failed`));
+				return html;
+			};
+			const figure = (html, label) => new RegExp(`<span class="label[^"]*">${label}</span> <span class="number[^"]*">([^<]+)<`).exec(html)?.[1];
+
+			const whole = await recap(`?year=${year}`);
+			assert.match(whole, new RegExp(`<h1[^>]*>${year}</h1>`));
+			assert.equal(figure(whole, 'Plays'), '2');
+			assert.equal(figure(whole, 'Hours listened'), '0.1');
+			assert.match(whole, /Artist 0005/);
+			assert.match(whole, /Song 6b/);
+			// One play the year before: twice as many now.
+			assert.match(whole, new RegExp(`\\+100% on ${year - 1}`));
+			// Both artists are heard for the first time that year; the earlier year's is not.
+			const first = whole.split('First heard in')[1] ?? '';
+			assert.match(first, /Artist 0005/);
+			assert.doesNotMatch(first, /Artist 0007/);
+
+			const march = await recap(`?year=${year}&month=3`);
+			assert.match(march, /<h1[^>]*>[A-Za-z]+ \d{4}<\/h1>/);
+			assert.equal(figure(march, 'Plays'), '2');
+			assert.match(await recap(`?year=${year}&month=4`), /Nothing was played in/);
+
+			// Anything else is the current year.
+			for (const query of ['?year=soon', '?year=12', `?year=${year}&month=13`]) {
+				assert.match(await recap(query), /<h1[^>]*>\d{4}/, query);
+			}
+		});
 	});
 
 	/** The album links on the home page's shelf titled `title`, in order. */
@@ -3094,6 +3335,68 @@ describe('reordering a playlist', () => {
 	});
 });
 
+describe('playlist files', () => {
+	test('a playlist downloads as M3U by file or by artist and title, and as CSV', async () => {
+		subsonic.state.playlistEntries = ['s1a', 's2b'];
+		try {
+			const m3u = await user.request('/api/playlists/pl1/export?format=m3u');
+			assert.equal(m3u.status, 200, explain('the M3U export failed'));
+			assert.match(m3u.headers.get('content-type'), /^audio\/x-mpegurl/);
+			assert.equal(
+				m3u.headers.get('content-disposition'),
+				`attachment; filename="playlist.m3u8"; filename*=UTF-8''Mock%20Playlist.m3u8`
+			);
+			assert.equal(
+				await m3u.text(),
+				'#EXTM3U\n#PLAYLIST:Mock Playlist\n' +
+					'#EXTINF:180,Artist 0001 - Song 1a\nArtist 0001/Album 1/01 - Song 1a.flac\n' +
+					'#EXTINF:180,Artist 0002 - Song 2b\nArtist 0002/Album 2/02 - Song 2b.flac\n'
+			);
+
+			const titles = await (await user.request('/api/playlists/pl1/export?format=m3u-titles')).text();
+			assert.match(titles, /#EXTINF:180,Artist 0001 - Song 1a\nArtist 0001 - Song 1a\n/);
+
+			const csv = (await (await user.request('/api/playlists/pl1/export?format=csv')).text()).split('\r\n');
+			assert.equal(csv[0], 'title,artist,album,album_artist,duration_seconds,year,song_id');
+			assert.match(csv[1], /^Song 1a,Artist 0001,Album 1,.*,180,.*,s1a$/);
+			assert.equal(csv.length, 4);
+
+			assert.equal((await user.request('/api/playlists/pl1/export?format=pls')).status, 400);
+			assert.equal((await user.request('/api/playlists/nope/export?format=csv')).status, 404);
+		} finally {
+			subsonic.state.playlistEntries = ['s1a', 's2a'];
+		}
+	});
+
+	test('tracks read from a file are found in the library, closely, or not at all', async () => {
+		const response = await user.json('/api/playlists/match', 'POST', {
+			tracks: [
+				{ title: 'Song 3a', artist: 'Artist 0003', duration: 181 },
+				// Another version's title, and an artist with a guest.
+				{ title: 'song 4b (Remastered 2011)', artist: 'Artist 0004 feat. Someone', album: 'Album 4' },
+				// The title alone agrees: another song of that name.
+				{ title: 'Song 5a', artist: 'Someone Else', duration: 240 },
+				{ title: 'Nothing like it', artist: 'Nobody' }
+			]
+		});
+		assert.equal(response.status, 200, explain('matching failed'));
+		const { matches } = await response.json();
+		assert.deepEqual(
+			matches.map((match) => [match.quality, match.song?.id ?? null]),
+			[
+				['exact', 's3a'],
+				['loose', 's4b'],
+				['none', null],
+				['none', null]
+			]
+		);
+
+		for (const body of [{}, { tracks: [] }, { tracks: [{ artist: 'No title' }] }, { tracks: Array.from({ length: 1001 }, () => ({ title: 'x' })) }]) {
+			assert.equal((await user.json('/api/playlists/match', 'POST', body)).status, 400, JSON.stringify(body).slice(0, 80));
+		}
+	});
+});
+
 describe('sessions ending', () => {
 	test('a credential the music server stops accepting signs the account out', async () => {
 		const client = new Client(app.url);
@@ -3915,6 +4218,315 @@ describe('headphone corrections from AutoEq', () => {
 	});
 });
 
+describe('new releases', () => {
+	let musicbrainz;
+	let on;
+
+	before(async () => {
+		musicbrainz = await startMusicBrainz();
+		on = await startApp({
+			subsonicUrl: subsonic.url,
+			jellyfinUrl: jellyfin.url,
+			env: { HEDDOHON_NEW_RELEASES: 'true', HEDDOHON_MUSICBRAINZ_URL: musicbrainz.url }
+		});
+	});
+
+	after(async () => {
+		await on?.stop();
+		await musicbrainz?.close();
+	});
+
+	/**
+	 * What the home page's data says of the shelf: its releases' groups, in
+	 * order. Streamed, so drawn in the browser and not in the server's HTML.
+	 */
+	const shelf = async (client) => [...(await (await client.request('/__data.json')).text()).matchAll(/release-group\/(rg-[\w-]+)/g)].map((m) => m[1]);
+
+	test('is off unless the server allows it, and then until an account turns it on', async () => {
+		assert.doesNotMatch((await user.page('/settings?tab=history')).html, /New releases on the home page/);
+		const listener = new Client(on.url);
+		await listener.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' });
+		assert.match((await listener.page('/settings?tab=history')).html, /New releases on the home page/);
+		for (const songId of ['s3a', 's3b', 's0a']) {
+			await listener.json('/api/playback', 'POST', { songId, event: 'stop', position: 100, completed: true });
+		}
+		assert.deepEqual(await shelf(listener), []);
+		assert.equal(musicbrainz.requests.length, 0, 'MusicBrainz was asked for an account that had not turned the shelf on');
+	});
+
+	test('lists the recent and announced albums of the artists played most that the library lacks, made as the shelf is turned on', async () => {
+		const listener = new Client(on.url);
+		await listener.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' });
+		assert.equal((await listener.json('/api/settings', 'PATCH', { newReleases: true })).status, 200);
+
+		// Made from the moment it is turned on, without a visit to the home page:
+		// three requests a second apart. The first visit then waits for nothing.
+		for (let wait = 0; wait < 20 && musicbrainz.requests.length < 3; wait++) await new Promise((done) => setTimeout(done, 250));
+		await new Promise((done) => setTimeout(done, 300));
+		const started = Date.now();
+		const found = await shelf(listener);
+		assert.ok(Date.now() - started < 2000, `the first visit took ${Date.now() - started}ms`);
+		// The announced EP first, then the album out 20 days ago; not the one the
+		// library has, the live one, the old one or the single.
+		assert.deepEqual(found, ['rg-3-soon', 'rg-0-new']);
+
+		// Artist 0000's id came from the music server; only Artist 0003 was searched for.
+		const searches = musicbrainz.requests.filter((request) => request.path === '/ws/2/artist');
+		assert.deepEqual(searches.map((request) => request.query.query), ['artist:"Artist 0003"']);
+		for (const request of musicbrainz.requests) assert.match(request.agent, /^Heddohon\/\S+ \( https:\/\/github\.com\/zorcerer\/heddohon \)$/);
+		const gaps = musicbrainz.requests.slice(1).map((request, i) => request.at - musicbrainz.requests[i].at);
+		assert.ok(gaps.every((gap) => gap >= 1000), `requests ${gaps.join(', ')}ms apart`);
+
+		const asked = musicbrainz.requests.length;
+		assert.deepEqual(await shelf(listener), ['rg-3-soon', 'rg-0-new']);
+		assert.equal(musicbrainz.requests.length, asked, 'the shelf was not held');
+	});
+
+	test('is kept across a restart, and a day-old shelf is shown at once while a new one is made', async () => {
+		const file = join(on.dataDir, 'new-releases.json');
+		for (let wait = 0; wait < 40 && !existsSync(file); wait++) await new Promise((done) => setTimeout(done, 250));
+		const kept = JSON.parse(readFileSync(file, 'utf8'));
+		assert.equal(statSync(file).mode & 0o777, 0o600);
+		assert.equal(kept.shelves.length, 1);
+		// Made two days ago, as far as the next start can tell.
+		const twoDaysAgo = Date.now() - 2 * 24 * 60 * 60 * 1000;
+		kept.shelves[0][1] = twoDaysAgo;
+		writeFileSync(file, JSON.stringify(kept));
+
+		await on.stop({ keepData: true });
+		on = await startApp({
+			subsonicUrl: subsonic.url,
+			jellyfinUrl: jellyfin.url,
+			dataDir: on.dataDir,
+			env: { HEDDOHON_NEW_RELEASES: 'true', HEDDOHON_MUSICBRAINZ_URL: musicbrainz.url }
+		});
+		const asked = musicbrainz.requests.length;
+		const listener = new Client(on.url);
+		await listener.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' });
+		const started = Date.now();
+		assert.deepEqual(await shelf(listener), ['rg-3-soon', 'rg-0-new']);
+		assert.ok(Date.now() - started < 2000, `the visit after a restart took ${Date.now() - started}ms`);
+		// What MusicBrainz said is kept too: the new shelf asked it nothing.
+		for (let wait = 0; wait < 40 && JSON.parse(readFileSync(file, 'utf8')).shelves[0][1] === twoDaysAgo; wait++) {
+			await new Promise((done) => setTimeout(done, 250));
+		}
+		assert.ok(JSON.parse(readFileSync(file, 'utf8')).shelves[0][1] > twoDaysAgo, 'no new shelf was made behind the old one');
+		assert.equal(musicbrainz.requests.length, asked, 'MusicBrainz was asked again after a restart');
+	});
+});
+
+describe('optional features', () => {
+	async function action(client, name, fields = {}) {
+		const response = await client.request(`/settings?/${name}`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json', 'x-sveltekit-action': 'true' },
+			body: new URLSearchParams(fields).toString()
+		});
+		const result = await response.json();
+		const data = result.data ? JSON.parse(result.data) : null;
+		const values = data ? Object.fromEntries(Object.entries(data[0]).map(([k, i]) => [k, data[i]])) : {};
+		return { type: result.type, status: result.status, ...values };
+	}
+	/** Each switch on the Features tab, by name, with whether it is on and whether it can be changed. */
+	const switches = async (client) => {
+		const html = (await client.page('/settings?tab=features')).html;
+		const section = html.split('id="features"')[1]?.split('</section>')[0] ?? '';
+		return Object.fromEntries(
+			[...section.matchAll(/<input type="checkbox" name="([a-zA-Z]+)"([^>]*)>/g)].map(([, name, rest]) => [
+				name,
+				`${/checked/.test(rest) ? 'on' : 'off'}${/disabled/.test(rest) ? ', locked' : ''}`
+			])
+		);
+	};
+	/** The titles of the features the home page's data tells of. */
+	const notice = async (client) => {
+		const data = await (await client.request('/__data.json')).text();
+		return ['New releases from MusicBrainz', 'Lyrics from LRCLIB', 'Headphone corrections from AutoEq', 'Plays sent to Discord', 'Plays sent to ListenBrainz', 'AI assistants (MCP)'].filter((title) => data.includes(title));
+	};
+
+	test('an administrator switches each under Settings, Features, where the environment does not set it', async () => {
+		await asFreshAccount('featureadmin', async (client) => {
+			assert.deepEqual(await switches(client), {
+				newReleases: 'off',
+				lrclib: 'off',
+				autoeq: 'off',
+				discord: 'off',
+				listenbrainz: 'off',
+				mcp: 'off',
+				// The one on until switched off.
+				profiles: 'on'
+			});
+			try {
+				assert.equal((await action(client, 'saveFeatures', { newReleases: 'on', mcp: 'on' })).type, 'success');
+				assert.equal((await switches(client)).newReleases, 'on');
+				assert.equal((await switches(client)).mcp, 'on');
+				// Taken at once: the account's own switch for the shelf is offered now.
+				assert.match((await client.page('/settings?tab=history')).html, /New releases on the home page/);
+				assert.match(app.output(), /features-switched/);
+
+				subsonic.state.admin = false;
+				try {
+					assert.equal((await action(client, 'saveFeatures', {})).status, 403);
+					assert.ok(!(await client.page('/settings')).html.includes('id="features"'), 'the tab is shown to an account that is not an administrator');
+				} finally {
+					subsonic.state.admin = true;
+				}
+			} finally {
+				await action(client, 'saveFeatures', { profiles: 'on' });
+			}
+			assert.equal((await switches(client)).newReleases, 'off');
+		});
+
+		// Set in the environment, a switch is shown locked and saving leaves it.
+		const set = await startApp({ subsonicUrl: subsonic.url, jellyfinUrl: jellyfin.url, env: { HEDDOHON_DISCORD: 'true', HEDDOHON_LISTENBRAINZ: 'false' } });
+		try {
+			const client = new Client(set.url);
+			await client.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' });
+			assert.equal((await switches(client)).discord, 'on, locked');
+			assert.equal((await switches(client)).listenbrainz, 'off, locked');
+			assert.match((await client.page('/settings?tab=features')).html, /Set by HEDDOHON_DISCORD in the environment\./);
+			assert.equal((await action(client, 'saveFeatures', { listenbrainz: 'on' })).type, 'success');
+			assert.equal((await switches(client)).discord, 'on, locked');
+			assert.equal((await switches(client)).listenbrainz, 'off, locked');
+		} finally {
+			await set.stop();
+		}
+	});
+
+	test('an administrator is told once on the home page of the features that are off', async () => {
+		await asFreshAccount('featurenotice', async (client) => {
+			assert.equal((await notice(client)).length, 6);
+			subsonic.state.admin = false;
+			try {
+				assert.deepEqual(await notice(client), [], 'told an account that is not an administrator');
+			} finally {
+				subsonic.state.admin = true;
+			}
+			// Dismissed: the features named are seen.
+			const saved = await (await client.json('/api/settings', 'PATCH', { featuresSeen: ['mcp', 'nonsense', 'newReleases', 'lrclib', 'autoeq', 'discord', 'listenbrainz', 'mcp'] })).json();
+			// Known ids alone, each once.
+			assert.deepEqual(saved.featuresSeen, ['newReleases', 'lrclib', 'autoeq', 'discord', 'listenbrainz', 'mcp']);
+			assert.deepEqual(await notice(client), []);
+			// One not seen yet is told of alone.
+			await client.json('/api/settings', 'PATCH', { featuresSeen: ['lrclib', 'autoeq', 'discord', 'listenbrainz', 'mcp'] });
+			assert.deepEqual(await notice(client), ['New releases from MusicBrainz']);
+			// Saving under Settings, Features marks every one seen.
+			assert.equal((await action(client, 'saveFeatures', { profiles: 'on' })).type, 'success');
+			assert.deepEqual(await notice(client), []);
+		});
+	});
+});
+
+describe('a now-playing link', () => {
+	async function action(client, name) {
+		const response = await client.request(`/settings?/${name}`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json', 'x-sveltekit-action': 'true' },
+			body: ''
+		});
+		const result = await response.json();
+		const data = result.data ? JSON.parse(result.data) : null;
+		const values = data ? Object.fromEntries(Object.entries(data[0]).map(([k, i]) => [k, data[i]])) : {};
+		return { type: result.type, status: result.status, ...values };
+	}
+
+	test('shows what the account plays, without a sign-in, until it is replaced or withdrawn', async () => {
+		await asFreshAccount('streamer', async (client) => {
+			const made = await action(client, 'makeNowPlaying');
+			assert.equal(made.type, 'success', explain('the link was not made'));
+			const token = made.nowPlayingToken;
+			assert.match(token, /^hhnp_[\w-]{43}$/);
+			assert.match((await client.page('/settings?tab=account')).html, /You have a link, made/);
+
+			// Nobody signed in.
+			const visitor = new Client(app.url);
+			const read = async (link = token) => {
+				const response = await visitor.request(`/api/now-playing/${link}`);
+				return { status: response.status, body: response.ok ? await response.json() : null, cache: response.headers.get('cache-control') };
+			};
+			assert.deepEqual((await read()).body, { playing: false });
+
+			const browser = await listen(client);
+			try {
+				await browser.next('peers');
+				const state = { songId: 's3a', title: 'Song 3a', artist: 'Artist 0003', album: 'Album 3', albumId: 'al3', coverArt: 'al-3', position: 12, duration: 180, playing: true, volume: 1 };
+				assert.equal((await client.json('/api/remote/state', 'POST', { peer: browser.id, state })).status, 200);
+
+				const playing = await read();
+				assert.equal(playing.cache, 'no-store');
+				const { position, ...rest } = playing.body;
+				assert.deepEqual(rest, { playing: true, title: 'Song 3a', artist: 'Artist 0003', album: 'Album 3', duration: 180, cover: true });
+				assert.ok(position >= 12 && position <= 14, `position ${position}`);
+
+				// The cover, through the account's own credential.
+				const cover = await visitor.request(`/api/now-playing/${token}/cover`);
+				assert.equal(cover.status, 200);
+				assert.match(cover.headers.get('content-type'), /^image\//);
+
+				// The page for OBS: the track, without the app around it.
+				const { response, html } = await visitor.page(`/now/${token}`);
+				assert.equal(response.status, 200);
+				assert.match(html, /Song 3a/);
+				assert.doesNotMatch(html, /class="app\b/);
+
+				// Paused: nothing, and no cover.
+				await client.json('/api/remote/state', 'POST', { peer: browser.id, state: { ...state, playing: false } });
+				assert.deepEqual((await read()).body, { playing: false });
+				assert.equal((await visitor.request(`/api/now-playing/${token}/cover`)).status, 404);
+			} finally {
+				browser.cancel();
+			}
+
+			// A new link stops the old one, and withdrawing stops the new.
+			const again = (await action(client, 'makeNowPlaying')).nowPlayingToken;
+			assert.equal((await read()).status, 404, 'the replaced link still works');
+			assert.equal((await read(again)).status, 200);
+			assert.equal((await action(client, 'withdrawNowPlaying')).type, 'success');
+			assert.equal((await read(again)).status, 404);
+			for (const link of ['nothing', `hhnp_${'A'.repeat(43)}`, `hhnp_${'x'.repeat(200)}`]) assert.equal((await read(link)).status, 404, link);
+			assert.equal((await visitor.page(`/now/${again}`)).response.status, 404);
+		});
+	});
+
+	test('ends with the account\'s sessions', async () => {
+		await asFreshAccount('streamer2', async (client) => {
+			const token = (await action(client, 'makeNowPlaying')).nowPlayingToken;
+			const visitor = new Client(app.url);
+			assert.equal((await visitor.request(`/api/now-playing/${token}`)).status, 200);
+			// The password changed on the music server: every session ends, and the link with them.
+			subsonic.state.password = 'changed';
+			try {
+				// A page that reads the library, which ends the sessions on a refusal.
+				await client.page('/albums/al1');
+			} finally {
+				subsonic.state.password = 'streamer2pass';
+			}
+			assert.equal((await visitor.request(`/api/now-playing/${token}`)).status, 404);
+		});
+	});
+
+	test('a link\'s token stays out of the log', async () => {
+		// Every request line is written at `debug`.
+		const logged = await startApp({ subsonicUrl: subsonic.url, jellyfinUrl: jellyfin.url, env: { HEDDOHON_LOG_LEVEL: 'debug' } });
+		try {
+			const client = new Client(logged.url);
+			await client.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' });
+			const made = await client.request('/settings?/makeNowPlaying', {
+				method: 'POST',
+				headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json', 'x-sveltekit-action': 'true' },
+				body: ''
+			});
+			const data = JSON.parse((await made.json()).data);
+			const token = data[data[0].nowPlayingToken];
+			for (const path of [`/now/${token}`, `/api/now-playing/${token}`, `/api/now-playing/${token}/cover`]) await fetch(logged.url + path);
+			assert.match(logged.output(), /\/now-playing\//, 'no request line was written');
+			assert.ok(!logged.output().includes(token.slice(5, 40)), 'the token reached the log');
+		} finally {
+			await logged.stop();
+		}
+	});
+});
+
 
 describe('log files', () => {
 	const day = (daysAgo) => new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
@@ -4251,7 +4863,7 @@ describe('plays sent to a Discord channel and to ListenBrainz', () => {
 		assert.equal(outside.posts.length, count, explain(`posts: ${JSON.stringify(outside.posts)}`));
 		return outside.posts;
 	}
-	const section = async (client) => (await client.page('/settings?tab=account')).html.split('Your plays, elsewhere')[1] ?? '';
+	const section = async (client) => (await client.page('/settings?tab=account')).html.split('Your plays, elsewhere')[1]?.split('</section>')[0] ?? '';
 
 	test('a Discord webhook is checked with Discord, kept out of the page, and posted to once per counted play', async () => {
 		const client = await signedIn(on.url, 'testuser', 'testpass', 'subsonic');
@@ -5411,6 +6023,210 @@ describe('whose a playlist is, and who sees it', () => {
 		assert.equal((await share(client, 'jother')).status, 403);
 		assert.equal((await patch(client, 'jother', { public: false })).status, 403);
 		assert.equal((await client.request('/api/settings')).status, 200, 'a refused change signed the account out');
+	});
+});
+
+describe('smart playlists', () => {
+	before(async () => {
+		assert.equal((await user.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' })).status, 303);
+	});
+	afterEach(() => {
+		subsonic.state.smart.clear();
+		subsonic.state.smartWrites.length = 0;
+	});
+
+	const make = (client, name, rules) => client.json('/api/playlists/smart', 'POST', { name, rules });
+	const setRules = (client, id, rules) => client.json(`/api/playlists/${id}/rules`, 'PUT', { rules });
+	const listed = async (client) => (await (await client.request('/api/playlists')).json()).playlists;
+	const valid = () => ({
+		match: 'all',
+		rules: [
+			{ field: 'playcount', op: 'gt', value: 3 },
+			{ field: 'lastplayed', op: 'notInTheLast', value: 90 }
+		],
+		sort: 'lastplayed',
+		order: 'desc',
+		limit: 50
+	});
+	/** A smart playlist put on the mock as Navidrome or an `.nsp` file left it. */
+	const held = (id, entry) => subsonic.state.smart.set(id, { name: id, owner: null, public: false, path: '', ...entry });
+	/** A page's words, without the marks Svelte leaves between the parts of a block. */
+	const words = async (client, path) => (await client.page(path)).html.replace(/<!--.*?-->/g, '');
+
+	test('a new one is checked here and sent in Navidrome\'s format', async () => {
+		const refused = [
+			{ ...valid(), rules: [] },
+			{ ...valid(), rules: Array.from({ length: 21 }, () => ({ field: 'year', op: 'gt', value: 1990 })) },
+			{ ...valid(), match: 'none' },
+			{ ...valid(), rules: [{ field: 'nosuchfield', op: 'gt', value: 1 }] },
+			{ ...valid(), rules: [{ field: 'year', op: 'bogus', value: 1 }] },
+			{ ...valid(), rules: [{ field: 'year', op: 'contains', value: '19' }] },
+			{ ...valid(), rules: [{ field: 'genre', op: 'contains', value: '  ' }] },
+			{ ...valid(), rules: [{ field: 'genre', op: 'is', value: 'x'.repeat(201) }] },
+			{ ...valid(), rules: [{ field: 'year', op: 'inTheRange', value: [2000, 1990] }] },
+			{ ...valid(), rules: [{ field: 'rating', op: 'gt', value: 6 }] },
+			{ ...valid(), rules: [{ field: 'year', op: 'gt', value: 1990.5 }] },
+			{ ...valid(), rules: [{ field: 'lastplayed', op: 'inTheLast', value: 0 }] },
+			{ ...valid(), rules: [{ field: 'loved', op: 'is', value: 'yes' }] },
+			{ ...valid(), rules: [{ field: 'genre', op: 'is', value: { $ne: 1 } }] },
+			{ ...valid(), sort: 'path' },
+			{ ...valid(), order: 'up' },
+			{ ...valid(), limit: 1001 },
+			{ ...valid(), limit: 0 },
+			null
+		];
+		for (const rules of refused) {
+			const answer = await make(user, 'Not made', rules);
+			assert.equal(answer.status, 400, `taken: ${JSON.stringify(rules)}`);
+		}
+		assert.equal((await make(user, '', valid())).status, 400);
+		assert.equal((await make(user, 'x'.repeat(201), valid())).status, 400);
+		assert.equal(subsonic.state.smartMade, 0, 'a refused rule set reached the music server');
+
+		const made = await make(user, '  Forgotten favourites ', valid());
+		assert.equal(made.status, 201, explain('the smart playlist was not made'));
+		const { id } = await made.json();
+		const kept = subsonic.state.smart.get(id);
+		assert.equal(kept.name, 'Forgotten favourites');
+		assert.equal(kept.public, false);
+		assert.deepEqual(kept.rules, {
+			all: [{ gt: { playcount: 3 } }, { notInTheLast: { lastplayed: 90 } }],
+			sort: 'lastplayed',
+			order: 'desc',
+			limit: 50
+		});
+
+		// No limit is every song that matches; a range is two numbers.
+		const open = await make(user, 'Nineties', { match: 'any', rules: [{ field: 'year', op: 'inTheRange', value: [1990, 1999] }, { field: 'loved', op: 'is', value: true }], sort: 'random', order: 'asc', limit: null });
+		assert.equal(open.status, 201);
+		assert.deepEqual(subsonic.state.smart.get((await open.json()).id).rules, {
+			any: [{ inTheRange: { year: [1990, 1999] } }, { is: { loved: true } }],
+			sort: 'random',
+			order: 'asc'
+		});
+	});
+
+	test('is listed as smart, plays, and takes no songs added, removed or moved', async () => {
+		held('sm-own', { name: 'Forgotten', rules: { all: [{ gt: { playcount: 3 } }], sort: 'playcount', order: 'desc', limit: 25 } });
+		const playlists = await listed(user);
+		assert.deepEqual(
+			playlists.filter(({ id }) => id === 'pl1' || id === 'sm-own').map(({ id, editable, tracksEditable }) => ({ id, editable, tracksEditable })),
+			[
+				{ id: 'pl1', editable: true, tracksEditable: true },
+				{ id: 'sm-own', editable: true, tracksEditable: false }
+			]
+		);
+
+		const list = (await user.page('/playlists')).html;
+		assert.match(list, /New smart playlist/);
+		assert.match(list, /smart · 3 tracks/);
+
+		const page = await user.page('/playlists/sm-own');
+		assert.equal(page.response.status, 200, explain('the smart playlist page failed'));
+		assert.match(page.html, /Smart, private/);
+		assert.match(page.html, /Play count is more than 3; by play count, descending, 25 songs at most\./);
+		assert.match(page.html, />\s*Edit rules\s*</);
+		assert.match(page.html, /Song 5a/);
+
+		const songs = await user.json('/api/tracks', 'POST', { source: 'playlist', id: 'sm-own' });
+		assert.equal(songs.status, 200);
+		assert.deepEqual((await songs.json()).songs.map((song) => song.id), ['s5a', 's6a', 's7a']);
+
+		// The music server refuses, and the account stays signed in.
+		assert.equal((await user.json('/api/playlists/sm-own/tracks', 'POST', { songIds: ['s1a'] })).status, 403);
+		assert.equal((await user.json('/api/playlists/sm-own/tracks', 'DELETE', { indices: [0] })).status, 403);
+		assert.equal((await user.request('/api/settings')).status, 200, 'a refused change signed the account out');
+	});
+
+	test('its rules change, and nothing else is sent with them', async () => {
+		held('sm-own', { rules: { all: [{ gt: { playcount: 3 } }] } });
+		assert.equal((await setRules(user, 'sm-own', { ...valid(), rules: [{ field: 'genre', op: 'zz', value: 'x' }] })).status, 400);
+		assert.equal(subsonic.state.smartWrites.length, 0);
+
+		const next = { match: 'any', rules: [{ field: 'genre', op: 'contains', value: 'jazz' }, { field: 'year', op: 'lt', value: 1970 }], sort: 'year', order: 'asc', limit: 100 };
+		const changed = await setRules(user, 'sm-own', next);
+		assert.equal(changed.status, 200, explain('the rules were not saved'));
+		assert.deepEqual(subsonic.state.smartWrites, [
+			{ rules: { any: [{ contains: { genre: 'jazz' } }, { lt: { year: 1970 } }], sort: 'year', order: 'asc', limit: 100 } }
+		]);
+		assert.match((await user.page('/playlists/sm-own')).html, /Genre contains “jazz”, or year is less than 1970; by year, ascending, 100 songs at most\./);
+
+		// A playlist made by hand is not made smart, and an unknown one is not found.
+		assert.equal((await setRules(user, 'pl1', valid())).status, 404);
+		assert.equal((await setRules(user, 'nosuch', valid())).status, 404);
+		assert.equal(subsonic.state.smartWrites.length, 1);
+	});
+
+	test('rules from a file, or beyond what the editor edits, are shown and left alone', async () => {
+		held('sm-file', { path: '/music/playlists/recent.nsp', rules: { all: [{ inTheLast: { dateadded: 30 } }], sort: 'dateadded', order: 'desc' } });
+		const fromFile = await words(user, '/playlists/sm-file');
+		assert.match(fromFile, /Added in the last 30 days; by added, descending\. +A file on the music server defines them\./);
+		assert.doesNotMatch(fromFile, /Edit rules/);
+		assert.equal((await setRules(user, 'sm-file', valid())).status, 409);
+
+		// Groups in groups, a tag, another playlist, a sort on two fields, a limit in percent.
+		const beyond = [
+			{ all: [{ any: [{ is: { loved: true } }, { gt: { rating: 3 } }] }] },
+			{ all: [{ contains: { mood: 'calm' } }] },
+			{ all: [{ inPlaylist: { id: 'pl1' } }] },
+			{ all: [{ gt: { year: 1990 } }], sort: '-year,title' },
+			{ all: [{ gt: { year: 1990 } }], limitPercent: 10 },
+			{ all: [{ is: { loved: true, genre: 'Rock' } }] }
+		];
+		for (const [n, rules] of beyond.entries()) {
+			held(`sm-beyond-${n}`, { rules });
+			const page = (await user.page(`/playlists/sm-beyond-${n}`)).html;
+			assert.match(page, /Its rules use more than Heddohon edits; change them in Navidrome\./, JSON.stringify(rules));
+			assert.doesNotMatch(page, /Edit rules/, JSON.stringify(rules));
+		}
+		assert.equal(subsonic.state.smartWrites.length, 0);
+
+		// As an `.nsp` file may write them: keys in any case, numbers as strings, no limit as 0.
+		held('sm-loose', { rules: { ALL: [{ GT: { PlayCount: '3' } }, { is: { loved: 'true' } }], Sort: 'Random', limit: 0 } });
+		assert.match((await user.page('/playlists/sm-loose')).html, /Play count is more than 3, and favourite is yes; in random order\./);
+	});
+
+	test('another user\'s public one is read only', async () => {
+		held('sm-theirs', { owner: 'seconduser', public: true, rules: { all: [{ gt: { playcount: 1 } }] } });
+		const page = (await user.page('/playlists/sm-theirs')).html;
+		assert.match(page, /Smart, by seconduser, read only/);
+		assert.doesNotMatch(page, /Edit rules|>\s*Rename\s*</);
+		assert.equal((await setRules(user, 'sm-theirs', valid())).status, 403);
+		assert.equal((await user.request('/api/settings')).status, 200, 'a refused change signed the account out');
+	});
+
+	test('is renamed, made public and deleted as any other', async () => {
+		held('sm-own', { name: 'Before', rules: { all: [{ gt: { playcount: 3 } }] } });
+		assert.equal((await user.json('/api/playlists/sm-own', 'PATCH', { name: 'After', public: true })).status, 200);
+		assert.equal(subsonic.state.smart.get('sm-own').name, 'After');
+		assert.equal(subsonic.state.smart.get('sm-own').public, true);
+		assert.equal((await user.request('/api/playlists/sm-own', { method: 'DELETE' })).status, 200);
+		assert.equal(subsonic.state.smart.has('sm-own'), false);
+	});
+
+	test('a Subsonic server that is not Navidrome, and a Jellyfin account, offer none', async () => {
+		const navidrome = subsonic.state.navidrome;
+		subsonic.state.navidrome = null;
+		try {
+			await asFreshAccount('plainsubsonic', async (client) => {
+				const page = await client.page('/playlists');
+				assert.equal(page.response.status, 200);
+				assert.doesNotMatch(page.html, /New smart playlist/);
+				assert.equal((await make(client, 'Nope', valid())).status, 404);
+			});
+		} finally {
+			subsonic.state.navidrome = navidrome;
+		}
+		const client = new Client(app.url);
+		assert.equal((await client.signIn({ username: 'jfuser', password: 'jfpass', backend: 'jellyfin' })).status, 303);
+		assert.doesNotMatch((await client.page('/playlists')).html, /New smart playlist/);
+		assert.equal((await make(client, 'Nope', valid())).status, 404);
+		assert.equal((await setRules(client, 'jpl', valid())).status, 404);
+		// The picker still lists the playlists songs can be added to.
+		assert.deepEqual((await listed(client)).map(({ id, tracksEditable }) => ({ id, tracksEditable })), [
+			{ id: 'jpl', tracksEditable: true },
+			{ id: 'jother', tracksEditable: false }
+		]);
 	});
 });
 

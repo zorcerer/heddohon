@@ -29,8 +29,8 @@
 	let theme = $state<'terminal' | 'liquid' | 'paper' | 'phosphor'>('terminal');
 	let sharing = $state(true);
 	let downloads = $state(true);
-	let lrclib = $state(false);
-	let mcp = $state(false);
+	/** The optional features ticked, by id; all off until ticked. */
+	let features = $state<Record<string, boolean>>({});
 	/** Where the deployment is opened: the address in the bar now, until it is changed. */
 	let origin = $state('');
 	let coverCacheMb = $state(512);
@@ -176,8 +176,7 @@
 					theme,
 					sharing,
 					downloads,
-					lrclib,
-					mcp,
+					features: $state.snapshot(features),
 					origin,
 					coverCacheMb,
 					database: databaseChoice()
@@ -466,27 +465,16 @@
 							<span class="hint hh-muted">The original file can be saved from the player.</span>
 						</span>
 					</label>
-					<label class="check">
-						<input type="checkbox" bind:checked={lrclib} name="lrclib" />
-						<span>
-							Lyrics from LRCLIB
-							<span class="hint hh-muted">
-								For a track the music server has no lyrics for, its artist, title, album and length are sent
-								to lrclib.net.
+					<!-- The optional features, off until ticked; an administrator changes them later under Settings, Features. -->
+					{#each data.features as feature (feature.id)}
+						<label class="check">
+							<input type="checkbox" bind:checked={features[feature.id]} name={feature.id} />
+							<span>
+								{feature.title}
+								<span class="hint hh-muted">{feature.detail}</span>
 							</span>
-						</span>
-					</label>
-					<label class="check">
-						<input type="checkbox" bind:checked={mcp} name="mcp" />
-						<span>
-							AI assistants (MCP)
-							<span class="hint hh-muted">
-								Each account can make a token for an assistant such as Claude Code, which then searches its
-								library and, if the token allows it, changes its playlists. What it reads goes to whoever runs
-								its model.
-							</span>
-						</span>
-					</label>
+						</label>
+					{/each}
 				</fieldset>
 
 				<p class="how hh-muted">

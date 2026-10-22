@@ -29,7 +29,7 @@ export interface MemoScope {
 	credential: StoredCredential;
 }
 
-function viewerOf(credential: StoredCredential): string {
+export function viewerOf(credential: StoredCredential): string {
 	return credential.kind === 'jellyfin' ? credential.userId : foldName(credential.username);
 }
 

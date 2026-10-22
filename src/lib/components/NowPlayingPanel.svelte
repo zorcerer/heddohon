@@ -19,6 +19,7 @@
 	import { handOff } from '$lib/client/handoff';
 	import { artworkColor } from '$lib/client/artwork';
 	import { contextMenu } from '$lib/client/context-menu.svelte';
+	import { SelectableList } from '$lib/client/selection.svelte';
 	import { formatBytes, formatDuration } from '$lib/client/format';
 	import { lyricsWindow } from '$lib/client/lyrics.svelte';
 	import { playlistPicker } from '$lib/client/playlists.svelte';
@@ -49,6 +50,7 @@
 	import { remote } from '$lib/client/remote.svelte';
 	import { together } from '$lib/client/together.svelte';
 	import Seekbar from './Seekbar.svelte';
+	import Visualiser from './Visualiser.svelte';
 
 	let { showQualityBadge = true }: { showQualityBadge?: boolean } = $props();
 
@@ -227,6 +229,26 @@
 		});
 	});
 
+	/*
+	 * Several entries picked at once; see `selection.svelte.ts`. Positions, so
+	 * any change to the queue ends the selection, and so does putting the queue
+	 * away.
+	 */
+	const queueSelect = new SelectableList(() => ({
+		songs: () => player.queue,
+		remove: { label: 'Remove from the queue', run: (indexes) => player.removeMany(indexes) },
+		inPlayer: true
+	}));
+
+	$effect(() => {
+		void player.queue;
+		return () => queueSelect.drop();
+	});
+
+	$effect(() => {
+		if (!player.queueOpen) untrack(() => queueSelect.drop());
+	});
+
 	let queueList = $state<HTMLOListElement | null>(null);
 
 	/*
@@ -340,6 +362,10 @@
 					<span class="hh-numeric hh-muted">
 						{player.queue.length} · {formatDuration(queueTotal)}
 					</span>
+					<!-- A new queue from the playing track, where the queue is. -->
+					{#if player.current && !player.current.live}
+						<MixButton of="song" id={player.current.id} label="Instant mix" title="Instant mix from the playing track" variant="inline" />
+					{/if}
 				</div>
 				<!-- Focusable, as the library and the lyrics are: with no scrollbar,
 				     the keyboard scrolls a long queue. -->
@@ -354,18 +380,32 @@
 							<!-- The menu is a second way to what the row's buttons do. -->
 							<!-- svelte-ignore a11y_no_static_element_interactions -->
 							<div class="row" class:current={index === player.index} class:past={index < player.index}
-								oncontextmenu={(event) =>
+								class:selected={queueSelect.has(index)}
+								onclickcapture={(event) => queueSelect.click(event, index)}
+								onmousedown={(event) => queueSelect.mousedown(event)}
+								onpointerdown={(event) => queueSelect.pointerdown(event, index)}
+								onpointermove={(event) => queueSelect.pointermove(event)}
+								onpointerup={() => queueSelect.pointerend()}
+								onpointercancel={() => queueSelect.pointerend()}
+								oncontextmenu={(event) => {
+									if (queueSelect.contextmenu(event, index)) return;
+									if (queueSelect.has(index)) {
+										contextMenu.open(event, { kind: 'selection' });
+										return;
+									}
 									contextMenu.open(event, {
 										kind: 'song',
 										song: track,
 										play: () => void player.jumpTo(index),
 										remove: { label: 'Remove from the queue', run: () => player.removeAt(index) }
-									})}
+									});
+								}}
 							>
 								<!-- Dragged by pointer or finger, or moved one place at a time
 								     with the arrow keys while it has focus. -->
 								<button
 									class="row-grip"
+									data-select-skip
 									type="button"
 									aria-label="Move {track.title}. Use the up and down arrow keys."
 									title="Drag to reorder"
@@ -434,6 +474,8 @@
 					fill
 				/>
 			</a>
+			<!-- Over the artwork's fade, outside its mask, which would take the bars with it. -->
+			<Visualiser place="player" />
 		{/if}
 	</div>
 
@@ -517,10 +559,6 @@
 								: ''}
 						</a>
 					{/if}
-					<!-- A mix made from this track, among the things about this track. -->
-					<div class="more-like">
-						<MixButton of="song" id={song.id} label="Instant mix from this track" variant="inline" />
-					</div>
 				</div>
 			</div>
 		{/if}
@@ -1084,13 +1122,17 @@
 		padding: var(--space-4) var(--space-4) 0;
 	}
 
+	/* The heading and the count, and at the far end the instant mix. */
 	.queue-head {
 		display: flex;
 		align-items: baseline;
-		justify-content: space-between;
 		gap: var(--space-3);
 		padding-bottom: var(--space-2);
 		border-bottom: 1px solid var(--border-hairline);
+	}
+
+	.queue-head > :global(.mix) {
+		margin-left: auto;
 	}
 
 	.queue-list {
@@ -1150,6 +1192,22 @@
 
 	.row.past {
 		opacity: 0.55;
+	}
+
+	/* A picked entry: the accent's ground, faint, with an edge where it starts. */
+	.row.selected {
+		border-radius: var(--r-sm);
+		background: color-mix(in srgb, var(--accent) 16%, transparent);
+		box-shadow: inset 2px 0 0 var(--accent);
+	}
+
+	/* A long press picks an entry (`selection.svelte.ts`); iOS would select its text instead. */
+	@media (pointer: coarse) {
+		.row {
+			-webkit-touch-callout: none;
+			-webkit-user-select: none;
+			user-select: none;
+		}
 	}
 
 	.row.current .row-title {
@@ -1376,10 +1434,6 @@
 
 	.facts .rating dd {
 		margin-left: -0.15rem;
-	}
-
-	.more-like {
-		margin-top: var(--space-2);
 	}
 
 	.download {

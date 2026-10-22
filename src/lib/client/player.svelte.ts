@@ -567,6 +567,11 @@ class Player {
 		this.#chain?.setEqualiser(gains);
 	}
 
+	/** The graph's analyser, for the visualiser; null while this page plays without the graph. */
+	analyser(): AnalyserNode | null {
+		return this.#chain?.analyser() ?? null;
+	}
+
 	/** The headphone correction ahead of the bands, or none for null; see `audiochain.ts`. */
 	setCorrection(correction: Correction | null) {
 		this.#chain?.setCorrection(correction);
@@ -683,6 +688,34 @@ class Player {
 			this.index = Math.min(this.index, this.queue.length - 1);
 			void this.#loadCurrent(this.playing);
 		}
+		this.#invalidatePreload();
+		this.#persist();
+	}
+
+	/**
+	 * Removes several entries at once, as `removeAt` does one: the playing
+	 * track keeps playing unless it is among them, and then the first entry
+	 * after it that stays takes its place.
+	 */
+	removeMany(positions: number[]) {
+		const gone = new Set(positions.filter((position) => position >= 0 && position < this.queue.length));
+		if (gone.size === 0) return;
+		if (gone.size === 1) {
+			this.removeAt([...gone][0]);
+			return;
+		}
+		const wasCurrent = gone.has(this.index);
+		const before = [...gone].filter((position) => position < this.index).length;
+		const kept = this.queue.filter((_, i) => !gone.has(i));
+		if (kept.length === 0) {
+			this.queue = kept;
+			this.stop();
+			this.#persist();
+			return;
+		}
+		this.queue = kept;
+		this.index = Math.min(this.index - before, kept.length - 1);
+		if (wasCurrent) void this.#loadCurrent(this.playing);
 		this.#invalidatePreload();
 		this.#persist();
 	}

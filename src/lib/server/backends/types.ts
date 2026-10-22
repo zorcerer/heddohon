@@ -135,6 +135,23 @@ interface Scrobblers {
 }
 
 /**
+ * Playlists the music server fills itself from rules, made and edited here by
+ * their rules (`lib/smartrules.ts`). Only Navidrome has them, through its own
+ * API, so the member is optional; on a Subsonic server that is not Navidrome
+ * `ids` answers null. The rules are passed in Navidrome's format, already
+ * checked. See `backends/navidrome.ts`.
+ */
+interface SmartPlaylists {
+	/** The ids of the smart playlists the account can see, or null where the server has none. */
+	ids(cred: StoredCredential): Promise<Set<string> | null>;
+	/** One playlist's rules, and whether a file on the server defines them; null for one made by hand. */
+	rules(cred: StoredCredential, id: string): Promise<{ criteria: Record<string, unknown>; fromFile: boolean } | null>;
+	/** Makes a private smart playlist. Returns the new id. */
+	create(cred: StoredCredential, name: string, criteria: Record<string, unknown>): Promise<string>;
+	setRules(cred: StoredCredential, id: string, criteria: Record<string, unknown>): Promise<void>;
+}
+
+/**
  * Everything the app can ask of a music server. Implementations are stateless:
  * the caller passes the opened credential on every call, so decrypted secrets
  * live for one request.
@@ -151,13 +168,25 @@ export interface MediaBackend {
 	/** Present only where the server can link Last.fm and ListenBrainz. */
 	readonly scrobblers?: Scrobblers;
 
+	/** Present only where the server keeps smart playlists. */
+	readonly smartPlaylists?: SmartPlaylists;
+
 	/**
 	 * Whether this account administers the music server, or null when the
 	 * server does not say: a Subsonic server need not implement `getUser`, or
-	 * may refuse it. Caching every cover (`coverfill.ts`) needs `true`. Nothing
-	 * else an account may do depends on it.
+	 * may refuse it. Caching every cover (`coverfill.ts`), the switches under
+	 * Settings and clearing another account's second factors (`twofactor.ts`)
+	 * need `true`.
 	 */
 	isAdmin(cred: StoredCredential): Promise<boolean | null>;
+
+	/**
+	 * Asks the music server whether a stored credential still signs in, for a
+	 * sign-in with a passkey, which sends no password (`twofactor.ts`). Throws
+	 * an `UpstreamError` of kind `auth` where it does not: the password changed,
+	 * or the token was revoked.
+	 */
+	checkCredential(cred: StoredCredential): Promise<void>;
 
 	getAlbums(cred: StoredCredential, query: AlbumQuery): Promise<Album[]>;
 	getAlbum(cred: StoredCredential, id: string): Promise<AlbumDetail>;
@@ -246,6 +275,23 @@ export interface MediaBackend {
 	getRandomSongs(cred: StoredCredential, limit: number): Promise<Song[]>;
 	getStarred(cred: StoredCredential): Promise<SearchResults>;
 	search(cred: StoredCredential, query: string, limit: number): Promise<SearchResults>;
+
+	/**
+	 * Songs alone for a search, for matching an imported playlist: one call
+	 * where `search` makes three on Jellyfin. Subsonic's `search3` with no
+	 * albums or artists asked for; Navidrome matches every word of the query
+	 * in the title, the artist or the album. Jellyfin's `searchTerm`, which
+	 * matches the title.
+	 */
+	searchSongs(cred: StoredCredential, query: string, limit: number): Promise<Song[]>;
+
+	/**
+	 * The file of each entry of a playlist, in its order, as the server names
+	 * it, for an M3U export; null for an entry it gives none for. Navidrome's
+	 * `path` on `getPlaylist`, relative to its music folder. Jellyfin's `Path`
+	 * on the playlist's items, as the server sees its disk.
+	 */
+	getPlaylistPaths(cred: StoredCredential, id: string): Promise<(string | null)[]>;
 
 	setStarred(cred: StoredCredential, id: string, kind: StarKind, starred: boolean): Promise<void>;
 

@@ -15,8 +15,10 @@
 	import { fetchTracks, playContainer, playInstantMix, queueContainer } from '$lib/client/actions';
 	import { contextMenu } from '$lib/client/context-menu.svelte';
 	import { isStarred, setStarred } from '$lib/client/favourites.svelte';
+	import { ratingOf, setRating } from '$lib/client/ratings.svelte';
 	import { player } from '$lib/client/player.svelte';
 	import { addSongsToPlaylist } from '$lib/client/playlists.svelte';
+	import { selection, selectionActions } from '$lib/client/selection.svelte';
 	import { shareComposer } from '$lib/client/share.svelte';
 	import { together } from '$lib/client/together.svelte';
 	import Icon from './Icon.svelte';
@@ -91,6 +93,17 @@
 		const sharing = page.data.sharing === true;
 		const here = page.url.pathname;
 		const list: Item[] = [];
+
+		if (subject.kind === 'selection') {
+			const actions = selectionActions();
+			const removal = actions.findIndex((action) => action.danger);
+			for (const [index, action] of actions.entries()) {
+				// The same groups as a single song's.
+				if (index === 3 || index === removal) list.push({ kind: 'rule' });
+				list.push({ kind: 'action', ...action });
+			}
+			return list;
+		}
 
 		if (subject.kind === 'song') {
 			const { song, play, remove } = subject;
@@ -174,11 +187,23 @@
 	});
 
 	const heading = $derived(
-		subject?.kind === 'song'
-			? { kind: 'Song', name: subject.song.title, by: subject.song.artist }
-			: subject
-				? { kind: 'Album', name: subject.album.name, by: subject.album.artist }
-				: null
+		subject?.kind === 'selection'
+			? { kind: 'Selection', name: `${selection.count} ${selection.count === 1 ? 'song' : 'songs'}`, by: null }
+			: subject?.kind === 'song'
+				? { kind: 'Song', name: subject.song.title, by: subject.song.artist }
+				: subject
+					? { kind: 'Album', name: subject.album.name, by: subject.album.artist }
+					: null
+	);
+
+	/**
+	 * A song's five stars, under its name and artist in the head, where the
+	 * music server keeps ratings, as the player's stars are. See `rate`.
+	 */
+	const rating = $derived(
+		subject?.kind === 'song' && !subject.song.live && page.data.ratings
+			? { id: subject.song.id, current: ratingOf('song', subject.song.id, subject.song.rating ?? 0) }
+			: null
 	);
 
 	function choose(item: Extract<Item, { kind: 'action' }>) {
@@ -213,10 +238,33 @@
 		(first ?? menu).focus({ preventScroll: true });
 	});
 
+	/** Sets a song's rating from the menu's stars, and closes it. The star that is the rating clears it, as in the player. */
+	function rate(id: string, stars: number, current: number) {
+		contextMenu.close(true);
+		void setRating('song', id, stars === current ? 0 : stars, current);
+	}
+
+	function starKey(event: KeyboardEvent) {
+		const step = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0;
+		if (step === 0) return;
+		event.preventDefault();
+		event.stopPropagation();
+		const star = event.currentTarget as HTMLElement;
+		const next = step > 0 ? star.nextElementSibling : star.previousElementSibling;
+		if (next instanceof HTMLElement) next.focus();
+	}
+
+	/*
+	 * The stops the up and down arrows move through: each item, and the five
+	 * stars of the rating as one, entered at the star that is the rating (or
+	 * the first). Left and right move between the stars (`starKey`).
+	 */
 	function step(event: KeyboardEvent) {
 		if (!menu) return;
-		const all = [...menu.querySelectorAll<HTMLElement>('[role="menuitem"]')];
-		const at = all.indexOf(document.activeElement as HTMLElement);
+		const all = [...menu.querySelectorAll<HTMLElement>('[role="menuitem"], [data-stop]')];
+		let active = document.activeElement as HTMLElement | null;
+		if (active?.getAttribute('role') === 'menuitemradio') active = menu.querySelector<HTMLElement>('[data-stop]');
+		const at = active ? all.indexOf(active) : -1;
 		let to: number | null = null;
 		if (event.key === 'ArrowDown') to = at < 0 ? 0 : (at + 1) % all.length;
 		else if (event.key === 'ArrowUp') to = at < 0 ? all.length - 1 : (at - 1 + all.length) % all.length;
@@ -271,6 +319,11 @@
 		};
 	});
 
+	// A menu for a selection that has ended (its list changed under it) has nothing to act on.
+	$effect(() => {
+		if (subject?.kind === 'selection' && selection.count === 0) contextMenu.close();
+	});
+
 	beforeNavigate(() => contextMenu.close());
 </script>
 
@@ -287,9 +340,30 @@
 		onkeydown={step}
 		oncontextmenu={(event) => event.preventDefault()}
 	>
-		<div class="head" aria-hidden="true">
-			<span class="name hh-truncate">{heading.name}</span>
-			{#if heading.by}<span class="by hh-truncate">{heading.by}</span>{/if}
+		<div class="head">
+			<span class="name hh-truncate" aria-hidden="true">{heading.name}</span>
+			{#if heading.by}<span class="by hh-truncate" aria-hidden="true">{heading.by}</span>{/if}
+			{#if rating}
+				{@const { id, current } = rating}
+				<span class="stars" role="group" aria-label="Rating">
+					{#each [1, 2, 3, 4, 5] as stars (stars)}
+						<button
+							class="star"
+							class:lit={stars <= current}
+							role="menuitemradio"
+							tabindex="-1"
+							type="button"
+							aria-checked={stars === current}
+							aria-label={stars === current ? `${stars} of 5, press to clear` : `Rate ${stars} of 5`}
+							data-stop={stars === Math.max(1, current) ? '' : undefined}
+							onclick={() => rate(id, stars, current)}
+							onkeydown={starKey}
+						>
+							<Icon name={stars <= current ? 'star-filled' : 'star'} size={16} />
+						</button>
+					{/each}
+				</span>
+			{/if}
 		</div>
 		{#each items as item, index (index)}
 			{#if item.kind === 'rule'}
@@ -410,6 +484,40 @@
 
 	.item[aria-busy='true'] {
 		cursor: progress;
+	}
+
+	/* The rating, under the artist: its stars are the items. The first star's
+	   glyph lines up with the text above it. */
+	.stars {
+		display: flex;
+		margin: 0.2rem 0 0 -0.25rem;
+	}
+
+	.star {
+		display: grid;
+		place-items: center;
+		padding: 0.25rem;
+		border-radius: var(--r-sm);
+		color: var(--text-faint);
+		cursor: default;
+	}
+
+	.star.lit {
+		color: var(--glow-color);
+	}
+
+	/* As in the player: pointing at a star lights it and those before it. */
+	.stars:hover .star {
+		color: var(--glow-color);
+	}
+
+	.stars .star:hover ~ .star {
+		color: var(--text-faint);
+	}
+
+	.star:focus-visible {
+		outline: 2px solid var(--accent);
+		outline-offset: -1px;
 	}
 
 	.rule {

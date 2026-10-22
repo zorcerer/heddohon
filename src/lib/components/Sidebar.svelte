@@ -19,6 +19,7 @@
 		...(page.data.radio ? [{ href: '/radio', label: 'Radio', icon: 'radio' as const, exact: false }] : []),
 		{ href: '/history', label: 'History', icon: 'history' as const, exact: false, also: '/stats' },
 		{ href: '/favourites', label: 'Favourites', icon: 'heart' as const, exact: false },
+		...(page.data.profiles ? [{ href: '/people', label: 'People', icon: 'people' as const, exact: false }] : []),
 		{ href: '/search', label: 'Search', icon: 'search' as const, exact: false }
 	]);
 
@@ -30,10 +31,11 @@
 	 */
 	const path = $derived(navigating.to?.url.pathname ?? page.url.pathname);
 
-	// `also` is a second page the entry stands for: History is Recently played
-	// and Your listening, which are tabs of one another.
+	// `also` is a second page the entry stands for, and the pages under it:
+	// History is Recently played, Your listening and the recap, which are tabs
+	// of one another.
 	function isActive(href: string, exact: boolean, also?: string): boolean {
-		if (also && path === also) return true;
+		if (also && (path === also || path.startsWith(`${also}/`))) return true;
 		return exact ? path === href : path === href || path.startsWith(`${href}/`);
 	}
 

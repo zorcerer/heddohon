@@ -36,15 +36,25 @@ a request to the music server. The one host you expose is Heddohon.
 Heddohon also contacts a PostgreSQL server when `HEDDOHON_DATABASE_URL` names
 one (see [PostgreSQL](#postgresql)). The other hosts it contacts are LRCLIB, only with
 `HEDDOHON_LYRICS_LRCLIB=true`, and the AutoEq results on GitHub, only with
-`HEDDOHON_AUTOEQ=true`, Discord, only with `HEDDOHON_DISCORD=true`, and
-ListenBrainz, only with `HEDDOHON_LISTENBRAINZ=true`; all four are off by
-default. And the hosts of the internet
+`HEDDOHON_AUTOEQ=true`, Discord, only with `HEDDOHON_DISCORD=true`,
+ListenBrainz, only with `HEDDOHON_LISTENBRAINZ=true`, and MusicBrainz, only
+with `HEDDOHON_NEW_RELEASES=true`; all five are off by default. And the hosts of the internet
 radio stations the music server lists, when a listener plays one; that is on
 unless `HEDDOHON_RADIO=false`. See [Lyrics from
 LRCLIB](#lyrics-from-lrclib), [Headphone corrections from
 AutoEq](#headphone-corrections-from-autoeq), [Plays sent to Discord and
-ListenBrainz](#plays-sent-to-discord-and-listenbrainz) and [Internet
+ListenBrainz](#plays-sent-to-discord-and-listenbrainz), [New releases from
+MusicBrainz](#new-releases-from-musicbrainz) and [Internet
 radio](#internet-radio).
+
+The five third-party switches and the MCP endpoint are saved by the first-run
+setup, and an account the music server lists as an administrator (asked of
+the music server on each save) turns them on and off under Settings, Features
+(`?/saveFeatures`). Each is saved to `setup.json`, taken with the next
+request, and logged as `features-switched` at `warn`. A variable set in the
+environment takes precedence, and the switch is shown locked. The addresses
+they fetch from are read from the environment alone. An administrator is shown
+once on the home page which of them are off.
 
 Two things besides a browser send Heddohon requests, each only where the
 operator turns it on: the Heddohon plugin running inside Navidrome, with a
@@ -192,6 +202,39 @@ No account name, credential or upstream detail is sent.
 - Both routes need a session. Search matches in memory and makes no request
   upstream once the index is held.
 
+## New releases from MusicBrainz
+
+With `HEDDOHON_NEW_RELEASES=true`, or the box ticked in the first-run setup
+(which saves it to `setup.json`), an account can turn on a "New releases"
+shelf for its home page under Settings, Listening history; it is off for every
+account until it does. For an account that has, the server reads the ten
+artists it played most in the last year from its history, and asks
+`HEDDOHON_MUSICBRAINZ_URL` (by default `musicbrainz.org`) for the albums and
+EPs of each: by the MusicBrainz id the music server keeps for the artist, or
+by its name where it keeps none. That is what MusicBrainz learns: this
+server's address, and the names or ids of those artists. No account name,
+credential or upstream detail is sent.
+
+- **Server-side only.** The browser's policy is unchanged; the shelf links to
+  MusicBrainz's pages and loads nothing from there.
+- **The library is read first, within the request.** The artists' ids and
+  the albums the library holds are read through the account's credential
+  while the home page loads; only the questions to MusicBrainz, which need no
+  credential, may go on after it: a decrypted credential lives for one
+  request.
+- **One request a second**, as MusicBrainz asks, in one queue for the
+  process, under a `User-Agent` naming Heddohon. 10 seconds and 1 MB an
+  answer, redirects refused, 3 pages of 100 release groups an artist.
+- **Cached.** What an artist has released, and the id a name finds, for a
+  day, for every account alike (it is the same for all); 2000 of each. The
+  shelf per account: made as the account turns it on, shown at once after
+  that, and made again behind the one shown once it is a day old (one older
+  than a week is not shown). All of it is kept in
+  `HEDDOHON_DATA_DIR/new-releases.json`, mode 0600, written at most every 5
+  seconds, so a restart starts from it; it is a cache, rebuilt where it is
+  missing, and not in a backup. Failures are logged as `new-releases-failed`.
+- **Text only.** Titles are cut to 300 characters and rendered as text.
+
 ## Internet radio
 
 Navidrome keeps a list of internet radio stations, set by its administrators:
@@ -283,6 +326,30 @@ later, the first to sign the link token it sends through last.fm.
 - **These endpoints are Navidrome's interface API**, not a documented one,
   checked against its source on 2026-09-25. A change there shows as the section
   not appearing (`scrobbler-failed` in the log), not as an error elsewhere.
+
+## Smart playlists
+
+On Navidrome, an account makes and edits smart playlists: rules Navidrome
+keeps and evaluates itself (added 2026-10-20). Heddohon calls the same
+`/api/playlist` endpoints Navidrome's web interface uses, through the session
+token above (`navidrome.ts`), and plays the result through the Subsonic API
+like any playlist. Jellyfin accounts, and Subsonic servers that are not
+Navidrome, are offered none.
+
+- **The browser never sends Navidrome's rules.** It sends the editor's model,
+  which `checkRules` in `src/lib/smartrules.ts` holds to 12 fields, 10
+  operators and the bounds under **Input bounds**, and the server writes
+  Navidrome's JSON from what passed. Navidrome 0.64.2 stores a rule on a
+  field it does not know and answers 200, so this check is the only one.
+  Fields that read other playlists (`inPlaylist`) or file paths are not
+  offered.
+- **Only the account's own credential is used**, so what a rule matches is
+  what that user may read, and a play count or a rating is that user's.
+  Navidrome refuses a change to another user's playlist with 403, which ends
+  no session, and refuses any change to a smart playlist's songs.
+- **Rules a file defines are not changed here** (`409`): Navidrome would take
+  the change and import the `.nsp` file over it at its next scan.
+- **Nothing is stored here.** The rules live in Navidrome.
 
 ## Plays from the Navidrome plugin
 
@@ -658,6 +725,193 @@ plant `heddohon_session` with `Domain=.example.com` and pin a session that
 signing out cannot clear. Browsers refuse a `__Host-` cookie with a `Domain`,
 which closes that. Switching between the two names signs sessions out once.
 
+## Second factor at sign-in
+
+Added 20 October 2026 (issue #225). An account can add a TOTP app, passkeys,
+or both, under Settings, Security. Heddohon holds no password of its own, so
+the factor is asked for after the music server accepts the password (or a
+Jellyfin Quick Connect approval), and guards the sign-in here whatever the
+music server does. The code is in `lib/server/twofactor.ts`, `totp.ts`,
+`webauthn.ts` and `cbor.ts`; `tests/e2e/twofactor.test.mjs` and
+`tests/browser/twofactor.test.mjs` cover what follows.
+
+**A password alone changes nothing.** For an account with a factor, the music
+server's answer is held in `sign_in_steps`, sealed under a key of its own, and
+the browser gets a `heddohon_sign_in_step` cookie (`__Host-` where Secure,
+`HttpOnly`, `SameSite=Strict`, 5 minutes) holding a 256-bit token, stored as
+its HMAC. The account's stored credential, its other sessions and the device
+cookie's generation change only once the factor is given; before that, a
+changed Subsonic password could have signed every other browser out. A
+correct password still clears the username throttle, and the page then asks
+for the factor, which tells whoever typed it that the password is right.
+
+| Limit | Value |
+| --- | --- |
+| A held sign-in | 5 minutes; 5 factors sent, then it is dropped and the password is asked for again |
+| Held sign-ins per account | 10, the newest kept |
+| Wrong factors per account | 5 in 15 minutes, across every held sign-in and every proof (`2fa:<account>` in `login_attempts`); a right one clears it |
+| TOTP | HMAC-SHA1, 6 digits, 30 seconds, one step either side; a 160-bit secret sealed under its own key |
+| Replay | a code's step is stored as taken, by one conditional update, and a code at or before it is refused |
+| Recovery codes | 10, each 10 characters of 32 (50 bits), stored as HMACs and deleted as used |
+| Passkeys per account | 20; a name of 64 characters |
+| WebAuthn challenge | 32 random bytes, 5 minutes, taken once (stored as an HMAC, deleted as it is answered); one live per held sign-in, and per account and purpose |
+| Passkey sign-ins started | 30 per address and 600 in all in 15 minutes |
+
+With three codes valid at a time, 5 guesses in 15 minutes is 480 a day, and
+the chance that a day of guessing finds a code is about 1 in 700. Each wrong
+factor logs `second-factor-rejected`, and the throttle
+`second-factor-throttled`, both at `warn`, for fail2ban. The throttle is per
+account, so whoever has the password can keep its holder from signing in for
+15 minutes at a time.
+
+**Passkeys** are checked here without a library. Registration and sign-in
+check the client data's type and origin (`event.url.origin`), the challenge
+(its purpose, and the account or held sign-in it was given for), the hash of
+the relying party id (the address's host name) and user presence. Sign-in
+checks the signature with the stored key (ES256, Ed25519, or RS256 of 2048 to
+4096 bits) and refuses a signature counter that does not move forward unless
+both sides are 0, as synced passkeys send. Attestation is not asked for or
+checked, so nothing here depends on the make of authenticator. The CBOR
+reader takes the subset WebAuthn uses, 32 levels deep at most, with every
+length checked against what remains before anything is allocated, out of 16 KB
+at most. A passkey's user handle is the account's id. Passkeys are offered
+only on an `https` address with a host name, or `localhost`, which is where a
+browser allows them; a passkey made on one address does not work on another.
+
+**A passkey signs in on its own** from the sign-in page, with user
+verification required (a PIN or a fingerprint on the authenticator), through
+the credential stored at the account's last password sign-in. The music
+server is asked first whether that credential still works (`checkCredential`:
+`ping` on Subsonic, the user on Jellyfin), so a password changed there, or a
+token revoked, ends it until the next password sign-in.
+
+**A change needs a proof.** Turning on an app, adding a passkey, removing
+either, making new recovery codes and an administrator's reset each need, in
+the same request, one of the account's factors (a code, a recovery code or a
+passkey) where it has one, and its music server password where it has none,
+counted as a sign-in is. A session left open is then not enough to put a
+factor on an account and lock its holder out. Adding a factor, and removing
+the last one, ends every other session of the account, those signed in after
+this one included.
+
+**Recovery codes** are made with the first factor and shown once. Removing
+the last factor removes them.
+
+**Requiring a factor.** `HEDDOHON_REQUIRE_TWO_FACTOR=true`, or an
+administrator under Settings, Security (saved in `setup.json`), holds every
+account to one. An account without one reaches `/settings` (a read, and the
+`save`, `endSession` and `endOtherSessions` actions only), `/api/two-factor`,
+`/api/settings` and `/logout`; a page elsewhere answers 303 to
+`/settings?tab=security`, and anything else 403 `second_factor_required`. Its
+MCP tokens open nothing meanwhile. Whether an account has a factor is held for
+5 seconds; a second process on the same PostgreSQL database sees a change up
+to 5 seconds late. While it is required, the last factor cannot be removed.
+Shared links and now-playing links already made keep working.
+
+**An administrator can clear another account's factors**, by name, on the
+same music server, with a proof of their own (and, while a factor is
+required, only with a factor of their own). The account's sessions and MCP
+tokens end with them, and `two-factor-cleared` is logged. An administrator's
+own factors are removed as anyone's are.
+
+**A new Jellyfin user under a name** (another user id) starts without the
+earlier user's factors, which are removed with the rest of that account.
+
+**What a factor does not cover.** MCP tokens, shared links, cast addresses and
+the now-playing link are made by a signed-in session and keep working without
+a second factor, as before. The music server's own sign-in, and every other
+client of it, are unchanged.
+
+## Single sign-on (OpenID Connect)
+
+Added 22 October 2026 (issue #202). With `HEDDOHON_OIDC_ISSUER` and a client
+registered at an OpenID Connect provider, an account can link its identity
+there under Settings, Security, and then sign in from the sign-in page
+through the provider. The code is in `lib/server/oidc.ts` and the routes
+`/login/oidc`, `/login/oidc/callback` and `/api/oidc`;
+`tests/e2e/oidc.test.mjs` covers what follows.
+
+**The provider never vouches for a music server account.** Heddohon holds no
+password of its own, and the provider holds none of the music server's. An
+identity is linked to an account by a session of that account, with the same
+proof adding a passkey takes (a factor where it has one, its music server
+password where it has none). A sign-in through the provider then opens the
+credential stored at the account's last password sign-in, after asking the
+music server whether it still takes it (`checkCredential`), as a passkey on
+its own does. Nothing maps a claim to a user name, so an administrator of
+the provider, or a person who can change their own name or email address
+there, cannot point an identity at an account they did not sign in to here.
+
+**An identity is the token's `iss` and `sub`**, held in `oidc_links`, unique
+both ways: one identity an account, and one account an identity. Only the
+`openid` scope is asked for, and no other claim is stored. A second
+account that tries to link an identity already linked is refused
+(`oidc-rejected`, `linked to another account`) and has to have it unlinked
+there first.
+
+**The round trip.** The authorization code flow with PKCE (S256), a 256-bit
+`state` and a 256-bit `nonce`. The state, the nonce, the verifier, the
+redirect address, the purpose and, for a link, the account are held in a
+`heddohon_oidc` cookie (`__Host-` where Secure, `HttpOnly`, `SameSite=Lax`,
+10 minutes), sealed with AES-256-GCM under a key of its own; nothing is
+written to the database before the browser comes back. `Lax` is needed: the
+provider sends the browser back with a navigation from its own site. The
+return is refused before the token endpoint is asked unless its `state`
+matches the cookie's, so a return sent to another browser does nothing, and
+the cookie is cleared on any return. A link completes only where the
+browser is still signed in to the account that started it.
+
+**The ID token** is checked by hand with node:crypto, as WebAuthn is: the
+signature against the provider's published keys (RS256, RS384, RS512, PS256,
+PS384, PS512 with RSA keys of 2048 bits or more; ES256, ES384, ES512 on their
+own curves; EdDSA with Ed25519), a key whose `use` is `enc` or whose `alg` is
+another refused; `none` and the HMAC algorithms refused; a `crit` header
+refused; then `iss` equal to the discovery document's issuer, this client in
+`aud` (and as `azp` where there are several audiences or an `azp`), `exp`
+and `iat` within 60 seconds of this server's clock, the `nonce` sent, and a
+`sub` of 1 to 255 characters. The discovery document's `issuer` has to be
+the configured one, a trailing slash aside. Discovery is held for an hour
+(a failure for 30 seconds, and starts at one moment share one request), and
+the keys are read again for a `kid` not held at most once a minute.
+Every request to the provider has a 10-second timeout, a 256 KB cap on the
+answer, and refuses redirects, so the client secret goes to the token
+endpoint the discovery document names and nowhere else. The secret is sent
+in a Basic header unless the provider lists only `client_secret_post`, and a
+public client (no secret) sends its id alone and is held to PKCE.
+
+**A second factor is still asked for.** The provider's sign-in stands in for
+the password, not for the factor: an account with one goes through
+`beginStep` as a password sign-in does. The step's cookie is
+`SameSite=Strict`, and a browser does not send it on a redirect that is part
+of a navigation the provider's site started, so the callback answers that
+case with a page that moves on to `/login` by itself (`onwards`).
+
+**A link goes** when a new Jellyfin user holds the account's name, and when
+a password sign-in stores a password other than the one held: on Subsonic a
+name given to someone else looks the same as a password change. The same
+person links again from Settings. An unlink takes no proof, since it only
+takes a way in away.
+
+| Limit | Value |
+| --- | --- |
+| A pending sign-in or link | 10 minutes, one per browser |
+| Returns from the provider | 30 per address and 600 in all in 15 minutes (`oidc:` in `login_attempts`); each return that passes the state check is one request to the token endpoint |
+| ID token | 16 KB; a `sub` of 255 characters |
+| Code and state in a return | 2048 and 128 characters |
+| Provider answers | 256 KB each, 10 seconds; 100 published keys read |
+
+`oidc-linked`, `oidc-unlinked`, `oidc-rejected` (with the step and the reason)
+and `oidc-throttled` are logged at `warn`, `oidc-failed` when the provider
+cannot be read, and a sign-in through it as `signed-in` with `method=oidc`.
+`code` and `state` are redacted from logged addresses, as the Last.fm
+callback's parameters are.
+
+**What it does not cover.** The provider's own security (its sign-in, its
+factors, who it lets have an account) is the provider's. An identity linked
+on a Jellyfin account goes on signing in for as long as Jellyfin takes the
+stored token, which a password change on Jellyfin may not end; the same holds
+for a passkey.
+
 ## Shared links
 
 A signed-in account can make a link to one song, one album or one playlist.
@@ -851,6 +1105,84 @@ address, `/cast/<token>`, a public route. What it is limited to:
 `POST /api/cast` issues addresses for up to 1000 track ids to a signed-in
 browser. It makes no upstream call; an id the account cannot play gets an
 address that answers 404.
+
+## Profile pages
+
+Added 20 October 2026. An account has a page at `/people/<handle>`: four
+albums it picks, a bio, its display name and picture, and, where it turns
+each on, the albums it played lately and its most played artists of the last
+30 days, from this server's history. `lib/server/profilepage.ts` has it;
+`tests/e2e/profiles.test.mjs` covers what follows.
+
+- **Who sees it.** The account itself, always. The other accounts signed in
+  here, once it is listed (off until the account turns it on); `/people`
+  lists those. Anyone holding its public link, `/p/<token>`, while there is
+  one. A handle that is not listed answers 404 to another account, as one
+  that does not exist does.
+- **What is shown is read, not sent.** The editor sends album ids; each is
+  read through the account's own credential before it is kept, and the
+  title, artist, year and cover id kept are that read's. An id the account
+  cannot read is refused. The bio is plain text of 280 characters with
+  control and direction characters removed, shown as text.
+- **Covers by place.** A cover on the page is served through the owner's
+  stored credential, as a shared link's is, at
+  `/api/people/<handle>/cover/<slot>` (signed in) or `/p/<token>/cover/<slot>`
+  (the link): `f0` to `f3` for the albums, `r0` to `r7` for the recent ones
+  while they are shown. The address never carries a cover id, so a viewer
+  reaches the covers the page shows and no other. Cover ids are not sent to
+  the browser. On a different kind of music server from the viewer's, albums
+  and artists do not link into the library.
+- **The public link** is `hhpr_` and 43 random characters, stored as an HMAC
+  under a key of its own, shown once as it is made; a new one replaces it.
+  The public page has the owner's name (the user name where no display name
+  is set), picture, bio, albums and the lists the owner turned on, with
+  `noindex`, without the handle and without links into the library. Its
+  covers carry `private, max-age=300`, its picture the same.
+- **What ends it.** A password change seen at sign-in (on Subsonic, also how
+  a name passed to someone else looks) unlists the page and withdraws its
+  link; every session ending (`destroyAllSessions`) withdraws the link; a new
+  Jellyfin user under the name removes the page.
+- **Switched off** (`HEDDOHON_PROFILES=false`, or an administrator under
+  Settings, Features), every route of it answers 404 as for a page that does
+  not exist, public links included, People leaves the rail and the home page
+  loses the picture that leads to it. What was saved stays, and comes back
+  with the switch.
+- **Name and picture.** They are the profile's that "Listening now" shows.
+  Since they are the page's too, an account sets them whether or not
+  `HEDDOHON_LISTENERS` is on; being shown in that list is still offered only
+  where it is. A picture is served to signed-in accounts by its handle as
+  before.
+
+## Now-playing link
+
+An account can make a link that shows what it is playing, for an OBS browser
+source or Home Assistant, under Settings, Account. It has three public routes,
+each taking the token in its path in place of a session: `/now/<token>` (a
+page on a see-through background), `/api/now-playing/<token>` (JSON) and
+`/api/now-playing/<token>/cover`. What it is limited to:
+
+- **What it shows is the account's own track while it plays**: title, artist,
+  album, length, position, and the cover. Paused or with nothing playing, the
+  JSON is `{ "playing": false }`, the page is empty and the cover answers 404.
+  It reads the reports the account's own browsers send over the remote
+  control's streams, and its other apps only where the account shows those to
+  other accounts already (`listeningOtherApps`). Without
+  `HEDDOHON_REMOTE_CONTROL` there is nothing to show, and every route answers
+  404.
+- **One link an account**, made and withdrawn by the account. The token is
+  `hhnp_` and 256 random bits; only its HMAC digest is stored, under a key of
+  its own, and it is shown once. A new link replaces the old, which stops
+  working at once.
+- **It ends with the account's sessions** (`destroyAllSessions`): a password
+  changed on the music server, a credential it refuses, or a user name
+  reused by someone else withdraws it, as it does MCP tokens.
+- **The cover is read through the account's stored credential**, as a shared
+  link's is, by the cover id the account's browser reported; the request names
+  no cover. It carries the shared media's headers (`private, max-age=300`).
+- **Every refusal is the same 404**: malformed, withdrawn, never made.
+  Answers are `no-store`, and the token is kept out of the log (`redact`).
+- **Anyone who holds the link sees what the account plays** for as long as
+  the link stands. Settings says so beside the button.
 
 ## Listening together
 
@@ -1255,8 +1587,14 @@ Covers are cached under `$HEDDOHON_DATA_DIR/covers` (see
 | Any id in a JSON body or a path | under 256 characters |
 | Albums read for one play of an artist | 200 |
 | Sessions per account | 50; the oldest ends |
+| Second factor code | 64 characters; six digits from an app, or a recovery code of 10 characters of `a-z 2-7`, spaces and dashes ignored |
+| A return from the identity provider | `code` 2048 and `state` 128 characters; an ID token of 16 KB, its `sub` 255 characters |
+| Second factors | see [Second factor at sign-in](#second-factor-at-sign-in): 5 a held sign-in, 5 wrong ones an account in 15 minutes, 10 held sign-ins an account, 20 passkeys an account |
+| Passkey answer | a credential id of 1023 bytes; client data 4 KB, attestation 16 KB, authenticator data 4 KB, signature 1 KB, user handle 64 bytes; CBOR 32 levels deep |
+| Passkey name | 64 characters, cut; the request's 300 |
 | Playlist positions per removal | 1000, deduplicated |
 | Star rating | a whole number from 0 to 5 |
+| Smart playlist rules | 1 to 20 rules, each a field and an operator from an allowlist (`lib/smartrules.ts`); text 1 to 200 characters; a year 0 to 9999, a rating 0 to 5, a play count to 1,000,000, a length to 86,400 s, days 1 to 36,500; 1 to 1000 songs or no limit |
 | Remote control streams per account | 20 |
 | Remote command | one of nine types; a seek from 0 to 86400 s, a volume from 0 to 1, a queue of 1 to 1000 ids |
 | Remote state text (title, artist, album) | 300 characters, cut |
@@ -1284,6 +1622,12 @@ Covers are cached under `$HEDDOHON_DATA_DIR/covers` (see
 | MCP request | one JSON-RPC message, within the 512 KB body cap |
 | Library report | an account the music server lists as an administrator; one at a time on the server; kept in memory a day; 50 entries a list |
 | Daily mixes | 3 a day for an account, 40 songs each, made at most once a day from this server's history and kept in `daily_mixes` |
+| Listening history export | the account's own plays; `format` `csv` or `json`, `from` and `to` whole epoch milliseconds up to 8.64e15, `from` before `to`; read 2000 plays a query and written as read. A CSV field that starts with `=`, `+`, `-`, `@`, a tab or a carriage return takes a `'` in front, so a spreadsheet does not run a track name as a formula |
+| Playlist import | 1000 tracks a request, each with a title; title, artist and album cut to 300 characters; a length above 0 and under 86400 s or none. Each track is up to two searches of 20 songs on the music server, 8 tracks at a time, stopped when the browser goes. Nothing is written until the playlist is created through `/api/playlists` |
+| Playlist export | `format` one of `m3u`, `m3u-titles` and `csv`; a playlist the account can read. An M3U line holds no line break; CSV fields as in the history export |
+| Now-playing link | one an account; a token of `hhnp_` and 43 characters, 64 at most before it is looked up |
+| Profile page | 4 albums, each an id of 1 to 255 characters read through the account's credential, once each; a bio of 280 characters (the request's 1120); 8 recent albums and 8 artists |
+| Profile link | one an account; a token of `hhpr_` and 43 characters, 64 at most before it is looked up; a cover slot `f0` to `f3` or `r0` to `r7` |
 | Navidrome plugin token | at least 32 characters, and not `HEDDOHON_SECRET` |
 | Navidrome plugin message | 100 plays, or a page of 2000 scrobbles; a user name and a song id of 1 to 255 characters; a time in whole seconds, at most 5 minutes ahead |
 | Scrobble history imports open at once | 4; closed after 2 minutes without a page |
@@ -1431,6 +1775,19 @@ session token and any `u`, `t`, `s` or `p` query parameter.
   reports no user id to tell this apart from a password change, where the links
   belong to the same person. Withdraw them from Settings, or with "Withdraw
   all", when a name is reused.
+- **A reused Navidrome user name keeps the earlier user's second factors**,
+  for the same reason: the new holder is asked for the earlier holder's code
+  and cannot sign in until an administrator clears them (Settings, Security).
+  It fails closed.
+- **A changed `HEDDOHON_SECRET` makes TOTP apps and recovery codes unusable**,
+  as it does the stored credentials: the secret is sealed, and the codes are
+  HMACs, under keys derived from it. Passkeys keep working. Where every
+  administrator is shut out by this, the operator removes an account's
+  factors in the database: `DELETE FROM totp WHERE account_id = ...`, and the
+  same for `recovery_codes` and `passkeys`.
+- **Passkeys in the desktop app** depend on Electron's WebAuthn support, which
+  differs by platform. A TOTP app works there. The Android app is Chrome (a
+  Trusted Web Activity) and takes passkeys as Chrome does.
 - **Upstream redirects from http to https** are followed to any port on the
   same host, so that Jellyfin's 8096 to 8920 upgrade works.
 - **`GET /api/cover/[id]`** writes to the cache and sits outside the origin check.
@@ -1935,3 +2292,41 @@ Found holding:
   through the proxy): adapter-node answers 500 for the sign-in and the
   listen-together stream; the operator checklist says to set it only where
   every request comes through the proxy.
+
+### 16 October 2026
+
+Asked by the maintainer: is a profile picture kept without its metadata, and
+can a display name run as markup? Each with a check, in
+`tests/e2e/app.test.mjs` (**a picture is kept without its metadata**) and
+`tests/browser/browser.test.mjs` (**an account that chooses to be shown**).
+
+| Severity | Finding | Fix |
+| --- | --- | --- |
+| Low | A picture sent to `PUT /api/profile/avatar` by hand, rather than through Settings, was stored and served as sent: EXIF with a phone's GPS position and serial number, XMP, comments, JFIF's thumbnail, and up to 96 KB of anything after the end marker, to every account it was shown to. The browser's own picture is drawn again on a canvas and had none of these (checked in Chromium, WebKit and Firefox) | Every segment is walked, the scans included, and only what draws the picture is kept: the tables, the frame, the scans, the ICC colour profile and Adobe's colour transform. The size check is made on what is kept |
+
+Found holding: a display name of `<img src=x onerror=alert(1)>` is shown as
+that text in the pill's label and in the popup, and no element is made from
+it; the source has no `{@html}` or `innerHTML`, and the page's policy has no
+`'unsafe-inline'` for scripts besides. A user name from the music server
+(the listen-together queue's "Added by", the Join button) goes through the
+same escaping.
+
+### 20 October 2026
+
+The second factor (issue #225), reviewed as it was written. Each item with a
+check in `tests/e2e/twofactor.test.mjs`; four of the checks were undone in
+the code on purpose and failed as they should (the replay check, user
+verification for a passkey alone, the account stored before the factor, and
+the Settings actions open to an account without one).
+
+| Severity | Finding | Fix |
+| --- | --- | --- |
+| Medium | Every Settings action was open to an account held to setting up a factor, and `makeMcpToken` there gave it a token that reads the library past the gate | Only `save`, `endSession` and `endOtherSessions` are taken from it, and its MCP tokens open nothing while it has no factor |
+| Low | A held sign-in and a WebAuthn challenge were rows without a cap for whoever had the password, or a signed-in session: each lasted 5 minutes, and a correct password clears the sign-in throttle | 10 held sign-ins an account, the newest kept; one live challenge per held sign-in and per account and purpose |
+
+Found holding: a passkey answer for another origin, another relying party, a
+spent challenge, a counter that went back, a forged signature, another
+account's user handle, and a sign-in challenge sent as a second step, are each
+refused; a TOTP code is taken once when sent twice at the same moment (one
+conditional update); recovery codes and the secret are not in the database in
+the clear; and the held sign-in holds the password sealed.

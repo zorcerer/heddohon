@@ -98,7 +98,7 @@ describe('a deployment that is not set up', () => {
 			for (let i = 0; i < 30; i++) await call(client, { action: 'check', code: `WRONG-WRONG-WRONG-${String(i).padStart(5, '0')}` });
 			const right = await call(client, { action: 'check', code });
 			assert.equal(right.status, 200);
-			assert.deepEqual(await right.json(), { ok: true, missing: { secret: true, upstream: true }, environment: { origin: true, coverCache: false, mcp: false, database: false } });
+			assert.deepEqual(await right.json(), { ok: true, missing: { secret: true, upstream: true }, environment: { origin: true, coverCache: false, mcp: false, requireTwoFactor: false, database: false } });
 			// As typed: lower case, without the hyphens.
 			assert.equal((await call(client, { action: 'check', code: code.toLowerCase().replace(/-/g, ' ') })).status, 200);
 
@@ -231,6 +231,8 @@ describe('a deployment that is not set up', () => {
 					theme: 'paper',
 					sharing: false,
 					mcp: true,
+					newReleases: true,
+					features: { lrclib: true, autoeq: 'yes' },
 					downloads: 'yes',
 					// Not what the setup may save.
 					HEDDOHON_DATABASE_URL: 'postgres://evil.example/x',
@@ -253,7 +255,9 @@ describe('a deployment that is not set up', () => {
 				HEDDOHON_SUBSONIC_LABEL: '<b>Home</b>',
 				HEDDOHON_DEFAULT_THEME: 'paper',
 				HEDDOHON_SHARING: 'false',
-				HEDDOHON_MCP: 'true'
+				HEDDOHON_LYRICS_LRCLIB: 'true',
+				HEDDOHON_MCP: 'true',
+				HEDDOHON_NEW_RELEASES: 'true'
 			});
 			// The key is on the page once, and in no log.
 			assert.ok(!app.output().includes(body.secret));
@@ -495,7 +499,7 @@ describe('the addresses a deployment is opened at', () => {
 			const host = new URL(here).host;
 			const client = new Client(here);
 			const code = codeOf(app);
-			assert.deepEqual((await (await call(client, { action: 'check', code })).json()).environment, { origin: false, coverCache: false, mcp: false, database: false });
+			assert.deepEqual((await (await call(client, { action: 'check', code })).json()).environment, { origin: false, coverCache: false, mcp: false, requireTwoFactor: false, database: false });
 
 			for (const origin of ['https://a.example/path', 'ftp://a.example', 'https://user:pw@a.example', 'not an address']) {
 				const bad = await call(client, { action: 'save', code, values: { subsonicUrl: subsonic.url, origin } });

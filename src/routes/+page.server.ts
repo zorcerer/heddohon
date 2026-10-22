@@ -4,6 +4,10 @@ import { libraryContext, librarySettled } from '$lib/server/library';
 import { remembered } from '$lib/server/listings';
 import { log, reason } from '$lib/server/log';
 import { dailyMixes, summary } from '$lib/server/mixes';
+import { newReleases } from '$lib/server/newreleases';
+import { unseenFeatures } from '$lib/server/features';
+import { ensureHandle, getProfile } from '$lib/server/listening';
+import { profilesOn } from '$lib/server/profilepage';
 
 /** Favourite songs shown on the home page. */
 const FAVOURITES_SHOWN = 8;
@@ -51,6 +55,30 @@ export const load: PageServerLoad = async ({ locals }) => {
 			return [];
 		});
 
+	// Streamed: from MusicBrainz, for an account that turned the shelf on where
+	// the server allows it. See `newreleases.ts`. A failure leaves the shelf out.
+	const releases = locals.settings?.newReleases
+		? newReleases({ backend, credential, accountId }).catch((err) => {
+				log.warn('section-failed', { section: 'new-releases', detail: reason(err) });
+				return [];
+			})
+		: Promise.resolve([]);
+
+	/*
+	 * Streamed: the optional features that are off and that this account has
+	 * not been told of, for an administrator of the music server; see
+	 * `features.ts`. The administrator is asked of the music server only when
+	 * there is something to tell.
+	 */
+	const unseen = unseenFeatures(locals.settings?.featuresSeen ?? []);
+	const featureNotice =
+		unseen.length === 0
+			? Promise.resolve([])
+			: backend
+					.isAdmin(credential)
+					.then((admin) => (admin === true ? unseen.map(({ id, title }) => ({ id, title })) : []))
+					.catch(() => []);
+
 	// From this server's history, without an upstream call. A failed read leaves
 	// the shelf out.
 	const rediscover = forgottenAlbums(accountId, REDISCOVER_SHOWN).catch((err) => {
@@ -65,12 +93,22 @@ export const load: PageServerLoad = async ({ locals }) => {
 		discover: backend.getRandomSongs(credential, 12)
 	});
 
+	// The account's own profile, for the picture in the masthead that leads to
+	// its page; read from the database, with no call to the music server.
+	// The row is made once, on the first visit, not written on every one. None
+	// while profile pages are switched off.
+	const profile = profilesOn() ? await getProfile(accountId) : null;
+	if (profile) profile.handle ??= await ensureHandle(accountId);
+
 	return {
+		me: profile && { handle: profile.handle, name: profile.name ?? locals.session!.account.username, avatar: profile.avatarAt },
 		recentlyAdded: shelves.recentlyAdded ?? [],
 		mostPlayed: shelves.mostPlayed ?? [],
 		recentlyPlayed: shelves.recentlyPlayed ?? [],
 		favouriteSongs,
 		mixes,
+		newReleases: releases,
+		featureNotice,
 		rediscover: await rediscover,
 		discover: shelves.discover ?? []
 	};

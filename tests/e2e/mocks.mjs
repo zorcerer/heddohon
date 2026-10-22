@@ -219,7 +219,18 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 			acceptFrom: 0,
 			linkTokens: new Set(),
 			listenBrainzToken: null
-		}
+		},
+		/**
+		 * Smart playlists, by id: `{ name, rules, owner, public, path }`, kept
+		 * through Navidrome's `/api/playlist` and listed by Subsonic as
+		 * `readonly`, with `smartSongs` as their songs whatever the rules. An
+		 * `owner` of null is the signed-in user; `path` names the `.nsp` file
+		 * one was imported from. Each `PUT` body, in order, in `smartWrites`.
+		 */
+		smart: new Map(),
+		smartSongs: ['s5a', 's6a', 's7a'],
+		smartWrites: [],
+		smartMade: 0
 	};
 
 	const name = (i) => `Artist ${String(i).padStart(4, '0')}`;
@@ -234,6 +245,7 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 		duration: 180,
 		track: side.charCodeAt(0) - 96,
 		suffix: 'flac',
+		path: `${name(i)}/Album ${i}/0${side.charCodeAt(0) - 96} - Song ${i}${side}.flac`,
 		bitRate: 900,
 		bitDepth: 16,
 		samplingRate: 44100,
@@ -307,6 +319,53 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 		const bearer = /^Bearer nd-(\d+)$/.exec(req.headers['x-nd-authorization'] ?? '');
 		if (!bearer || Number(bearer[1]) < nd.acceptFrom || Number(bearer[1]) > nd.issued) {
 			return reply(401, { error: 'Not authenticated' });
+		}
+		// Playlists as Navidrome 0.64.2 answers them, smart ones alone held here:
+		// another user's refused with 403, an unknown id 404, an operator it
+		// does not know 422.
+		if (url.pathname === '/api/playlist' || url.pathname.startsWith('/api/playlist/')) {
+			const id = decodeURIComponent(url.pathname.slice('/api/playlist/'.length));
+			const view = (key, entry) => ({
+				id: key,
+				name: entry.name,
+				ownerName: entry.owner ?? state.username,
+				public: entry.public,
+				path: entry.path ?? '',
+				rules: entry.rules
+			});
+			const OPS = ['is', 'isnot', 'gt', 'lt', 'contains', 'notcontains', 'startswith', 'endswith', 'intherange', 'before', 'after', 'inthelast', 'notinthelast', 'inplaylist', 'notinplaylist', 'ismissing', 'ispresent'];
+			const known = (rules) =>
+				(rules.all ?? rules.any ?? []).every((entry) =>
+					Object.entries(entry).every(([op, value]) => (op === 'all' || op === 'any' ? known({ [op]: value }) : OPS.includes(op.toLowerCase())))
+				);
+			if (url.pathname === '/api/playlist' && req.method === 'GET') {
+				const hand = [{ id: 'pl1', name: 'Mock Playlist', ownerName: state.username, public: state.playlistPublic, path: '', rules: null }];
+				return reply(200, [...hand, ...[...state.smart].map(([key, entry]) => view(key, entry))]);
+			}
+			if (url.pathname === '/api/playlist' && req.method === 'POST') {
+				if (sent.rules && !known(sent.rules)) return reply(422, { error: 'Invalid request payload' });
+				state.smartMade += 1;
+				const key = `sm${state.smartMade}`;
+				state.smart.set(key, { name: sent.name, rules: sent.rules ?? null, owner: null, public: sent.public === true, path: '' });
+				return reply(200, { id: key });
+			}
+			if (id === 'pl1' && req.method === 'GET') return reply(200, { id: 'pl1', name: 'Mock Playlist', ownerName: state.username, path: '', rules: null });
+			const entry = state.smart.get(id);
+			if (!entry) return reply(404, { error: `playlist(id:${id}) not found` });
+			if (req.method === 'GET') return reply(200, view(id, entry));
+			if (entry.owner !== null && entry.owner !== state.username) return reply(403, { error: 'Updating playlist: Permission denied' });
+			if (req.method === 'PUT') {
+				if (sent.rules && !known(sent.rules)) return reply(422, { error: 'Invalid request payload' });
+				state.smartWrites.push(sent);
+				if ('rules' in sent) entry.rules = sent.rules;
+				if ('name' in sent) entry.name = sent.name;
+				return reply(200, view(id, entry));
+			}
+			if (req.method === 'DELETE') {
+				state.smart.delete(id);
+				return reply(200, {});
+			}
+			return reply(405);
 		}
 		const service = /^\/api\/(lastfm|listenbrainz)\/link$/.exec(url.pathname)?.[1];
 		if (!service || !nd.enabled[service]) return reply(404);
@@ -414,7 +473,21 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 					return send(ok({ searchResult3: page.length > 0 ? { song: page } : {} }));
 				}
 				const match = /^Artist (\d{4})$/.exec(p.get('query') ?? '');
-				if (!match) return send(ok({}));
+				if (!match) {
+					// Any other query as Navidrome reads one: every word in the title,
+					// the artist or the album.
+					const words = (p.get('query') ?? '').toLowerCase().split(/\s+/).filter(Boolean);
+					const hits = Array.from({ length: artistCount * 2 }, (_, k) => song(k >> 1, k % 2 ? 'b' : 'a'))
+						.filter((entry) => words.every((word) => `${entry.title} ${entry.artist} ${entry.album}`.toLowerCase().includes(word)))
+						.slice(0, Number(p.get('songCount') ?? 20));
+					// And the albums whose name and artist hold every word, as Navidrome
+					// answers `albumCount`.
+					const albums = Array.from({ length: artistCount }, (_, k) => album(k))
+						.filter((entry) => words.every((word) => `${entry.name} ${entry.artist}`.toLowerCase().includes(word)))
+						.slice(0, Number(p.get('albumCount') ?? 20));
+					const result = { ...(hits.length > 0 ? { song: hits } : {}), ...(albums.length > 0 ? { album: albums } : {}) };
+					return send(ok(Object.keys(result).length > 0 ? { searchResult3: result } : {}));
+				}
 				const i = Number(match[1]);
 				const host = (i + 1) % artistCount;
 				const guest = {
@@ -524,12 +597,30 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 							playlist: [
 								{ id: 'pl1', name: 'Mock Playlist', songCount: 2, duration: 360, owner: state.username, public: state.playlistPublic },
 								{ id: 'pl2', name: 'Their Public Playlist', songCount: 1, duration: 180, owner: 'seconduser', public: true },
-								{ id: 'pl3', name: 'Their Private Playlist', songCount: 1, duration: 180, owner: 'seconduser', public: false }
+								{ id: 'pl3', name: 'Their Private Playlist', songCount: 1, duration: 180, owner: 'seconduser', public: false },
+								...[...state.smart].map(([id, entry]) => ({
+									id,
+									name: entry.name,
+									songCount: state.smartSongs.length,
+									duration: 180 * state.smartSongs.length,
+									owner: entry.owner ?? state.username,
+									public: entry.public,
+									readonly: true
+								}))
 							]
 						}
 					})
 				);
 			case 'getPlaylist': {
+				if (state.smart.has(p.get('id'))) {
+					const entry = state.smart.get(p.get('id'));
+					const songs = state.smartSongs.map((id) => song(index(id), id.slice(-1)));
+					return send(
+						ok({
+							playlist: { id: p.get('id'), name: entry.name, songCount: songs.length, duration: 180 * songs.length, owner: entry.owner ?? state.username, public: entry.public, readonly: true, entry: songs }
+						})
+					);
+				}
 				if (p.get('id') === 'pl2') {
 					return send(ok({ playlist: { id: 'pl2', name: 'Their Public Playlist', songCount: 1, duration: 180, owner: 'seconduser', public: true, entry: [song(3, 'a')] } }));
 				}
@@ -558,6 +649,16 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 			}
 			// Another user's playlist is refused, with the code Navidrome 0.64.2 answers.
 			case 'updatePlaylist':
+				// A smart playlist takes a name and public, and no change to its songs.
+				if (state.smart.has(p.get('playlistId'))) {
+					const entry = state.smart.get(p.get('playlistId'));
+					if (p.has('songIdToAdd') || p.has('songIndexToRemove') || (entry.owner ?? state.username) !== state.username) {
+						return send(failed(50, 'User is not authorized for the given operation'));
+					}
+					if (p.has('name')) entry.name = p.get('name');
+					if (p.has('public')) entry.public = p.get('public') === 'true';
+					return send(ok({}));
+				}
 				if (p.get('playlistId') === 'pl2' || p.get('playlistId') === 'pl3') {
 					return send(failed(50, 'User is not authorized for the given operation'));
 				}
@@ -612,6 +713,9 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 				res.setHeader('content-range', `bytes ${start}-${end}/${body.length}`);
 				return res.end(body.subarray(start, end + 1));
 			}
+			case 'deletePlaylist':
+				state.smart.delete(p.get('id'));
+				return send(ok({}));
 			default:
 				return send(ok({}));
 		}
@@ -648,7 +752,7 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
  * A Jellyfin server with three album artists and two artists that only appear
  * on tracks. `Artist B` is album artist of two albums.
  */
-export async function startJellyfin() {
+export async function startJellyfin({ quickConnect = false } = {}) {
 	const calls = counter();
 	const artists = [
 		{ Id: 'a1', Name: 'Artist A', Type: 'MusicArtist', ImageTags: {} },
@@ -715,7 +819,12 @@ export async function startJellyfin() {
 	 */
 	/** Item ids the user has made a favourite, which every item it answers with carries in `UserData`. */
 	/** `playlistPublic`: whether `jpl` is public, as a new Jellyfin playlist is. */
-	const state = { played: [], favourites: new Set(), playlistPublic: true };
+	/**
+	 * `quickConnect`: whether Quick Connect is on, and `quickConnectApproved`
+	 * whether the one request it holds (secret `qc-secret`, code `123456`) has
+	 * been approved by a signed-in user.
+	 */
+	const state = { played: [], favourites: new Set(), playlistPublic: true, quickConnect, quickConnectApproved: false };
 
 	/** An item as Jellyfin answers with it for this user: with its favourite state. */
 	const withUserData = (item) =>
@@ -744,7 +853,18 @@ export async function startJellyfin() {
 			});
 			return;
 		}
-		if (url.pathname === '/QuickConnect/Enabled') return send(false);
+		if (url.pathname === '/QuickConnect/Enabled') return send(state.quickConnect);
+		if (state.quickConnect && req.method === 'POST' && url.pathname === '/QuickConnect/Initiate') {
+			return send({ Secret: 'qc-secret', Code: '123456' });
+		}
+		if (state.quickConnect && url.pathname === '/QuickConnect/Connect') {
+			return url.searchParams.get('secret') === 'qc-secret' ? send({ Authenticated: state.quickConnectApproved }) : send({}, 404);
+		}
+		if (state.quickConnect && req.method === 'POST' && url.pathname === '/Users/AuthenticateWithQuickConnect') {
+			return state.quickConnectApproved
+				? send({ AccessToken: 'jf-token', User: { Id: 'u1', Name: 'jfuser' } })
+				: send({}, 400);
+		}
 		// Favourites, by the route Heddohon uses: POST adds, DELETE removes, and
 		// the answer is the item's user data.
 		const favourite = /^\/Users\/u1\/FavoriteItems\/([^/]+)$/.exec(url.pathname);
@@ -1016,6 +1136,62 @@ export async function startOutside() {
 		});
 	});
 	return { ...server, calls, state, posts };
+}
+
+/**
+ * MusicBrainz, for the "New releases" shelf: an artist search that knows
+ * Artist 0003, and the release groups of that artist and of Artist 0000 (whose
+ * MusicBrainz id the Subsonic mock gives). `requests` holds each request's
+ * path, time and user agent.
+ */
+export async function startMusicBrainz() {
+	const requests = [];
+	const day = (offset) => new Date(Date.now() + offset * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+	const group = (id, title, date, type = 'Album', secondary = []) => ({
+		id,
+		title,
+		'first-release-date': date,
+		'primary-type': type,
+		'secondary-types': secondary
+	});
+	const groups = {
+		'b09c8a50-7bfa-434f-a2cf-f9bf9f6f91a5': () => [
+			group('rg-0-new', 'Fresh Start', day(-20)),
+			// In the library already, live, and old.
+			group('rg-0-owned', 'Album 0', day(-5)),
+			group('rg-0-live', 'Live at Home', day(-3), 'Album', ['Live']),
+			group('rg-0-old', 'Debut', '2001-05-01')
+		],
+		'33333333-3333-4333-8333-333333333333': () => [
+			group('rg-3-soon', 'Next One', day(40), 'EP'),
+			group('rg-3-single', 'A Single', day(-2), 'Single')
+		]
+	};
+	const server = await listen((req, res) => {
+		const url = new URL(req.url, 'http://x');
+		requests.push({ path: url.pathname, query: Object.fromEntries(url.searchParams), at: Date.now(), agent: req.headers['user-agent'] });
+		res.setHeader('content-type', 'application/json');
+		if (url.pathname === '/ws/2/artist') {
+			const known = url.searchParams.get('query') === 'artist:"Artist 0003"';
+			return res.end(
+				JSON.stringify({
+					artists: known
+						? [
+								{ id: '33333333-3333-4333-8333-333333333333', name: 'Artist 0003', score: 100 },
+								{ id: '44444444-4444-4444-8444-444444444444', name: 'Artist 0003 Tribute', score: 80 }
+							]
+						: []
+				})
+			);
+		}
+		if (url.pathname === '/ws/2/release-group') {
+			const listed = groups[url.searchParams.get('artist')]?.() ?? [];
+			return res.end(JSON.stringify({ 'release-group-count': listed.length, 'release-groups': listed }));
+		}
+		res.statusCode = 404;
+		res.end('{}');
+	});
+	return { url: server.url, requests, close: server.close };
 }
 
 /**

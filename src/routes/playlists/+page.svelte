@@ -4,9 +4,11 @@
 	import Icon from '$lib/components/Icon.svelte';
 	import MediaCard from '$lib/components/MediaCard.svelte';
 	import MediaGrid from '$lib/components/MediaGrid.svelte';
+	import SmartPlaylistEditor from '$lib/components/SmartPlaylistEditor.svelte';
 	import SortChips from '$lib/components/SortChips.svelte';
 	import { playContainer } from '$lib/client/actions';
-	import { createPlaylist } from '$lib/client/playlists.svelte';
+	import { createPlaylist, createSmartPlaylist } from '$lib/client/playlists.svelte';
+	import { blankRules, type SmartRules } from '$lib/smartrules';
 	import { formatLongDuration } from '$lib/client/format';
 	import type { PlaylistSort } from '$lib/types';
 	import type { PageData } from './$types';
@@ -51,8 +53,27 @@
 		}
 	}
 
+	let makingSmart = $state(false);
+	let smartBusy = $state(false);
+	let smartError = $state<string | null>(null);
+
+	async function createSmart(rules: SmartRules, smartName: string) {
+		smartBusy = true;
+		smartError = null;
+		try {
+			const id = await createSmartPlaylist(smartName, rules);
+			makingSmart = false;
+			await goto(`/playlists/${id}`);
+		} catch (err) {
+			smartError = err instanceof Error ? err.message : 'Could not create that playlist';
+		} finally {
+			smartBusy = false;
+		}
+	}
+
 	function subtitle(playlist: PageData['playlists'][number]): string {
 		return [
+			data.smartIds.includes(playlist.id) ? 'smart' : null,
 			playlist.songCount ? `${playlist.songCount} tracks` : null,
 			formatLongDuration(playlist.duration) || null,
 			// Another user's is public, or it would not be listed.
@@ -87,10 +108,36 @@
 				href={sortHref}
 				label="Sort playlists"
 			/>
-			<button class="hh-button hh-button--primary new" onclick={() => (creating = !creating)}>
+			<a class="hh-button" href="/playlists/import">
+				<Icon name="download" size={16} />
+				Import
+			</a>
+			<button
+				class="hh-button hh-button--primary new"
+				onclick={() => {
+					creating = !creating;
+					makingSmart = false;
+				}}
+			>
 				<Icon name="plus" size={16} />
 				New playlist
 			</button>
+			{#if data.smartAvailable}
+				<button
+					class="hh-button new"
+					onclick={() => {
+						makingSmart = !makingSmart;
+						creating = false;
+						smartError = null;
+					}}
+					aria-expanded={makingSmart}
+					aria-label="New smart playlist"
+					title="A playlist the music server fills from rules you set"
+				>
+					<Icon name="plus" size={16} />
+					Smart playlist
+				</button>
+			{/if}
 		</div>
 	</header>
 
@@ -123,6 +170,18 @@
 		{#if error}
 			<p class="alert" role="alert">{error}</p>
 		{/if}
+	{/if}
+
+	{#if makingSmart}
+		<SmartPlaylistEditor
+			initial={blankRules()}
+			naming
+			saveLabel="Create"
+			busy={smartBusy}
+			error={smartError}
+			onsave={createSmart}
+			oncancel={() => (makingSmart = false)}
+		/>
 	{/if}
 
 	{#if data.playlists.length > 0}

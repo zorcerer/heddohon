@@ -118,7 +118,13 @@ CREATE TABLE IF NOT EXISTS plays (
   album       TEXT,
   album_id    TEXT,
   cover_art   TEXT,
-  duration    INTEGER
+  duration    INTEGER,
+  -- How this server heard of the play ("heddohon", "navidrome" or
+  -- "music-server"; see PlaySource in history.ts), and for a play made
+  -- here, the browser ("Firefox on Linux"). Null in a row from before these
+  -- were kept.
+  source      TEXT,
+  device      TEXT
 );
 CREATE INDEX IF NOT EXISTS plays_account_idx ON plays(account_id, played_at);
 
@@ -146,6 +152,14 @@ CREATE TABLE IF NOT EXISTS mcp_tokens (
 );
 CREATE INDEX IF NOT EXISTS mcp_tokens_account_idx ON mcp_tokens(account_id);
 
+-- An account's now-playing link, one at most: the HMAC digest of its token;
+-- see nowplaying.ts.
+CREATE TABLE IF NOT EXISTS now_playing_links (
+  account_id    TEXT PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
+  token_digest  TEXT NOT NULL UNIQUE,
+  created_at    INTEGER NOT NULL
+);
+
 -- What an account has linked outside the music server: a Discord webhook, a
 -- ListenBrainz token. The secret is sealed as a credential is; see
 -- integrations.ts.
@@ -169,6 +183,95 @@ CREATE TABLE IF NOT EXISTS profiles (
   avatar      TEXT,
   avatar_at   INTEGER,
   updated_at  INTEGER NOT NULL
+);
+
+-- A second factor at sign-in; see twofactor.ts. The TOTP secret is sealed as
+-- a credential is, under a key of its own. confirmed is 0 while it is being
+-- set up, until the first code from the app. last_step is the time step of
+-- the last code taken, so no code is taken twice.
+CREATE TABLE IF NOT EXISTS totp (
+  account_id  TEXT PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
+  secret      TEXT NOT NULL,
+  confirmed   INTEGER NOT NULL,
+  last_step   INTEGER,
+  created_at  INTEGER NOT NULL
+);
+
+-- Single-use codes for when the second factor is lost: the HMAC digest of
+-- each, deleted as it is used.
+CREATE TABLE IF NOT EXISTS recovery_codes (
+  account_id  TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  digest      TEXT NOT NULL,
+  created_at  INTEGER NOT NULL,
+  PRIMARY KEY (account_id, digest)
+);
+
+-- An account's passkeys: the credential id as the browser names it
+-- (base64url) and the public key (SubjectPublicKeyInfo, base64url).
+CREATE TABLE IF NOT EXISTS passkeys (
+  id            TEXT PRIMARY KEY,
+  account_id    TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  public_key    TEXT NOT NULL,
+  algorithm     INTEGER NOT NULL,
+  sign_count    INTEGER NOT NULL,
+  name          TEXT NOT NULL,
+  created_at    INTEGER NOT NULL,
+  last_used_at  INTEGER
+);
+CREATE INDEX IF NOT EXISTS passkeys_account_idx ON passkeys(account_id);
+
+-- A sign-in the music server accepted, waiting for its second factor: the
+-- HMAC digest of the token in the browser's cookie, and the music server's
+-- answer sealed, stored as the account's only once the factor is given.
+CREATE TABLE IF NOT EXISTS sign_in_steps (
+  token_digest  TEXT PRIMARY KEY,
+  account_id    TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  upstream      TEXT NOT NULL,
+  created_at    INTEGER NOT NULL,
+  expires_at    INTEGER NOT NULL,
+  attempts      INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS sign_in_steps_expiry_idx ON sign_in_steps(expires_at);
+
+-- WebAuthn challenges handed out and not yet answered, by the HMAC digest of
+-- the challenge. Each is taken once. account_id is null for a sign-in with a
+-- passkey alone, where the account is not known until the answer; step is
+-- the digest of the sign-in a second-step challenge belongs to.
+CREATE TABLE IF NOT EXISTS passkey_challenges (
+  digest      TEXT PRIMARY KEY,
+  purpose     TEXT NOT NULL,
+  account_id  TEXT REFERENCES accounts(id) ON DELETE CASCADE,
+  step        TEXT,
+  expires_at  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS passkey_challenges_expiry_idx ON passkey_challenges(expires_at);
+
+-- An account's identity at the OpenID Connect provider; see oidc.ts. issuer
+-- and subject are the ID token's iss and sub, which the provider gives to
+-- one person for good. One identity an account, and one account an identity.
+CREATE TABLE IF NOT EXISTS oidc_links (
+  account_id    TEXT PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
+  issuer        TEXT NOT NULL,
+  subject       TEXT NOT NULL,
+  created_at    INTEGER NOT NULL,
+  last_used_at  INTEGER,
+  UNIQUE (issuer, subject)
+);
+
+-- An account's profile page; see profilepage.ts. albums is a JSON array of
+-- four slots, each null or the album as it was when picked. listed shows the
+-- page to the other accounts here; recent and top_artists add the account's
+-- history to it. link_digest is the HMAC digest of the public link's token.
+CREATE TABLE IF NOT EXISTS profile_pages (
+  account_id    TEXT PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
+  bio           TEXT,
+  albums        TEXT NOT NULL,
+  listed        INTEGER NOT NULL,
+  recent        INTEGER NOT NULL,
+  top_artists   INTEGER NOT NULL,
+  link_digest   TEXT UNIQUE,
+  link_made_at  INTEGER,
+  updated_at    INTEGER NOT NULL
 );
 
 -- Values the server keeps for itself, not for an account: whose cover fill is
@@ -205,7 +308,9 @@ const ADDED_COLUMNS: { table: string; column: string; type: string }[] = [
 	{ table: 'plays', column: 'album', type: 'TEXT' },
 	{ table: 'plays', column: 'album_id', type: 'TEXT' },
 	{ table: 'plays', column: 'cover_art', type: 'TEXT' },
-	{ table: 'plays', column: 'duration', type: 'INTEGER' }
+	{ table: 'plays', column: 'duration', type: 'INTEGER' },
+	{ table: 'plays', column: 'source', type: 'TEXT' },
+	{ table: 'plays', column: 'device', type: 'TEXT' }
 ];
 
 /**
@@ -262,16 +367,24 @@ export interface Store {
  * The tables that move between databases, and their columns: read from a
  * SQLite file into PostgreSQL (`importFromSqlite`) and written from
  * PostgreSQL into a SQLite file (`backup`). Accounts first: the others refer
- * to them. `sessions`, `mcp_tokens` and `login_attempts` are not in it.
+ * to them. `sessions`, `mcp_tokens`, `now_playing_links`, `login_attempts`,
+ * `sign_in_steps` and `passkey_challenges` are not in it. The second factors
+ * are, and the links to an identity provider: restored without them, every
+ * account would lose its own.
  */
 const COPIED_TABLES = {
 	accounts: ['id', 'backend', 'username', 'remote_user_id', 'credential', 'created_at', 'last_login_at', 'device_epoch'],
 	settings: ['account_id', 'data', 'updated_at'],
 	play_state: ['account_id', 'data', 'updated_at'],
 	shares: ['id', 'token_digest', 'account_id', 'backend', 'song_id', 'created_at', 'expires_at', 'kind'],
-	plays: ['account_id', 'song_id', 'played_at', 'title', 'artist', 'artist_id', 'album', 'album_id', 'cover_art', 'duration'],
+	plays: ['account_id', 'song_id', 'played_at', 'title', 'artist', 'artist_id', 'album', 'album_id', 'cover_art', 'duration', 'source', 'device'],
 	integrations: ['account_id', 'kind', 'secret', 'created_at'],
 	profiles: ['account_id', 'handle', 'name', 'shown', 'avatar', 'avatar_at', 'updated_at'],
+	totp: ['account_id', 'secret', 'confirmed', 'last_step', 'created_at'],
+	recovery_codes: ['account_id', 'digest', 'created_at'],
+	passkeys: ['id', 'account_id', 'public_key', 'algorithm', 'sign_count', 'name', 'created_at', 'last_used_at'],
+	oidc_links: ['account_id', 'issuer', 'subject', 'created_at', 'last_used_at'],
+	profile_pages: ['account_id', 'bio', 'albums', 'listed', 'recent', 'top_artists', 'link_digest', 'link_made_at', 'updated_at'],
 	meta: ['key', 'value']
 } as const;
 
@@ -339,7 +452,9 @@ class SqliteStore implements Store {
 		await this.handle.backup(file);
 		const copy = new Database(file);
 		try {
-			copy.exec('DELETE FROM sessions; DELETE FROM mcp_tokens; DELETE FROM login_attempts;');
+			copy.exec(
+				'DELETE FROM sessions; DELETE FROM mcp_tokens; DELETE FROM login_attempts; DELETE FROM sign_in_steps; DELETE FROM passkey_challenges;'
+			);
 			// One file, without a `-wal` beside it, and without the deleted rows.
 			copy.pragma('journal_mode = DELETE');
 			copy.exec('VACUUM');

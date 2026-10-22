@@ -16,12 +16,15 @@
 		of,
 		id,
 		label = 'Instant mix',
+		title,
 		variant = 'button'
 	}: {
 		of: MixSeed;
 		id: string;
 		label?: string;
-		/** A glass button among the page's actions, or a line of text among the player's track facts. */
+		/** The tooltip, where the label alone does not say what the mix is made from; the label otherwise. */
+		title?: string;
+		/** A glass button among the page's actions, or a line of text at the head of the player's queue. */
 		variant?: 'button' | 'inline';
 	} = $props();
 
@@ -60,7 +63,7 @@
 	type="button"
 	onclick={start}
 	aria-busy={status === 'busy'}
-	title={label}
+	title={title ?? label}
 >
 	<Icon name="radio" size={16} />
 	<span class="label" aria-live="polite">{text}</span>
@@ -122,7 +125,7 @@
 		color: var(--text-muted);
 	}
 
-	/* Beside the download link in the player's track facts, and styled as it is. */
+	/* A line of text with its glyph: at the head of the player's queue. */
 	.inline {
 		display: inline-flex;
 		align-items: center;

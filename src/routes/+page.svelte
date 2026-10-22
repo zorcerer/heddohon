@@ -7,9 +7,13 @@
 	import MediaShelf from '$lib/components/MediaShelf.svelte';
 	import OnThisDayShelf from '$lib/components/OnThisDayShelf.svelte';
 	import RediscoverShelf from '$lib/components/RediscoverShelf.svelte';
+	import NewReleasesShelf from '$lib/components/NewReleasesShelf.svelte';
+	import FeatureNotice from '$lib/components/FeatureNotice.svelte';
 	import SectionHeader from '$lib/components/SectionHeader.svelte';
 	import TrackList from '$lib/components/TrackList.svelte';
 	import Icon from '$lib/components/Icon.svelte';
+	import Avatar from '$lib/components/Avatar.svelte';
+	import { avatarUrl } from '$lib/client/listeners.svelte';
 	import { playContainer } from '$lib/client/actions';
 	import type { RememberedAlbum } from '$lib/server/history';
 	import type { PageData } from './$types';
@@ -81,10 +85,23 @@
 		};
 	});
 
+	// The same for the new releases, which follow the mixes.
+	let releasing = $state(false);
+	$effect(() => {
+		let current = true;
+		releasing = false;
+		data.newReleases.then((releases) => {
+			if (current) releasing = releases.length > 0;
+		});
+		return () => {
+			current = false;
+		};
+	});
+
 	// The numbered album shelves, ahead of the daily mixes.
 	const albumShelves = $derived(shelves.length + Number(rediscovering) + Number(remembering));
 	// Every numbered section above Favourites.
-	const aboveFavourites = $derived(albumShelves + Number(mixing));
+	const aboveFavourites = $derived(albumShelves + Number(mixing) + Number(releasing));
 </script>
 
 <svelte:head>
@@ -93,14 +110,18 @@
 
 <div class="page">
 	<header class="masthead">
-		<div>
-			<span class="hh-eyebrow">{greeting}</span>
-			<h1>Your library</h1>
+		<div class="hello">
+			<!-- The account's picture, or its initial, leading to its profile page. -->
+			{#if data.me}
+				<a class="me" href="/people/{data.me.handle}" aria-label="Your profile" title="Your profile">
+					<Avatar name={data.me.name} src={avatarUrl(data.me.handle, data.me.avatar)} size={3.25} />
+				</a>
+			{/if}
+			<div>
+				<span class="hh-eyebrow">{greeting}</span>
+				<h1>Your library</h1>
+			</div>
 		</div>
-		<!-- On a phone, where Settings is not in the dock. -->
-		<a class="account hh-glass" href="/settings" aria-label="Settings" title="Settings">
-			<Icon name="settings" size={19} />
-		</a>
 		{#if data.discover.length > 0}
 			<button class="hh-button shuffle" onclick={() => player.playShuffled(data.discover)}>
 				<Icon name="shuffle" size={16} />
@@ -108,6 +129,13 @@
 			</button>
 		{/if}
 	</header>
+
+	<!-- Streamed, for an administrator; see features.ts. -->
+	{#await data.featureNotice then features}
+		{#if features.length > 0}
+			<FeatureNotice {features} seen={data.settings?.featuresSeen ?? []} />
+		{/if}
+	{/await}
 
 	<!--
 		The front page: the newest release as the lead, and what was played last
@@ -180,6 +208,13 @@
 		{/if}
 	{/await}
 
+	<!-- Streamed, after the mixes; see newreleases.ts. -->
+	{#await data.newReleases then releases}
+		{#if releases.length > 0}
+			<NewReleasesShelf {releases} index={albumShelves + Number(mixing) + 1} />
+		{/if}
+	{/await}
+
 	<!-- Streamed: the page does not wait for the favourites. See the loader. -->
 	{#await data.favouriteSongs then favouriteSongs}
 		{#if favouriteSongs.length > 0}
@@ -238,35 +273,38 @@
 		margin-top: var(--space-1);
 	}
 
-	.account {
-		display: none;
+	.hello {
+		display: flex;
+		align-items: center;
+		gap: var(--space-4);
+		min-width: 0;
+	}
+
+	.me {
+		flex: none;
+		border-radius: 50%;
+		transition: transform var(--dur-press) var(--ease-out);
+	}
+
+	.me:hover {
+		transform: scale(1.05);
+	}
+
+	.me:focus-visible {
+		outline: 2px solid var(--accent);
+		outline-offset: 3px;
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.me {
+			transition: none;
+		}
 	}
 
 	@media (max-width: 60rem) {
-		.account {
-			position: absolute;
-			top: 0;
-			right: 0;
-			display: grid;
-			place-items: center;
-			width: 2.75rem;
-			height: 2.75rem;
-			border-radius: var(--r-pill);
-			color: var(--text-muted);
-		}
-
-		.account:active {
-			scale: 0.92;
-		}
-
-		/*
-		 * The title takes the whole row, short of the account button's corner,
-		 * and Shuffle something goes under it. Side by side, the two buttons
-		 * overlapped by 14px at 393px wide.
-		 */
+		/* The title takes the whole row, and Shuffle something goes under it. */
 		.masthead > div {
 			flex: 1 1 100%;
-			padding-right: 3.5rem;
 		}
 
 		.masthead {

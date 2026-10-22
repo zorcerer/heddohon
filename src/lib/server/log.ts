@@ -155,7 +155,8 @@ export const log = {
 };
 
 /**
- * A path or query string with any share, cast or listen-together token taken out.
+ * A path or query string with any share, cast, listen-together or now-playing
+ * token taken out.
  *
  * Each is a bearer credential carried in the path (`/cast/<token>`, see
  * `cast.ts`), and `/login?next=` carries it again, percent-encoded. Matching
@@ -163,15 +164,16 @@ export const log = {
  * with neither such a segment nor a Last.fm callback parameter (`LINK_PARAMS`)
  * is returned as given.
  */
-const SHARE_SEGMENT = /(\/(?:share|cast|together)\/+[\s"'%]*)[^/?#&\s"]+/gi;
+const SHARE_SEGMENT = /(\/(?:share|cast|together|now|now-playing)\/+[\s"'%]*)[^/?#&\s"]+/gi;
 
 /**
  * The query parameters of the Last.fm callback (`/settings/lastfm`): last.fm's
- * token, Navidrome's link token and Heddohon's state. Each is a credential
- * while valid, and the callback URL reaches the log as a request query or
- * inside `next`.
+ * token, Navidrome's link token and Heddohon's state; and of the identity
+ * provider's return (`/login/oidc/callback`), its code and the state. Each is
+ * a credential while valid, and the callback URL reaches the log as a request
+ * query or inside `next`.
  */
-const LINK_PARAMS = /([?&](?:token|uid|state)=)[^&#\s"]+/gi;
+const LINK_PARAMS = /([?&](?:token|uid|state|code)=)[^&#\s"]+/gi;
 
 /**
  * One layer of percent-encoding removed, byte by byte, never throwing.

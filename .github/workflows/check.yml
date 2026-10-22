@@ -81,4 +81,8 @@ jobs:
       # The version installed is the one package-lock.json pins.
       - run: npx playwright install --with-deps chromium
 
+      # `zbarimg` reads the TOTP QR code back in the two-step sign-in test;
+      # without it that check is skipped.
+      - run: sudo apt-get install -y --no-install-recommends zbar-tools
+
       - run: npm run test:browser

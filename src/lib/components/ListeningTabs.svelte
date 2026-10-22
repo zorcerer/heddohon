@@ -1,14 +1,15 @@
 <script lang="ts">
 	/**
-	 * The two views of the listening history, as tabs at the head of each: the
-	 * plays one by one, and the summary of them. The same tabs as the
-	 * favourites page.
+	 * The views of the listening history, as tabs at the head of each: the
+	 * plays one by one, the summary of them, and a recap of a year or a month.
+	 * The same tabs as the favourites page.
 	 */
 	import { page } from '$app/state';
 
 	const TABS = [
 		{ href: '/history', label: 'Recently played' },
-		{ href: '/stats', label: 'Your listening' }
+		{ href: '/stats', label: 'Your listening' },
+		{ href: '/stats/recap', label: 'Recap' }
 	];
 </script>
 

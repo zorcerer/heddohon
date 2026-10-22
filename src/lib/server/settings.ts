@@ -4,6 +4,8 @@
  */
 import { config } from './config';
 import { now, store } from './db';
+import { FEATURE_IDS, type FeatureId } from './features';
+import { customSchemes } from './schemes';
 import type { AlbumSort } from '$lib/types';
 
 /**
@@ -23,7 +25,8 @@ const ACCENTS = ['artwork', 'green', 'amber', 'cyan', 'violet', 'rose', 'white']
 /**
  * Terminal's colour schemes: its own, and nine editor themes whose grounds,
  * text tones and six accents are in `terminal-schemes.css`. A fixed list for
- * the reason the accents are one: the name is written into the HTML.
+ * the reason the accents are one: the name is written into the HTML. Those
+ * an administrator adds as files (`schemes.ts`) are offered beside them.
  */
 const SCHEMES = [
 	'heddohon',
@@ -75,7 +78,7 @@ export interface UserSettings {
 	 * changes the grounds, the text and what each fixed accent is. The accent
 	 * from the artwork is the same in all of them.
 	 */
-	scheme: (typeof SCHEMES)[number];
+	scheme: string;
 	/** The dot grid behind the page in Terminal. See `[data-dots]` in terminal.css. */
 	dots: (typeof DOTS)[number];
 	/**
@@ -111,6 +114,18 @@ export interface UserSettings {
 	 * history; see `plugin.ts`. Read only where the plugin is configured.
 	 */
 	historyOtherApps: boolean;
+	/**
+	 * Whether the home page has the "New releases" shelf, which sends the names
+	 * of the artists the account plays most to MusicBrainz; see
+	 * `newreleases.ts`. Read only where `HEDDOHON_NEW_RELEASES` is on.
+	 */
+	newReleases: boolean;
+	/**
+	 * The optional features (`features.ts`) this account, as an administrator,
+	 * has been told of on its home page or has saved under Settings, Features.
+	 * One that is off and not in here is told of once.
+	 */
+	featuresSeen: FeatureId[];
 	/**
 	 * Whether what the account plays in other apps, which the Navidrome plugin
 	 * reports, is shown to the other accounts with what it plays here. Read
@@ -170,7 +185,7 @@ export const THEME_GROUND: Record<ThemeName, string> = {
 };
 
 /** The same for Terminal under a colour scheme: `--bg-base` of each in `terminal-schemes.css`. */
-const SCHEME_GROUND: Record<UserSettings['scheme'], string> = {
+const SCHEME_GROUND: Record<(typeof SCHEMES)[number], string> = {
 	heddohon: THEME_GROUND.terminal,
 	nord: '#2e3440',
 	dracula: '#282a36',
@@ -185,7 +200,11 @@ const SCHEME_GROUND: Record<UserSettings['scheme'], string> = {
 
 /** The ground the page is drawn on, for `theme-color`: the scheme's in Terminal, the theme's otherwise. */
 export function groundOf(settings: Pick<UserSettings, 'theme' | 'scheme'>): string {
-	return settings.theme === 'terminal' ? SCHEME_GROUND[settings.scheme] : THEME_GROUND[settings.theme];
+	if (settings.theme !== 'terminal') return THEME_GROUND[settings.theme];
+	if (Object.prototype.hasOwnProperty.call(SCHEME_GROUND, settings.scheme)) {
+		return SCHEME_GROUND[settings.scheme as keyof typeof SCHEME_GROUND];
+	}
+	return customSchemes().find((scheme) => scheme.id === settings.scheme)?.ground ?? THEME_GROUND.terminal;
 }
 
 const DEFAULT_SETTINGS: UserSettings = {
@@ -193,7 +212,7 @@ const DEFAULT_SETTINGS: UserSettings = {
 	scheme: 'heddohon',
 	accent: 'artwork',
 	dots: 'faint',
-	playerArt: 'duotone',
+	playerArt: 'scanlines',
 	volume: 0.85,
 	transition: 'gapless',
 	crossfadeSeconds: 4,
@@ -202,6 +221,9 @@ const DEFAULT_SETTINGS: UserSettings = {
 	reportPlayback: true,
 	historyDays: 0,
 	historyOtherApps: true,
+	// Off until the account turns it on: it sends what it plays to a third party.
+	newReleases: false,
+	featuresSeen: [],
 	// Off until the account turns it on: it shows the other accounts more of it.
 	listeningOtherApps: false,
 	aurora: 'moving',
@@ -278,6 +300,7 @@ function sanitizeSettings(input: unknown, base: UserSettings = defaultSettings()
 		const value = raw[key];
 		return typeof value === 'boolean' ? value : base[key];
 	};
+	const schemes: string[] = [...SCHEMES, ...customSchemes().map((scheme) => scheme.id)];
 
 	return {
 		theme: pick(
@@ -290,7 +313,9 @@ function sanitizeSettings(input: unknown, base: UserSettings = defaultSettings()
 				: base.theme
 		),
 		// All four allowlisted like the theme: interpolated into the served HTML.
-		scheme: pick('scheme', SCHEMES, base.scheme),
+		// A scheme from a file (`schemes.ts`) while the file is there; an account
+		// whose file was taken away is back on Terminal's own.
+		scheme: pick('scheme', schemes, schemes.includes(base.scheme) ? base.scheme : 'heddohon'),
 		accent: pick('accent', ACCENTS, base.accent),
 		dots: pick('dots', DOTS, base.dots),
 		playerArt: pick('playerArt', PLAYER_ART, base.playerArt),
@@ -304,6 +329,11 @@ function sanitizeSettings(input: unknown, base: UserSettings = defaultSettings()
 		historyDays:
 			raw.historyDays === 0 || raw.historyDays === 90 || raw.historyDays === 365 ? raw.historyDays : base.historyDays,
 		historyOtherApps: flag('historyOtherApps'),
+		newReleases: flag('newReleases'),
+		// Known ids alone, each once.
+		featuresSeen: Array.isArray(raw.featuresSeen)
+			? FEATURE_IDS.filter((id) => (raw.featuresSeen as unknown[]).includes(id))
+			: base.featuresSeen,
 		listeningOtherApps: flag('listeningOtherApps'),
 		showQualityBadge: flag('showQualityBadge'),
 		gridSize: pick('gridSize', ['compact', 'comfortable', 'roomy'] as const, base.gridSize),

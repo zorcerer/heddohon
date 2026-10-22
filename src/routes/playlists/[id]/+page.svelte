@@ -5,6 +5,7 @@
 	import { shareComposer } from '$lib/client/share.svelte';
 	import HeroTitle from '$lib/components/HeroTitle.svelte';
 	import Sleeve from '$lib/components/Sleeve.svelte';
+	import SmartPlaylistEditor from '$lib/components/SmartPlaylistEditor.svelte';
 	import TrackList from '$lib/components/TrackList.svelte';
 	import { formatLongDuration } from '$lib/client/format';
 	import { player } from '$lib/client/player.svelte';
@@ -14,8 +15,10 @@
 		moveTrack,
 		removeTracks,
 		renamePlaylist,
-		setPlaylistPublic
+		setPlaylistPublic,
+		setPlaylistRules
 	} from '$lib/client/playlists.svelte';
+	import { describeRules, type SmartRules } from '$lib/smartrules';
 	import { heroSweep } from '$lib/client/motion';
 	import type { Song } from '$lib/types';
 	import type { PageData } from './$types';
@@ -69,15 +72,24 @@
 		}
 	}
 
-	async function removeAt(index: number) {
-		if (busy) return;
+	/**
+	 * Removes one row or the rows picked together. The server takes 1000
+	 * positions a request, so more go in turns from the end of the list, which
+	 * leaves the positions before each turn where they were.
+	 */
+	async function removeAll(indexes: number[]) {
+		if (busy || indexes.length === 0) return;
 		busy = true;
 		error = null;
+		const highestFirst = [...indexes].sort((a, b) => b - a);
 		try {
-			await removeTracks(playlist.id, [index]);
+			for (let at = 0; at < highestFirst.length; at += 1000) {
+				await removeTracks(playlist.id, highestFirst.slice(at, at + 1000));
+			}
 			await invalidateAll();
 		} catch (err) {
-			error = err instanceof Error ? err.message : 'Could not remove that track';
+			await invalidateAll();
+			error = err instanceof Error ? err.message : indexes.length === 1 ? 'Could not remove that track' : 'Could not remove those tracks';
 		} finally {
 			busy = false;
 		}
@@ -117,6 +129,37 @@
 		}
 	}
 
+
+	const smart = $derived(data.smart);
+	// Rules from a file on the server, or beyond what the editor edits, are shown and left alone.
+	const rulesEditable = $derived(playlist.editable && smart !== null && smart.rules !== null && !smart.fromFile);
+	let editingRules = $state(false);
+
+	/** "Private", "Smart, public", "By someone, read only". */
+	const access = $derived.by(() => {
+		const whose = playlist.editable
+			? playlist.isPublic
+				? 'public'
+				: 'private'
+			: `${playlist.owner ? `by ${playlist.owner}` : "another user's"}, read only`;
+		const text = smart ? `smart, ${whose}` : whose;
+		return text[0].toUpperCase() + text.slice(1);
+	});
+
+	async function saveRules(rules: SmartRules) {
+		if (busy) return;
+		busy = true;
+		error = null;
+		try {
+			await setPlaylistRules(playlist.id, rules);
+			await invalidateAll();
+			editingRules = false;
+		} catch (err) {
+			error = err instanceof Error ? err.message : 'Could not save these rules';
+		} finally {
+			busy = false;
+		}
+	}
 
 	async function toggleVisibility() {
 		if (busy) return;
@@ -191,12 +234,21 @@
 				{playlist.songs.length} track{playlist.songs.length === 1 ? '' : 's'}
 				{#if totalDuration}<span class="dot" aria-hidden="true">·</span>{formatLongDuration(totalDuration)}{/if}
 				<span class="dot" aria-hidden="true">·</span>
-				{#if playlist.editable}
-					{playlist.isPublic ? 'Public' : 'Private'}
-				{:else}
-					{playlist.owner ? `By ${playlist.owner}` : "Another user's"}, read only
-				{/if}
+				{access}
 			</p>
+
+			{#if smart}
+				<p class="rules hh-muted">
+					{#if smart.rules}
+						{describeRules(smart.rules)}.
+					{:else}
+						Its rules use more than Heddohon edits; change them in Navidrome.
+					{/if}
+					{#if smart.fromFile}
+						A file on the music server defines them.
+					{/if}
+				</p>
+			{/if}
 
 			<!--
 			  Two groups: playback on the left, and what changes the playlist apart
@@ -250,6 +302,22 @@
 				</div>
 
 				<div class="group group--edit">
+					<!-- Downloads, so links: the server writes the file. -->
+					<details class="export">
+						<summary class="hh-button hh-button--ghost">
+							<Icon name="download" size={16} />
+							Export
+						</summary>
+						<div class="export-menu hh-glass hh-float">
+							<a href="/api/playlists/{encodeURIComponent(playlist.id)}/export?format=m3u" download>
+								M3U, by file
+							</a>
+							<a href="/api/playlists/{encodeURIComponent(playlist.id)}/export?format=m3u-titles" download>
+								M3U, by artist and title
+							</a>
+							<a href="/api/playlists/{encodeURIComponent(playlist.id)}/export?format=csv" download>CSV</a>
+						</div>
+					</details>
 					{#if player.queue.length > 0}
 						<button
 							class="hh-button hh-button--ghost"
@@ -258,6 +326,19 @@
 						>
 							<Icon name="plus" size={16} />
 							Save the queue
+						</button>
+					{/if}
+					{#if rulesEditable}
+						<button
+							class="hh-button hh-button--ghost"
+							onclick={() => {
+								editingRules = !editingRules;
+								error = null;
+							}}
+							disabled={busy}
+							aria-expanded={editingRules}
+						>
+							Edit rules
 						</button>
 					{/if}
 					{#if playlist.editable}
@@ -296,6 +377,15 @@
 		<p class="alert" role="alert">{error}</p>
 	{/if}
 
+	{#if editingRules && smart?.rules}
+		<SmartPlaylistEditor
+			initial={smart.rules}
+			{busy}
+			onsave={saveRules}
+			oncancel={() => (editingRules = false)}
+		/>
+	{/if}
+
 	{#if confirmingDelete}
 		<div class="confirm" role="alertdialog" aria-label="Confirm deletion">
 			<p>
@@ -314,13 +404,13 @@
 	{/if}
 
 	<section class="tracks">
-		<!-- Another user's playlist offers no edits: the music server refuses them. -->
+		<!-- Another user's playlist, and one the server fills itself, offer no edits: the music server refuses them. -->
 		<TrackList
 			songs={shownSongs}
 			variant="artwork"
 			showAlbum
-			onremove={playlist.editable ? removeAt : null}
-			onmove={playlist.editable ? move : null}
+			onremove={playlist.tracksEditable ? removeAll : null}
+			onmove={playlist.tracksEditable ? move : null}
 		/>
 	</section>
 </div>
@@ -384,6 +474,12 @@
 		margin: 0 0.45rem;
 	}
 
+	.rules {
+		margin: 0;
+		max-width: 60ch;
+		font-size: 0.8125rem;
+	}
+
 	.actions {
 		display: flex;
 		align-items: center;
@@ -420,6 +516,48 @@
 	.actions .hh-button:disabled {
 		opacity: 0.5;
 		cursor: not-allowed;
+	}
+
+	/* The export's three files, in a pane under its button. */
+	.export {
+		position: relative;
+	}
+
+	.export summary {
+		list-style: none;
+		cursor: default;
+	}
+
+	.export summary::-webkit-details-marker {
+		display: none;
+	}
+
+	.export-menu {
+		position: absolute;
+		top: calc(100% + var(--space-1));
+		left: 0;
+		z-index: 5;
+		display: grid;
+		min-width: 14rem;
+		padding: var(--space-1);
+		border: 1px solid var(--border-strong);
+		border-radius: var(--r-md);
+	}
+
+	.export-menu a {
+		padding: 0.45rem var(--space-3);
+		border-radius: var(--r-sm);
+		color: var(--text-default);
+		font-size: 0.875rem;
+		text-decoration: none;
+		white-space: nowrap;
+	}
+
+	.export-menu a:hover,
+	.export-menu a:focus-visible {
+		background: var(--bg-hover);
+		color: var(--text-strong);
+		outline: none;
 	}
 
 	.danger:hover:not(:disabled) {

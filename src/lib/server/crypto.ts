@@ -145,3 +145,37 @@ export function pluginDigest(token: string): string {
 export function mcpDigest(token: string): string {
 	return createHmac('sha256', keyFor('mcp')).update(token).digest('base64url');
 }
+
+/**
+ * The digest of a now-playing link's token; see `nowplaying.ts`. Keyed apart
+ * from the other tokens, so none digests to a value in another's table.
+ */
+export function nowPlayingDigest(token: string): string {
+	return createHmac('sha256', keyFor('now-playing')).update(token).digest('base64url');
+}
+
+/**
+ * The digest of a recovery code, over the account and the code; see
+ * `twofactor.ts`. Keyed apart from the tokens, as each of them is.
+ */
+export function recoveryDigest(accountId: string, code: string): string {
+	return createHmac('sha256', keyFor('recovery-code')).update(`${accountId}:${code}`).digest('base64url');
+}
+
+/** The digest of a sign-in waiting for its second factor; see `twofactor.ts`. */
+export function signInStepDigest(token: string): string {
+	return createHmac('sha256', keyFor('sign-in-step')).update(token).digest('base64url');
+}
+
+/** The digest a WebAuthn challenge is stored by; see `twofactor.ts`. */
+export function passkeyChallengeDigest(challenge: string): string {
+	return createHmac('sha256', keyFor('passkey-challenge')).update(challenge).digest('base64url');
+}
+
+/**
+ * The digest of a public profile link's token; see `profilepage.ts`. Keyed
+ * apart from the other tokens, so none digests to a value in another's table.
+ */
+export function profileLinkDigest(token: string): string {
+	return createHmac('sha256', keyFor('profile-link')).update(token).digest('base64url');
+}

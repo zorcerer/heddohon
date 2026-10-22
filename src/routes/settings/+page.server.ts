@@ -1,6 +1,6 @@
 import { fail } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
-import { config, parseOrigins, saveSetup } from '$lib/server/config';
+import { config, fromEnvironment, parseOrigins, saveSetup } from '$lib/server/config';
 import { decidedByEnvironment, MAX_COVER_CACHE_MB, serverValues } from '$lib/server/setup';
 import { addressesWithoutSecure } from '$lib/server/origin';
 import { destroyAllSessions, endSessions, listSessions } from '$lib/server/auth';
@@ -24,6 +24,8 @@ import { getProfile } from '$lib/server/listening';
 import { pluginHeard, pluginOffered, requestImport } from '$lib/server/plugin';
 import { reportStatus } from '$lib/server/libraryreport';
 import { createMcpToken, listMcpTokens, MAX_MCP_TOKEN_NAME, MAX_MCP_TOKENS, revokeMcpToken } from '$lib/server/mcp';
+import { FEATURE_IDS, FEATURES, featureStates } from '$lib/server/features';
+import { makeNowPlayingLink, nowPlayingLinkMadeAt, withdrawNowPlayingLink } from '$lib/server/nowplaying';
 
 /**
  * How long the import action waits for the Navidrome plugin to send the whole
@@ -135,6 +137,8 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 			viaMusicServer
 		},
 		historyCount: history.total,
+		// Whether the server allows the "New releases" shelf; see `newreleases.ts`.
+		newReleasesOffered: config().musicbrainzUrl !== null,
 		/*
 		 * Where the Navidrome plugin's endpoint is on for this account: whether
 		 * the plugin has been heard from in the last minute. Null where it is
@@ -161,6 +165,8 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 				: null,
 		// As the `listeners` event carries it, which replaces it once the stream is open.
 		profile: profile && { id: profile.handle, name: profile.name, shown: profile.shown, avatar: profile.avatarAt },
+		// The now-playing link for OBS and Home Assistant, where the remote control's reports exist; see nowplaying.ts.
+		nowPlaying: cfg.remoteControl ? { madeAt: await nowPlayingLinkMadeAt(session.account.id) } : null,
 		/*
 		 * The AI tab: the account's tokens for an AI assistant and the address
 		 * its client is given, where the endpoint is on, and for an
@@ -179,7 +185,12 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 						// Whether this account may switch it, and whether the environment decides it instead.
 						admin: isAdmin === true ? { fromEnvironment: decidedByEnvironment().mcp } : null
 					}
-				: null
+				: null,
+		// The Features tab: each optional feature's switch, for an administrator of the music server.
+		features: isAdmin === true ? featureStates() : null,
+		// Settings, Security: the switch that requires a second factor of every account, for an administrator.
+		twoFactorAdmin:
+			isAdmin === true ? { required: cfg.requireTwoFactor, fromEnvironment: decidedByEnvironment().requireTwoFactor } : null
 	};
 };
 
@@ -220,6 +231,55 @@ export const actions: Actions = {
 		saveSetup({ HEDDOHON_MCP: on ? 'true' : '' });
 		log.warn('mcp-switched', { by: session.account.username, on });
 		return { mcpSaved: true };
+	},
+
+	/**
+	 * Makes the account's now-playing link, replacing the one it had; see
+	 * `nowplaying.ts`. The token is in this answer alone: only its digest is
+	 * kept.
+	 */
+	makeNowPlaying: async ({ locals }) => {
+		const session = locals.session;
+		if (!session) return fail(401, { error: 'Not signed in' });
+		if (!config().remoteControl) return fail(404, { nowPlayingError: 'This server has the remote control turned off.' });
+		return { nowPlayingToken: await makeNowPlayingLink(session.account.id) };
+	},
+
+	/** Withdraws the account's now-playing link. */
+	withdrawNowPlaying: async ({ locals }) => {
+		const session = locals.session;
+		if (!session) return fail(401, { error: 'Not signed in' });
+		await withdrawNowPlayingLink(session.account.id);
+		return { nowPlayingWithdrawn: true };
+	},
+
+	/**
+	 * Turns the optional features on and off for the deployment, for an
+	 * administrator of the music server; see `features.ts`. Each is saved in
+	 * `setup.json` and taken with the next request. One the environment sets
+	 * is left as it is. Saving also marks every feature as seen for this
+	 * account, so the home page's notice of them goes.
+	 */
+	saveFeatures: async ({ locals, request }) => {
+		const session = locals.session;
+		if (!session) return fail(401, { error: 'Not signed in' });
+		if ((await backendFor(session.account.backend).isAdmin(session.credential)) !== true) {
+			return fail(403, { featuresError: 'Only an administrator of the music server can change these.' });
+		}
+		const form = await request.formData();
+		const values: Partial<Record<(typeof FEATURES)[number]['variable'], string>> = {};
+		const on: string[] = [];
+		for (const feature of FEATURES) {
+			if (fromEnvironment(feature.variable)) continue;
+			const wanted = form.get(feature.id) === 'on';
+			// The default is saved as no value, so a later default applies to it.
+			values[feature.variable] = wanted === (feature.defaultOn ?? false) ? '' : String(wanted);
+			if (wanted) on.push(feature.id);
+		}
+		saveSetup(values);
+		await saveSettings(session.account.id, { featuresSeen: [...FEATURE_IDS] });
+		log.warn('features-switched', { by: session.account.username, on: on.join(',') || 'none' });
+		return { featuresSaved: true };
 	},
 
 	/** Withdraws one of the account's tokens, by the id the list shows. */

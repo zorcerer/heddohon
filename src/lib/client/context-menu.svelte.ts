@@ -28,7 +28,9 @@ export type MenuSubject =
 			/** Takes the row out of the list it is in, where the list allows that, under the words for it there. */
 			remove: { label: string; run: () => void } | null;
 	  }
-	| { kind: 'album'; album: MenuAlbum };
+	| { kind: 'album'; album: MenuAlbum }
+	/** The songs picked in a list, opened on one of them; see `selection.svelte.ts`. */
+	| { kind: 'selection' };
 
 /** Marks what the menu is open for, so the row keeps its hover while the pointer is in the menu. */
 const MARK = 'data-menu-open';

@@ -1,7 +1,9 @@
 import { isRedirect, redirect, type Handle, type HandleServerError, type RequestEvent, type ServerInit } from '@sveltejs/kit';
 import { building, version } from '$app/environment';
 import { resolveSession } from '$lib/server/auth';
+import { hasSecondFactor } from '$lib/server/twofactor';
 import { getSettings, defaultSettings, groundOf } from '$lib/server/settings';
+import { customSchemeStyle } from '$lib/server/schemes';
 import { ConfigError, SetupRequired, config } from '$lib/server/config';
 import { announceSetup, forgetPending } from '$lib/server/setup';
 import { FALLBACK_HTML_CSP, SECURITY_HEADERS } from '$lib/headers';
@@ -38,8 +40,36 @@ const PUBLIC_ROUTES = [
 	'/together',
 	'/manifest.webmanifest',
 	'/.well-known/assetlinks.json',
-	'/api/plugin/navidrome'
+	'/api/plugin/navidrome',
+	// A now-playing link: the token in the path in place of a session; see nowplaying.ts.
+	'/now',
+	'/api/now-playing',
+	// A profile page's public link, its covers and its picture; see profilepage.ts.
+	'/p'
 ];
+
+/**
+ * What an account without a second factor reaches while the server requires
+ * one (`HEDDOHON_REQUIRE_TWO_FACTOR`): Settings, to set one up, signing out,
+ * and the settings the page saves as it is used. Exact paths: anything else,
+ * a page or an API, sends it to Settings, Security or answers 403.
+ */
+const SETUP_FACTOR_ROUTES = new Set(['/api/two-factor', '/api/settings', '/logout']);
+
+/**
+ * The settings page is read, and of its actions only those that change no
+ * more than the page itself and the account's own sessions are taken: the
+ * rest make tokens and links (an MCP token, a now-playing link) that would
+ * reach the library past the gate.
+ */
+const SETTINGS_ACTIONS_WITHOUT_FACTOR = new Set(['?/save', '?/endSession', '?/endOtherSessions']);
+
+function reachableWithoutFactor(event: RequestEvent): boolean {
+	if (event.url.pathname === '/settings') {
+		return event.request.method === 'GET' || SETTINGS_ACTIONS_WITHOUT_FACTOR.has(event.url.search);
+	}
+	return SETUP_FACTOR_ROUTES.has(event.url.pathname);
+}
 
 const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
@@ -448,6 +478,13 @@ const handleRequest: Handle = async ({ event, resolve }) => {
 		return sealedRedirect(event, '/');
 	}
 
+	if (session && config().requireTwoFactor && !reachableWithoutFactor(event) && !(await hasSecondFactor(session.account.id))) {
+		if (event.url.pathname.startsWith('/api/') || event.request.headers.get('accept')?.includes('application/json')) {
+			return sealed(JSON.stringify({ error: 'second_factor_required' }), 403, 'application/json');
+		}
+		return sealedRedirect(event, '/settings?tab=security');
+	}
+
 	// Without an account (sign-in, a shared link) the page is drawn from the
 	// deployment's defaults.
 	const shown = event.locals.settings ?? defaultSettings();
@@ -475,11 +512,13 @@ const handleRequest: Handle = async ({ event, resolve }) => {
 				.replace('data-scheme="heddohon"', `data-scheme="${shown.scheme}"`)
 				.replace('data-accent="artwork"', `data-accent="${shown.accent}"`)
 				.replace('data-dots="faint"', `data-dots="${shown.dots}"`)
-				.replace('data-art="duotone"', `data-art="${shown.playerArt}"`)
+				.replace('data-art="scanlines"', `data-art="${shown.playerArt}"`)
 				// The scale and the font likewise: applied after hydration, they
 				// would resize the page in front of the reader.
 				.replace('data-scale="100"', `data-scale="${shown.uiScale}"`)
 				.replace('data-font="manrope"', `data-font="${shown.font}"`)
+				// Colour schemes from files, from checked colours alone (`schemes.ts`).
+				.replace('</head>', `${customSchemeStyle()}</head>`)
 	});
 
 	harden(response.headers);

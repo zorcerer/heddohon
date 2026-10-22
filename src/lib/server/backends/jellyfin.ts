@@ -350,6 +350,8 @@ function toPlaylist(item: JellyfinItem, access: PlaylistAccess): Playlist {
 		coverArt: coverHandle(item),
 		owner: null,
 		...access,
+		// Jellyfin fills no playlist itself.
+		tracksEditable: access.editable,
 		createdAt: Number.isFinite(created) ? created : null,
 		changedAt: Number.isFinite(created) ? created : null
 	};
@@ -676,6 +678,10 @@ export const jellyfinBackend: MediaBackend = {
 	 * Jellyfin states this on the user record, so reading it costs one request
 	 * and no special permission.
 	 */
+	async checkCredential(cred) {
+		await call(cred, `/Users/${seg(creds(cred).userId)}`);
+	},
+
 	async isAdmin(cred) {
 		try {
 			const user = await call<{ Policy?: { IsAdministrator?: boolean } }>(
@@ -1112,6 +1118,28 @@ export const jellyfinBackend: MediaBackend = {
 			albums: (albums.Items ?? []).map(toAlbum),
 			artists: (artists.Items ?? []).map(toArtist)
 		};
+	},
+
+	async searchSongs(cred, query, limit) {
+		const { userId } = creds(cred);
+		const body = await call<ItemsResponse>(cred, '/Items', {
+			userId,
+			searchTerm: query,
+			IncludeItemTypes: 'Audio',
+			Recursive: 'true',
+			Fields: SONG_FIELDS,
+			Limit: limit
+		});
+		return (body.Items ?? []).map(toSong);
+	},
+
+	async getPlaylistPaths(cred, id) {
+		const { userId } = creds(cred);
+		const items = await call<ItemsResponse>(cred, `/Playlists/${seg(id)}/Items`, { userId, Fields: 'Path' });
+		return (items.Items ?? []).map((item) => {
+			const path = (item as { Path?: unknown }).Path;
+			return typeof path === 'string' && path ? path : null;
+		});
 	},
 
 	async setStarred(cred, id, _kind: StarKind, starred) {

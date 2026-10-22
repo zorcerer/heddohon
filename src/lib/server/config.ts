@@ -22,6 +22,19 @@ export interface UpstreamConfig {
 	label: string;
 }
 
+export interface OidcConfig {
+	/**
+	 * The issuer as given, a trailing slash kept: Authentik's ends in one and
+	 * Keycloak's does not, and the `iss` of a token is compared with it.
+	 */
+	issuer: string;
+	clientId: string;
+	/** Null for a public client, which proves itself with PKCE alone. */
+	clientSecret: string | null;
+	/** The provider's name on the sign-in button. */
+	label: string;
+}
+
 /**
  * Where accounts, sessions, settings and links are kept. SQLite in the data
  * directory unless `HEDDOHON_DATABASE_URL` names a PostgreSQL server.
@@ -73,6 +86,8 @@ export interface AppConfig {
 	lrclibUrl: string | null;
 	/** Base URL of the AutoEq results for headphone corrections, or null when off; see `autoeq.ts`. */
 	autoeqUrl: string | null;
+	/** MusicBrainz base URL for the "New releases" shelf, or null when off; see `newreleases.ts`. */
+	musicbrainzUrl: string | null;
 	/** Discord's address, for posting plays to a channel's webhook, or null when off; see `integrations.ts`. */
 	discordUrl: string | null;
 	/** The ListenBrainz API, for scrobbles this server sends itself, or null when off; see `integrations.ts`. */
@@ -98,6 +113,19 @@ export interface AppConfig {
 	 * assistant browses the library and changes playlists; see `mcp.ts`.
 	 */
 	mcp: boolean;
+	/**
+	 * Whether every account must have a second factor (a TOTP app or a
+	 * passkey) to use the app; see `twofactor.ts`. An account without one is
+	 * held to setting it up.
+	 */
+	requireTwoFactor: boolean;
+	/**
+	 * The OpenID Connect provider an account may link and then sign in
+	 * through, or null when none is configured; see `oidc.ts`.
+	 */
+	oidc: OidcConfig | null;
+	/** Whether profile pages, People and their public links are on; see `profilepage.ts`. On unless switched off. */
+	profiles: boolean;
 	/**
 	 * SHA-256 fingerprints of the certificates an Android app this server
 	 * vouches for is signed with; see `routes/.well-known/assetlinks.json`.
@@ -129,12 +157,14 @@ export class SetupRequired extends ConfigError {
  * What the setup may save, by the variable each stands in for. A short list:
  * the two values a deployment cannot start without, the choices a first run
  * is asked about (the database among them: SQLite in the data directory, or
- * a PostgreSQL server the setup has connected to), and the three an
- * administrator can change afterwards under Settings: the addresses the
- * deployment is opened at (`ORIGIN`), the size of the cover cache and the MCP
- * endpoint (`HEDDOHON_MCP`). The third-party addresses, everything that widens
- * what the server will fetch (`HEDDOHON_RADIO_PRIVATE`) and the plugin's token
- * stay with the environment, where only the operator's own hands reach.
+ * a PostgreSQL server the setup has connected to), and what an administrator
+ * can change afterwards under Settings: the addresses the deployment is opened
+ * at (`ORIGIN`), the size of the cover cache, and the switch of each optional
+ * feature (`FEATURES` in `features.ts`) and whether a second factor is
+ * required (`HEDDOHON_REQUIRE_TWO_FACTOR`). The third-party addresses those
+ * features fetch from, what lets the server fetch from this network
+ * (`HEDDOHON_RADIO_PRIVATE`) and the plugin's token stay with the
+ * environment, where only the operator's own hands reach.
  */
 export const SETUP_NAMES = [
 	'HEDDOHON_SECRET',
@@ -146,7 +176,13 @@ export const SETUP_NAMES = [
 	'HEDDOHON_SHARING',
 	'HEDDOHON_DOWNLOADS',
 	'HEDDOHON_LYRICS_LRCLIB',
+	'HEDDOHON_NEW_RELEASES',
+	'HEDDOHON_AUTOEQ',
+	'HEDDOHON_DISCORD',
+	'HEDDOHON_LISTENBRAINZ',
 	'HEDDOHON_MCP',
+	'HEDDOHON_REQUIRE_TWO_FACTOR',
+	'HEDDOHON_PROFILES',
 	'HEDDOHON_COVER_CACHE_MB',
 	'HEDDOHON_DATABASE_URL',
 	'HEDDOHON_DATABASE_USER',
@@ -590,6 +626,11 @@ function build(): AppConfig {
 					env('HEDDOHON_AUTOEQ_URL') ?? 'https://raw.githubusercontent.com/jaakkopasanen/AutoEq/master/results'
 				)
 			: null,
+		// Off unless asked for: an account that turns the shelf on has the names of
+		// the artists it plays most sent to MusicBrainz.
+		musicbrainzUrl: flagEnv('HEDDOHON_NEW_RELEASES', false)
+			? normaliseUrl('HEDDOHON_MUSICBRAINZ_URL', env('HEDDOHON_MUSICBRAINZ_URL') ?? 'https://musicbrainz.org')
+			: null,
 		// Both off unless asked for: an account can then send the title, artist
 		// and album of what it plays to a third party it chose.
 		discordUrl: flagEnv('HEDDOHON_DISCORD', false)
@@ -611,9 +652,48 @@ function build(): AppConfig {
 		// Off unless asked for: what an assistant reads through it reaches the
 		// provider of the assistant's model, which is a third party.
 		mcp: flagEnv('HEDDOHON_MCP', false),
+		requireTwoFactor: flagEnv('HEDDOHON_REQUIRE_TWO_FACTOR', false),
+		oidc: oidcConfig(),
+		profiles: flagEnv('HEDDOHON_PROFILES', true),
 		androidFingerprints: androidFingerprints(),
 		database: databaseConfig()
 	};
+}
+
+/**
+ * `HEDDOHON_OIDC_ISSUER` and the client the provider was given for this
+ * server. The secret can come from a file (a Docker secret) through
+ * `HEDDOHON_OIDC_CLIENT_SECRET_FILE`, as the database password can. The
+ * error messages name the variable and never the secret.
+ */
+function oidcConfig(): OidcConfig | null {
+	const issuer = env('HEDDOHON_OIDC_ISSUER');
+	if (!issuer) return null;
+	let parsed: URL;
+	try {
+		parsed = new URL(issuer);
+	} catch {
+		throw new ConfigError(`HEDDOHON_OIDC_ISSUER is not a valid URL: ${JSON.stringify(issuer)}`);
+	}
+	if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+		throw new ConfigError(`HEDDOHON_OIDC_ISSUER must be http:// or https://, got ${parsed.protocol}`);
+	}
+	if (parsed.search || parsed.hash) throw new ConfigError('HEDDOHON_OIDC_ISSUER must not contain a query string or fragment');
+
+	const clientId = env('HEDDOHON_OIDC_CLIENT_ID');
+	if (!clientId) throw new ConfigError('HEDDOHON_OIDC_CLIENT_ID is required with HEDDOHON_OIDC_ISSUER');
+
+	let clientSecret = env('HEDDOHON_OIDC_CLIENT_SECRET') ?? null;
+	const secretFile = env('HEDDOHON_OIDC_CLIENT_SECRET_FILE');
+	if (secretFile) {
+		try {
+			clientSecret = readFileSync(secretFile, 'utf8').trim() || null;
+		} catch {
+			throw new ConfigError(`HEDDOHON_OIDC_CLIENT_SECRET_FILE ${secretFile} could not be read`);
+		}
+	}
+
+	return { issuer, clientId, clientSecret, label: env('HEDDOHON_OIDC_LABEL') ?? 'single sign-on' };
 }
 
 /**
@@ -694,6 +774,7 @@ export function config(): AppConfig {
 			listeners: true,
 			lrclibUrl: null,
 			autoeqUrl: null,
+			musicbrainzUrl: null,
 			discordUrl: null,
 			listenbrainzUrl: null,
 			folders: true,
@@ -702,6 +783,9 @@ export function config(): AppConfig {
 			radioPrivate: false,
 			navidromePluginToken: null,
 			mcp: false,
+			requireTwoFactor: false,
+			oidc: null,
+			profiles: true,
 			androidFingerprints: [ANDROID_RELEASE_KEY],
 			database: { kind: 'sqlite' }
 		};

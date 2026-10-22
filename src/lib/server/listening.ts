@@ -225,6 +225,58 @@ export async function clearProfile(accountId: string): Promise<void> {
 	known.delete(accountId);
 }
 
+/** The application segments a picture is drawn with: the colour profile, and Adobe's colour transform. */
+const KEPT_APP = [
+	{ marker: 0xe2, id: 'ICC_PROFILE\0' },
+	{ marker: 0xee, id: 'Adobe' }
+];
+
+/**
+ * The JPEG with only what draws it, or null for anything that is not one
+ * whole. EXIF (with a phone's GPS position and serial number), XMP, comments,
+ * JFIF's thumbnail and every other application segment go, and so does
+ * anything after the end marker. The browser's own picture has none of these,
+ * since it is drawn again on a canvas; a picture sent to the route by hand
+ * could carry them to every account that is shown it.
+ *
+ * Every segment is walked, the scans included: the entropy-coded data after
+ * a scan header runs to the next marker, and `FF 00` (a stuffed byte) and
+ * `FF D0` to `FF D7` (restart markers) are part of it. Markers before the
+ * frame are held to what `jpegSize` takes, which is then asked of the result.
+ */
+export function stripJpeg(bytes: Uint8Array): Uint8Array | null {
+	if (bytes.length < 4 || bytes[0] !== 0xff || bytes[1] !== 0xd8) return null;
+	const kept: Uint8Array[] = [bytes.subarray(0, 2)];
+	let at = 2;
+	while (at + 1 < bytes.length) {
+		if (bytes[at] !== 0xff) return null;
+		const marker = bytes[at + 1];
+		if (marker === 0xff) {
+			at++;
+			continue;
+		}
+		if (marker === 0xd9) {
+			kept.push(bytes.subarray(at, at + 2));
+			return Buffer.concat(kept);
+		}
+		if (marker < 0xc0 || (marker >= 0xd0 && marker <= 0xd8) || at + 3 >= bytes.length) return null;
+		const end = at + 2 + ((bytes[at + 2] << 8) | bytes[at + 3]);
+		if (end < at + 4 || end > bytes.length) return null;
+		const application = (marker >= 0xe0 && marker <= 0xef) || marker === 0xfe;
+		const body = Buffer.from(bytes.buffer, bytes.byteOffset + at + 4, end - at - 4);
+		if (!application || KEPT_APP.some((keep) => keep.marker === marker && body.toString('latin1', 0, keep.id.length) === keep.id)) {
+			kept.push(bytes.subarray(at, end));
+		}
+		at = end;
+		if (marker === 0xda) {
+			const scan = at;
+			while (at + 1 < bytes.length && !(bytes[at] === 0xff && bytes[at + 1] !== 0x00 && (bytes[at + 1] < 0xd0 || bytes[at + 1] > 0xd7))) at++;
+			kept.push(bytes.subarray(scan, at));
+		}
+	}
+	return null;
+}
+
 /**
  * The width and height a JPEG declares, or null for anything that is not one.
  *
@@ -413,3 +465,20 @@ watch((accountId) => {
 	if (!present(accountId) && !hasApps(accountId)) known.delete(accountId);
 	if (refresh(accountId)) publish();
 });
+
+/**
+ * The account's handle, making its profile row (unshown, without a name or a
+ * picture) where it has none, for a profile page (`profilepage.ts`).
+ */
+export async function ensureHandle(accountId: string): Promise<string> {
+	const database = await store();
+	await database.run(
+		`INSERT INTO profiles (account_id, handle, name, shown, avatar, avatar_at, updated_at) VALUES (?, ?, NULL, 0, NULL, NULL, ?)
+		 ON CONFLICT(account_id) DO NOTHING`,
+		accountId,
+		randomBytes(12).toString('hex'),
+		now()
+	);
+	const row = await database.get<{ handle: string }>('SELECT handle FROM profiles WHERE account_id = ?', accountId);
+	return row!.handle;
+}

@@ -10,6 +10,7 @@
 	import { goto } from '$app/navigation';
 	import Cover from '$lib/components/Cover.svelte';
 	import Icon from '$lib/components/Icon.svelte';
+	import Visualiser from '$lib/components/Visualiser.svelte';
 	import { player } from '$lib/client/player.svelte';
 	import { activeLineIndex, lyricsWindow } from '$lib/client/lyrics.svelte';
 	import { formatDuration } from '$lib/client/format';
@@ -104,6 +105,7 @@
 
 <div class="screen" class:idle>
 	<div class="hh-ambience" aria-hidden="true"></div>
+	<Visualiser place="screen" />
 
 	<a class="leave" href="/" title="Leave the screen (Esc)">
 		<Icon name="chevron-left" size={18} />

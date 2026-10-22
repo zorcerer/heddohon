@@ -1,11 +1,15 @@
 /**
  * Audio processing in this browser: whether the Web Audio path
  * (`audiochain.ts`) is on, the equaliser's ten bands, and the headphone
- * correction ahead of them.
+ * correction ahead of them, and the visualiser.
  *
  * Kept in this browser's `localStorage`, like the audio output, and not in the
  * account's settings: an equaliser is set for one device's headphones or
  * speakers.
+ *
+ * The visualiser is here because it reads the graph (invariant 9 in AGENTS:
+ * nothing else creates an `AudioContext`). It has its own switch, off by
+ * default, and draws only while processing is on.
  *
  * Off by default. Turning it on routes the player's two audio elements through
  * a graph at once. Turning it off applies at the next page load, since an
@@ -38,6 +42,7 @@ interface Saved {
 	enabled: boolean;
 	gains: number[];
 	correction: SavedCorrection | null;
+	visualiser: boolean;
 }
 
 /** A stored or fetched profile with every value checked again; null when no filter is left. */
@@ -62,9 +67,9 @@ function read(): Saved {
 				? saved.gains.map((gain: unknown) => clampGain(Number(gain)))
 				: flat();
 		const correction = profileFrom(saved?.correction, Number(saved?.correction?.fetchedAt) || 0);
-		return { enabled: saved?.enabled === true, gains, correction };
+		return { enabled: saved?.enabled === true, gains, correction, visualiser: saved?.visualiser === true };
 	} catch {
-		return { enabled: false, gains: flat(), correction: null };
+		return { enabled: false, gains: flat(), correction: null, visualiser: false };
 	}
 }
 
@@ -79,6 +84,8 @@ class AudioProcessing {
 	gains = $state<number[]>(flat());
 	/** The headphone correction ahead of the bands, or null. */
 	correction = $state<SavedCorrection | null>(null);
+	/** Whether this browser has the visualiser switched on. It draws only while processing is on too. */
+	visualiser = $state(false);
 	/**
 	 * Whether the ten bands are set aside: a headphone correction is in use.
 	 * The correction, preamp included, is worked out for a flat signal, and
@@ -102,6 +109,7 @@ class AudioProcessing {
 		this.enabled = saved.enabled;
 		this.gains = saved.gains;
 		this.correction = saved.correction;
+		this.visualiser = saved.visualiser;
 		if (this.enabled) this.#route();
 	}
 
@@ -171,6 +179,11 @@ class AudioProcessing {
 		if (profile && this.correction === held) this.setCorrection(profile);
 	}
 
+	setVisualiser(on: boolean) {
+		this.visualiser = on;
+		this.#write();
+	}
+
 	setGain(band: number, value: number) {
 		if (band < 0 || band >= EQ_FREQUENCIES.length || this.bandsOff) return;
 		this.gains[band] = clampGain(value);
@@ -191,7 +204,15 @@ class AudioProcessing {
 
 	#write() {
 		try {
-			localStorage.setItem(STORAGE_KEY, JSON.stringify({ enabled: this.enabled, gains: this.gains, ...(this.correction ? { correction: this.correction } : {}) }));
+			localStorage.setItem(
+				STORAGE_KEY,
+				JSON.stringify({
+					enabled: this.enabled,
+					gains: this.gains,
+					...(this.correction ? { correction: this.correction } : {}),
+					...(this.visualiser ? { visualiser: true } : {})
+				})
+			);
 		} catch {
 			// Storage refused (a private window with it off): the choice lasts until reload.
 		}

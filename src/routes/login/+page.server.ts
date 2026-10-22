@@ -1,7 +1,15 @@
 import { fail, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 import { config } from '$lib/server/config';
-import { createSession, knownDevice, rememberDevice, signIn } from '$lib/server/auth';
+import {
+	accountOfSignIn,
+	checkSignIn,
+	createSession,
+	knownDevice,
+	rememberDevice,
+	storeAccount,
+	type UpstreamSignIn
+} from '$lib/server/auth';
 
 const MAX_USERNAME = 256;
 const MAX_PASSWORD = 1024;
@@ -16,9 +24,13 @@ import {
 	visitorAddress
 } from '$lib/server/ratelimit';
 import { log, reason } from '$lib/server/log';
+import { beginStep, currentStep, dropStep, finishStepWithCode, passkeysOffered, stepMethods } from '$lib/server/twofactor';
 
-export const load: PageServerLoad = async () => {
+export const load: PageServerLoad = async (event) => {
 	const cfg = config();
+	// A sign-in waiting for its second factor in this browser: the page asks
+	// for it, after a reload too.
+	const step = await currentStep(event);
 	return {
 		appName: cfg.appName,
 		hint: cfg.registrationHint,
@@ -32,13 +44,48 @@ export const load: PageServerLoad = async () => {
 				// is on. The answer is cached in the adapter.
 				quickConnect: (await backendFor(upstream.kind).quickConnect?.enabled()) ?? false
 			}))
-		)
+		),
+		step: step ? { ...(await stepMethods(event, step)), username: step.held.upstream.credential.username } : null,
+		// Whether this address can sign in with a passkey at all; see `passkeysOffered`.
+		passkeys: passkeysOffered(event.url),
+		// The identity provider's name for its button, or null where there is none.
+		oidc: cfg.oidc?.label ?? null,
+		oidcProblem: oidcProblem(event.url.searchParams.get('oidc'), cfg.oidc?.label ?? null)
 	};
 };
+
+/**
+ * What a return from the identity provider that did not sign in says, by the
+ * `oidc` the callback sends back here (`routes/login/oidc/callback`). Fixed
+ * words: the parameter is in the address, which anyone can write.
+ */
+function oidcProblem(result: string | null, provider: string | null): string | null {
+	if (!result || !provider) return null;
+	switch (result) {
+		case 'unlinked':
+			return `No account here is linked to that ${provider} account. Sign in with your password, then link it under Settings, Security.`;
+		case 'stale':
+			return 'The music server no longer takes the password stored here. Sign in with your password once.';
+		case 'cancelled':
+			return `The sign-in was cancelled at ${provider}.`;
+		case 'expired':
+			return 'That sign-in took too long, or was finished in another browser. Try again.';
+		case 'unreachable':
+			return `${provider} or the music server could not be reached. Try again shortly.`;
+		case 'throttled':
+			return `Too many sign-ins through ${provider}. Try again in a few minutes.`;
+		default:
+			return `${provider} did not complete the sign-in. Try again.`;
+	}
+}
 
 export const actions: Actions = {
 	default: async (event) => {
 		const data = await event.request.formData();
+		// The second step posts here too, with the code in place of a password.
+		// A page with named actions cannot keep a default one, and every client
+		// and test posts the password to `/login`.
+		if (data.has('code') || data.has('cancel')) return secondStep(event, data);
 		const username = String(data.get('username') ?? '').trim();
 		const password = String(data.get('password') ?? '');
 		const requestedBackend = data.get('backend');
@@ -95,9 +142,9 @@ export const actions: Actions = {
 			});
 		}
 
-		let account;
+		let upstream: UpstreamSignIn;
 		try {
-			account = await signIn(backend, username, password);
+			upstream = await checkSignIn(backend, username, password);
 		} catch (err) {
 			if (err instanceof UpstreamError) {
 				// Only a rejected credential counts. Counting an unreachable music
@@ -129,10 +176,50 @@ export const actions: Actions = {
 			return fail(500, { username, backend, error: 'Sign-in failed unexpectedly.' });
 		}
 
+		// The password was right, whatever follows: the throttle on the name is
+		// for guesses at it.
 		await clearLoginFailures(keys);
+
+		const step = await beginStep(event, backend, await accountOfSignIn(backend, upstream), upstream, 'password');
+		if (step) {
+			log.info('sign-in-step', { username: upstream.credential.username, backend, address: event.getClientAddress() });
+			return { username, backend, step: true };
+		}
+
+		const account = await storeAccount(backend, upstream.credential, upstream.remoteUserId);
 		await createSession(event, account, event.request.headers.get('user-agent'));
 		rememberDevice(event, account);
 		log.info('signed-in', { username: account.username, backend, address: event.getClientAddress() });
 		redirect(303, next);
 	}
 };
+
+/**
+ * The second step: a code from the account's app, or a recovery code, for
+ * the sign-in this browser holds (`beginStep`). `cancel` drops it, and the
+ * page asks for the password again.
+ */
+async function secondStep(event: Parameters<Actions[string]>[0], data: FormData) {
+	const next = safeNext(data.get('next'));
+	if (data.has('cancel')) {
+		await dropStep(event);
+		return { cancelled: true };
+	}
+	const code = String(data.get('code') ?? '');
+	if (!code.trim() || code.length > 64) return fail(400, { error: 'Enter the code from your app, or a recovery code.' });
+
+	const outcome = await finishStepWithCode(event, code);
+	if (!outcome.ok) return fail(outcome.status, { error: outcome.message });
+
+	const { account } = outcome;
+	await createSession(event, account, event.request.headers.get('user-agent'));
+	rememberDevice(event, account);
+	log.info('signed-in', {
+		username: account.username,
+		backend: account.backend,
+		method: outcome.method,
+		factor: outcome.recoveryLeft === null ? 'totp' : 'recovery-code',
+		address: event.getClientAddress()
+	});
+	redirect(303, next);
+}

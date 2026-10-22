@@ -31,7 +31,7 @@
 			label: 'Library',
 			icon: 'library' as const,
 			// Everything the Library page lists, and Settings, which it links to.
-			pattern: /^\/(library|albums|artists|genres|playlists|folders|history|stats|screen|settings)(\/|$)/
+			pattern: /^\/(library|albums|artists|genres|playlists|folders|history|stats|screen|settings|people)(\/|$)/
 		},
 		{ href: '/favourites', label: 'Favourites', icon: 'heart' as const, pattern: /^\/favourites(\/|$)/ },
 		{ href: '/search', label: 'Search', icon: 'search' as const, pattern: /^\/search(\/|$)/ }

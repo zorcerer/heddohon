@@ -3,6 +3,7 @@ import { backendFor } from '$lib/server/backends';
 import { SetupRequired, config } from '$lib/server/config';
 import { radioEnabled } from '$lib/server/radio';
 import { defaultSettings, shippedSettings } from '$lib/server/settings';
+import { customSchemes } from '$lib/server/schemes';
 import { APP_VERSION } from '$lib/server/version';
 
 export const load: LayoutServerLoad = async ({ locals, url }) => {
@@ -24,10 +25,12 @@ export const load: LayoutServerLoad = async ({ locals, url }) => {
 			autoeq: false,
 			folders: false,
 			radio: false,
+			profiles: false,
 			ratings: false,
 			account: null,
 			serverLabel: '',
 			settings: shippedSettings(),
+			customSchemes: [],
 			sessionExpiresAt: null,
 			isLoginPage: true,
 			isSharePage: false,
@@ -54,6 +57,8 @@ export const load: LayoutServerLoad = async ({ locals, url }) => {
 		folders: cfg.folders,
 		// Whether the music server keeps internet radio stations (Navidrome does) and they are offered.
 		radio: radioEnabled(session),
+		// Whether profile pages and People are on; see `profilepage.ts`.
+		profiles: cfg.profiles,
 		// Whether the music server keeps star ratings (Navidrome does, Jellyfin
 		// does not). The stars are drawn only where a press can be saved.
 		ratings: Boolean(session && backendFor(session.account.backend).setRating),
@@ -62,11 +67,18 @@ export const load: LayoutServerLoad = async ({ locals, url }) => {
 		serverLabel:
 			cfg.upstreams.find((upstream) => upstream.kind === session?.account.backend)?.label ?? '',
 		settings: locals.settings ?? defaultSettings(),
+		// Terminal's colour schemes from files, offered beside the built-in ones.
+		customSchemes: customSchemes().map(({ id, name }) => ({ id, name })),
 		sessionExpiresAt: session?.expiresAt ?? null,
 		isLoginPage: url.pathname === '/login',
-		// A shared link and a listen-together link each open on a page of their
-		// own, without the rail and the player column, signed in or not.
-		isSharePage: url.pathname.startsWith('/share/') || url.pathname.startsWith('/together/'),
+		// A shared link, a listen-together link, a now-playing link and a public
+		// profile link each open on a page of their own, without the rail and the
+		// player column, signed in or not.
+		isSharePage:
+			url.pathname.startsWith('/share/') ||
+			url.pathname.startsWith('/together/') ||
+			url.pathname.startsWith('/now/') ||
+			url.pathname.startsWith('/p/'),
 		// The living-room screen is drawn without the rail and the player panel,
 		// signed in and with the player running.
 		isScreenPage: url.pathname === '/screen'
