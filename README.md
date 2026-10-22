@@ -47,6 +47,7 @@ seeking and the volume work the same way.
 - Crossfade, ReplayGain, a sleep timer and an equaliser with AutoEq headphone corrections.
 - Synced lyrics, instant mixes, internet radio, and casting to Chromecast and AirPlay.
 - Scrobbling to Last.fm and ListenBrainz.
+- Two-step sign-in with an authenticator app or passkeys, and single sign-on through an OpenID Connect provider (Authelia, Authentik, Keycloak, Pocket ID).
 - Desktop apps for Linux and Windows, and an experimental Android app (Android 14 and later).
 - AI assistants that speak MCP, such as Claude Code.
 
