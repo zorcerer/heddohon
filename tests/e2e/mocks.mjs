@@ -1185,7 +1185,8 @@ export async function startMusicBrainz() {
 			);
 		}
 		if (url.pathname === '/ws/2/release-group') {
-			const listed = groups[url.searchParams.get('artist')]?.() ?? [];
+			const artist = url.searchParams.get('artist') ?? '';
+			const listed = Object.hasOwn(groups, artist) ? groups[artist]() : [];
 			return res.end(JSON.stringify({ 'release-group-count': listed.length, 'release-groups': listed }));
 		}
 		res.statusCode = 404;

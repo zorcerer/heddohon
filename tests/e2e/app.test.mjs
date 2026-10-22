@@ -6051,7 +6051,12 @@ describe('smart playlists', () => {
 	/** A smart playlist put on the mock as Navidrome or an `.nsp` file left it. */
 	const held = (id, entry) => subsonic.state.smart.set(id, { name: id, owner: null, public: false, path: '', ...entry });
 	/** A page's words, without the marks Svelte leaves between the parts of a block. */
-	const words = async (client, path) => (await client.page(path)).html.replace(/<!--.*?-->/g, '');
+	const words = async (client, path) => {
+		let html = (await client.page(path)).html;
+		// Again until nothing changes, so a mark that removing another one joins up goes too.
+		for (let before = ''; before !== html; ) [before, html] = [html, html.replace(/<!--[\s\S]*?-->/g, '')];
+		return html;
+	};
 
 	test('a new one is checked here and sent in Navidrome\'s format', async () => {
 		const refused = [
