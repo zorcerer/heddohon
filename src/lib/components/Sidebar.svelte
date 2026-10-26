@@ -396,12 +396,15 @@
 	}
 
 	/* Until the marker has a position (the server-rendered page), and for
-	   Settings, which is outside the list, the link draws the block itself. */
+	   Settings, which is outside the list, the link draws the block itself.
+	   Square on the edge's side: the inset edge follows the corners, and on a
+	   block this small rounded ones bent it into a bracket apart from the block. */
 	:global([data-theme='terminal']) .rail:not(.measured) .link.active,
 	:global([data-theme='terminal']) .foot .link.active,
 	:global([data-theme='terminal']) .marker {
 		background: var(--bg-raised);
 		box-shadow: inset 2px 0 0 var(--accent);
+		border-radius: 0 var(--r-sm) var(--r-sm) 0;
 	}
 
 	:global([data-theme='terminal']) .rail:not(.measured) .link.active,
@@ -411,10 +414,12 @@
 
 	:global([data-theme='terminal']) .marker {
 		left: 0;
+		/* The link's own square: a fixed 2.75rem stood a pixel over the 42px link
+		   at each end. */
 		width: 100%;
-		height: 2.75rem;
-		border-radius: var(--r-sm);
-		translate: 0 calc(var(--marker-y) - 1.375rem);
+		height: auto;
+		aspect-ratio: 1;
+		translate: 0 calc(var(--marker-y) - 50%);
 	}
 
 	:global([data-theme='terminal']) .marker.settled {
