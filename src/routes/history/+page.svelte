@@ -55,7 +55,7 @@
 			<TrackList songs={day.songs} variant="artwork" showAlbum />
 		</section>
 	{:else}
-		<p class="empty hh-muted">Nothing yet.</p>
+		<p class="empty hh-muted">Nothing yet</p>
 	{/each}
 
 	<Pager

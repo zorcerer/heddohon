@@ -85,7 +85,7 @@
 			label="Album pages"
 		/>
 	{:else}
-		<p class="empty hh-muted">No albums matched this view.</p>
+		<p class="empty hh-muted">No albums matched this view</p>
 	{/if}
 </div>
 

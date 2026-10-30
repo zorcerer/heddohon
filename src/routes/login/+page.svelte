@@ -548,7 +548,7 @@
 		grid-template-columns: minmax(0, 23rem) minmax(0, 25rem);
 		grid-template-areas:
 			'intro panel'
-			'colophon colophon';
+			'. colophon';
 	}
 
 	/*
@@ -923,8 +923,7 @@
 		margin: 0;
 	}
 
-	/* The colophon spans both columns, so it stays put when the stage folds to
-	   one. */
+	/* Under the panel, centred on it. */
 	.colophon {
 		grid-area: colophon;
 		margin: 0;

@@ -113,7 +113,7 @@
 
 	.title {
 		color: var(--text-strong);
-		font-weight: 550;
+		font-weight: 500;
 		font-size: 0.875rem;
 		transition:
 			color var(--transition),
@@ -127,7 +127,7 @@
 	}
 
 	.artist {
-		font-size: 0.78125rem;
+		font-size: 0.75rem;
 	}
 
 	@media (prefers-reduced-motion: reduce) {

@@ -4779,6 +4779,28 @@ describe('an artist\'s releases by kind', () => {
 		}
 		});
 	});
+
+	test('an album\'s rows carry only what differs from the album', async () => {
+		// An account of its own: an album read in the last minute is held per account.
+		const rows = async (id) => {
+			let drawn;
+			await asFreshAccount(`rows-${id}-${subsonic.state.albumShapes.size}-${subsonic.state.lossy.size}`, async (client) => {
+				const { html } = await client.page(`/albums/${id}`);
+				drawn = { artist: /class="sub[ "]/.test(html), quality: /class="quality[ "]/.test(html) };
+			});
+			return drawn;
+		};
+		try {
+			assert.deepEqual(await rows('al1'), { artist: false, quality: false }, 'one artist, one format');
+			subsonic.state.albumShapes.set('al2', { artist: 'Various Artists' });
+			assert.deepEqual(await rows('al2'), { artist: true, quality: false }, 'a compilation names each artist');
+			subsonic.state.lossy.add(3);
+			assert.deepEqual(await rows('al3'), { artist: false, quality: true }, 'mixed formats are shown per track');
+		} finally {
+			subsonic.state.albumShapes.clear();
+			subsonic.state.lossy.clear();
+		}
+	});
 });
 
 describe('the folder view', () => {

@@ -6084,14 +6084,13 @@ describe('Terminal, the default theme', () => {
 				return {
 					ground: rgb(getComputedStyle(current).backgroundColor),
 					title: colour('.title'),
-					artist: colour('.sub'),
 					time: colour('.duration'),
 					other: rgb(getComputedStyle(document.querySelector('.track:not(.current)')).backgroundColor)
 				};
 			});
 			assert.deepEqual(row.ground, (await computed(page, 'var(--bg-raised)')).slice(0, 3), 'the playing row is not a step of the ground');
 			assert.deepEqual(row.title, (await computed(page, 'var(--accent)')).slice(0, 3), 'the playing title is not the accent');
-			for (const part of ['title', 'artist', 'time']) {
+			for (const part of ['title', 'time']) {
 				const ratio = contrast(row[part], row.ground);
 				assert.ok(ratio >= 4.5, `the ${part} on the playing row: ${ratio.toFixed(1)} to 1`);
 			}
@@ -6269,7 +6268,7 @@ describe('Terminal, the default theme', () => {
 	 * button and the heart are components of their own, and kept their own
 	 * padding and their own look.
 	 */
-	test('the album page\'s actions line up, and the heart is one of them', async () => {
+	test('the album page\'s actions line up, and the heart and share sit by the rating', async () => {
 		await settings({ theme: 'terminal' });
 		const { page, problems } = await watchedPage();
 		const row = () =>
@@ -6280,9 +6279,10 @@ describe('Terminal, the default theme', () => {
 					const box = el.getBoundingClientRect();
 					return Math.round(box.left + Number.parseFloat(getComputedStyle(el).paddingLeft));
 				};
-				const fav = actions.querySelector('.fav');
+				const fav = document.querySelector('.badge-row .fav');
+				const share = document.querySelector('.badge-row .share');
 				return {
-					brackets: [...actions.children].filter((el) => !el.classList.contains('hh-button--primary')).map((el) => edge(el) - Math.round(el.getBoundingClientRect().left)),
+					brackets: [...actions.children, fav, share].filter((el) => !el.classList.contains('hh-button--primary')).map((el) => edge(el) - Math.round(el.getBoundingClientRect().left)),
 					heart: [getComputedStyle(fav, '::before').content, getComputedStyle(fav, '::after').content].join(' '),
 					word: fav.querySelector('.label') ? getComputedStyle(fav.querySelector('.label')).display : 'absent',
 					name: fav.getAttribute('aria-label'),
@@ -6297,6 +6297,7 @@ describe('Terminal, the default theme', () => {
 			assert.match(drawn.heart, /^"\[".* "\]"/);
 			assert.notEqual(drawn.word, 'none', 'the word is not drawn');
 			assert.equal(drawn.name, 'Add to favourites', 'the brackets or the word are in its name');
+			assert.equal(new Set(drawn.tops).size, 1, 'the actions do not fit on one line at 1440px');
 			// Narrow enough to wrap: what starts the second line is under the play key.
 			await page.setViewportSize({ width: 1000, height: 900 });
 			drawn = await row();

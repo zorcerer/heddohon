@@ -20,6 +20,8 @@
 		showAlbum = false,
 		showQuality = true,
 		groupByDisc = false,
+		/** The album's artist: a row names its artist only where it differs, as on a compilation. */
+		albumArtist = null,
 		/**
 		 * Two columns, read down the first and then the second, once the list
 		 * has 52rem to itself. For a short list of songs from different records,
@@ -35,6 +37,7 @@
 		showAlbum?: boolean;
 		showQuality?: boolean;
 		groupByDisc?: boolean;
+		albumArtist?: string | null;
 		columns?: boolean;
 		onremove?: ((indexes: number[]) => void) | null;
 		/**
@@ -47,6 +50,8 @@
 	} = $props();
 
 	const currentId = $derived(player.current?.id ?? null);
+
+	const credited = (song: Song) => Boolean(song.artist) && song.artist !== albumArtist;
 
 	/*
 	 * Several rows picked at once; see `selection.svelte.ts`. The selection is
@@ -325,19 +330,21 @@
 				<div class="meta">
 					<span class="title hh-truncate">{song.title}</span>
 					{#if isSelected}<span class="hh-visually-hidden">Selected</span>{/if}
-					<span class="sub hh-truncate hh-muted">
-						{#if song.artist}
-							<a href={song.artistId ? `/artists/${song.artistId}` : '#'}>
-								{song.artist}
-							</a>
-						{/if}
-						{#if showAlbum && song.album}
-							<span class="sep" aria-hidden="true">·</span>
-							<a href={song.albumId ? `/albums/${song.albumId}` : '#'}>
-								{song.album}
-							</a>
-						{/if}
-					</span>
+					{#if credited(song) || (showAlbum && song.album)}
+						<span class="sub hh-truncate hh-muted">
+							{#if credited(song)}
+								<a href={song.artistId ? `/artists/${song.artistId}` : '#'}>
+									{song.artist}
+								</a>
+							{/if}
+							{#if showAlbum && song.album}
+								{#if credited(song)}<span class="sep" aria-hidden="true">·</span>{/if}
+								<a href={song.albumId ? `/albums/${song.albumId}` : '#'}>
+									{song.album}
+								</a>
+							{/if}
+						</span>
+					{/if}
 				</div>
 
 				{#if showQuality}
@@ -428,7 +435,7 @@
 {/if}
 
 {#if songs.length === 0}
-	<p class="empty hh-muted">Nothing here yet.</p>
+	<p class="empty hh-muted">Nothing here yet</p>
 {/if}
 
 <style>
@@ -669,31 +676,26 @@
 		font-variant-numeric: tabular-nums;
 	}
 
-	/* On hover the number lights up in the accent and swells on the spring. */
+	/* On hover the number lights up. */
 	.index .resting {
 		display: grid;
 		place-items: center end;
-		transform-origin: right center;
 		transition:
 			color var(--dur-state) var(--ease-out),
 			text-shadow var(--dur-state) var(--ease-out),
-			filter var(--dur-state) var(--ease-out),
-			scale var(--dur-state) var(--ease-spring);
+			filter var(--dur-state) var(--ease-out);
 	}
 
 	.track:hover .index .resting,
 	.index:focus-visible .resting {
 		color: var(--glow-color);
-		text-shadow:
-			0 0 6px color-mix(in srgb, var(--accent) 70%, transparent),
-			0 0 16px color-mix(in srgb, var(--accent) 45%, transparent);
-		scale: 1.2;
+		text-shadow: var(--glow-text);
 	}
 
 	/* The bars cannot take a text-shadow; they glow as a filter instead. */
 	.track:hover .index .bars,
 	.index:focus-visible .bars {
-		filter: drop-shadow(0 0 5px color-mix(in srgb, var(--accent) 80%, transparent));
+		filter: var(--glow-icon);
 	}
 
 	/* The cover as the play control: transparent over it, and the cover lifts
@@ -746,7 +748,6 @@
 	.title {
 		color: var(--text-strong);
 		font-weight: 500;
-		letter-spacing: -0.005em;
 	}
 
 	.sub {
@@ -824,7 +825,10 @@
 		color: var(--danger);
 	}
 
+	/* The last column, whether or not a row lays out a quality cell or its
+	   actions before it: placed by order, it would move left without them. */
 	.duration {
+		grid-column: -2;
 		text-align: right;
 		color: var(--text-faint);
 	}
@@ -928,13 +932,6 @@
 			display: flex;
 			animation: actions-in var(--dur-hover) var(--ease-out);
 		}
-
-		/* The last column whether or not the actions are laid out. Placed by
-		   order, it moved into the actions' column on every row without them,
-		   60px left of the one row that had them. */
-		.duration {
-			grid-column: -2;
-		}
 	}
 
 	/* ── Terminal ────────────────────────────────────────────────────────────── */
@@ -994,7 +991,7 @@
 	}
 
 	:global([data-theme='terminal']) .track.current .title {
-		font-weight: 700;
+		font-weight: 600;
 	}
 
 	/* The row under the playing one has no rule above it: the block ends there. */

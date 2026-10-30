@@ -347,7 +347,7 @@
 	font-size: 0.75rem;
 	font-weight: 600;
 	letter-spacing: 0.18em;
-	color: var(--text-muted);
+	text-transform: uppercase;
 }
 
 /* Figures in the dot-matrix face, unlit: a readout lights only where it is

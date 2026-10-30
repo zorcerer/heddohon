@@ -482,7 +482,7 @@
 	}
 
 	.name {
-		font-weight: 650;
+		font-weight: 600;
 		color: var(--text-strong);
 	}
 

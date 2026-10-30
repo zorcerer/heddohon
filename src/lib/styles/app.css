@@ -38,9 +38,9 @@
 	--font-ui: 'Manrope Variable', system-ui, -apple-system, 'Segoe UI', sans-serif;
 	--font-mono: 'JetBrains Mono Variable', ui-monospace, 'SFMono-Regular', monospace;
 
-	/* Headlines are carried by weight and tight tracking rather than contrast. */
-	--display-weight: 800;
-	--display-tracking: -0.035em;
+	/* Headlines are carried by size. */
+	--display-weight: 600;
+	--display-tracking: -0.025em;
 
 	/* Radius family. Each step is roughly 1.35x the last, so a button inside a
 	   card reads as nested. */
@@ -324,12 +324,10 @@
 	 */
 	--text-shade: 0 1px 2px rgb(0 0 0 / 0.42);
 	--glow-color: var(--text-strong);
-	/* The shade is folded in: `text-shadow` replaces, so a glow rule without it
-	   would drop the shade on the text being looked at. */
-	--glow-text: var(--text-shade),
-		0 0 4px color-mix(in srgb, hsl(var(--art-h) var(--art-s) 72%) 55%, transparent),
-		0 0 16px color-mix(in srgb, hsl(var(--art-h) var(--art-s) 66%) 45%, transparent);
-	--glow-icon: drop-shadow(0 0 5px color-mix(in srgb, hsl(var(--art-h) var(--art-s) 72%) 60%, transparent));
+	/* The shade stays: `text-shadow` replaces, so a rule without it would drop
+	   the shade on the text being looked at. */
+	--glow-text: var(--text-shade);
+	--glow-icon: none;
 	--glass-edge: color-mix(in srgb, #ffffff 14%, transparent);
 	--glass-sheen: rgb(255 255 255 / 0.1);
 	--ambience-strength: 38%;
@@ -421,19 +419,18 @@
 	--text-muted-through: #4f463b;
 	--text-faint-through: #62584c;
 
-	/* On paper a glow has no light to add, so hover takes the accent and a faint
-	   bloom of it, like ink spreading into the fibres. */
+	/* On paper there is no light to add, so hover takes the accent. */
 	--text-shade: 0 1px 0 rgb(255 250 238 / 0.55);
 	--glow-color: var(--accent);
-	--glow-text: var(--text-shade), 0 0 8px color-mix(in srgb, var(--accent) 18%, transparent);
-	--glow-icon: drop-shadow(0 0 3px color-mix(in srgb, var(--accent) 24%, transparent));
+	--glow-text: var(--text-shade);
+	--glow-icon: none;
 	--glass-edge: rgb(46 36 26 / 0.16);
 	--glass-sheen: rgb(255 250 238 / 0.6);
 	--ambience-strength: 16%;
 	--float-shadow: 0 18px 40px -22px rgb(74 52 30 / 0.34), 0 2px 8px -5px rgb(74 52 30 / 0.2);
 
-	--display-weight: 700;
-	--display-tracking: -0.028em;
+	--display-weight: 600;
+	--display-tracking: -0.02em;
 
 	color-scheme: light;
 }
@@ -602,9 +599,8 @@ h4 {
 	font-family: var(--font-display);
 	color: var(--text-strong);
 	line-height: 1.15;
-	letter-spacing: -0.02em;
 	margin: 0;
-	font-weight: 700;
+	font-weight: 600;
 }
 
 h1 {
@@ -614,9 +610,7 @@ h1 {
 }
 
 h2 {
-	font-size: 1.3rem;
-	font-weight: 700;
-	letter-spacing: -0.022em;
+	font-size: 1.25rem;
 }
 
 h3 {
@@ -1479,16 +1473,13 @@ textarea {
 	font-family: var(--font-mono);
 	font-variant-numeric: tabular-nums;
 	font-size: 0.8125rem;
-	letter-spacing: -0.02em;
 }
 
 .hh-eyebrow {
-	font-family: var(--font-mono);
-	font-size: 0.6875rem;
-	letter-spacing: 0.14em;
-	text-transform: uppercase;
-	color: var(--text-faint);
+	font-size: 0.75rem;
+	color: var(--text-muted);
 	font-weight: 500;
+	letter-spacing: 0;
 }
 
 .hh-muted {

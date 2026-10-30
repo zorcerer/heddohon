@@ -655,7 +655,7 @@
 
 	.lede strong {
 		color: var(--text-strong);
-		font-weight: 700;
+		font-weight: 600;
 	}
 
 	/* ── The card: the player panel at card size ──────────────────────── */
@@ -723,7 +723,6 @@
 		margin: 0;
 		font-size: 1.375rem;
 		line-height: 1.15;
-		letter-spacing: -0.015em;
 		color: var(--text-strong);
 		text-shadow: var(--text-shade);
 	}

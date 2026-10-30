@@ -60,7 +60,7 @@
 	{#if data.genres.length > 0}
 		{#if top.length > 0}
 			<section>
-				<SectionHeader title="Largest" index={1} />
+				<SectionHeader title="Largest" />
 				<!-- Type, not cover art: a genre has no artwork, and one album's
 				     would say that album is the genre. -->
 				<ul class="top hh-stagger">
@@ -88,7 +88,7 @@
 
 		<section>
 			{#if top.length > 0}
-				<SectionHeader title="A to Z" index={2} />
+				<SectionHeader title="A to Z" />
 			{/if}
 			<div class="index">
 				{#each letters as [letter, genres] (letter)}
@@ -121,7 +121,7 @@
 			</div>
 		</section>
 	{:else}
-		<p class="empty hh-muted">The music server reports no genres.</p>
+		<p class="empty hh-muted">The music server reports no genres</p>
 	{/if}
 </div>
 

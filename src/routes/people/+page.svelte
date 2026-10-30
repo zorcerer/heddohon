@@ -43,7 +43,7 @@
 			{/each}
 		</ul>
 	{:else}
-		<p class="empty hh-muted">Nobody here shows a profile yet.</p>
+		<p class="empty hh-muted">Nobody here shows a profile yet</p>
 	{/if}
 </div>
 

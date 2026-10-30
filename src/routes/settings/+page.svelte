@@ -644,14 +644,9 @@
 			</label>
 
 			<label class="row">
-				<span class="label">
-					Font
-					<!-- In the face chosen, before it is saved; see `[data-font]` in app.css. -->
-					<span class="font-sample" data-font={settings.font} aria-hidden="true">
-						Album of the year · 24 tracks
-					</span>
-				</span>
-				<select class="hh-input control" name="font" bind:value={settings.font}>
+				<span class="label">Font</span>
+				<!-- In the face chosen, before it is saved; see `[data-font]` in app.css. -->
+				<select class="hh-input control font" name="font" data-font={settings.font} bind:value={settings.font}>
 					<option value="manrope">
 						{settings.theme === 'terminal' ? 'JetBrains Mono' : settings.theme === 'phosphor' ? 'Barlow' : 'Manrope'}
 					</option>
@@ -2240,13 +2235,8 @@
 		max-width: 48ch;
 	}
 
-	.font-sample {
-		margin-top: var(--space-1);
-		font-family: var(--font-display);
-		font-weight: 700;
-		font-size: 1.125rem;
-		letter-spacing: -0.02em;
-		color: var(--text-strong);
+	.font {
+		font-family: var(--font-ui);
 	}
 
 	.control {

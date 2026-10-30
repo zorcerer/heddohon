@@ -261,7 +261,6 @@
 		margin: 0.2rem 0 0;
 		font-size: 1.375rem;
 		line-height: 1.15;
-		letter-spacing: -0.015em;
 		color: var(--text-strong);
 		text-shadow: var(--text-shade);
 	}

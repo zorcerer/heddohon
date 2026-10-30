@@ -92,7 +92,7 @@
 
 	.badge.compact {
 		padding: 0 0.3rem;
-		font-size: 0.625rem;
+		font-size: 0.6875rem;
 	}
 
 	/* A new label rises into place: the switch to a conversion and back, and a

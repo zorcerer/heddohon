@@ -100,7 +100,7 @@
 			label="Genre pages"
 		/>
 	{:else}
-		<p class="empty hh-muted">No albums in this genre.</p>
+		<p class="empty hh-muted">No albums in this genre</p>
 	{/if}
 </div>
 

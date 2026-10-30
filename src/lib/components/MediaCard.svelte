@@ -394,10 +394,9 @@
 
 	.title {
 		color: var(--text-strong);
-		font-weight: 550;
+		font-weight: 500;
 		font-size: 0.9375rem;
 		line-height: 1.25;
-		letter-spacing: -0.01em;
 	}
 
 	.subtitle {

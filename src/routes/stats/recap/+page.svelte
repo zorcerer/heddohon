@@ -463,7 +463,7 @@
 	.number {
 		color: var(--text-strong);
 		font-size: 2rem;
-		font-weight: 700;
+		font-weight: 600;
 		line-height: 1.1;
 	}
 
@@ -540,7 +540,7 @@
 
 	.rank {
 		color: var(--accent);
-		font-weight: 700;
+		font-weight: 600;
 		text-align: right;
 	}
 
