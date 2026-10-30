@@ -671,6 +671,11 @@ textarea {
 	color: inherit;
 }
 
+/* No double tap to zoom; see `hooks.client.ts` for the pinch. */
+html {
+	touch-action: manipulation;
+}
+
 /*
  * iOS zooms the page in on a field under 16px as it is focused, and leaves it
  * zoomed: signing in on a phone landed on a home page a little too large,

@@ -26,6 +26,13 @@ const DATA_RETRY_MS = [400, 1200, 3000];
 export const init: ClientInit = () => {
 	// Before the first page renders; see `client/install.svelte.ts`.
 	installer.listen();
+	// The page does not zoom: the viewport says so, and `touch-action` on the
+	// root ends a double tap's zoom. Safari in a tab ignores `user-scalable=no`
+	// and pinches anyway, through WebKit's own gesture events, and a zoomed
+	// page carried the fixed dock off with it.
+	for (const type of ['gesturestart', 'gesturechange']) {
+		document.addEventListener(type, (event) => event.preventDefault(), { passive: false });
+	}
 	const fetch = window.fetch.bind(window);
 	window.fetch = async (input, options) => {
 		const url = input instanceof Request ? input.url : String(input);
