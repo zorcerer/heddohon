@@ -6084,14 +6084,13 @@ describe('Terminal, the default theme', () => {
 				return {
 					ground: rgb(getComputedStyle(current).backgroundColor),
 					title: colour('.title'),
-					artist: colour('.sub'),
 					time: colour('.duration'),
 					other: rgb(getComputedStyle(document.querySelector('.track:not(.current)')).backgroundColor)
 				};
 			});
 			assert.deepEqual(row.ground, (await computed(page, 'var(--bg-raised)')).slice(0, 3), 'the playing row is not a step of the ground');
 			assert.deepEqual(row.title, (await computed(page, 'var(--accent)')).slice(0, 3), 'the playing title is not the accent');
-			for (const part of ['title', 'artist', 'time']) {
+			for (const part of ['title', 'time']) {
 				const ratio = contrast(row[part], row.ground);
 				assert.ok(ratio >= 4.5, `the ${part} on the playing row: ${ratio.toFixed(1)} to 1`);
 			}

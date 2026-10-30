@@ -20,6 +20,8 @@
 		showAlbum = false,
 		showQuality = true,
 		groupByDisc = false,
+		/** The album's artist: a row names its artist only where it differs, as on a compilation. */
+		albumArtist = null,
 		/**
 		 * Two columns, read down the first and then the second, once the list
 		 * has 52rem to itself. For a short list of songs from different records,
@@ -35,6 +37,7 @@
 		showAlbum?: boolean;
 		showQuality?: boolean;
 		groupByDisc?: boolean;
+		albumArtist?: string | null;
 		columns?: boolean;
 		onremove?: ((indexes: number[]) => void) | null;
 		/**
@@ -47,6 +50,8 @@
 	} = $props();
 
 	const currentId = $derived(player.current?.id ?? null);
+
+	const credited = (song: Song) => Boolean(song.artist) && song.artist !== albumArtist;
 
 	/*
 	 * Several rows picked at once; see `selection.svelte.ts`. The selection is
@@ -325,19 +330,21 @@
 				<div class="meta">
 					<span class="title hh-truncate">{song.title}</span>
 					{#if isSelected}<span class="hh-visually-hidden">Selected</span>{/if}
-					<span class="sub hh-truncate hh-muted">
-						{#if song.artist}
-							<a href={song.artistId ? `/artists/${song.artistId}` : '#'}>
-								{song.artist}
-							</a>
-						{/if}
-						{#if showAlbum && song.album}
-							<span class="sep" aria-hidden="true">·</span>
-							<a href={song.albumId ? `/albums/${song.albumId}` : '#'}>
-								{song.album}
-							</a>
-						{/if}
-					</span>
+					{#if credited(song) || (showAlbum && song.album)}
+						<span class="sub hh-truncate hh-muted">
+							{#if credited(song)}
+								<a href={song.artistId ? `/artists/${song.artistId}` : '#'}>
+									{song.artist}
+								</a>
+							{/if}
+							{#if showAlbum && song.album}
+								{#if credited(song)}<span class="sep" aria-hidden="true">·</span>{/if}
+								<a href={song.albumId ? `/albums/${song.albumId}` : '#'}>
+									{song.album}
+								</a>
+							{/if}
+						</span>
+					{/if}
 				</div>
 
 				{#if showQuality}
@@ -818,7 +825,10 @@
 		color: var(--danger);
 	}
 
+	/* The last column, whether or not a row lays out a quality cell or its
+	   actions before it: placed by order, it would move left without them. */
 	.duration {
+		grid-column: -2;
 		text-align: right;
 		color: var(--text-faint);
 	}
@@ -921,13 +931,6 @@
 		.track:focus-within .actions {
 			display: flex;
 			animation: actions-in var(--dur-hover) var(--ease-out);
-		}
-
-		/* The last column whether or not the actions are laid out. Placed by
-		   order, it moved into the actions' column on every row without them,
-		   60px left of the one row that had them. */
-		.duration {
-			grid-column: -2;
 		}
 	}
 

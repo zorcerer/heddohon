@@ -201,7 +201,8 @@
 	</header>
 
 	<section class="tracks">
-		<TrackList songs={album.songs} variant="numbered" groupByDisc />
+		<!-- A row carries what differs from the album: the header says the rest. -->
+		<TrackList songs={album.songs} variant="numbered" groupByDisc albumArtist={album.artist} showQuality={!releaseQuality} />
 	</section>
 
 	<!--
