@@ -126,16 +126,33 @@
 				{/each}
 			</p>
 
-			{#if releaseQuality || page.data.ratings}
-				<div class="badge-row">
-					{#if releaseQuality}
-						<QualityBadge quality={releaseQuality} />
-					{/if}
-					{#if page.data.ratings}
-						<RatingStars id={album.id} kind="album" rating={album.rating} />
-					{/if}
-				</div>
-			{/if}
+			<div class="badge-row">
+				{#if releaseQuality}
+					<QualityBadge quality={releaseQuality} />
+				{/if}
+				{#if page.data.ratings}
+					<RatingStars id={album.id} kind="album" rating={album.rating} />
+				{/if}
+				<FavouriteButton id={album.id} kind="album" starred={album.starred} size={20} labelled />
+				{#if page.data.sharing}
+					<button
+						class="share"
+						onclick={() =>
+							shareComposer.open({
+								kind: 'album',
+								id: album.id,
+								title: album.name,
+								subtitle: album.artist,
+								coverArt: album.coverArt
+							})}
+						aria-label="Share a link to this album"
+						title="Share"
+					>
+						<Icon name="share" size={18} />
+						<span class="share-label" aria-hidden="true">share</span>
+					</button>
+				{/if}
+			</div>
 
 			<div class="actions">
 				<button
@@ -179,25 +196,6 @@
 					<span class="label">Add to playlist</span>
 				</button>
 				<MixButton of="album" id={album.id} />
-				{#if page.data.sharing}
-					<button
-						class="hh-button"
-						onclick={() =>
-							shareComposer.open({
-								kind: 'album',
-								id: album.id,
-								title: album.name,
-								subtitle: album.artist,
-								coverArt: album.coverArt
-							})}
-						aria-label="Share a link to this album"
-						title="Share"
-					>
-						<Icon name="share" size={16} />
-						<span class="label">Share</span>
-					</button>
-				{/if}
-				<FavouriteButton id={album.id} kind="album" starred={album.starred} size={20} labelled />
 			</div>
 		</div>
 	</header>
@@ -405,6 +403,65 @@
 		margin-top: var(--space-1);
 	}
 
+	.share {
+		display: grid;
+		place-items: center;
+		padding: 0.3rem;
+		border-radius: var(--r-sm);
+		color: var(--text-faint);
+		transition: color var(--transition);
+	}
+
+	.share:hover {
+		color: var(--text-default);
+		filter: var(--glow-icon);
+	}
+
+	.share-label {
+		display: none;
+	}
+
+	/* The word between brackets, beside Favourite (see FavouriteButton). */
+	:global([data-theme='terminal']) .share {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.4rem;
+		padding: 0.5rem 0.125rem;
+		border-radius: 0;
+		color: var(--text-strong);
+		font-size: 0.875rem;
+		white-space: nowrap;
+	}
+
+	:global([data-theme='terminal']) .share-label {
+		display: inline;
+	}
+
+	:global([data-theme='terminal']) .share::before,
+	:global([data-theme='terminal']) .share::after {
+		color: var(--text-faint);
+		transition: color var(--transition);
+	}
+
+	:global([data-theme='terminal']) .share::before {
+		content: '[';
+		content: '[' / '';
+		margin-right: -0.35rem;
+	}
+
+	:global([data-theme='terminal']) .share::after {
+		content: ']';
+		content: ']' / '';
+		margin-left: -0.35rem;
+	}
+
+	:global([data-theme='terminal']) .share:hover,
+	:global([data-theme='terminal']) .share:focus-visible,
+	:global([data-theme='terminal']) .share:hover::before,
+	:global([data-theme='terminal']) .share:hover::after {
+		color: var(--accent);
+	}
+
 	.actions {
 		display: flex;
 		align-items: center;
@@ -512,7 +569,7 @@
 	}
 
 	:global([data-theme='terminal']) .actions {
-		gap: var(--space-1) var(--space-4);
+		gap: var(--space-1) var(--space-3);
 	}
 
 	:global([data-theme='terminal']) .actions .hh-button {

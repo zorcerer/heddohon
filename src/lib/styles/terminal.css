@@ -164,7 +164,7 @@
 	--glow-icon: none;
 	--ambience-strength: 0%;
 
-	--display-weight: 700;
+	--display-weight: 600;
 	--display-tracking: -0.02em;
 
 	/* One radius for panes, cards and covers, and a smaller one for what sits
@@ -449,7 +449,7 @@
 	padding: 0.5rem 1rem;
 	background: var(--accent);
 	color: var(--accent-contrast);
-	font-weight: 700;
+	font-weight: 600;
 }
 
 [data-theme='terminal'] .hh-button--primary::before,
@@ -465,10 +465,8 @@
 }
 
 [data-theme='terminal'] .hh-eyebrow {
-	letter-spacing: 0;
+	font-family: var(--font-mono);
 	text-transform: lowercase;
-	font-size: 0.75rem;
-	color: var(--text-muted);
 }
 
 /* ── Motion ──────────────────────────────────────────────────────────────── */

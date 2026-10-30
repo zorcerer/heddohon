@@ -160,7 +160,7 @@
 	</header>
 
 	{#if stats.plays === 0}
-		<p class="empty hh-muted">Nothing played {since ? `since ${since}` : 'yet'}.</p>
+		<p class="empty hh-muted">Nothing played {since ? `since ${since}` : 'yet'}</p>
 	{:else}
 		<section class="figures" aria-label="In numbers">
 			<div class="figure hero">

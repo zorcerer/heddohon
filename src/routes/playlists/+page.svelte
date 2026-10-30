@@ -196,7 +196,7 @@
 			{/each}
 		</MediaGrid>
 	{:else}
-		<p class="empty hh-muted">No playlists yet.</p>
+		<p class="empty hh-muted">No playlists yet</p>
 	{/if}
 </div>
 

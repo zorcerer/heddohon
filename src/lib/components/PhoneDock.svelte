@@ -347,7 +347,7 @@
 
 		.title {
 			font-size: 0.9375rem;
-			font-weight: 650;
+			font-weight: 600;
 			color: var(--text-strong);
 			text-shadow: var(--text-shade);
 		}

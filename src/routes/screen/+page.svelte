@@ -281,7 +281,7 @@
 
 	.lyrics .now {
 		font-size: clamp(1.5rem, 0.8rem + 2vw, 3rem);
-		font-weight: 700;
+		font-weight: 600;
 		line-height: 1.15;
 	}
 

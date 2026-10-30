@@ -10,7 +10,7 @@
 	 * with that year's albums under it. The shelf is only drawn in the browser
 	 * (see the home page), so `today` is the browser's date.
 	 */
-	let { albums, today, index }: { albums: RememberedAlbum[]; today: Date; index: number } = $props();
+	let { albums, today }: { albums: RememberedAlbum[]; today: Date } = $props();
 
 	// The albums arrive the latest year first; kept in that order, one group a year.
 	const years = $derived.by(() => {
@@ -35,7 +35,7 @@
 	);
 </script>
 
-<MediaShelf title="On this day" {index}>
+<MediaShelf title="On this day">
 	<div class="leaf">
 		<p class="mark today"><span class="when hh-numeric">Today</span></p>
 		<time class="page" {datetime}>
@@ -181,7 +181,6 @@
 		color: var(--text-default);
 		font-weight: 600;
 		font-size: 0.9375rem;
-		letter-spacing: -0.01em;
 	}
 
 	@media (max-width: 36rem) {

@@ -150,6 +150,7 @@
 
 	.whose {
 		flex: none;
+		margin-left: auto;
 	}
 
 	/*

@@ -49,7 +49,7 @@
 
 	.initial {
 		font-family: var(--font-display);
-		font-weight: 700;
+		font-weight: 600;
 		font-size: calc(var(--size) * 0.42);
 		line-height: 1;
 	}

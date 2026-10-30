@@ -116,7 +116,7 @@
 
 		<Pager {...data} href={pageHref} label="Artist pages" noun="artists" />
 	{:else}
-		<p class="empty hh-muted">No artists matched “{data.query}”.</p>
+		<p class="empty hh-muted">No artists matched “{data.query}”</p>
 	{/if}
 </div>
 

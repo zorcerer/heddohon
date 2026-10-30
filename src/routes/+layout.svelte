@@ -1045,7 +1045,9 @@
 		height: 100%;
 		border-radius: inherit;
 		background: var(--accent);
-		box-shadow: 0 0 8px color-mix(in srgb, var(--accent) 60%, transparent);
+	}
+
+	.nav-progress.waiting span {
 		animation: nav-sweep 1.1s var(--ease-colour) infinite;
 	}
 
@@ -1545,6 +1547,9 @@
 		.nav-progress span {
 			width: 100%;
 			opacity: 0.6;
+		}
+
+		.nav-progress.waiting span {
 			animation: none;
 		}
 	}
@@ -1567,11 +1572,6 @@
 		:global([data-theme='terminal']) .app .wait-veil {
 			border-radius: var(--r-xl);
 		}
-	}
-
-	/* The line that sweeps while a page loads, without its glow. */
-	:global([data-theme='terminal']) .nav-progress span {
-		box-shadow: none;
 	}
 
 	/* The page arrives without the rise: the rows of its lists print in instead

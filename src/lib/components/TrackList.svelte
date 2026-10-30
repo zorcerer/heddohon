@@ -428,7 +428,7 @@
 {/if}
 
 {#if songs.length === 0}
-	<p class="empty hh-muted">Nothing here yet.</p>
+	<p class="empty hh-muted">Nothing here yet</p>
 {/if}
 
 <style>
@@ -669,31 +669,26 @@
 		font-variant-numeric: tabular-nums;
 	}
 
-	/* On hover the number lights up in the accent and swells on the spring. */
+	/* On hover the number lights up. */
 	.index .resting {
 		display: grid;
 		place-items: center end;
-		transform-origin: right center;
 		transition:
 			color var(--dur-state) var(--ease-out),
 			text-shadow var(--dur-state) var(--ease-out),
-			filter var(--dur-state) var(--ease-out),
-			scale var(--dur-state) var(--ease-spring);
+			filter var(--dur-state) var(--ease-out);
 	}
 
 	.track:hover .index .resting,
 	.index:focus-visible .resting {
 		color: var(--glow-color);
-		text-shadow:
-			0 0 6px color-mix(in srgb, var(--accent) 70%, transparent),
-			0 0 16px color-mix(in srgb, var(--accent) 45%, transparent);
-		scale: 1.2;
+		text-shadow: var(--glow-text);
 	}
 
 	/* The bars cannot take a text-shadow; they glow as a filter instead. */
 	.track:hover .index .bars,
 	.index:focus-visible .bars {
-		filter: drop-shadow(0 0 5px color-mix(in srgb, var(--accent) 80%, transparent));
+		filter: var(--glow-icon);
 	}
 
 	/* The cover as the play control: transparent over it, and the cover lifts
@@ -746,7 +741,6 @@
 	.title {
 		color: var(--text-strong);
 		font-weight: 500;
-		letter-spacing: -0.005em;
 	}
 
 	.sub {
@@ -994,7 +988,7 @@
 	}
 
 	:global([data-theme='terminal']) .track.current .title {
-		font-weight: 700;
+		font-weight: 600;
 	}
 
 	/* The row under the playing one has no rule above it: the block ends there. */

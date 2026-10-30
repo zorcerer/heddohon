@@ -70,7 +70,6 @@
 			live = false;
 		};
 	});
-	const releasesIndex = $derived((popular.length > 0 ? 1 : 0) + groups.length);
 </script>
 
 <svelte:head>
@@ -117,15 +116,15 @@
 				/>
 			{/if}
 			<section class="popular">
-				<SectionHeader title="Popular" index={1} />
+				<SectionHeader title="Popular" />
 				<TrackList songs={popular} variant="artwork" showAlbum={!latest} showQuality={false} />
 			</section>
 		</div>
 	{/if}
 
-	{#each groups as group, position (group.kind)}
+	{#each groups as group (group.kind)}
 		<section>
-			<SectionHeader title={group.title} index={(popular.length > 0 ? 2 : 1) + position} />
+			<SectionHeader title={group.title} />
 			<MediaGrid density={data.settings.gridSize}>
 				{#each group.albums as album (album.id)}
 					<MediaCard
@@ -143,7 +142,7 @@
 	{/each}
 
 	{#if appearing.length > 0}
-		<MediaShelf title="Appears on" index={releasesIndex + 1} density="compact">
+		<MediaShelf title="Appears on" density="compact">
 			{#each appearing as album (album.id)}
 				<MediaCard
 					href="/albums/{album.id}"
@@ -162,7 +161,6 @@
 			<!-- Compact: a suggestion is secondary to the page it sits under. -->
 			<MediaShelf
 				title="You might like"
-				index={releasesIndex + (appearing.length > 0 ? 1 : 0) + 1}
 				density="compact"
 			>
 				{#each similar as suggestion (suggestion.id)}

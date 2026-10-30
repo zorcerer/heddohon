@@ -10,7 +10,7 @@
 	 * under the pointer, and under each a date-due slip with when it was last
 	 * played and how often.
 	 */
-	let { albums, index }: { albums: ForgottenAlbum[]; index: number } = $props();
+	let { albums }: { albums: ForgottenAlbum[] } = $props();
 
 	const MONTH_MS = 30.44 * 24 * 60 * 60 * 1000;
 
@@ -27,7 +27,7 @@
 </script>
 
 <div class="stacks">
-	<MediaShelf title="Rediscover" {index}>
+	<MediaShelf title="Rediscover">
 		{#each albums as album (album.id)}
 			<MediaCard
 				href="/albums/{album.id}"

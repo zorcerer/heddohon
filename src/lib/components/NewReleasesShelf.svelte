@@ -9,7 +9,7 @@
 	 * its MusicBrainz page, in a new tab; there is nothing here to play, and
 	 * no cover, since the page loads images from this server alone.
 	 */
-	let { releases, index }: { releases: NewRelease[]; index: number } = $props();
+	let { releases }: { releases: NewRelease[] } = $props();
 
 	/*
 	 * The date as MusicBrainz gives it, in words. Read as UTC, so the server's
@@ -23,7 +23,7 @@
 	}
 </script>
 
-<MediaShelf title="New releases" {index}>
+<MediaShelf title="New releases">
 	{#each releases as release (release.id)}
 		<a class="release" href={release.url} target="_blank" rel="noopener noreferrer">
 			<span class="sleeve" aria-hidden="true">

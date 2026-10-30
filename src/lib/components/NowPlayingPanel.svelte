@@ -1306,7 +1306,6 @@
 		margin: 0;
 		font-size: 1.375rem;
 		line-height: 1.15;
-		letter-spacing: -0.015em;
 	}
 
 	.artist,
@@ -1715,7 +1714,7 @@
 		border-radius: 999px;
 		background: var(--accent);
 		color: var(--accent-contrast);
-		font-size: 0.625rem;
+		font-size: 0.6875rem;
 		line-height: 1.05rem;
 		text-align: center;
 	}
@@ -1861,7 +1860,6 @@
 	:global([data-theme='terminal']) .title {
 		font-size: 1.0625rem;
 		line-height: 1.35;
-		letter-spacing: -0.01em;
 	}
 
 	:global([data-theme='terminal']) .artist,
@@ -1958,7 +1956,7 @@
 	   themes light it. */
 	:global([data-theme='terminal']) .row.current .row-title {
 		color: var(--accent);
-		font-weight: 700;
+		font-weight: 600;
 	}
 
 	/* ── Phosphor ────────────────────────────────────────────────────────── */

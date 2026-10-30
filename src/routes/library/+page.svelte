@@ -70,7 +70,7 @@
 	</a>
 
 	{#if data.recentlyAdded.length > 0}
-		<MediaShelf title="Recently added" href="/albums?sort=recentlyAdded" index={1}>
+		<MediaShelf title="Recently added" href="/albums?sort=recentlyAdded">
 			{#each data.recentlyAdded as album (album.id)}
 				<MediaCard
 					href="/albums/{album.id}"
@@ -89,7 +89,6 @@
 		<MediaShelf
 			title="Playlists"
 			href="/playlists"
-			index={data.recentlyAdded.length > 0 ? 2 : 1}
 			density="compact"
 		>
 			{#each data.playlists as playlist (playlist.id)}
@@ -177,8 +176,7 @@
 	.name {
 		font-family: var(--font-display);
 		font-size: 1.125rem;
-		font-weight: 750;
-		letter-spacing: -0.015em;
+		font-weight: 600;
 		color: var(--text-strong);
 		text-shadow: var(--text-shade);
 	}

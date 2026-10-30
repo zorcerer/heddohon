@@ -4,13 +4,10 @@
 
 	let {
 		title,
-		/** Two-digit index, printed in the margin like a catalogue entry. */
-		index = null,
 		href = null,
 		actions
 	}: {
 		title: string;
-		index?: number | null;
 		href?: string | null;
 		actions?: Snippet;
 	} = $props();
@@ -18,14 +15,9 @@
 
 <!--
   A rule runs from the title to the right edge, so a page of shelves reads as a
-  printed index. The number sits outside the text column, in the margin, in
-  mono.
+  printed index.
 -->
 <header class="section-header">
-	{#if index !== null}
-		<span class="index hh-numeric" aria-hidden="true">{String(index).padStart(2, '0')}</span>
-	{/if}
-
 	<div class="titles">
 		{#if href}
 			<a class="link" {href}>
@@ -50,14 +42,6 @@
 		align-items: center;
 		gap: var(--space-3);
 		margin-bottom: var(--space-4);
-	}
-
-	.index {
-		font-size: 0.6875rem;
-		color: var(--accent);
-		letter-spacing: 0.08em;
-		padding-top: 0.1rem;
-		flex: none;
 	}
 
 	.titles {
@@ -102,10 +86,6 @@
 	}
 
 	@media (max-width: 40rem) {
-		.index {
-			display: none;
-		}
-
 		/*
 		 * The actions go to a line of their own under the title where the two do
 		 * not fit side by side. Neither can shrink, so on the favourites page,
@@ -122,12 +102,6 @@
 	}
 
 	/* ── Terminal ────────────────────────────────────────────────────────────── */
-
-	/* The rule carries the index's job here, and the page's path names where it
-	   is; the numbers are drawn in the other themes. */
-	:global([data-theme='terminal']) .index {
-		display: none;
-	}
 
 	:global([data-theme='terminal']) .titles :global(h2) {
 		font-size: 0.9375rem;
