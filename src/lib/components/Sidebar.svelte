@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { navigating, page } from '$app/state';
-	import { DUR, EASE_OUT_CSS, motion } from '$lib/client/motion';
 	import { untrack } from 'svelte';
 	import Icon from './Icon.svelte';
 	import Logo from './Logo.svelte';
@@ -40,7 +39,7 @@
 	}
 
 	/*
-	 * The active marker slides from one destination to the next on the spring.
+	 * The active marker slides from one destination to the next.
 	 *
 	 * The server cannot measure, so the first paint keeps the marker each link
 	 * draws for itself, and this one takes over once it has a position
@@ -51,9 +50,7 @@
 	 */
 	let list = $state<HTMLUListElement | null>(null);
 	let anchors = $state<Array<HTMLAnchorElement | null>>([]);
-	let marker = $state<{ x: number; y: number } | null>(null);
-	let markerEl = $state<HTMLLIElement | null>(null);
-	let placedIndex = -1;
+	let marker = $state<{ y: number } | null>(null);
 	let measured = $state(false);
 	let settled = $state(false);
 	const activeIndex = $derived(LINKS.findIndex((link) => isActive(link.href, link.exact, link.also)));
@@ -65,39 +62,12 @@
 			marker = null;
 			return;
 		}
-		// Untracked: `place` runs in an effect, and reading what it is about to
-		// write made the effect depend on itself.
-		const from = untrack(() => marker);
-		marker = {
-			x: anchor.offsetLeft + anchor.offsetWidth / 2,
-			y: anchor.offsetTop + anchor.offsetHeight / 2
-		};
-		// A new destination, not the same one measured again after a resize.
-		if (untrack(() => settled) && from && placedIndex !== activeIndex) stretch(from, marker);
-		placedIndex = activeIndex;
+		marker = { y: anchor.offsetTop + anchor.offsetHeight / 2 };
 		if (!measured) {
 			measured = true;
 			// Travel only from the second position on.
 			requestAnimationFrame(() => requestAnimationFrame(() => (settled = true)));
 		}
-	}
-
-	/*
-	 * The bar draws out along its path as it travels, to about twice its length
-	 * a third of the way, and gathers back as it lands. Scale on the bar
-	 * itself, apart from the `translate` that carries it, so the two do not
-	 * interrupt each other.
-	 */
-	function stretch(from: { x: number; y: number }, to: { x: number; y: number }) {
-		const duration = motion(DUR.travel);
-		if (!markerEl || duration === 0) return;
-		// Terminal's marker is a block the size of its target, which travels as it is.
-		if (document.documentElement.dataset.theme === 'terminal') return;
-		const along = Math.abs(to.x - from.x) > Math.abs(to.y - from.y) ? '2.2 1' : '1 2.2';
-		markerEl.animate([{ scale: '1 1' }, { scale: along, offset: 0.35 }, { scale: '1 1' }], {
-			duration,
-			easing: EASE_OUT_CSS
-		});
 	}
 
 	$effect(() => {
@@ -128,12 +98,10 @@
 
 	<ul class="links" bind:this={list}>
 		<li
-			bind:this={markerEl}
 			class="marker"
 			class:settled
 			class:gone={marker === null}
 			aria-hidden="true"
-			style:--marker-x="{marker?.x ?? 0}px"
 			style:--marker-y="{marker?.y ?? 0}px"
 		></li>
 		{#each LINKS as link, index (link.href)}
@@ -165,6 +133,7 @@
 			class:active={isActive('/settings', false)}
 			href="/settings"
 			title="Settings"
+			aria-current={isActive('/settings', false) ? 'page' : undefined}
 		>
 			<Icon name="settings" size={19} />
 			<span class="hh-visually-hidden">Settings</span>
@@ -247,6 +216,9 @@
 	/* A square target with the glyph centred in it, so a column of icons does
 	   not read as left-aligned text without its words. */
 	.link {
+		position: relative;
+		/* Over the marker, which is earlier in the list. */
+		z-index: 1;
 		display: grid;
 		place-items: center;
 		aspect-ratio: 1;
@@ -284,40 +256,32 @@
 		background: var(--bg-hover);
 	}
 
-	/* A short accent bar on the active item, not a filled pill: less weight in a
-	   list that is always on screen. */
-	.link.active {
-		position: relative;
-	}
-
-	/* Hard against the rail's left edge, so the marker sits in the margin and
-	   not on the icon. */
-	.link.active::before {
-		content: '';
-		position: absolute;
-		left: calc(var(--space-2) * -1);
-		top: 50%;
-		width: 3px;
-		height: 1.1rem;
-		margin-top: -0.55rem;
-		border-radius: var(--r-pill);
-		background: var(--accent);
-	}
-
 	/*
-	 * The sliding marker: the same bar as the per-link one below, placed from
-	 * the active link's centre (`--marker-x`, `--marker-y`). It travels on the
-	 * spring and fades where the list has nothing to mark.
+	 * The destination is a step of the ground with a hairline, the shape of the
+	 * crest's tile above it, and the glyph at full strength. A 3px accent bar
+	 * against the rail's edge marked it until 2026-11, restyled twice in Terminal
+	 * (#242, #248). The marker holds no glass, so the rail's blur is untouched.
+	 *
+	 * Until the marker has a position (the server-rendered page), and for
+	 * Settings, which is outside the list, the link draws the step itself.
 	 */
+	.rail:not(.measured) .link.active,
+	.foot .link.active,
+	.marker {
+		background: var(--bg-hover);
+		box-shadow: inset 0 0 0 1px var(--border-hairline);
+	}
+
+	/* The link's own square, centred on its centre (`--marker-y`). It fades where
+	   the list has nothing to mark. */
 	.marker {
 		position: absolute;
-		left: calc(var(--space-2) * -1);
+		left: 0;
 		top: 0;
-		width: 3px;
-		height: 1.1rem;
-		border-radius: var(--r-pill);
-		background: var(--accent);
-		translate: 0 calc(var(--marker-y) - 0.55rem);
+		width: 100%;
+		aspect-ratio: 1;
+		border-radius: var(--r-sm);
+		translate: 0 calc(var(--marker-y) - 50%);
 		pointer-events: none;
 		opacity: 0;
 	}
@@ -328,18 +292,13 @@
 
 	.marker.settled {
 		transition:
-			translate var(--dur-travel) var(--ease-spring),
+			translate var(--dur-travel) var(--ease-out),
 			opacity var(--dur-hover) var(--ease-out);
-	}
-
-	/* Once the sliding marker has a position, it is the one drawn. */
-	.measured .links .link.active::before {
-		display: none;
 	}
 
 	.foot {
 		display: grid;
-		gap: var(--space-3);
+		gap: 2px;
 		padding-top: var(--space-3);
 		border-top: 1px solid var(--border-hairline);
 	}
@@ -363,63 +322,64 @@
 	/* ── Terminal ────────────────────────────────────────────────────────────── */
 
 	/*
-	 * The destination is a step of the ground with an edge in the accent and its
-	 * glyph in the accent, as a picked row is drawn. It was a block filled with
-	 * the accent, which with the playing row's fill made two solid blocks of
-	 * colour on most pages. The sliding marker is that step, behind the glyphs,
-	 * and travels without the stretch.
+	 * The destination stands in the square brackets the theme's buttons wear,
+	 * `[shuffle]`, around a glyph at full strength. They travel as a pair with
+	 * the marker. A block filled with the accent came first, then a step of
+	 * the ground with a 2px accent edge.
 	 */
 	:global([data-theme='terminal']) .mark {
 		background: none;
 		border-color: transparent;
 	}
 
-	:global([data-theme='terminal']) .link {
-		position: relative;
-		z-index: 1;
-	}
-
 	:global([data-theme='terminal']) .link:hover {
 		color: var(--text-strong);
+	}
+
+	:global([data-theme='terminal']) .signout:hover {
+		color: var(--danger);
 	}
 
 	:global([data-theme='terminal']) .link:active {
 		background: var(--bg-hover);
 	}
 
-	:global([data-theme='terminal']) .link.active {
-		color: var(--accent);
-	}
-
-	:global([data-theme='terminal']) .link.active::before {
-		display: none;
-	}
-
-	/* Until the marker has a position (the server-rendered page), and for
-	   Settings, which is outside the list, the link draws the block itself.
-	   Square on the edge's side: the inset edge follows the corners, and on a
-	   block this small rounded ones bent it into a bracket apart from the block. */
 	:global([data-theme='terminal']) .rail:not(.measured) .link.active,
 	:global([data-theme='terminal']) .foot .link.active,
 	:global([data-theme='terminal']) .marker {
-		background: var(--bg-raised);
-		box-shadow: inset 2px 0 0 var(--accent);
-		border-radius: 0 var(--r-sm) var(--r-sm) 0;
+		background: none;
+		box-shadow: none;
 	}
 
-	:global([data-theme='terminal']) .rail:not(.measured) .link.active,
-	:global([data-theme='terminal']) .foot .link.active {
-		transition: none;
+	:global([data-theme='terminal']) .rail:not(.measured) .link.active::before,
+	:global([data-theme='terminal']) .rail:not(.measured) .link.active::after,
+	:global([data-theme='terminal']) .foot .link.active::before,
+	:global([data-theme='terminal']) .foot .link.active::after,
+	:global([data-theme='terminal']) .marker::before,
+	:global([data-theme='terminal']) .marker::after {
+		position: absolute;
+		top: 50%;
+		translate: 0 -50%;
+		font-family: var(--font-mono);
+		font-size: 1.125rem;
+		line-height: 1;
+		color: var(--accent);
 	}
 
-	:global([data-theme='terminal']) .marker {
-		left: 0;
-		/* The link's own square: a fixed 2.75rem stood a pixel over the 42px link
-		   at each end. */
-		width: 100%;
-		height: auto;
-		aspect-ratio: 1;
-		translate: 0 calc(var(--marker-y) - 50%);
+	:global([data-theme='terminal']) .rail:not(.measured) .link.active::before,
+	:global([data-theme='terminal']) .foot .link.active::before,
+	:global([data-theme='terminal']) .marker::before {
+		content: '[';
+		content: '[' / '';
+		left: 0.25rem;
+	}
+
+	:global([data-theme='terminal']) .rail:not(.measured) .link.active::after,
+	:global([data-theme='terminal']) .foot .link.active::after,
+	:global([data-theme='terminal']) .marker::after {
+		content: ']';
+		content: ']' / '';
+		right: 0.25rem;
 	}
 
 	:global([data-theme='terminal']) .marker.settled {
