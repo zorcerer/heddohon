@@ -485,38 +485,22 @@
 		padding: 0;
 	}
 
+	/*
+	 * Stacked, the text sits below the sleeve, and all of it is centred. The
+	 * rating row and the buttons are flex rows, which `text-align` does not
+	 * reach: left at the start, Terminal's rating row at 390px stood 38px off the
+	 * centre of the sleeve above it.
+	 */
 	@media (max-width: 52rem) {
 		.hero {
 			grid-template-columns: minmax(0, 1fr);
 			gap: var(--space-4);
-		}
-
-		.art {
-			max-width: 13rem;
-		}
-
-		/* Stacked, the text sits below the sleeve and nothing can overlap it. */
-	}
-
-	/*
-	 * A phone: glyphs only. With labels the four buttons and the heart wrapped
-	 * onto two rows. Each button carries its name in `aria-label` and `title`.
-	 * 44px squares, the size a finger needs, with play round and in the accent.
-	 */
-	/*
-	 * On a phone the sleeve is centred and as wide as it can be while the title
-	 * and the play button still show under it on arrival, with the text centred
-	 * beneath. Left-aligned at 13rem it filled half the width of an iPhone.
-	 */
-	@media (max-width: 36rem) {
-		.hero {
 			justify-items: center;
 			text-align: center;
 		}
 
 		.art {
-			width: min(100%, 17rem);
-			max-width: none;
+			width: min(100%, 13rem);
 		}
 
 		/* The full width, stretched: a size container has no width of its own to
@@ -527,8 +511,25 @@
 			justify-items: center;
 		}
 
+		.badge-row,
 		.actions {
 			justify-content: center;
+		}
+	}
+
+	/*
+	 * A phone: glyphs only. With labels the four buttons and the heart wrapped
+	 * onto two rows. Each button carries its name in `aria-label` and `title`.
+	 * 44px squares, the size a finger needs, with play round and in the accent.
+	 */
+	/*
+	 * On a phone the sleeve is as wide as it can be while the title and the play
+	 * button still show under it on arrival. At 13rem it filled half the width
+	 * of an iPhone.
+	 */
+	@media (max-width: 36rem) {
+		.art {
+			width: min(100%, 17rem);
 		}
 
 		.actions .label {
@@ -603,6 +604,27 @@
 			margin-inline-end: 0;
 			border-color: transparent;
 			border-radius: var(--r-md);
+		}
+
+		/* A key beside the heart's (see FavouriteButton). As the word between
+		   brackets it was the one thing that did not fit the rating's row at
+		   390px, and stood alone on a line under it. */
+		:global([data-theme='terminal']) .share {
+			justify-content: center;
+			width: 2.75rem;
+			height: 2.75rem;
+			padding: 0;
+			border: 1px solid var(--border-strong);
+			border-radius: var(--r-sm);
+		}
+
+		:global([data-theme='terminal']) .share-label {
+			display: none;
+		}
+
+		:global([data-theme='terminal']) .share::before,
+		:global([data-theme='terminal']) .share::after {
+			content: none;
 		}
 	}
 </style>

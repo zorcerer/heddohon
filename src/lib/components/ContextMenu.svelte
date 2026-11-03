@@ -107,7 +107,7 @@
 
 		if (subject.kind === 'song') {
 			const { song, play, remove } = subject;
-			const playing = player.current?.id === song.id && player.playing;
+			const playing = player.current?.id === song.id && player.running;
 			const starred = isStarred('song', song.id, song.starred);
 			list.push(
 				{ kind: 'action', label: playing ? 'Pause' : 'Play', icon: playing ? 'pause' : 'play', run: play },

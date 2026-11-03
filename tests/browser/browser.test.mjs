@@ -70,6 +70,18 @@ async function watchedPage() {
 	return { page, problems };
 }
 
+/*
+ * Audio the browser can decode, for a check that stays on the track it pressed.
+ * The mock's default stream is not audio, and the player passes over a file it
+ * cannot play.
+ */
+function playable(t) {
+	subsonic.state.audio = { type: 'audio/wav', body: silentWav(60) };
+	t.after(() => {
+		subsonic.state.audio = null;
+	});
+}
+
 describe('the policy', () => {
 	/*
 	 * A CSP violation is reported on the console and nowhere else: the page
@@ -1121,6 +1133,297 @@ describe('an artist page on a phone', () => {
 	});
 });
 
+describe('an album page on a phone', () => {
+	/*
+	 * Measured from what is drawn, the children of each row: the rows themselves
+	 * are as wide as the column, so a row left at the start of it reads as centred.
+	 */
+	test('has everything centred under the sleeve wherever the page is stacked', async () => {
+		for (const viewport of [
+			{ width: 320, height: 700 },
+			{ width: 393, height: 852 },
+			{ width: 600, height: 900 },
+			{ width: 760, height: 1000 }
+		]) {
+			const phone = await browser.newContext({ viewport, isMobile: true, hasTouch: true });
+			const signIn = await phone.request.post(`${app.url}/login`, {
+				form: { username: 'testuser', password: 'testpass', backend: 'subsonic', next: '/' },
+				headers: { origin: app.url, accept: 'text/html' },
+				maxRedirects: 0
+			});
+			assert.equal(signIn.status(), 303);
+			const page = await phone.newPage();
+			try {
+				await page.goto(app.url + '/albums/al1', { waitUntil: 'networkidle' });
+				for (const theme of ['terminal', 'dark']) {
+					await page.evaluate((name) => (document.documentElement.dataset.theme = name), theme);
+					const seen = await page.evaluate(() => {
+						const width = document.documentElement.clientWidth;
+						const off = (left, right) => Math.round((left + right) / 2 - width / 2);
+						const box = (selector) => {
+							const rect = document.querySelector(selector).getBoundingClientRect();
+							return off(rect.left, rect.right);
+						};
+						// By line: a row that wrapped is centred line by line.
+						const row = (selector) => {
+							const lines = new Map();
+							for (const child of document.querySelector(selector).children) {
+								const rect = child.getBoundingClientRect();
+								if (rect.width === 0) continue;
+								const line = lines.get(Math.round(rect.top + rect.height / 2)) ?? [];
+								lines.set(Math.round(rect.top + rect.height / 2), [...line, rect]);
+							}
+							return Math.max(...[...lines.values()].map((rects) => Math.abs(off(Math.min(...rects.map((r) => r.left)), Math.max(...rects.map((r) => r.right))))));
+						};
+						return {
+							scrolls: document.documentElement.scrollWidth - width,
+							off: { sleeve: box('.hero .holder'), title: box('.details h1'), artist: box('.details .artist'), meta: box('.details .meta'), rating: row('.badge-row'), actions: row('.actions') }
+						};
+					});
+					const at = `${theme} at ${viewport.width}px`;
+					assert.equal(seen.scrolls, 0, at);
+					for (const [name, off] of Object.entries(seen.off)) assert.ok(Math.abs(off) <= 2, `${at}: ${name} is ${off}px off centre`);
+				}
+			} finally {
+				await phone.close();
+			}
+		}
+	});
+});
+
+describe('a stream that fails', () => {
+	const sounding = (seconds = 0.3) =>
+		[...document.querySelectorAll('audio')].some((a) => !a.paused && a.currentTime > seconds);
+
+	/** Answers a track's requests with what `status` gives for each GET, counted per track. */
+	function failing(status) {
+		const asked = new Map();
+		subsonic.state.onStream = (id, req, res) => {
+			if (req.method !== 'GET') {
+				const code = status(id, asked.get(id) ?? 0);
+				if (!code) return false;
+				res.statusCode = code;
+				res.end();
+				return true;
+			}
+			const count = (asked.get(id) ?? 0) + 1;
+			asked.set(id, count);
+			const code = status(id, count);
+			if (!code) return false;
+			res.statusCode = code;
+			res.end();
+			return true;
+		};
+	}
+
+	async function reset(page) {
+		subsonic.state.onStream = null;
+		subsonic.state.audio = null;
+		await page.evaluate(() => [...document.querySelectorAll('audio')].forEach((a) => a.pause())).catch(() => undefined);
+		await context.request.put(`${app.url}/api/play-state`, {
+			headers: { origin: app.url, 'content-type': 'application/json' },
+			data: { songIds: [], index: 0, position: 0, repeat: 'off', shuffle: false }
+		});
+		await page.close();
+	}
+
+	/*
+	 * Chromium reports an HTTP failure opening a stream as a format it cannot
+	 * play, which read as a file that would never decode.
+	 */
+	test('an HTTP error on opening is tried again, and says it is', async () => {
+		subsonic.state.audio = { type: 'audio/wav', body: silentWav(30) };
+		failing((_, count) => (count <= 2 ? 503 : 0));
+		const page = await context.newPage();
+		try {
+			await page.goto(app.url + '/albums/al1', { waitUntil: 'networkidle' });
+			await page.getByRole('button', { name: 'Play Song 1a', exact: true }).click();
+			await page.locator('aside.panel .notice', { hasText: 'Reconnecting' }).waitFor();
+			await page.waitForFunction(sounding, null, { timeout: 15_000 });
+			await page.locator('aside.panel .notice').waitFor({ state: 'detached' });
+			assert.equal(await page.locator('aside.panel .error').count(), 0);
+		} finally {
+			await reset(page);
+		}
+	});
+
+	test('a track gone from the server is passed over, with a word about it', async () => {
+		subsonic.state.audio = { type: 'audio/wav', body: silentWav(30) };
+		let first = null;
+		failing((id) => {
+			first ??= id;
+			return id === first ? 404 : 0;
+		});
+		const page = await context.newPage();
+		try {
+			await page.goto(app.url + '/albums/al1', { waitUntil: 'networkidle' });
+			await page.getByRole('button', { name: 'Play Song 1a', exact: true }).click();
+			await page.locator('aside.panel .notice', { hasText: 'skipped Song 1a' }).waitFor();
+			await page.waitForFunction(sounding, null, { timeout: 15_000 });
+			assert.equal(await page.getByRole('button', { name: 'Pause Song 1b', exact: true }).count(), 1);
+		} finally {
+			await reset(page);
+		}
+	});
+
+	/* The queue used to stop in silence here, with the button showing pause. */
+	test('a next track whose preload failed is asked for again at its turn', async () => {
+		subsonic.state.audio = { type: 'audio/wav', body: silentWav(3) };
+		let first = null;
+		failing((id, count) => {
+			first ??= id;
+			return id !== first && count === 1 ? 503 : 0;
+		});
+		const page = await context.newPage();
+		try {
+			await page.goto(app.url + '/albums/al1', { waitUntil: 'networkidle' });
+			await page.getByRole('button', { name: 'Play Song 1a', exact: true }).click();
+			await page.getByRole('button', { name: 'Pause Song 1b', exact: true }).waitFor({ timeout: 15_000 });
+			await page.waitForFunction(sounding, null, { timeout: 8000 });
+		} finally {
+			await reset(page);
+		}
+	});
+
+	/*
+	 * A connection that hangs raises no error: the element waits for ever. The
+	 * first 90 seconds of a track arrive, then nothing, on the first request
+	 * only. Chromium reports nothing of a WAV until much of it has arrived: 12
+	 * seconds of this one left it at `HAVE_NOTHING`.
+	 */
+	test('a stream that stops arriving is picked up from where it stopped', async () => {
+		const body = silentWav(180);
+		subsonic.state.audio = { type: 'audio/wav', body };
+		const hung = [];
+		const arrived = 8000 * 90;
+		subsonic.state.onStream = (_, req, res) => {
+			if (req.method !== 'GET' || hung.length > 0) return false;
+			res.writeHead(206, {
+				'content-type': 'audio/wav',
+				'content-length': body.length,
+				'content-range': `bytes 0-${body.length - 1}/${body.length}`,
+				'accept-ranges': 'bytes'
+			});
+			res.write(body.subarray(0, arrived));
+			hung.push(res);
+			return true;
+		};
+		const page = await context.newPage();
+		try {
+			await page.goto(app.url + '/albums/al1', { waitUntil: 'networkidle' });
+			await page.getByRole('button', { name: 'Play Song 1a', exact: true }).click();
+			await page.waitForFunction(sounding, null, { timeout: 15_000 });
+			// To 1:26, a few seconds short of where the bytes end.
+			const bar = await page.locator('aside.panel [role=slider][aria-label="Seek within track"]').boundingBox();
+			await page.mouse.click(bar.x + bar.width * 0.478, bar.y + bar.height / 2);
+			await page.locator('aside.panel .transport .play[aria-busy=true]').waitFor({ timeout: 10_000 });
+			// The 12 seconds of `STALL_MS`.
+			await page.locator('aside.panel .notice', { hasText: 'Reconnecting' }).waitFor({ timeout: 16_000 });
+			await page.waitForFunction(() => [...document.querySelectorAll('audio')].some((a) => !a.paused && a.currentTime > 92), null, { timeout: 15_000 });
+			assert.equal(await page.locator('aside.panel .error').count(), 0);
+		} finally {
+			for (const res of hung) res.destroy();
+			await reset(page);
+		}
+	});
+
+	test('on a phone the failure shows on the dock, and a press on play tries again', async () => {
+		subsonic.state.audio = { type: 'audio/wav', body: silentWav(30) };
+		failing(() => 503);
+		const phone = await browser.newContext({ viewport: { width: 393, height: 852 }, isMobile: true, hasTouch: true });
+		await phone.request.post(`${app.url}/login`, {
+			form: { username: 'testuser', password: 'testpass', backend: 'subsonic', next: '/' },
+			headers: { origin: app.url, accept: 'text/html' },
+			maxRedirects: 0
+		});
+		const page = await phone.newPage();
+		try {
+			await page.goto(app.url + '/albums/al1', { waitUntil: 'networkidle' });
+			await page.getByRole('button', { name: 'Play', exact: true }).first().click();
+			const failure = page.locator('.phone-dock .artist.failed');
+			await failure.waitFor({ timeout: 15_000 });
+			assert.match(await failure.textContent(), /Press play to try again/);
+			assert.equal(await page.locator('.phone-dock .play').getAttribute('aria-label'), 'Play');
+
+			subsonic.state.onStream = null;
+			await page.locator('.phone-dock .play').click();
+			await page.waitForFunction(sounding, null, { timeout: 15_000 });
+			await failure.waitFor({ state: 'detached' });
+
+			await page.getByRole('button', { name: 'Add to queue', exact: true }).first().click();
+			await page.locator('.phone-dock .artist', { hasText: /^Queued \d+ tracks$/ }).waitFor();
+		} finally {
+			await reset(page);
+			await phone.close();
+		}
+	});
+
+	/*
+	 * The hold on a seek in a stream without ranges ended without clearing its
+	 * spinner when another seek took its place, and nothing playing on clears it.
+	 */
+	test('a seek waiting on a transcode stays on the bar, and leaves no spinner when replaced', async () => {
+		const headers = { origin: app.url, 'content-type': 'application/json' };
+		await context.request.patch(`${app.url}/api/settings`, { headers, data: { transcode: true } });
+		subsonic.state.audio = { type: 'audio/wav', body: silentWav(180) };
+		subsonic.state.ignoreRange = true;
+		subsonic.state.streamSlowMs = 25_000;
+		const page = await context.newPage();
+		try {
+			await page.addInitScript(() => {
+				const seekable = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'seekable');
+				const none = { length: 0, start: () => 0, end: () => 0 };
+				Object.defineProperty(HTMLMediaElement.prototype, 'seekable', {
+					get() {
+						return window.__seekable ? seekable.get.call(this) : none;
+					}
+				});
+			});
+			await page.goto(app.url + '/albums/al7', { waitUntil: 'domcontentloaded' });
+			await page.getByRole('button', { name: 'Play', exact: true }).first().click();
+			await page.waitForFunction(sounding, null, { timeout: 15_000 });
+
+			const slider = page.locator('aside.panel [role=slider][aria-label="Seek within track"]');
+			const bar = await slider.boundingBox();
+			await page.mouse.click(bar.x + bar.width * 0.6, bar.y + bar.height / 2);
+			const play = page.locator('aside.panel .transport .play');
+			await page.locator('aside.panel .transport .play[aria-busy=true]').waitFor();
+			await page.waitForTimeout(1500);
+			assert.equal(await slider.getAttribute('aria-valuenow'), '108', 'the bar went back from where it was pressed');
+
+			await page.evaluate(() => (window.__seekable = true));
+			await slider.focus();
+			await page.keyboard.press('Home');
+			await page.waitForFunction(() => document.querySelector('aside.panel .transport .play').getAttribute('aria-busy') === 'false', null, { timeout: 5000 });
+			assert.equal(await play.locator('.spinner').count(), 0);
+		} finally {
+			subsonic.state.ignoreRange = false;
+			subsonic.state.streamSlowMs = 0;
+			await context.request.patch(`${app.url}/api/settings`, { headers, data: { transcode: false } });
+			await reset(page);
+		}
+	});
+
+	test('next is off at the end of the queue, and on again under repeat', async () => {
+		subsonic.state.audio = { type: 'audio/wav', body: silentWav(30) };
+		const page = await context.newPage();
+		try {
+			await page.goto(app.url + '/albums/al1', { waitUntil: 'networkidle' });
+			const rows = page.locator('main .track');
+			await rows.last().locator('.index').click();
+			const next = page.locator('aside.panel').getByRole('button', { name: 'Next track', exact: true });
+			await page.waitForFunction(sounding, null, { timeout: 15_000 });
+			assert.equal(await next.isDisabled(), true);
+			await page.locator('aside.panel').getByRole('button', { name: /^Repeat/ }).click();
+			assert.equal(await next.isDisabled(), false);
+			await page.locator('aside.panel').getByRole('button', { name: /^Repeat/ }).click();
+			await page.locator('aside.panel').getByRole('button', { name: /^Repeat/ }).click();
+		} finally {
+			await reset(page);
+		}
+	});
+});
+
 describe('a shelf at the edge of the content column', () => {
 	test('fades out at an end with more cards past it, and is whole at an end it stops at', async () => {
 		const { page, problems } = await watchedPage();
@@ -1973,7 +2276,8 @@ describe('the artist and playlist headings', () => {
 });
 
 describe('instant mix', () => {
-	test('says when there is nothing similar, and otherwise plays the mix', async () => {
+	test('says when there is nothing similar, and otherwise plays the mix', async (t) => {
+		playable(t);
 		const { page, problems } = await watchedPage();
 		try {
 			await page.goto(app.url + '/albums/al18', { waitUntil: 'networkidle' });
@@ -2491,7 +2795,8 @@ describe('playing across page changes', () => {
 });
 
 describe('shuffle', () => {
-	test('a queue played in order turns it off, and the saved state says so', async () => {
+	test('a queue played in order turns it off, and the saved state says so', async (t) => {
+		playable(t);
 		const { page, problems } = await watchedPage();
 		try {
 			await page.goto(app.url + '/albums/al12', { waitUntil: 'networkidle' });
@@ -2569,7 +2874,8 @@ describe('the featured release', () => {
 });
 
 describe('track rows', () => {
-	test('a double press on a row\'s heart does not play that row', async () => {
+	test('a double press on a row\'s heart does not play that row', async (t) => {
+		playable(t);
 		const { page, problems } = await watchedPage();
 		try {
 			await page.goto(app.url + '/albums/al3', { waitUntil: 'networkidle' });
@@ -2964,7 +3270,8 @@ describe('the heart in the player', () => {
 	 * state from the last press, a song starred in the player showed as starred
 	 * on every song after it.
 	 */
-	test('follows the song on a skip, and agrees with the track row', async () => {
+	test('follows the song on a skip, and agrees with the track row', async (t) => {
+		playable(t);
 		const { page, problems } = await watchedPage();
 		const heart = page.locator('aside.panel .rounds .fav');
 		const pressed = (locator) => locator.getAttribute('aria-pressed');
@@ -3752,7 +4059,8 @@ describe('the living-room screen', () => {
 });
 
 describe('folders', () => {
-	test('are opened from the rail down to an album\'s folder, played, and left by the trail', async () => {
+	test('are opened from the rail down to an album\'s folder, played, and left by the trail', async (t) => {
+		playable(t);
 		const { page, problems } = await watchedPage();
 		try {
 			await page.goto(app.url + '/', { waitUntil: 'networkidle' });
@@ -3779,7 +4087,8 @@ describe('folders', () => {
 });
 
 describe('star ratings', () => {
-	test('the album and the playing song are rated with a press, and the player\'s stars follow the song', async () => {
+	test('the album and the playing song are rated with a press, and the player\'s stars follow the song', async (t) => {
+		playable(t);
 		const { page, problems } = await watchedPage();
 		const rated = () => page.waitForResponse((r) => r.url().endsWith('/api/rating'));
 		const hero = page.locator('header.hero .stars');
@@ -3872,7 +4181,11 @@ describe('Jellyfin favourites changed elsewhere', () => {
 	 * and a tab is kept open for days: taken off in Jellyfin's own app, it
 	 * stayed on here.
 	 */
-	test('a page loaded after a press shows what Jellyfin has, and the player keeps the press', async () => {
+	test('a page loaded after a press shows what Jellyfin has, and the player keeps the press', async (t) => {
+		jellyfin.state.audio = { type: 'audio/wav', body: silentWav(60) };
+		t.after(() => {
+			jellyfin.state.audio = null;
+		});
 		const jf = await browser.newContext({ viewport: { width: 1440, height: 900 } });
 		const signIn = await jf.request.post(`${app.url}/login`, {
 			form: { username: 'jfuser', password: 'jfpass', backend: 'jellyfin', next: '/' },
@@ -3933,7 +4246,8 @@ describe('a press on the transport', () => {
 			return (glyph?.getAnimations() ?? []).flatMap((a) => Object.keys(a.effect.getKeyframes()[0] ?? {}));
 		}, selector);
 
-	test('throws the skip glyph the way the queue went, and turns shuffle and repeat', async () => {
+	test('throws the skip glyph the way the queue went, and turns shuffle and repeat', async (t) => {
+		playable(t);
 		const { page, problems } = await watchedPage();
 		try {
 			await page.goto(app.url + '/albums/al11', { waitUntil: 'networkidle' });
@@ -3971,7 +4285,8 @@ describe('a press on the transport', () => {
 });
 
 describe('the player on a skip', () => {
-	test('the song text slides in from the right on next and from the left on previous', async () => {
+	test('the song text slides in from the right on next and from the left on previous', async (t) => {
+		playable(t);
 		const { page, problems } = await watchedPage();
 		const from = () =>
 			page.evaluate(() => {
@@ -5356,7 +5671,8 @@ describe('restoring the queue', () => {
 	 * back. It surfaced in CI as phone tests that came back to the previous
 	 * test's album after a page load.
 	 */
-	test('a track played while the saved queue is being looked up stays, and is what is saved', async () => {
+	test('a track played while the saved queue is being looked up stays, and is what is saved', async (t) => {
+		playable(t);
 		await context.request.put(`${app.url}/api/play-state`, {
 			data: { songIds: ['s30a', 's30b'], index: 0, position: 0, repeat: 'off', shuffle: false },
 			headers: { origin: app.url }
@@ -5706,7 +6022,8 @@ describe('the audio output', () => {
 });
 
 describe('shuffle', () => {
-	test('turning shuffle off puts the queue back in its order, around the track playing', async () => {
+	test('turning shuffle off puts the queue back in its order, around the track playing', async (t) => {
+		playable(t);
 		// Album 36, which no other test opens, with ten tracks.
 		subsonic.state.albumSongs = 10;
 		const { page, problems } = await watchedPage();
