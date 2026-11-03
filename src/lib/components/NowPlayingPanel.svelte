@@ -575,7 +575,9 @@
 			/>
 			<div class="times">
 				<span class="hh-numeric">{formatDuration(player.currentTime)}</span>
-				{#if song && !song.live && showQualityBadge}
+				{#if player.notice}
+					<span class="notice hh-truncate" role="status">{player.notice}</span>
+				{:else if song && !song.live && showQualityBadge}
 					<!--
 						The badge is also the switch. Pressing it asks the music server
 						to convert instead of sending the file, and pressing it again
@@ -632,18 +634,19 @@
 				class="play"
 				onclick={() => player.toggle()}
 				disabled={!song}
-				aria-label={player.playing ? 'Pause' : 'Play'}
-				title={player.playing ? 'Pause' : 'Play'}
+				aria-label={player.running ? 'Pause' : 'Play'}
+				aria-busy={player.buffering}
+				title={player.running ? 'Pause' : 'Play'}
 			>
-				{#if player.loading && player.playing}
+				{#if player.buffering}
 					<span class="spinner" aria-hidden="true"></span>
 				{:else}
 					<!-- Both glyphs are drawn, one over the other, and the one not wanted
 					     shrinks away as the other grows in. Heavier than the set's
 					     default: at 34px the standard 2px stroke reads as a hairline
 					     beside the artwork. -->
-					<span class="glyph" class:on={!player.playing}><Icon name="play" size={34} strokeWidth={3.4} /></span>
-					<span class="glyph" class:on={player.playing}><Icon name="pause" size={34} strokeWidth={3.4} /></span>
+					<span class="glyph" class:on={!player.running}><Icon name="play" size={34} strokeWidth={3.4} /></span>
+					<span class="glyph" class:on={player.running}><Icon name="pause" size={34} strokeWidth={3.4} /></span>
 				{/if}
 			</button>
 
@@ -653,7 +656,7 @@
 					skipGlyph(event.currentTarget, 1);
 					void player.next();
 				}}
-				disabled={!player.hasQueue}
+				disabled={!player.canNext}
 				aria-label="Next track"
 				title="Next"
 			>
@@ -1467,6 +1470,14 @@
 
 	.times .right {
 		text-align: right;
+	}
+
+	/* Where the quality badge is, so a message moves nothing on the panel. The
+	   middle track is `auto`, so the width has to be capped here. */
+	.notice {
+		max-width: 11rem;
+		color: var(--text-default);
+		text-align: center;
 	}
 
 	/* ── Transport ───────────────────────────────────────────────────── */

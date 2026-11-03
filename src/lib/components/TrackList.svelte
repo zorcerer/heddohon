@@ -87,7 +87,7 @@
 	function activate(index: number) {
 		const song = songs[index];
 		if (song.id === currentId) {
-			if (player.playing) player.pause();
+			if (player.running) player.pause();
 			else void player.play();
 			return;
 		}
@@ -301,11 +301,12 @@
 						<button
 							class="index hh-numeric"
 							onclick={() => activate(index)}
-							aria-label={isCurrent && player.playing ? `Pause ${song.title}` : `Play ${song.title}`}
+							aria-label={isCurrent && player.running ? `Pause ${song.title}` : `Play ${song.title}`}
 						>
 							<span class="resting">
-								{#if isCurrent && player.playing}
-									<span class="bars" aria-hidden="true">
+								{#if isCurrent && player.running}
+									<!-- Still while the sound is held up: they keep time with the music. -->
+									<span class="bars" class:held={player.buffering} aria-hidden="true">
 										<i></i><i></i><i></i><i></i>
 									</span>
 								{:else if isSelected}
@@ -322,7 +323,7 @@
 						<button
 							class="play-overlay"
 							onclick={() => activate(index)}
-							aria-label={isCurrent && player.playing ? `Pause ${song.title}` : `Play ${song.title}`}
+							aria-label={isCurrent && player.running ? `Pause ${song.title}` : `Play ${song.title}`}
 						></button>
 					{/if}
 				</div>
@@ -856,6 +857,10 @@
 		background: var(--accent);
 		transform-origin: bottom;
 		animation: bar var(--period) ease-in-out var(--offset) infinite alternate;
+	}
+
+	.bars.held i {
+		animation-play-state: paused;
 	}
 
 	.bars i:nth-child(1) {

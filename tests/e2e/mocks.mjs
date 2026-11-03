@@ -685,6 +685,8 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 				return res.end(state.coverPadding ? Buffer.concat([cover, Buffer.alloc(state.coverPadding)]) : cover);
 			}
 			case 'stream': {
+				// A check's own answer, for a stream that fails: true when it has answered.
+				if (state.onStream?.(p.get('id'), req, res)) return;
 				// A function is called for each request: a body that differs from one
 				// read to the next.
 				const audio = state.audio?.body;
@@ -824,7 +826,7 @@ export async function startJellyfin({ quickConnect = false } = {}) {
 	 * whether the one request it holds (secret `qc-secret`, code `123456`) has
 	 * been approved by a signed-in user.
 	 */
-	const state = { played: [], favourites: new Set(), playlistPublic: true, quickConnect, quickConnectApproved: false };
+	const state = { audio: null, played: [], favourites: new Set(), playlistPublic: true, quickConnect, quickConnectApproved: false };
 
 	/** An item as Jellyfin answers with it for this user: with its favourite state. */
 	const withUserData = (item) =>
@@ -852,6 +854,11 @@ export async function startJellyfin({ quickConnect = false } = {}) {
 				send({ AccessToken: 'jf-token', User: { Id: 'u1', Name: 'jfuser' } });
 			});
 			return;
+		}
+		// `{ type, body }` for a check that has to stay on a track; 404 unless set.
+		if (state.audio && /^\/Audio\/[^/]+\/(stream|universal)$/.test(url.pathname)) {
+			res.setHeader('content-type', state.audio.type);
+			return res.end(state.audio.body);
 		}
 		if (url.pathname === '/QuickConnect/Enabled') return send(state.quickConnect);
 		if (state.quickConnect && req.method === 'POST' && url.pathname === '/QuickConnect/Initiate') {

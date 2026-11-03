@@ -128,7 +128,7 @@
 		if (!axis) return;
 		swallowClick = true;
 		if (axis !== 'x') return;
-		if (dx <= -SWIPE && player.hasQueue) void player.next();
+		if (dx <= -SWIPE && player.canNext) void player.next();
 		else if (dx >= SWIPE && player.hasQueue) void player.previous();
 	}
 
@@ -196,7 +196,14 @@
 					{@attach arrive(song.id)}
 				>
 					<span class="title hh-truncate">{song.title}</span>
-					<span class="artist hh-truncate">{song.artist ?? 'Unknown artist'}</span>
+					<!-- The sheet is closed, so this line is where a phone hears of a failure. -->
+					{#if player.error}
+						<span class="artist failed hh-truncate" role="alert">{player.error}</span>
+					{:else if player.notice}
+						<span class="artist hh-truncate" role="status">{player.notice}</span>
+					{:else}
+						<span class="artist hh-truncate">{song.artist ?? 'Unknown artist'}</span>
+					{/if}
 				</span>
 			</button>
 
@@ -207,12 +214,13 @@
 					popGlyph(event.currentTarget);
 					void player.toggle();
 				}}
-				aria-label={player.playing ? 'Pause' : 'Play'}
+				aria-label={player.running ? 'Pause' : 'Play'}
+				aria-busy={player.buffering}
 			>
-				{#if player.loading && player.playing}
+				{#if player.buffering}
 					<span class="spinner" aria-hidden="true"></span>
 				{:else}
-					<Icon name={player.playing ? 'pause' : 'play'} size={24} strokeWidth={2.6} />
+					<Icon name={player.running ? 'pause' : 'play'} size={24} strokeWidth={2.6} />
 				{/if}
 			</button>
 			<button
@@ -222,7 +230,7 @@
 					skipGlyph(event.currentTarget, 1);
 					void player.next();
 				}}
-				disabled={!player.hasQueue}
+				disabled={!player.canNext}
 				aria-label="Next track"
 			>
 				<Icon name="skip" size={22} />
@@ -356,6 +364,10 @@
 			font-size: 0.8125rem;
 			color: var(--text-muted-through);
 			text-shadow: var(--text-shade);
+		}
+
+		.artist.failed {
+			color: var(--danger);
 		}
 
 		.control {

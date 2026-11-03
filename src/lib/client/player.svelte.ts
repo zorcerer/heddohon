@@ -49,6 +49,28 @@ const SCROBBLE_MIN_SECONDS = 30;
  */
 const RECOVERY_ATTEMPTS = 4;
 const RECOVERY_BACKOFF_MS = 600;
+/**
+ * How far a picked-up track plays before the attempts are counted from zero
+ * again. Counted from the `playing` event alone, a file that fails at one
+ * place played a moment and failed there again, without an end.
+ */
+const RECOVERY_SETTLED_SECONDS = 5;
+/**
+ * How long the element may wait with no bytes arriving before the stream is
+ * taken for dead, and picked up as a dropped one is. A connection that hangs
+ * raises no `error`: the element fires `waiting` and stays there.
+ *
+ * Longer while the track is opening, and the element has no metadata yet. The
+ * server holds a track asked for whole for up to 30 seconds (`proxyTranscode`).
+ */
+const STALL_MS = 12_000;
+const OPEN_STALL_MS = 40_000;
+/** Tracks that cannot be played, one after another, before the queue stops trying. */
+const SKIP_LIMIT = 3;
+/** How long a passing message stays on the player. */
+const NOTICE_MS = 5000;
+const RECONNECTING = 'Reconnecting';
+const STREAM_LOST = 'The stream stopped. Press play to try again';
 /** How often, and how many times, a seek asks whether the server has the transcode whole yet. */
 const SEEK_HOLD_MS = 1000;
 const SEEK_HOLD_ATTEMPTS = 30;
@@ -192,6 +214,8 @@ class Player {
 	repeat = $state<RepeatMode>('off');
 	shuffle = $state(false);
 	error = $state<string | null>(null);
+	/** A passing message: reconnecting, a track skipped, tracks queued. */
+	notice = $state<string | null>(null);
 	queueOpen = $state(false);
 	/**
 	 * Whether the player panel is showing. Transient layout state, like
@@ -228,6 +252,15 @@ class Player {
 	current = $derived<Song | null>(this.queue[this.index] ?? null);
 	upNext = $derived<Song | null>(this.queue[this.index + 1] ?? null);
 	hasQueue = $derived(this.queue.length > 0);
+	/** Whether a press on next has somewhere to go. */
+	canNext = $derived(this.index < this.queue.length - 1 || (this.repeat === 'all' && this.queue.length > 0));
+	/** Meant to be playing and waiting for sound, which is what the spinner shows. */
+	buffering = $derived(this.loading && this.engaged);
+	/**
+	 * What the play button and a row show. `playing` follows the element, so
+	 * alone it showed a play glyph for as long as a slow track took to open.
+	 */
+	running = $derived(this.playing || this.buffering);
 	progress = $derived(this.duration > 0 ? this.currentTime / this.duration : 0);
 
 	/** The element currently producing sound. */
@@ -275,6 +308,15 @@ class Player {
 	/** Consecutive attempts to pick the current track back up after a drop. */
 	#recoveries = 0;
 	#recoveryTimer: ReturnType<typeof setTimeout> | null = null;
+	/** The position the last pick-up started from. */
+	#recoveredFrom = 0;
+	/** Runs while the element waits for data; `progress` starts it over. */
+	#stallTimer: ReturnType<typeof setTimeout> | null = null;
+	/** The stream was given up on, so a play has to ask for it again; see `#giveUp`. */
+	#stranded = false;
+	/** Tracks skipped in a row as unplayable. */
+	#skips = 0;
+	#noticeTimer: ReturnType<typeof setTimeout> | null = null;
 	/** Ramp timer while two tracks overlap, and when the ramp started. */
 	#fadeTimer: ReturnType<typeof setInterval> | null = null;
 	#fadeStartedAt = 0;
@@ -293,6 +335,8 @@ class Player {
 	#seekSerial = 0;
 	/** The latest seek waiting for the server to have a transcode whole; see `#seekOnceWhole`. */
 	#wholeSerial = 0;
+	/** A seek is waiting for that: the bar stays at its target and `timeupdate` leaves it there. */
+	#seekHeld = false;
 	/** Whether this page plays through the graph. */
 	processing = $state(false);
 	/** The output last chosen, for a graph opened after the choice. */
@@ -585,6 +629,7 @@ class Player {
 		if (this.#progressTimer) clearInterval(this.#progressTimer);
 		if (this.#positionTimer) clearInterval(this.#positionTimer);
 		this.#cancelRecovery();
+		if (this.#noticeTimer) clearTimeout(this.#noticeTimer);
 		this.#abandonCrossfade();
 		// Written, not just cleared: clearing the debounce timer dropped whatever
 		// the last change had scheduled.
@@ -623,7 +668,8 @@ class Player {
 		this.#persist();
 	}
 
-	addToQueue(songs: Song[]) {
+	/** `say` is off for the rest of a queue the listener already asked to play. */
+	addToQueue(songs: Song[], say = true) {
 		if (songs.length === 0) return;
 		if (this.queue.length === 0) {
 			void this.playNow(songs);
@@ -631,6 +677,7 @@ class Player {
 		}
 		this.queue = [...this.queue, ...songs];
 		this.#persist();
+		if (say) this.#sayQueued(songs);
 	}
 
 	/**
@@ -651,6 +698,11 @@ class Player {
 		// What was to follow the current track has changed.
 		if (at === this.index + 1) this.#invalidatePreload();
 		this.#persist();
+		this.#sayQueued(songs);
+	}
+
+	#sayQueued(songs: Song[]) {
+		this.#say(songs.length === 1 ? `Queued ${songs[0].title}` : `Queued ${songs.length} tracks`);
 	}
 
 	/**
@@ -686,7 +738,7 @@ class Player {
 		if (position < this.index) this.index -= 1;
 		else if (wasCurrent) {
 			this.index = Math.min(this.index, this.queue.length - 1);
-			void this.#loadCurrent(this.playing);
+			void this.#loadCurrent(this.engaged);
 		}
 		this.#invalidatePreload();
 		this.#persist();
@@ -715,7 +767,7 @@ class Player {
 		}
 		this.queue = kept;
 		this.index = Math.min(this.index - before, kept.length - 1);
-		if (wasCurrent) void this.#loadCurrent(this.playing);
+		if (wasCurrent) void this.#loadCurrent(this.engaged);
 		this.#invalidatePreload();
 		this.#persist();
 	}
@@ -803,9 +855,18 @@ class Player {
 			await this.#loadCurrent(true, true);
 			return;
 		}
+		const element = this.#primary;
+		// An element that failed takes a play() and makes no sound. A press after
+		// the attempts ran out is a new set of them.
+		if (this.#stranded) {
+			this.#stranded = false;
+			this.#recoveries = 0;
+			this.error = null;
+			this.loading = true;
+			this.#openAt(element, this.current, this.currentTime);
+		}
 		// A track picked up mid-way starts mid-cycle, so through the graph it comes
 		// up from silence. A track starting from its top does not need to.
-		const element = this.#primary;
 		const rising = this.#chain !== null && this.#ducks === 0 && element.paused && element.currentTime > 0;
 		if (rising) this.#chain?.duck(0);
 		try {
@@ -827,7 +888,10 @@ class Player {
 			// interrupted by a new load request", was shown as the player's error.
 			// The load that interrupted it has a play() of its own.
 			if (err instanceof DOMException && err.name === 'AbortError') return;
-			this.error = err instanceof Error ? err.message : 'Playback failed';
+			// A source that would not load. Its `error` event finds out why, and
+			// this message would only stand over the retries.
+			if (err instanceof DOMException && err.name === 'NotSupportedError') return;
+			this.error = err instanceof DOMException && err.name === 'NotAllowedError' ? 'Press play to start' : 'Playback failed';
 			this.playing = false;
 		}
 	}
@@ -865,7 +929,10 @@ class Player {
 	}
 
 	pause() {
+		// Left waiting for its next attempt, the element is still the failed one.
+		if (this.#recoveryTimer !== null) this.#stranded = true;
 		this.#cancelRecovery();
+		if (!this.#seekHeld) this.loading = false;
 		this.engaged = false;
 		this.#abandonCrossfade();
 		const element = this.#primary;
@@ -883,6 +950,11 @@ class Player {
 
 	stop() {
 		this.engaged = false;
+		this.#cancelRecovery();
+		this.#releaseSeek();
+		this.#stranded = false;
+		this.loading = false;
+		this.error = null;
 		this.#abandonCrossfade();
 		if (this.#primary) {
 			this.#primary.pause();
@@ -892,6 +964,7 @@ class Player {
 		this.playing = false;
 		this.currentTime = 0;
 		this.duration = 0;
+		this.buffered = 0;
 	}
 
 	async next(userInitiated = true) {
@@ -901,6 +974,10 @@ class Player {
 		if (userInitiated) this.#abandonCrossfade();
 
 		if (!userInitiated && this.repeat === 'one') {
+			// Another listen, which is reported as one. Without this only the first
+			// time round reached the music server.
+			this.#scrobbled = false;
+			this.#startReported = false;
 			this.seek(0);
 			await this.play();
 			return;
@@ -914,6 +991,7 @@ class Player {
 				// The natural end of the queue stops and does not wrap.
 				this.engaged = false;
 				this.playing = false;
+				this.loading = false;
 				this.#persist();
 				return;
 			} else {
@@ -985,7 +1063,7 @@ class Player {
 			void this.#seekOnceWhole(element, target);
 			return;
 		}
-		++this.#wholeSerial;
+		this.#releaseSeek();
 		const move = () => {
 			try {
 				element.currentTime = target;
@@ -1200,6 +1278,8 @@ class Player {
 		this.#endCrossfade();
 
 		this.#cancelRecovery();
+		this.#releaseSeek();
+		this.#stranded = false;
 		this.#recoveries = 0;
 		this.#scrobbled = false;
 		this.#startReported = false;
@@ -1207,11 +1287,14 @@ class Player {
 		// loads, and is where a stream that drops in that time is picked up.
 		this.currentTime = this.#pendingSeek ?? 0;
 		this.duration = song.duration || 0;
+		this.buffered = 0;
 		this.error = null;
 
 		// A next track already buffered in the secondary element is swapped in,
-		// without a network round trip.
-		if (this.#preloadedFor === song.id && this.#secondary?.src) {
+		// without a network round trip. Unless its preload failed: nothing listens
+		// to that element, and swapped in, a play() on it made no sound and raised
+		// no event, which stopped the queue at the end of the track before.
+		if (this.#preloadedFor === song.id && this.#secondary?.src && !this.#secondary.error) {
 			this.#swapElements();
 		} else {
 			this.loading = true;
@@ -1227,7 +1310,7 @@ class Player {
 		this.#applyVolume();
 		this.#updateMediaSession(song);
 		this.#warmNext();
-		this.#preloadedFor = null;
+		this.#invalidatePreload();
 
 		if (autoplay) await this.play();
 	}
@@ -1236,11 +1319,25 @@ class Player {
 		if (!this.#primary || !this.#secondary) return;
 		const oldPrimary = this.#primary;
 		oldPrimary.pause();
-		oldPrimary.removeAttribute('src');
+		this.#release(oldPrimary);
 
 		this.#primary = this.#secondary;
 		this.#secondary = oldPrimary;
 		this.#bind(this.#primary);
+		// Loaded before anything listened to it, so these events have been and
+		// gone. Without this a track that had buffered whole kept the band of the
+		// one before it.
+		this.#adoptDuration(this.#primary);
+		this.#adoptBuffered(this.#primary);
+	}
+
+	/**
+	 * Empties an element. Taking the `src` away alone leaves its download running
+	 * on one of the six connections a browser opens to a server over HTTP/1.1.
+	 */
+	#release(element: HTMLAudioElement) {
+		element.removeAttribute('src');
+		element.load();
 	}
 
 	/**
@@ -1384,6 +1481,11 @@ class Player {
 		const serial = ++this.#wholeSerial;
 		const wanted = () => serial === this.#wholeSerial && this.#primary === element && this.current === song;
 		this.loading = true;
+		// The bar goes to where it was pressed, and the spinner says the sound is
+		// on its way. It went back to the playing position on release, up to 30
+		// seconds with nothing to show the press had registered.
+		this.#seekHeld = true;
+		this.currentTime = target;
 		for (let attempt = 0; attempt < SEEK_HOLD_ATTEMPTS; attempt++) {
 			// Past the browser's cache. Chromium makes a request wait for another
 			// that is still writing the same address into its cache, up to 20
@@ -1395,8 +1497,8 @@ class Player {
 			);
 			if (!wanted()) return;
 			if (whole) {
+				this.#seekHeld = false;
 				this.#abandonCrossfade();
-				this.currentTime = target;
 				this.#openAt(element, song, target);
 				if (this.engaged) void element.play().catch(() => undefined);
 				return;
@@ -1404,7 +1506,7 @@ class Player {
 			await new Promise((done) => setTimeout(done, SEEK_HOLD_MS));
 			if (!wanted()) return;
 		}
-		this.loading = false;
+		this.#releaseSeek();
 		// Never whole: left to the element, which in Chromium waits for the bytes.
 		try {
 			element.currentTime = target;
@@ -1427,8 +1529,10 @@ class Player {
 
 		const position = this.currentTime;
 		this.#recoveries += 1;
+		this.#recoveredFrom = position;
 		this.loading = true;
 		this.#cancelRecovery();
+		this.#say(RECONNECTING, 0);
 		// A proxy that just cut one response cuts the next too if asked at once.
 		this.#recoveryTimer = setTimeout(() => {
 			this.#recoveryTimer = null;
@@ -1442,6 +1546,116 @@ class Player {
 	#cancelRecovery() {
 		if (this.#recoveryTimer !== null) clearTimeout(this.#recoveryTimer);
 		this.#recoveryTimer = null;
+		this.#disarmStall();
+		if (this.notice === RECONNECTING) this.notice = null;
+	}
+
+	/** Lets go of a seek waiting for a whole transcode, and of its spinner. */
+	#releaseSeek() {
+		++this.#wholeSerial;
+		if (!this.#seekHeld) return;
+		this.#seekHeld = false;
+		this.loading = false;
+	}
+
+	/** Starts the wait for bytes over; see `STALL_MS`. */
+	#armStall(element: HTMLAudioElement) {
+		this.#disarmStall();
+		if (!this.engaged || this.casting) return;
+		const limit = element.readyState >= HTMLMediaElement.HAVE_METADATA ? STALL_MS : OPEN_STALL_MS;
+		this.#stallTimer = setTimeout(() => {
+			this.#stallTimer = null;
+			if (!this.engaged || element !== this.#primary || element.paused) return;
+			if (element.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) return;
+			if (this.#recoveries < RECOVERY_ATTEMPTS) this.#recoverStream();
+			else this.#giveUp(element, STREAM_LOST);
+		}, limit);
+	}
+
+	#disarmStall() {
+		if (this.#stallTimer !== null) clearTimeout(this.#stallTimer);
+		this.#stallTimer = null;
+	}
+
+	/**
+	 * Stops at a failure the listener has to know about. The element is paused
+	 * by hand: one that failed reports itself as playing and fires no `pause`.
+	 *
+	 * `engaged` is the caller's. It stays set after a dropped stream, so a
+	 * network coming back or the next press carries on from there.
+	 */
+	#giveUp(element: HTMLAudioElement, message: string) {
+		this.#cancelRecovery();
+		this.#stranded = true;
+		this.loading = false;
+		this.playing = false;
+		this.error = message;
+		element.pause();
+		// The panel holds the message, and a closed one would leave the sound
+		// stopping without one. The phone's dock has its own (`PhoneDock`).
+		if (!this.sheetLayout) this.panelOpen = true;
+	}
+
+	/**
+	 * Tells a stream that failed from a file that cannot be played.
+	 *
+	 * In Chromium an HTTP error opening a stream reaches the element as
+	 * `MEDIA_ERR_SRC_NOT_SUPPORTED`, the code of a format it cannot play. A 502
+	 * from a reverse proxy or the 503 of a transcode that was not ready
+	 * (`proxyTranscode`) was reported as a file the browser could not decode,
+	 * and never tried again. A HEAD shows which it was, as it does for
+	 * `#seekOnceWhole`.
+	 */
+	async #failed(element: HTMLAudioElement) {
+		const code = element.error?.code;
+		const song = this.current;
+		if (!song) return;
+
+		let status = 200;
+		if (code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED && !song.live) {
+			status = await fetch(this.#srcOf(song), { method: 'HEAD', cache: 'no-store' }).then(
+				(response) => response.status,
+				() => 0
+			);
+			if (element !== this.#primary || this.current !== song) return;
+		}
+
+		if (code === MediaError.MEDIA_ERR_DECODE || (code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED && status >= 200 && status < 300)) {
+			this.#skipBroken(element, 'This browser cannot play this file');
+		} else if (status === 404) {
+			this.#skipBroken(element, 'This track is gone from the music server');
+		} else if (status === 401 || status === 403) {
+			this.engaged = false;
+			this.#giveUp(element, 'Signed out. Reload to sign in again');
+		} else if (this.engaged && this.#recoveries < RECOVERY_ATTEMPTS) {
+			this.#recoverStream();
+		} else {
+			this.#giveUp(element, STREAM_LOST);
+		}
+	}
+
+	/**
+	 * Moves past a track that will not play, so one bad file does not stop an
+	 * unattended queue. Stops after `SKIP_LIMIT` in a row: a queue of a format
+	 * this browser has no decoder for would otherwise run through to its end.
+	 */
+	#skipBroken(element: HTMLAudioElement, reason: string) {
+		const following = this.#following;
+		if (this.engaged && this.repeat !== 'one' && following && following !== this.current && this.#skips < SKIP_LIMIT) {
+			this.#skips += 1;
+			this.#say(`${reason}: skipped ${this.current?.title}`);
+			void this.next(false);
+			return;
+		}
+		this.engaged = false;
+		this.#giveUp(element, reason);
+	}
+
+	/** Shows a passing message, for `ms` or until it is taken away with 0. */
+	#say(text: string, ms = NOTICE_MS) {
+		if (this.#noticeTimer) clearTimeout(this.#noticeTimer);
+		this.#noticeTimer = ms > 0 ? setTimeout(() => (this.notice = null), ms) : null;
+		this.notice = text;
 	}
 
 	#clearFadeTimer() {
@@ -1541,7 +1755,13 @@ class Player {
 			// A position waiting to be taken up is what the bar shows. The element
 			// reports 0 until it has loaded.
 			if (this.#pendingSeek !== null) return;
+			// The track plays on under a held seek, and the bar stays at the target.
+			if (this.#seekHeld) {
+				this.#maybeSleep();
+				return;
+			}
 			this.currentTime = element.currentTime;
+			if (this.#recoveries > 0 && element.currentTime > this.#recoveredFrom + RECOVERY_SETTLED_SECONDS) this.#recoveries = 0;
 			this.#maybeSleep();
 			this.#maybeScrobble();
 			this.#maybePreloadNext();
@@ -1549,9 +1769,13 @@ class Player {
 		});
 
 		on('progress', () => {
-			const ranges = element.buffered;
-			this.buffered = ranges.length > 0 ? ranges.end(ranges.length - 1) : 0;
+			this.#adoptBuffered(element);
+			// Bytes are arriving, however slowly: a seek in a stream without ranges
+			// waits for them, 25 seconds at 32KB/s (see `seek`).
+			if (this.#stallTimer !== null) this.#armStall(element);
 		});
+
+		on('seeked', () => this.#syncMediaSessionPosition());
 
 		on('play', () => {
 			// A play from the lock screen or a retry, not only from `play()`.
@@ -1569,12 +1793,13 @@ class Player {
 
 		on('waiting', () => {
 			this.loading = true;
+			this.#armStall(element);
 		});
 
 		on('playing', () => {
 			this.loading = false;
-			// Sound is coming out, so the next drop gets a full set of attempts.
-			this.#recoveries = 0;
+			this.#cancelRecovery();
+			this.#skips = 0;
 			this.error = null;
 		});
 
@@ -1591,26 +1816,13 @@ class Player {
 			else void this.next(false);
 		});
 
-		on('error', () => {
-			const code = element.error?.code;
-			// A codec this browser cannot handle, or bytes it cannot decode, does not
-			// improve on a retry. Anything else is usually the transport.
-			const fatal =
-				code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED || code === MediaError.MEDIA_ERR_DECODE;
-
-			if (!fatal && this.engaged && this.#recoveries < RECOVERY_ATTEMPTS) {
-				this.#recoverStream();
-				return;
-			}
-
-			this.loading = false;
-			this.playing = false;
-			this.error = fatal
-				? 'This browser cannot decode this file. Check the README for codec support.'
-				: 'The stream stopped and could not be picked back up.';
-		});
+		on('error', () => void this.#failed(element));
 	}
 
+	#adoptBuffered(element: HTMLAudioElement) {
+		const ranges = element.buffered;
+		this.buffered = ranges.length > 0 ? ranges.end(ranges.length - 1) : 0;
+	}
 
 	#applyVolume() {
 		// Untracked. This reads the queue and the settings and is called from
@@ -1771,9 +1983,15 @@ class Player {
 			// element went on without it, so there was a position and no sound.
 			this.#chain?.resume();
 			const element = this.#primary;
-			if (element && element.src && element.paused) {
+			if (this.#stranded) void this.play();
+			else if (element && element.src && element.paused) {
 				void element.play().catch(() => undefined);
 			}
+		};
+		// A phone out of signal for longer than the attempts last, about 6
+		// seconds, carries on when the network is back.
+		const reconnect = () => {
+			if (this.engaged && this.#stranded) void this.play();
 		};
 
 		/*
@@ -1794,6 +2012,8 @@ class Player {
 
 		document.addEventListener('visibilitychange', onVisibility);
 		window.addEventListener('pagehide', flush);
+		window.addEventListener('online', reconnect);
+		this.#lifecycleOff.push(() => window.removeEventListener('online', reconnect));
 		this.#lifecycleOff.push(() => document.removeEventListener('visibilitychange', onVisibility));
 		this.#lifecycleOff.push(() => window.removeEventListener('pagehide', flush));
 	}
@@ -1964,8 +2184,11 @@ class Player {
 
 	#invalidatePreload() {
 		this.#abandonCrossfade();
+		// Asked of the id and not the `src`, which can be the silent sample of
+		// `#primeSecondary`, here mid-play on the press that starts the first track.
+		const held = this.#preloadedFor !== null;
 		this.#preloadedFor = null;
-		if (this.#secondary) this.#secondary.removeAttribute('src');
+		if (held && this.#secondary?.src) this.#release(this.#secondary);
 	}
 
 	// ── OS media keys / lock screen ────────────────────────────────────────
@@ -1997,6 +2220,22 @@ class Player {
 	#syncMediaSessionState() {
 		if (!browser || !('mediaSession' in navigator)) return;
 		navigator.mediaSession.playbackState = this.playing ? 'playing' : 'paused';
+		this.#syncMediaSessionPosition();
+	}
+
+	/**
+	 * The lock screen's bar. The system runs it forward from this by itself, so
+	 * it is told only where the position jumps or the clock stops.
+	 */
+	#syncMediaSessionPosition() {
+		if (!browser || !('mediaSession' in navigator) || !navigator.mediaSession.setPositionState) return;
+		const duration = this.duration;
+		if (this.current?.live || !Number.isFinite(duration) || duration <= 0) return;
+		try {
+			navigator.mediaSession.setPositionState({ duration, playbackRate: 1, position: Math.min(this.currentTime, duration) });
+		} catch {
+			// A position past the length, read between two events.
+		}
 	}
 
 	/**

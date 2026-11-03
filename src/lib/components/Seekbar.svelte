@@ -114,6 +114,12 @@
 		onseek(valueFromEvent(event));
 	}
 
+	/* The system took the touch (a swipe from the edge, a call): the drag ends
+	   where it began, and the track does not jump to where the finger was. */
+	function onPointerCancel() {
+		dragging = false;
+	}
+
 	function onKeyDown(event: KeyboardEvent) {
 		if (max <= 0) return;
 		const step = event.shiftKey ? 30 : 5;
@@ -142,7 +148,7 @@
 	onpointerdown={onPointerDown}
 	onpointermove={onPointerMove}
 	onpointerup={onPointerUp}
-	onpointercancel={onPointerUp}
+	onpointercancel={onPointerCancel}
 	onkeydown={onKeyDown}
 >
 	<div class="rail">

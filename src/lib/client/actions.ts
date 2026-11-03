@@ -46,7 +46,7 @@ async function playArtist(id: string) {
 	if (!first.more) return;
 	const queue = player.queue;
 	const rest = await fetchTracksPart(id);
-	if (player.queue === queue) player.addToQueue(rest);
+	if (player.queue === queue) player.addToQueue(rest, false);
 }
 
 async function fetchTracksPart(id: string): Promise<Song[]> {
