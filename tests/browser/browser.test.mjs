@@ -5238,21 +5238,37 @@ describe('on a phone', () => {
 				await page.waitForTimeout(700);
 
 				await tap(page, page.locator('#player-hide'));
-				await page.waitForTimeout(120);
-				const midway = await page.evaluate(() => {
-					const wrapper = document.querySelector('.app > .player');
-					const dock = document.querySelector('.phone-dock').getBoundingClientRect();
-					const sheet = wrapper.getBoundingClientRect();
-					return {
-						ghost: document.querySelectorAll('.hh-cover-ghost').length,
-						translate: getComputedStyle(wrapper).translate,
+				const midway = await page
+					.waitForFunction(() => {
+						const wrapper = document.querySelector('.app > .player');
+						const dock = document.querySelector('.phone-dock').getBoundingClientRect();
+						const sheet = wrapper.getBoundingClientRect();
 						// Shrinking toward the dock, not sliding down past it.
-						shrinking: sheet.height < innerHeight - 24 && sheet.top > 12 && sheet.bottom <= dock.bottom + 1
-					};
-				});
+						const shrinking = sheet.height < innerHeight - 24 && sheet.top > 12 && sheet.bottom <= dock.bottom + 1;
+						const ghost = document.querySelectorAll('.hh-cover-ghost').length;
+						const translate = getComputedStyle(wrapper).translate;
+						if (!shrinking || ghost !== 1 || translate !== 'none') return false;
+						return { ghost, translate, shrinking };
+					}, null, { timeout: 2000 })
+					.then((handle) => handle.jsonValue());
 				assert.equal(midway.ghost, 1, 'no cover flying to the dock');
 				assert.equal(midway.translate, 'none', 'the sheet is sliding, not morphing');
 				assert.ok(midway.shrinking, 'the sheet is not shrinking into the dock');
+
+				// The dock fades in once the sheet has gone. Fading under it
+				// finishes while the sheet still covers it, so the dock lands at
+				// full opacity in the frame the sheet disappears.
+				const arriving = await page
+					.waitForFunction(() => {
+						const sheet = document.querySelector('.app > .player');
+						if (getComputedStyle(sheet).visibility !== 'hidden') return false;
+						const dock = document.querySelector('.phone-dock');
+						const style = getComputedStyle(dock);
+						return { visibility: style.visibility, opacity: Number(style.opacity) };
+					}, null, { timeout: 2000 })
+					.then((handle) => handle.jsonValue());
+				assert.equal(arriving.visibility, 'visible', 'the dock is still hidden as the sheet goes');
+				assert.ok(arriving.opacity < 1, `the dock is already full as the sheet goes (${arriving.opacity})`);
 
 				await page.waitForTimeout(700);
 				const after = await page.evaluate(() => {

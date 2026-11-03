@@ -285,7 +285,9 @@
 			   docked panel's 66 percent a row of titles read through the tab
 			   labels. */
 			--glass-base: 88%;
-			transition: visibility 0s linear 0s;
+			transition:
+				opacity var(--dur-hover) var(--ease-out) var(--sheet-out-duration),
+				visibility 0s linear 0s;
 			/* A phone's width at most, centred: on a tablet held upright, four
 			   tabs across 800px put Home and Search a hand apart. */
 			max-width: 34rem;
@@ -293,13 +295,28 @@
 		}
 
 		/*
+		 * With a track, the sheet morphs into this and is gone at about
+		 * `--dur-travel`. The dock waits for it, then fades in: fading under the
+		 * sheet finishes before the sheet leaves, and lands as a frame of its own.
+		 */
+		.phone-dock.playing {
+			transition:
+				opacity var(--dur-hover) var(--ease-out) var(--dur-travel),
+				visibility 0s linear 0s;
+		}
+
+		/*
 		 * Under the open sheet, which is 92 percent opaque, the tab labels showed
-		 * through its tool row. Hidden once the sheet has arrived, and back when
-		 * it starts to leave.
+		 * through its tool row. Faded out as the sheet arrives, and back in after
+		 * it leaves. Opacity is on the glass element itself, which keeps its
+		 * blur.
 		 */
 		.phone-dock.covered {
+			opacity: 0;
 			visibility: hidden;
-			transition: visibility 0s linear var(--dur-travel);
+			transition:
+				opacity var(--dur-travel) var(--ease-out),
+				visibility 0s linear var(--dur-travel);
 		}
 
 		/* ── What is playing ─────────────────────────────────────────── */
@@ -518,6 +535,9 @@
 	}
 
 	@media (max-width: 60rem) and (prefers-reduced-motion: reduce) {
+		.phone-dock,
+		.phone-dock.playing,
+		.phone-dock.covered,
 		.fold,
 		.lens,
 		.now:not(.swiping) .text,
