@@ -1,6 +1,7 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { backendFor, UpstreamError } from '$lib/server/backends';
+import { refusedCredential } from '$lib/server/library';
 
 const MAX_NAME = 200;
 const MAX_SONGS = 1000;
@@ -13,6 +14,7 @@ export const GET: RequestHandler = async ({ locals }) => {
 		const playlists = await backendFor(session.account.backend).getPlaylists(session.credential);
 		return json({ playlists });
 	} catch (err) {
+		await refusedCredential(locals, err);
 		if (err instanceof UpstreamError) error(502, err.message);
 		throw err;
 	}
@@ -37,6 +39,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 		const id = await backendFor(session.account.backend).createPlaylist(session.credential, name, songIds);
 		return json({ id, name, added: songIds.length }, { status: 201 });
 	} catch (err) {
+		await refusedCredential(locals, err);
 		if (err instanceof UpstreamError) error(err.kind === 'forbidden' ? 403 : err.status === 404 ? 404 : 502, err.message);
 		throw err;
 	}

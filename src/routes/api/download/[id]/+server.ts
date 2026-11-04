@@ -5,6 +5,7 @@ import { config } from '$lib/server/config';
 import { tiedToSession } from '$lib/server/auth';
 import { proxyMedia, streamRequestFrom } from '$lib/server/proxy';
 import type { Song } from '$lib/types';
+import { refusedCredential } from '$lib/server/library';
 
 /**
  * The original file, as a download.
@@ -28,6 +29,7 @@ const handler: RequestHandler = async (event) => {
 	try {
 		[song] = await backend.getSongs(session.credential, [id]);
 	} catch (err) {
+		await refusedCredential(event.locals, err);
 		if (!(err instanceof UpstreamError)) throw err;
 		error(err.kind === 'not_found' ? 404 : 502, 'Not found');
 	}

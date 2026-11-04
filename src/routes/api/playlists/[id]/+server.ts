@@ -2,6 +2,7 @@ import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { backendFor, UpstreamError } from '$lib/server/backends';
 import { forgetSharedItems } from '$lib/server/shares';
+import { refusedCredential } from '$lib/server/library';
 
 const MAX_NAME = 200;
 
@@ -25,6 +26,7 @@ export const PATCH: RequestHandler = async ({ locals, params, request }) => {
 		forgetSharedItems(session.account.id);
 		return json({ id: params.id, ...(name !== undefined ? { name } : {}), ...(isPublic !== undefined ? { public: isPublic } : {}) });
 	} catch (err) {
+		await refusedCredential(locals, err);
 		if (err instanceof UpstreamError) error(err.kind === 'forbidden' ? 403 : err.status === 404 ? 404 : 502, err.message);
 		throw err;
 	}
@@ -38,6 +40,7 @@ export const DELETE: RequestHandler = async ({ locals, params }) => {
 		forgetSharedItems(session.account.id);
 		return json({ id: params.id, deleted: true });
 	} catch (err) {
+		await refusedCredential(locals, err);
 		if (err instanceof UpstreamError) error(err.kind === 'forbidden' ? 403 : err.status === 404 ? 404 : 502, err.message);
 		throw err;
 	}

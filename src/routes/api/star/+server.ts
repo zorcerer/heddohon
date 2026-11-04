@@ -4,6 +4,7 @@ import { backendFor, UpstreamError } from '$lib/server/backends';
 import { forgetListings } from '$lib/server/listings';
 import { forgetDetails } from '$lib/server/details';
 import type { StarKind } from '$lib/types';
+import { refusedCredential } from '$lib/server/library';
 
 const KINDS: StarKind[] = ['song', 'album', 'artist'];
 
@@ -36,6 +37,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 		forgetDetails(session.account.id);
 		return json({ id: body.id, starred: body.starred });
 	} catch (err) {
+		await refusedCredential(locals, err);
 		if (err instanceof UpstreamError) error(err.status === 404 ? 404 : 502, err.message);
 		throw err;
 	}

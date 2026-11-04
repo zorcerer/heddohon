@@ -23,6 +23,22 @@ export function libraryContext(locals: App.Locals): LibraryContext {
 }
 
 /**
+ * Ends every session for the account when the music server refused the stored
+ * credential.
+ *
+ * The same rule as `library()` below and `proxyMedia`, for the JSON handlers
+ * that do their own error mapping: a refused credential is the account's
+ * sessions' end, whoever noticed it. `forbidden` is not this: an id the account
+ * may not read says nothing about the credential.
+ */
+export async function refusedCredential(locals: App.Locals, err: unknown): Promise<void> {
+	if (!(err instanceof UpstreamError) || err.kind !== 'auth') return;
+	const session = locals.session;
+	if (!session) return;
+	await destroyAllSessions(session.account.id);
+}
+
+/**
  * Runs a library call and converts upstream failures into SvelteKit errors. An
  * authentication failure ends every session for the account: the stored
  * credential has stopped working.
@@ -36,8 +52,8 @@ export async function library<T>(
 		return await run(ctx);
 	} catch (err) {
 		if (err instanceof UpstreamError) {
+			await refusedCredential(event.locals, err);
 			if (err.kind === 'auth' && event.locals.session) {
-				await destroyAllSessions(event.locals.session.account.id);
 				error(401, 'Your music server credentials are no longer valid. Please sign in again.');
 			}
 			error(err.kind === 'not_found' ? 404 : err.kind === 'forbidden' ? 403 : 502, err.message);

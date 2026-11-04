@@ -1780,10 +1780,6 @@ session token and any `u`, `t`, `s` or `p` query parameter.
   are admitted unconditionally. Script execution is not affected. Removing it
   means moving those values out of markup and into the stylesheet.
 
-- **Revocation on upstream rejection** covers page loads and media. Twelve JSON
-  handlers are still missing it: songs, lyrics, playback, tracks, star, the
-  playlist routes and the song lookup before a download. They answer 401 or 502
-  and the next page load or media request ends the sessions.
 - **A reused Navidrome user name** keeps the earlier user's links, settings
   and queue. If a Subsonic user is deleted and the name given to someone else,
   the earlier user's sessions end when the new user signs in (see

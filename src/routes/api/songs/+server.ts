@@ -1,6 +1,7 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { backendFor, UpstreamError } from '$lib/server/backends';
+import { refusedCredential } from '$lib/server/library';
 
 const MAX_IDS = 1000;
 
@@ -22,6 +23,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 		const songs = await backendFor(session.account.backend).getSongs(session.credential, ids);
 		return json({ songs });
 	} catch (err) {
+		await refusedCredential(locals, err);
 		if (err instanceof UpstreamError) error(err.status === 404 ? 404 : 502, err.message);
 		throw err;
 	}

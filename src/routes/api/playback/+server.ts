@@ -7,6 +7,7 @@ import { deviceLabel } from '$lib/server/device';
 import { coverBytes } from '$lib/server/coverfill';
 import { announcePlay, announceStart, DISCORD_COVER_SIZE } from '$lib/server/integrations';
 import { log, reason } from '$lib/server/log';
+import { refusedCredential } from '$lib/server/library';
 
 /**
  * Now-playing and scrobble reporting. The client does not wait on it: a music
@@ -93,6 +94,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 		});
 		return json({ reported: true });
 	} catch (err) {
+		await refusedCredential(locals, err);
 		// Scrobbling is best-effort; a failure here is not worth breaking the UI.
 		if (err instanceof UpstreamError) return json({ reported: false, reason: err.message });
 		throw err;
