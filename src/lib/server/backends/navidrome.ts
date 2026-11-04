@@ -1,6 +1,7 @@
 /**
  * Navidrome's own API, for linking an account to Last.fm and ListenBrainz,
- * and for smart playlists (at the end of the file).
+ * for smart playlists (at the end of the file), and for looking up many songs
+ * in one request when a saved queue is restored (`songsByIds`).
  *
  * The Subsonic API has no call for this. Navidrome's web interface uses
  * `/api/lastfm/link` and `/api/listenbrainz/link`, which take the JWT that
@@ -19,7 +20,14 @@
  */
 import { upstreamFor } from '../config';
 import { tokenDigest } from '../crypto';
-import { UpstreamError, assertSafeId, readJson, upstreamFetch, upstreamUrl } from './http';
+import {
+	UpstreamError,
+	assertSafeId,
+	readJson,
+	upstreamFetch,
+	upstreamUrl,
+	type UpstreamParams
+} from './http';
 import type { StoredCredential } from './types';
 
 export type ScrobblerService = 'lastfm' | 'listenbrainz';
@@ -105,12 +113,12 @@ async function login(username: string, password: string): Promise<string | null>
 async function nativeCall(
 	cred: StoredCredential,
 	path: string,
-	init: { method?: string; body?: unknown } = {}
+	init: { method?: string; body?: unknown; params?: UpstreamParams } = {}
 ): Promise<Response | null> {
 	for (const fresh of [false, true]) {
 		const token = await session(cred, fresh);
 		if (token === null) return null;
-		const response = await upstreamFetch(upstreamUrl(base(), path), {
+		const response = await upstreamFetch(upstreamUrl(base(), path, init.params), {
 			method: init.method ?? 'GET',
 			headers: {
 				accept: 'application/json',
@@ -128,6 +136,52 @@ async function nativeCall(
 async function jsonOf(response: Response): Promise<Record<string, unknown>> {
 	const body = await readJson(response).catch(() => null);
 	return body && typeof body === 'object' ? (body as Record<string, unknown>) : {};
+}
+
+/**
+ * How many ids one `/api/song` request asks for. They travel in the query
+ * string: the filter for 100 ids is about 2.4KB before it is encoded, and for
+ * 1000 about 24KB, which is past what some reverse proxies accept in a URL.
+ */
+const SONGS_PER_CALL = 100;
+
+/**
+ * Songs by id, as few requests as Navidrome allows.
+ *
+ * Subsonic has no batch lookup, so a restored queue of 1000 tracks made 1000
+ * `getSong` calls through `getSongs` in `subsonic.ts`. Navidrome's own list
+ * endpoint takes a filter, and a list of ids as its value is read as `IN`:
+ * `{"id": ["a", "b"]}` answers with both, where the `{"in": [...]}` form
+ * answers 500 from the SQL layer. Measured on Navidrome 0.64.2, 2026-11-04.
+ *
+ * Null when this server is not Navidrome, or answered in a shape this cannot
+ * read, so the caller takes the Subsonic calls instead. An id the library no
+ * longer holds is left out, as a batch on Jellyfin leaves it out. The answer
+ * is in the server's own order, so the caller puts the songs in its own.
+ */
+export async function songsByIds(
+	cred: StoredCredential,
+	ids: readonly string[]
+): Promise<Record<string, unknown>[] | null> {
+	const songs: Record<string, unknown>[] = [];
+	for (let at = 0; at < ids.length; at += SONGS_PER_CALL) {
+		const response = await nativeCall(cred, '/api/song', {
+			params: { _filters: JSON.stringify({ id: ids.slice(at, at + SONGS_PER_CALL) }) }
+		});
+		if (response === null) return null;
+		if (!response.ok) {
+			await response.body?.cancel().catch(() => undefined);
+			return null;
+		}
+		const body = await readJson(response).catch(() => null);
+		if (!Array.isArray(body)) return null;
+		for (const entry of body) {
+			if (typeof entry !== 'object' || entry === null) continue;
+			const song = entry as Record<string, unknown>;
+			if (typeof song.id === 'string') songs.push(song);
+		}
+	}
+	return songs;
 }
 
 /**

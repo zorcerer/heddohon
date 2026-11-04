@@ -25,6 +25,7 @@ import {
 	setSmartPlaylistRules,
 	smartPlaylistIds,
 	smartPlaylistRules,
+	songsByIds,
 	startLastfm,
 	unlinkScrobbler
 } from './navidrome';
@@ -59,6 +60,14 @@ import type {
 const API_VERSION = '1.16.1';
 /** The `c` parameter: what the music server knows this client as. `plugin.ts` knows its own plays by it. */
 export const CLIENT_NAME = 'heddohon';
+
+/**
+ * How many ids a lookup needs before Navidrome's own API is asked for them in
+ * one request (`songsByIds`). From this many the per-id calls open 8 at once
+ * (`UPSTREAM_FANOUT`), so the batch saves requests as well as time; a restored
+ * queue, the case this is for, is far above it.
+ */
+const NATIVE_BATCH = 8;
 
 interface SubsonicEnvelope<T = Record<string, unknown>> {
 	'subsonic-response': T & {
@@ -271,6 +280,58 @@ function toSong(raw: Record<string, any>): Song {
 		rating: ratingOf(raw.userRating),
 		quality: quality(raw),
 		replayGain: replayGainOf(raw.replayGain)
+	};
+}
+
+/**
+ * A song as Navidrome's own API answers it, as a `Song`.
+ *
+ * The names differ from Subsonic's child: `trackNumber`, `discNumber` with 0
+ * for none, `hasCoverArt` instead of a cover id, the listener's annotations
+ * present only when set, and the ReplayGain values flat rather than under
+ * `replayGain`. The cover id is the one Subsonic builds for the track
+ * (`mf-` and the song's id), which Navidrome answers `getCoverArt` for.
+ */
+function fromNative(raw: Record<string, unknown>): Song {
+	const id = String(raw.id);
+	const disc = numberOrNull(raw.discNumber);
+	const year =
+		[raw.originalYear, raw.releaseYear, raw.year]
+			.map((candidate) => numberOrNull(candidate))
+			.find((candidate) => candidate !== null && candidate > 0) ?? null;
+	const text = (value: unknown) => (typeof value === 'string' && value !== '' ? value : null);
+	return {
+		id,
+		title: text(raw.title) ?? 'Unknown title',
+		albumId: raw.albumId ? String(raw.albumId) : null,
+		album: text(raw.album),
+		artistId: raw.artistId ? String(raw.artistId) : null,
+		artist: text(raw.artist),
+		albumArtist: text(raw.albumArtist),
+		duration: numberOrNull(raw.duration) ?? 0,
+		track: numberOrNull(raw.trackNumber),
+		disc: disc !== null && disc > 0 ? disc : null,
+		year,
+		genre: text(raw.genre),
+		coverArt: raw.hasCoverArt === true ? `mf-${id}` : null,
+		starred: raw.starred === true,
+		starredAt: starredAt(raw.starredAt),
+		playCount: numberOrNull(raw.playCount),
+		rating: ratingOf(raw.rating),
+		quality: quality({
+			suffix: raw.suffix,
+			bitRate: raw.bitRate,
+			bitDepth: raw.bitDepth,
+			samplingRate: raw.sampleRate,
+			channelCount: raw.channels,
+			size: raw.size
+		}),
+		replayGain: replayGainOf({
+			trackGain: raw.rgTrackGain,
+			albumGain: raw.rgAlbumGain,
+			trackPeak: raw.rgTrackPeak,
+			albumPeak: raw.rgAlbumPeak
+		})
 	};
 }
 
@@ -840,23 +901,42 @@ export const subsonicBackend: MediaBackend = {
 	},
 
 	async getSongs(cred, ids) {
-		// One call per id, since Subsonic has no batch lookup, bounded since the
-		// caller may pass 1000.
+		// Navidrome answers many ids in one request, so a queue restored on it
+		// costs one request per 100 tracks instead of one per track. Below
+		// `NATIVE_BATCH` ids the per-id calls are no more requests, and a login
+		// Navidrome limits per address is not spent on them: a single lookup,
+		// as the plugin makes for a reported play, keeps answering from the
+		// Subsonic API, which is what refuses a credential that no longer
+		// signs in.
 		//
-		// A track removed from the library answers error 70 and is left out, as
-		// Jellyfin leaves it out of a batch. Rethrown, it rejected the lookup and
-		// a saved queue holding one deleted track did not restore. Any other
-		// failure still rejects.
-		const songs = await mapLimited(ids, async (id) => {
-			try {
-				const body = await call<{ song?: Record<string, any> }>(cred, 'getSong.view', { id });
-				return body.song ? toSong(body.song) : null;
-			} catch (err) {
-				if (err instanceof UpstreamError && err.kind === 'not_found') return null;
-				throw err;
+		// An id the batch leaves out is a track removed from the library, or
+		// the whole list on a server with no batch lookup; both are looked up
+		// one at a time. A removed track answers error 70 and is left out, as
+		// Jellyfin leaves it out of a batch. Rethrown, it rejected the lookup
+		// and a saved queue holding one deleted track did not restore. Any
+		// other failure still rejects.
+		const found = new Map<string, Song>();
+		if (ids.length >= NATIVE_BATCH) {
+			for (const raw of (await songsByIds(cred, ids)) ?? []) {
+				const song = fromNative(raw);
+				found.set(song.id, song);
 			}
-		});
-		return songs.filter((song): song is Song => song !== null);
+		}
+
+		const missing = [...new Set(ids.filter((id) => !found.has(id)))];
+		if (missing.length > 0) {
+			const songs = await mapLimited(missing, async (id) => {
+				try {
+					const body = await call<{ song?: Record<string, any> }>(cred, 'getSong.view', { id });
+					return body.song ? toSong(body.song) : null;
+				} catch (err) {
+					if (err instanceof UpstreamError && err.kind === 'not_found') return null;
+					throw err;
+				}
+			});
+			for (const song of songs) if (song) found.set(song.id, song);
+		}
+		return ids.map((id) => found.get(id)).filter((song): song is Song => song !== undefined);
 	},
 
 	async getRandomSongs(cred, limit) {
