@@ -5255,9 +5255,10 @@ describe('on a phone', () => {
 				assert.equal(midway.translate, 'none', 'the sheet is sliding, not morphing');
 				assert.ok(midway.shrinking, 'the sheet is not shrinking into the dock');
 
-				// The dock fades in once the sheet has gone. Fading under it
-				// finishes while the sheet still covers it, so the dock lands at
-				// full opacity in the frame the sheet disappears.
+				// The dock fades in under the sheet, so it is already full when
+				// the sheet lands: the fade ends as the morph does. It used to
+				// start after the sheet had gone, and the dock came up from
+				// nothing in the frame the cover landed.
 				const arriving = await page
 					.waitForFunction(() => {
 						const sheet = document.querySelector('.app > .player');
@@ -5268,7 +5269,7 @@ describe('on a phone', () => {
 					}, null, { timeout: 2000 })
 					.then((handle) => handle.jsonValue());
 				assert.equal(arriving.visibility, 'visible', 'the dock is still hidden as the sheet goes');
-				assert.ok(arriving.opacity < 1, `the dock is already full as the sheet goes (${arriving.opacity})`);
+				assert.ok(arriving.opacity > 0.99, `the dock is not full as the sheet goes (${arriving.opacity})`);
 
 				await page.waitForTimeout(700);
 				const after = await page.evaluate(() => {

@@ -295,13 +295,16 @@
 		}
 
 		/*
-		 * With a track, the sheet morphs into this and is gone at about
-		 * `--dur-travel`. The dock waits for it, then fades in: fading under the
-		 * sheet finishes before the sheet leaves, and lands as a frame of its own.
+		 * With a track, the sheet morphs into this over `--dur-morph`, and the
+		 * dock waits for that trip, then fades in under the sheet so it is
+		 * already full when the sheet lands: the fade ends as the morph does,
+		 * which is `--dur-morph` less its own `--dur-hover`. Starting it after
+		 * the sheet had gone left the dock at nothing in the frame the cover
+		 * landed, and it faded in from there.
 		 */
 		.phone-dock.playing {
 			transition:
-				opacity var(--dur-hover) var(--ease-out) var(--dur-travel),
+				opacity var(--dur-hover) var(--ease-out) calc(var(--dur-morph) - var(--dur-hover)),
 				visibility 0s linear 0s;
 		}
 
