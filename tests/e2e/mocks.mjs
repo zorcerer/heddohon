@@ -217,6 +217,8 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 			linked: { lastfm: false, listenbrainz: false },
 			issued: 0,
 			acceptFrom: 0,
+			/** Who each issued token belongs to, by its number. */
+			names: new Map(),
 			linkTokens: new Set(),
 			listenBrainzToken: null
 		},
@@ -278,6 +280,40 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 	const artist = (i) => ({ id: `ar${i}`, name: name(i), albumCount: i === 0 ? 2 : 1, coverArt: `ar-${i}` });
 	const index = (id) => Number.parseInt(String(id).replace(/^\D+/, ''), 10);
 
+	/**
+	 * The same song as Navidrome's own API answers it: `trackNumber`, a cover
+	 * flag rather than a cover id, a starred time of its own, and the
+	 * ReplayGain values flat.
+	 */
+	const navSong = (i, side) => {
+		const s = song(i, side);
+		return {
+			id: s.id,
+			title: s.title,
+			album: s.album,
+			albumId: s.albumId,
+			artist: s.artist,
+			artistId: s.artistId,
+			albumArtist: s.artist,
+			duration: s.duration,
+			trackNumber: s.track,
+			discNumber: s.discNumber ?? 0,
+			year: 2000 + (i % 20),
+			releaseYear: 2000 + (i % 20),
+			genre: s.genre ?? '',
+			hasCoverArt: s.coverArt !== undefined,
+			size: s.size,
+			suffix: s.suffix,
+			bitRate: s.bitRate,
+			bitDepth: s.bitDepth ?? null,
+			sampleRate: s.samplingRate,
+			channels: 2,
+			...(s.starred ? { starred: true, starredAt: s.starred } : {}),
+			...(s.userRating ? { rating: s.userRating } : {}),
+			...(s.playCount === undefined ? {} : { playCount: s.playCount })
+		};
+	};
+
 	const ok = (extra) => ({ 'subsonic-response': { status: 'ok', version: '1.16.1', ...extra } });
 	const failed = (code, message) => ({
 		'subsonic-response': { status: 'failed', version: '1.16.1', error: { code, message } }
@@ -302,11 +338,15 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 		}
 
 		if (url.pathname === '/auth/login' && req.method === 'POST') {
-			if (sent.username !== state.username || sent.password !== state.password) {
+			// The same accounts the Subsonic side signs in, and the same
+			// passwords: a Navidrome has one user list.
+			const expected = sent.username === state.username ? state.password : state.others.get(sent.username);
+			if (expected === undefined || sent.password !== expected) {
 				return reply(401, { error: 'Invalid username or password' });
 			}
 			nd.issued += 1;
-			return reply(200, { id: `u-${state.username}`, username: state.username, token: `nd-${nd.issued}` });
+			nd.names.set(`nd-${nd.issued}`, sent.username);
+			return reply(200, { id: `u-${sent.username}`, username: sent.username, token: `nd-${nd.issued}` });
 		}
 		if (url.pathname === '/api/lastfm/link/callback' && nd.enabled.lastfm) {
 			if (!nd.linkTokens.has(url.searchParams.get('uid')) || url.searchParams.get('token') !== 'lastfm-ok') {
@@ -319,6 +359,26 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 		const bearer = /^Bearer nd-(\d+)$/.exec(req.headers['x-nd-authorization'] ?? '');
 		if (!bearer || Number(bearer[1]) < nd.acceptFrom || Number(bearer[1]) > nd.issued) {
 			return reply(401, { error: 'Not authenticated' });
+		}
+		// Whose token it is, for what a user alone may read.
+		const who = nd.names.get(`nd-${bearer[1]}`) ?? state.username;
+		// Songs by id, as Navidrome 0.64.2 answers `/api/song`: the filter's
+		// value is a list of ids, and the answer is in the server's order.
+		if (url.pathname === '/api/song' && req.method === 'GET') {
+			let filter = {};
+			try {
+				filter = JSON.parse(url.searchParams.get('_filters') ?? '{}');
+			} catch {
+				return reply(500, { error: 'invalid filter' });
+			}
+			const ids = Array.isArray(filter.id) ? filter.id.map(String) : [];
+			const songs = ids
+				.filter((id) => {
+					const i = index(id);
+					return !state.missing.has(id) && !state.hidden.get(who)?.has(id) && i >= 0 && i < artistCount;
+				})
+				.map((id) => navSong(index(id), id.endsWith('b') ? 'b' : 'a'));
+			return reply(200, songs);
 		}
 		// Playlists as Navidrome 0.64.2 answers them, smart ones alone held here:
 		// another user's refused with 403, an unknown id 404, an operator it
@@ -675,7 +735,11 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 			case 'getUser':
 				return send(ok({ user: { username: state.username, adminRole: state.admin } }));
 			case 'getCoverArt': {
-				const id = p.get('id');
+				// Navidrome names a song's cover `mf-` and the song's id. The
+				// mock's songs carry their album's cover, which is the id its
+				// colours and types are kept under.
+				const asked = p.get('id') ?? '';
+				const id = /^mf-s\d+[ab]$/.test(asked) ? song(index(asked.slice(3)), asked.endsWith('b') ? 'b' : 'a').coverArt : asked;
 				if (id === 'html') {
 					res.setHeader('content-type', 'text/html');
 					return res.end('<script>parent.stolen = document.cookie</script>');
