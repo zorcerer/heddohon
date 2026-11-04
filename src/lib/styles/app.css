@@ -1680,16 +1680,25 @@ dialog:not([open])::backdrop {
 	mask-position: 0 0;
 }
 
+/*
+ * The flying cover keeps a compositor layer of its own from the first frame,
+ * as a large `Cover` does (`.layered` there): WebKit otherwise builds the
+ * layer when the filter and the layer's opacity start changing, and drew
+ * neither for the first frames. On a phone that was the artwork flashing to
+ * the page's ground at the start of an open and of a close.
+ */
 .hh-cover-ghost img {
 	display: block;
 	width: 100%;
 	height: 100%;
 	object-fit: cover;
+	will-change: filter;
 }
 
 .hh-cover-ghost span {
 	position: absolute;
 	inset: 0;
+	will-change: opacity;
 }
 
 /*
