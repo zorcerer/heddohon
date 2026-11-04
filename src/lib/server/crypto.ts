@@ -12,21 +12,90 @@ import {
 	scryptSync,
 	timingSafeEqual
 } from 'node:crypto';
-import { config } from './config';
+import { chmodSync, existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { ConfigError, SETUP_FILE, config } from './config';
+import { sqliteFile, storedAccounts } from './db';
+import { log } from './log';
 
 const KEY_LENGTH = 32;
 const IV_LENGTH = 12;
 const TAG_LENGTH = 16;
 const VERSION = 'v1';
+/** This install's own salt, 32 bytes as hex. */
+const SALT_FILE = 'crypto-salt';
+/** An empty file beside it, saying this install keeps the constant salt. */
+const LEGACY_FILE = 'crypto-salt.legacy';
 
 const keyCache = new Map<string, Buffer>();
+
+/**
+ * This install's key salt, or `null` for the constant one every build before
+ * it used.
+ *
+ * The constant one is what an install that predates the salt keeps: everything
+ * it sealed and every digest it stored was made with it, and deriving with a
+ * new salt would lock it out of its own database. So the choice is made once,
+ * here, before the first key exists, and it is never revisited: a salt file
+ * means this install's own, a marker file means the constant, and with neither
+ * the data directory itself says which install this is.
+ */
+let keySaltCache: Buffer | null | undefined;
+
+function keySalt(): Buffer | null {
+	if (keySaltCache !== undefined) return keySaltCache;
+	const dir = config().dataDir;
+	const file = join(dir, SALT_FILE);
+	if (existsSync(file)) {
+		const hex = readFileSync(file, 'utf8').trim();
+		if (!/^[0-9a-f]{64}$/.test(hex)) {
+			// Never replaced by a new one: a salt that cannot be read is a
+			// restore, not a fresh install. A new salt would make every sealed
+			// value and digest this install holds unreadable.
+			throw new ConfigError(
+				`${file} is not 32 bytes written as hex. Restore it from a backup of the data directory ` +
+					'(a backup archive holds it beside heddohon.db). It is what every stored credential is ' +
+					'sealed with, so it cannot be replaced.'
+			);
+		}
+		return (keySaltCache = Buffer.from(hex, 'hex'));
+	}
+	if (existsSync(join(dir, LEGACY_FILE))) return (keySaltCache = null);
+	// Neither file. An install from before the salt existed has data here; a new
+	// one does not. `setup.json` is written by the first setup, and accounts are
+	// sealed rows, so either one is proof of an install older than this file.
+	if (existsSync(join(dir, SETUP_FILE)) || storedAccounts(sqliteFile()) > 0) {
+		writeFileAtomically(join(dir, LEGACY_FILE), '');
+		log.warn('crypto-salt-kept-constant', { file: LEGACY_FILE });
+		return (keySaltCache = null);
+	}
+	const salt = randomBytes(32);
+	writeFileAtomically(file, `${salt.toString('hex')}\n`);
+	log.info('crypto-salt-made', { file: SALT_FILE });
+	return (keySaltCache = salt);
+}
+
+/** Written beside the file and renamed over the target, as `saveSetup` does. */
+function writeFileAtomically(path: string, text: string): void {
+	const scratch = `${path}.${process.pid}.tmp`;
+	writeFileSync(scratch, text, { mode: 0o600 });
+	// The mode above is masked by the umask, and does nothing to a file that
+	// was already there.
+	chmodSync(scratch, 0o600);
+	renameSync(scratch, path);
+}
 
 function keyFor(purpose: string): Buffer {
 	const cached = keyCache.get(purpose);
 	if (cached) return cached;
-	// A fixed salt per purpose: the same key after a restart, and a different
-	// key for each purpose.
-	const salt = createHash('sha256').update(`heddohon:${VERSION}:${purpose}`).digest();
+	// A different key for each purpose, and the same one after a restart. With
+	// this install's own salt the derivation adds the purpose to it; the
+	// constant path is left exactly as it was, because an install that still
+	// uses it has digests and sealed values made that way.
+	const own = keySalt();
+	const salt = own
+		? createHash('sha256').update(own).update(`:${VERSION}:${purpose}`).digest()
+		: createHash('sha256').update(`heddohon:${VERSION}:${purpose}`).digest();
 	// N=2^15 needs 128*N*r = 32 MiB, Node's default `maxmem`, which throws. The
 	// ceiling is raised instead of lowering N.
 	const derived = scryptSync(config().secret, salt, KEY_LENGTH, {
@@ -62,7 +131,15 @@ function open(blob: string, purpose = 'credential'): string {
 	}
 	const decipher = createDecipheriv('aes-256-gcm', keyFor(purpose), iv);
 	decipher.setAuthTag(tag);
-	return Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString('utf8');
+	try {
+		return Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString('utf8');
+	} catch {
+		// A tag that does not check out is a different secret, or a different key
+		// salt, than the one this value was written with.
+		throw new Error(
+			'A sealed value did not open: HEDDOHON_SECRET or this install’s key salt (crypto-salt) is not the one it was written with'
+		);
+	}
 }
 
 export function sealJson(value: unknown, purpose = 'credential'): string {

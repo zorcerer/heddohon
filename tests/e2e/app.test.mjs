@@ -8,6 +8,7 @@
  * state (settings, credentials) says so and puts it back.
  */
 import assert from 'node:assert/strict';
+import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes, scryptSync } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -3772,6 +3773,144 @@ describe('signed in on', () => {
  * read here by the format, not by this tree's own writer: the directory at
  * the end, then each file's header, then its bytes inflated.
  */
+/**
+ * The derivation this build used before the key salt existed, written out here
+ * because the tests have to hold exactly what an install from that build holds:
+ * a constant salt per purpose, and nothing in the data directory.
+ */
+const E2E_SECRET = 'e2e-secret-0123456789abcdef0123456789';
+const SCRYPT = { N: 2 ** 15, r: 8, p: 1, maxmem: 96 * 1024 * 1024 };
+const saltOf = (text) => createHash('sha256').update(text).digest();
+
+const constantKey = (purpose) => scryptSync(E2E_SECRET, saltOf(`heddohon:v1:${purpose}`), 32, SCRYPT);
+
+const installKey = (hex, purpose) =>
+	scryptSync(E2E_SECRET, createHash('sha256').update(Buffer.from(hex, 'hex')).update(`:v1:${purpose}`).digest(), 32, SCRYPT);
+
+const sealWith = (key, text) => {
+	const iv = randomBytes(12);
+	const cipher = createCipheriv('aes-256-gcm', key, iv);
+	const body = Buffer.concat([cipher.update(text, 'utf8'), cipher.final()]);
+	return `v1.${iv.toString('base64url')}.${cipher.getAuthTag().toString('base64url')}.${body.toString('base64url')}`;
+};
+
+const openWith = (key, blob) => {
+	const [, iv, tag, body] = blob.split('.');
+	const decipher = createDecipheriv('aes-256-gcm', key, Buffer.from(iv, 'base64url'));
+	decipher.setAuthTag(Buffer.from(tag, 'base64url'));
+	return Buffer.concat([decipher.update(Buffer.from(body, 'base64url')), decipher.final()]).toString('utf8');
+};
+
+const digestWith = (key, token) => createHmac('sha256', key).update(token).digest('base64url');
+
+describe('the key salt', () => {
+	test('a fresh data directory gets its own, and a restart keeps it', async () => {
+		const app = await startApp({ subsonicUrl: subsonic.url, jellyfinUrl: jellyfin.url });
+		const client = new Client(app.url);
+		try {
+			assert.equal((await client.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' })).status, 303);
+			const file = join(app.dataDir, 'crypto-salt');
+			const salt = readFileSync(file, 'utf8').trim();
+			assert.match(salt, /^[0-9a-f]{64}$/, 'the salt is not 32 bytes written as hex');
+			assert.equal(statSync(file).mode & 0o777, 0o600, 'the salt is readable by more than this user');
+
+			await app.stop({ keepData: true });
+			const again = await startApp({ subsonicUrl: subsonic.url, jellyfinUrl: jellyfin.url, dataDir: app.dataDir });
+			// Same port is not promised, so the client moves with its cookies.
+			client.base = again.url;
+			try {
+				assert.equal(readFileSync(join(again.dataDir, 'crypto-salt'), 'utf8').trim(), salt, 'the restart made a new salt');
+				assert.equal((await client.request('/api/settings')).status, 200, 'the stored session no longer opens');
+				// The sealed credential opens as well, which a changed salt stops.
+				assert.equal(
+					(await client.json('/api/tracks', 'POST', { source: 'artist', id: 'ar1', part: 'first' })).status,
+					200,
+					'the stored credential no longer opens'
+				);
+			} finally {
+				await again.stop();
+			}
+		} finally {
+			await app.stop();
+		}
+	});
+
+	test('an install from before the salt keeps working, on the constant one', async () => {
+		const app = await startApp({ subsonicUrl: subsonic.url, jellyfinUrl: jellyfin.url });
+		const client = new Client(app.url);
+		let kept = null;
+		try {
+			assert.equal((await client.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' })).status, 303);
+			const salt = readFileSync(join(app.dataDir, 'crypto-salt'), 'utf8').trim();
+			const token = client.cookies.get('heddohon_session');
+			assert.ok(token, 'the sign-in left no session cookie');
+			await app.stop({ keepData: true });
+			kept = app.dataDir;
+
+			// What that build held: the credential sealed with the constant salt,
+			// the session digested with it, and no salt file at all.
+			const { default: Database } = await import('better-sqlite3');
+			const database = new Database(join(kept, 'heddohon.db'));
+			try {
+				const accounts = database.prepare('SELECT id, credential FROM accounts').all();
+				assert.ok(accounts.length > 0, 'the sign-in left no account');
+				for (const account of accounts) {
+					const plain = openWith(installKey(salt, 'credential'), account.credential);
+					database
+						.prepare('UPDATE accounts SET credential = ? WHERE id = ?')
+						.run(sealWith(constantKey('credential'), plain), account.id);
+				}
+				const stored = digestWith(installKey(salt, 'session'), token);
+				const legacy = digestWith(constantKey('session'), token);
+				assert.equal(database.prepare('UPDATE sessions SET token_digest = ? WHERE token_digest = ?').run(legacy, stored).changes, 1);
+			} finally {
+				database.close();
+			}
+			rmSync(join(kept, 'crypto-salt'));
+
+			const again = await startApp({ subsonicUrl: subsonic.url, jellyfinUrl: jellyfin.url, dataDir: kept });
+			client.base = again.url;
+			try {
+				// The salt is chosen at the first derivation, which is a request.
+				assert.equal((await client.request('/api/settings')).status, 200, 'the stored session no longer opens');
+				assert.equal(
+					(await client.json('/api/tracks', 'POST', { source: 'artist', id: 'ar1', part: 'first' })).status,
+					200,
+					'the credential sealed by the earlier build no longer opens'
+				);
+				assert.equal(existsSync(join(kept, 'crypto-salt')), false, 'a salt was made for an install that predates it');
+				assert.equal(existsSync(join(kept, 'crypto-salt.legacy')), true, 'the constant salt was not recorded');
+			} finally {
+				await again.stop();
+			}
+		} finally {
+			await app.stop();
+			if (kept) rmSync(kept, { recursive: true, force: true });
+		}
+	});
+
+	test('a salt that cannot be read is not replaced by a new one', async () => {
+		const dir = mkdtempSync(join(tmpdir(), 'heddohon-e2e-salt-'));
+		try {
+			writeFileSync(join(dir, 'crypto-salt'), 'not a salt\n');
+			const app = await startApp({ subsonicUrl: subsonic.url, jellyfinUrl: jellyfin.url, dataDir: dir });
+			try {
+				// A presented session is digested before anything is read, so this is
+				// the first derivation, and it has to fail rather than pick a new salt.
+				const response = await new Client(app.url).request('/api/settings', {
+					headers: { cookie: 'heddohon_session=nonsense' }
+				});
+				assert.equal(response.status, 500);
+				assert.equal(readFileSync(join(dir, 'crypto-salt'), 'utf8'), 'not a salt\n', 'the bad salt was overwritten');
+			} finally {
+				await app.stop();
+			}
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+});
+
 describe('a backup of the database', () => {
 	// The session tests above end every older session of the account, the shared
 	// client's among them.
@@ -3843,7 +3982,7 @@ describe('a backup of the database', () => {
 				response.headers.get('content-disposition') ?? '',
 				/^attachment; filename="heddohon-backup-\d{4}-\d\d-\d\dT\d\d-\d\d-\d\dZ\.zip"$/
 			);
-			assert.deepEqual([...files.keys()], ['heddohon.db', 'backup.json', 'README.txt']);
+			assert.deepEqual([...files.keys()], ['heddohon.db', 'crypto-salt', 'backup.json', 'README.txt']);
 
 			const dir = mkdtempSync(join(tmpdir(), 'heddohon-e2e-backup-'));
 			writeFileSync(join(dir, 'heddohon.db'), files.get('heddohon.db'));

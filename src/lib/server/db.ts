@@ -392,8 +392,30 @@ const COPIED_TABLES = {
 const IMPORT_MARKER = 'sqlite_import';
 
 /** Where the SQLite database lives, and where an import reads it from. */
-function sqliteFile(): string {
+export function sqliteFile(): string {
 	return join(config().dataDir, 'heddohon.db');
+}
+
+/**
+ * Accounts a database file already holds, or 0 when there is no file.
+ *
+ * Read-only, synchronous and separate from this process's store: it answers one
+ * question, before any key is derived, about whether a data directory belongs
+ * to an install that predates the key salt. A file too old to have `accounts`
+ * counts as data.
+ */
+export function storedAccounts(file: string): number {
+	if (!existsSync(file)) return 0;
+	let probe: Database.Database | null = null;
+	try {
+		probe = new Database(file, { readonly: true, fileMustExist: true });
+		const row = probe.prepare('SELECT COUNT(*) AS count FROM accounts').get() as { count: number } | undefined;
+		return row?.count ?? 0;
+	} catch {
+		return 1;
+	} finally {
+		probe?.close();
+	}
 }
 
 function openSqlite(file: string): Database.Database {
