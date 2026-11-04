@@ -19,7 +19,7 @@ import {
 } from '$lib/server/log';
 import { logKeepDays } from '$lib/server/logfile';
 import { keepCoversFilled } from '$lib/server/coverfill';
-import { closeStore } from '$lib/server/db';
+import { closeStore, store } from '$lib/server/db';
 
 /**
  * Routes reachable without a session.
@@ -364,6 +364,11 @@ const handleRequest: Handle = async ({ event, resolve }) => {
 	// never work.
 	try {
 		config();
+		// Opening the database settles the key salt (`settleKeySalt` in
+		// `crypto.ts`), which every digest and seal below needs; a salt that does
+		// not match the database is a ConfigError like the rest. The probe asks
+		// the database itself, and reports it down as down rather than as a 500.
+		if (event.url.pathname !== '/healthz') await store();
 	} catch (err) {
 		// Fail closed on anything that is not a ConfigError.
 		if (!(err instanceof ConfigError)) throw err;

@@ -46,6 +46,12 @@ export const GET: RequestHandler = async () => {
 			new Promise((_, reject) => setTimeout(() => reject(new Error('no answer within 3s')), 3000))
 		]);
 	} catch (err) {
+		// A key salt that does not match the database is found as it opens
+		// (`settleKeySalt`), and is a configuration fault, not an outage.
+		if (err instanceof ConfigError) {
+			log.error('config-invalid', { detail: reason(err), path: '/healthz' });
+			return json({ status: 'misconfigured' }, { status: 503 });
+		}
 		log.error('database-unavailable', { detail: reason(err), path: '/healthz' });
 		return json({ status: 'database-unavailable' }, { status: 503 });
 	}

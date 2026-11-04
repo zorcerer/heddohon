@@ -24,8 +24,11 @@ function freePort() {
 	});
 }
 
-/** Starts the app and resolves once `/healthz` answers. */
-export async function startApp({ subsonicUrl, jellyfinUrl, env = {}, dataDir: given = null, host = '127.0.0.1' }) {
+/**
+ * Starts the app and resolves once `/healthz` answers. With `healthy: false`
+ * any answer will do, for an app that is meant to refuse its configuration.
+ */
+export async function startApp({ subsonicUrl, jellyfinUrl, env = {}, dataDir: given = null, host = '127.0.0.1', healthy = true }) {
 	if (!existsSync(BUILD)) throw new Error('build/index.js is missing. Run `npm run build` first.');
 	const port = await freePort();
 	// `host` names the address the app is opened at; it listens on 127.0.0.1
@@ -65,11 +68,15 @@ export async function startApp({ subsonicUrl, jellyfinUrl, env = {}, dataDir: gi
 	for (;;) {
 		if (child.exitCode !== null) throw new Error(`The app exited during start-up:\n${output}`);
 		try {
-			if ((await fetch(`${url}/healthz`)).ok) break;
+			if ((await fetch(`${url}/healthz`)).ok || !healthy) break;
 		} catch {
 			// Not listening yet.
 		}
-		if (Date.now() > deadline) throw new Error(`The app did not answer /healthz within 15s:\n${output}`);
+		if (Date.now() > deadline) {
+			// Left running, the app kept the suite's process alive after the failure.
+			child.kill('SIGTERM');
+			throw new Error(`The app did not answer /healthz within 15s:\n${output}`);
+		}
 		await new Promise((done) => setTimeout(done, 100));
 	}
 

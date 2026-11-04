@@ -663,3 +663,20 @@ describe('the addresses a deployment is opened at', () => {
 		}
 	});
 });
+
+describe('the key salt of an install made through the setup page', () => {
+	test('is its own, though the setup wrote setup.json before the first key', async () => {
+		const dataDir = mkdtempSync(join(tmpdir(), 'heddohon-setup-'));
+		const app = await unconfigured({}, dataDir);
+		try {
+			const client = new Client(app.url);
+			assert.equal((await call(client, { action: 'save', code: codeOf(app), values: { subsonicUrl: subsonic.url } })).status, 200);
+			assert.ok(existsSync(join(dataDir, 'setup.json')), 'the setup saved no file');
+			assert.equal((await client.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' })).status, 303);
+			assert.match(readFileSync(join(dataDir, 'crypto-salt'), 'utf8'), /^[0-9a-f]{64}\n$/, 'the install was kept on the constant salt');
+			assert.ok(!existsSync(join(dataDir, 'crypto-salt.legacy')), 'the install was recorded as one from before the salt');
+		} finally {
+			await app.stop();
+		}
+	});
+});

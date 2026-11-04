@@ -14,8 +14,8 @@ import {
 } from 'node:crypto';
 import { chmodSync, existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { ConfigError, SETUP_FILE, config } from './config';
-import { sqliteFile, storedAccounts } from './db';
+import { ConfigError, config } from './config';
+import type { Store } from './db';
 import { log } from './log';
 
 const KEY_LENGTH = 32;
@@ -23,56 +23,131 @@ const IV_LENGTH = 12;
 const TAG_LENGTH = 16;
 const VERSION = 'v1';
 /** This install's own salt, 32 bytes as hex. */
-const SALT_FILE = 'crypto-salt';
-/** An empty file beside it, saying this install keeps the constant salt. */
-const LEGACY_FILE = 'crypto-salt.legacy';
+export const SALT_FILE = 'crypto-salt';
+/**
+ * The row in `meta` that records which salt the database was sealed with:
+ * `constant`, or `own:` and a SHA-256 of this install's salt. It travels with
+ * the database (a backup, an import into PostgreSQL), so the salt file can be
+ * checked against it wherever the database goes.
+ */
+const SALT_ROW = 'key_salt';
+const CONSTANT = 'constant';
 
 const keyCache = new Map<string, Buffer>();
 
 /**
  * This install's key salt, or `null` for the constant one every build before
- * it used.
- *
- * The constant one is what an install that predates the salt keeps: everything
- * it sealed and every digest it stored was made with it, and deriving with a
- * new salt would lock it out of its own database. So the choice is made once,
- * here, before the first key exists, and it is never revisited: a salt file
- * means this install's own, a marker file means the constant, and with neither
- * the data directory itself says which install this is.
+ * it used. Settled by `settleKeySalt` as the database opens, before any key
+ * can be derived.
  */
 let keySaltCache: Buffer | null | undefined;
 
 function keySalt(): Buffer | null {
-	if (keySaltCache !== undefined) return keySaltCache;
-	const dir = config().dataDir;
-	const file = join(dir, SALT_FILE);
-	if (existsSync(file)) {
-		const hex = readFileSync(file, 'utf8').trim();
-		if (!/^[0-9a-f]{64}$/.test(hex)) {
-			// Never replaced by a new one: a salt that cannot be read is a
-			// restore, not a fresh install. A new salt would make every sealed
-			// value and digest this install holds unreadable.
+	if (keySaltCache === undefined) {
+		// `store()` settles it, and `hooks.server.ts` waits for `store()` before
+		// a request reaches anything that digests or seals.
+		throw new Error('A key was asked for before the database was opened');
+	}
+	return keySaltCache;
+}
+
+/** What `meta` holds for an install's own salt. */
+function ownRow(salt: Buffer): string {
+	return `own:${createHash('sha256').update(salt).digest('hex')}`;
+}
+
+/**
+ * Decides, once, which salt this install derives its keys with, from the
+ * database it is about to use.
+ *
+ * The constant salt is what an install that predates the salt keeps:
+ * everything it sealed and every digest it stored was made with it, and
+ * deriving with a new salt would lock it out of its own database. The first
+ * version of this decided from the data directory (`setup.json`, accounts in
+ * `heddohon.db`). That took a PostgreSQL install for a new one and gave it a
+ * new salt, kept every install made through the setup page on the constant
+ * one, and fell back to the constant one when a salted install lost its file.
+ * The database holds the accounts, so it is what is asked, and once decided
+ * the answer is written into it.
+ *
+ * A salt file that the database does not match is refused, never replaced and
+ * never worked around: deriving with any other salt seals new values that the
+ * right one cannot open.
+ */
+export async function settleKeySalt(database: Store): Promise<void> {
+	if (keySaltCache !== undefined) return;
+	const file = join(config().dataDir, SALT_FILE);
+	const salt = readSalt(file);
+	const row = (await database.get<{ value: string }>('SELECT value FROM meta WHERE key = ?', SALT_ROW))?.value;
+
+	if (row === CONSTANT) {
+		if (salt) {
 			throw new ConfigError(
-				`${file} is not 32 bytes written as hex. Restore it from a backup of the data directory ` +
-					'(a backup archive holds it beside heddohon.db). It is what every stored credential is ' +
-					'sealed with, so it cannot be replaced.'
+				`${file} is there, but this database was sealed with the constant salt of an install that ` +
+					'predates the file. Move the file out of HEDDOHON_DATA_DIR; it belongs to another install.'
 			);
 		}
-		return (keySaltCache = Buffer.from(hex, 'hex'));
+		keySaltCache = null;
+		return;
 	}
-	if (existsSync(join(dir, LEGACY_FILE))) return (keySaltCache = null);
-	// Neither file. An install from before the salt existed has data here; a new
-	// one does not. `setup.json` is written by the first setup, and accounts are
-	// sealed rows, so either one is proof of an install older than this file.
-	if (existsSync(join(dir, SETUP_FILE)) || storedAccounts(sqliteFile()) > 0) {
-		writeFileAtomically(join(dir, LEGACY_FILE), '');
-		log.warn('crypto-salt-kept-constant', { file: LEGACY_FILE });
-		return (keySaltCache = null);
+	if (row !== undefined) {
+		if (!salt) {
+			throw new ConfigError(
+				`${file} is missing, and this database was sealed with it. Restore it from a backup of the ` +
+					'data directory (a backup archive holds it beside heddohon.db). It cannot be replaced.'
+			);
+		}
+		if (ownRow(salt) !== row) {
+			throw new ConfigError(
+				`${file} is not the salt this database was sealed with. Restore the one from the same backup ` +
+					'as the database (a backup archive holds both).'
+			);
+		}
+		keySaltCache = salt;
+		return;
 	}
-	const salt = randomBytes(32);
-	writeFileAtomically(file, `${salt.toString('hex')}\n`);
-	log.info('crypto-salt-made', { file: SALT_FILE });
-	return (keySaltCache = salt);
+
+	// No record yet: the first start of this build. Every sealed value and
+	// digest belongs to an account (sessions, links, tokens and codes refer to
+	// one), so a database with no account has nothing a salt could lock out.
+	const accounts = (await database.get<{ count: number }>('SELECT COUNT(*) AS count FROM accounts'))?.count ?? 0;
+	let chosen: Buffer | null;
+	if (salt) {
+		// Made by the first version of this, which wrote no row.
+		chosen = salt;
+	} else if (accounts > 0) {
+		chosen = null;
+		log.warn('crypto-salt-kept-constant', { accounts });
+	} else {
+		chosen = randomBytes(32);
+		// The file before the row: a start that stops between them finds a salt
+		// and no row, and keeps the salt.
+		writeFileAtomically(file, `${chosen.toString('hex')}\n`);
+		log.info('crypto-salt-made', { file: SALT_FILE });
+	}
+	await database.run(
+		'INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT (key) DO NOTHING',
+		SALT_ROW,
+		chosen ? ownRow(chosen) : CONSTANT
+	);
+	keySaltCache = chosen;
+}
+
+/** The salt file, `null` when there is none, and refused when it cannot be read. */
+function readSalt(file: string): Buffer | null {
+	if (!existsSync(file)) return null;
+	const hex = readFileSync(file, 'utf8').trim();
+	if (!/^[0-9a-f]{64}$/.test(hex)) {
+		// Never replaced by a new one: a salt that cannot be read is a restore,
+		// not a fresh install. A new salt would make every sealed value and
+		// digest this install holds unreadable.
+		throw new ConfigError(
+			`${file} is not 32 bytes written as hex. Restore it from a backup of the data directory ` +
+				'(a backup archive holds it beside heddohon.db). It is what every stored credential is ' +
+				'sealed with, so it cannot be replaced.'
+		);
+	}
+	return Buffer.from(hex, 'hex');
 }
 
 /** Written beside the file and renamed over the target, as `saveSetup` does. */

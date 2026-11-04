@@ -193,7 +193,6 @@ export const SETUP_NAMES = [
 export type SetupName = (typeof SETUP_NAMES)[number];
 
 const SETUP_FILE = 'setup.json';
-export { SETUP_FILE };
 
 /** The data directory as the environment names it. The saved values are found through it, so it cannot be one of them. */
 function dataDirName(): string {
