@@ -1395,7 +1395,10 @@ describe('a stream that fails', () => {
 			await slider.focus();
 			await page.keyboard.press('Home');
 			await page.waitForFunction(() => document.querySelector('aside.panel .transport .play').getAttribute('aria-busy') === 'false', null, { timeout: 5000 });
-			assert.equal(await play.locator('.spinner').count(), 0);
+			// The spinner goes in the same update that clears `aria-busy`, and a slow
+			// runner read between the two. Waited for instead of sampled once: a
+			// spinner that never goes still fails, which is what this checks.
+			await page.waitForFunction(() => !document.querySelector('aside.panel .transport .play .spinner'), null, { timeout: 5000 });
 		} finally {
 			subsonic.state.ignoreRange = false;
 			subsonic.state.streamSlowMs = 0;
@@ -2858,13 +2861,31 @@ describe('the featured release', () => {
 			assert.deepEqual(await read(), { scale: 1.14, shade: 1 });
 			const panel = await page.locator('.featured').boundingBox();
 			await page.mouse.move(panel.x + panel.width * 0.75, panel.y + panel.height * 0.25);
-			await page.waitForTimeout(250);
+			// Read from the transition itself, paused and set partway. Sampled on the
+			// clock, a slow runner read it before the first frame (the zoom "snapped to
+			// 1.14") or after the last.
+			const midway = await page.evaluate(async () => {
+				const until = performance.now() + 1000;
+				while (performance.now() < until && document.getAnimations().length === 0) {
+					await new Promise((done) => requestAnimationFrame(done));
+				}
+				for (const animation of document.getAnimations()) {
+					animation.pause();
+					const end = Number(animation.effect?.getComputedTiming().endTime ?? 0);
+					if (end > 0) animation.currentTime = end / 2;
+				}
+				return {
+					scale: Number(getComputedStyle(document.querySelector('.featured .art')).scale),
+					shade: Number(getComputedStyle(document.querySelector('.featured .scrim')).opacity)
+				};
+			});
 			// It jumped straight to 1.2: the arrival animation, filled forwards,
 			// held `scale` and the transition never ran.
-			const midway = await read();
 			assert.ok(midway.scale > 1.14 && midway.scale < 1.195, `the zoom snapped to ${midway.scale}`);
 			assert.ok(midway.shade > 0.8 && midway.shade < 1, `the shade did not fade (${midway.shade})`);
-			await page.waitForTimeout(1500);
+			await page.evaluate(() => {
+				for (const animation of document.getAnimations()) animation.finish();
+			});
 			assert.deepEqual(await read(), { scale: 1.2, shade: 0.8 });
 		} finally {
 			await page.close();
@@ -4535,8 +4556,16 @@ describe('motion', () => {
 			assert.ok(Math.abs((await centreOf(marker)) - albums) < 1.5, 'the marker starts under Albums');
 
 			// The playlists page held back, so the marker has to move on the click and
-			// not wait for the page it is pointing at.
+			// not wait for the page it is pointing at. The mock's delay only holds an
+			// upstream call, and the listing may be served from the app's own cache,
+			// so the page's request is held here instead: this is the one that decides
+			// when the page arrives.
 			subsonic.state.delays.set('getPlaylists', 3000);
+			await page.route(/__data\.json/, async (route) => {
+				if (!route.request().url().includes('/playlists')) return route.continue();
+				await new Promise((done) => setTimeout(done, 3000));
+				await route.continue();
+			});
 			// Sampled every frame from the click: it has to pass through the space
 			// between the two, not appear at the other end.
 			await page.evaluate(() => {
