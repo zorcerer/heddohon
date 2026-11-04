@@ -59,10 +59,14 @@ const MAX_SESSIONS = 1000;
 /**
  * Session tokens, keyed by a digest of the username and password, so a
  * password change finds no entry and signs in afresh. The promise is held, so
- * concurrent callers share one login. A sign-in that answered no token, or
- * threw, is not kept: null is what a server that is not Navidrome answers to
- * `/auth/login`, and a throw is a refusal or a limit, so either held would
- * leave every later call without a session for half an hour.
+ * concurrent callers share one login.
+ *
+ * A sign-in that threw (a refusal or a limit) or that the server failed to
+ * answer (5xx) is dropped at once: held, it left every later call without a
+ * session for half an hour. Any other answer without a token is a server with
+ * no Navidrome API (Gonic, Airsonic: 404, or a page that is not JSON), and is
+ * held like a token. Dropped too, it sent a sign-in carrying the password
+ * before every native call (#271).
  */
 const sessions = new Map<string, { token: Promise<string | null>; until: number }>();
 
@@ -82,20 +86,22 @@ function session(cred: StoredCredential, fresh = false): Promise<string | null> 
 	const held = sessions.get(key);
 	if (!fresh && held && held.until > Date.now()) return held.token;
 
-	const token = login(username, password);
+	const answer = login(username, password);
+	const token = answer.then((signIn) => signIn.token);
 	sessions.delete(key);
 	sessions.set(key, { token, until: Date.now() + SESSION_TTL_MS });
 	if (sessions.size > MAX_SESSIONS) sessions.delete(sessions.keys().next().value!);
 	const drop = () => {
 		if (sessions.get(key)?.token === token) sessions.delete(key);
 	};
-	token.then((value) => {
-		if (value === null) drop();
+	answer.then((signIn) => {
+		if (signIn.failed) drop();
 	}, drop);
 	return token;
 }
 
-async function login(username: string, password: string): Promise<string | null> {
+/** A sign-in's token, null without one, and whether the server failed to answer rather than said no. */
+async function login(username: string, password: string): Promise<{ token: string | null; failed: boolean }> {
 	const response = await upstreamFetch(upstreamUrl(base(), '/auth/login'), {
 		method: 'POST',
 		headers: { 'content-type': 'application/json', accept: 'application/json' },
@@ -107,9 +113,10 @@ async function login(username: string, password: string): Promise<string | null>
 	if (response.status === 429) {
 		throw new UpstreamError('The music server is limiting sign-ins; try again shortly', 429);
 	}
+	const failed = response.status >= 500;
 	const body = (await readJson(response).catch(() => null)) as { token?: unknown } | null;
-	if (!response.ok || typeof body?.token !== 'string' || body.token === '') return null;
-	return body.token;
+	if (!response.ok || typeof body?.token !== 'string' || body.token === '') return { token: null, failed };
+	return { token: body.token, failed };
 }
 
 /**

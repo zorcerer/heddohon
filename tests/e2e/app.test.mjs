@@ -2536,24 +2536,45 @@ describe('playing things', () => {
 		}
 	});
 
-	test('a lookup after a sign-in that answered nothing gets a session again', async () => {
+	test('a lookup after a sign-in the music server failed to answer gets a session again', async () => {
 		// The lookup above left no session behind: its sign-in was limited, and
-		// a sign-in that fails is not kept. A server that is not Navidrome
-		// answers `/auth/login` with 404, and that null used to be held for
-		// half an hour, so every later call had no session and made no request.
-		const active = subsonic.state.navidrome;
+		// a sign-in that fails is not kept. A 503 from a Navidrome that is
+		// starting is not kept either: held, every later call for half an hour
+		// had no session and made no request.
 		const ids = ['s3b', 's0a', 's2b', 's4a', 's1b', 's5a', 's2a', 's0b'];
-		subsonic.state.navidrome = null;
+		subsonic.state.loginFailing = true;
 		try {
 			const fallback = await user.json('/api/songs', 'POST', { ids });
 			assert.equal(fallback.status, 200, 'the queue falls back to the per-id calls');
 		} finally {
-			subsonic.state.navidrome = active;
+			subsonic.state.loginFailing = false;
 		}
 		subsonic.calls.reset();
 		const again = await user.json('/api/songs', 'POST', { ids });
 		assert.equal(again.status, 200);
 		assert.equal(subsonic.calls.get('/api/song'), 1, 'the batch is asked for again');
+	});
+
+	test('a server that is not Navidrome is asked to sign in once, not before every call', async () => {
+		// An account of its own, so no token from the tests above is held for it.
+		subsonic.state.others.set('gonicuser', 'gonicpass');
+		const active = subsonic.state.navidrome;
+		subsonic.state.navidrome = null;
+		try {
+			const client = new Client(app.url);
+			assert.equal((await client.signIn({ username: 'gonicuser', password: 'gonicpass', backend: 'subsonic' })).status, 303);
+			subsonic.calls.reset();
+			const ids = ['s3b', 's0a', 's2b', 's4a', 's1b', 's5a', 's2a', 's0b'];
+			for (let i = 0; i < 3; i++) {
+				assert.equal((await client.json('/api/songs', 'POST', { ids })).status, 200);
+			}
+			// Each sign-in carries the password, so one per restored queue sent it
+			// three times here (#271).
+			assert.equal(subsonic.calls.get('/auth/login'), 1, `${subsonic.calls.get('/auth/login')} sign-ins for 3 lookups`);
+		} finally {
+			subsonic.state.navidrome = active;
+			subsonic.state.others.delete('gonicuser');
+		}
 	});
 
 	test('a server that is not Navidrome is read one track at a time', async () => {

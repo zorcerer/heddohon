@@ -242,7 +242,9 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 		folderArt: new Set(),
 		reissues: new Set(),
 		/** Answer `POST /auth/login` with 429, as Navidrome's limit on sign-ins does. */
-		loginLimited: false
+		loginLimited: false,
+		/** Answer `POST /auth/login` with 503, as a Navidrome that is starting does behind a proxy. */
+		loginFailing: false
 	};
 
 	const name = (i) => `Artist ${String(i).padStart(4, '0')}`;
@@ -352,6 +354,7 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 			// Before the credential check, as Navidrome's limit counts requests
 			// per address whatever they carry.
 			if (state.loginLimited) return reply(429, { error: 'Too Many Requests' });
+			if (state.loginFailing) return reply(503, { error: 'Service Unavailable' });
 			// The same accounts the Subsonic side signs in, and the same
 			// passwords: a Navidrome has one user list.
 			const expected = sent.username === state.username ? state.password : state.others.get(sent.username);
