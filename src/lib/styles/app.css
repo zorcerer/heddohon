@@ -147,6 +147,10 @@
 	--sheet-in: var(--dur-travel) var(--ease-out);
 	--sheet-out-duration: 300ms;
 	--sheet-out: var(--sheet-out-duration) var(--ease-exit);
+	/* The sheet turning into the dock, and back out of it. Matches `morph` in
+	   `client/motion.ts`, which runs the same trip through the Web Animations
+	   API, and the dock's fade is timed from it. */
+	--dur-morph: 440ms;
 }
 
 /* A damped spring (damping ratio 0.7), sampled: 4.6 percent past the target at

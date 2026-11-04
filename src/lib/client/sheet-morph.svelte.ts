@@ -75,7 +75,7 @@ function run(opening: boolean, pulled: number) {
 		return;
 	}
 
-	const duration = opening ? DUR.travel : 440;
+	const duration = opening ? DUR.travel : DUR.morph;
 	const sheet = wrapper.getBoundingClientRect();
 	const target = dock.getBoundingClientRect();
 	// Both covers are measured before anything is animated. With `fill: 'both'`
