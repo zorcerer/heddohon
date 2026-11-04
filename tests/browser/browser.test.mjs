@@ -5660,9 +5660,11 @@ describe('linking scrobblers from Settings', () => {
 
 describe('restoring the queue', () => {
 	/*
-	 * On Subsonic every queued id is a `getSong` call, eight at a time, and
+	 * On Subsonic every queued id was a `getSong` call, eight at a time, and
 	 * the player stayed empty until the last had answered. The current track
-	 * is looked up on its own first now.
+	 * is looked up on its own first; the rest of the queue is one `/api/song`
+	 * request on Navidrome. Both are held here, the queue's for longer, so the
+	 * track has to show before the queue answers.
 	 */
 	test('the current track shows before the rest of the queue, and a save made meanwhile keeps the whole queue', async () => {
 		const ids = Array.from({ length: 40 }, (_, i) => `s${i}a`);
@@ -5671,8 +5673,10 @@ describe('restoring the queue', () => {
 			headers: { origin: app.url }
 		});
 		assert.equal(put.status(), 200);
-		subsonic.state.delays.set('getSong', 600);
+		subsonic.state.delays.set('getSong', 300);
+		subsonic.state.delays.set('/api/song', 3000);
 		subsonic.calls.reset();
+		let restAnswered = false;
 
 		const { page, problems } = await watchedPage();
 		const saved = [];
@@ -5682,20 +5686,29 @@ describe('restoring the queue', () => {
 			}
 		});
 		try {
-			const whole = page.waitForResponse(
-				(response) => response.url().endsWith('/api/songs') && response.request().postDataJSON().ids.length === 40,
-				{ timeout: 15_000 }
-			);
+			const whole = page
+				.waitForResponse(
+					(response) => response.url().endsWith('/api/songs') && response.request().postDataJSON().ids.length === 40,
+					{ timeout: 15_000 }
+				)
+				.then((response) => {
+					restAnswered = true;
+					return response;
+				});
 			await page.goto(app.url + '/');
 			await page.waitForFunction(() => document.querySelector('aside.panel h2.title')?.textContent === 'Song 20a', null, {
 				timeout: 5000
 			});
+			// The 1-id lookup answered and the 40-id one has not: the whole
+			// queue is still out when the track is already on screen.
+			assert.equal(restAnswered, false, 'the rest of the queue answered before the current track showed');
 			assert.ok(subsonic.calls.get('getSong') < 41, `looked up ${subsonic.calls.get('getSong')} before showing`);
 
 			// A save while only the current track is in: it must carry the saved queue.
 			await page.getByRole('button', { name: 'Repeat: off' }).click();
 			await page.waitForTimeout(1500);
 			assert.ok(saved.length > 0, 'the repeat change was saved');
+			assert.equal(subsonic.calls.get('/api/song'), 1, 'the rest of the queue in one request');
 			assert.ok(subsonic.calls.get('getSong') < 41, 'the save landed before the rest of the queue');
 			assert.deepEqual(saved.at(-1).songIds, ids);
 			assert.equal(saved.at(-1).index, 20);

@@ -211,8 +211,9 @@ async function fetchWithinOrigin(url: string, init: RequestInit, path: string): 
 
 /**
  * Upstream calls one request may have in flight where it fans out.
- * `/api/songs` takes 1000 ids and Subsonic has no batch lookup, so an
- * unbounded `Promise.all` opened 1000 concurrent `getSong.view` calls.
+ * `/api/songs` takes 1000 ids, and a Subsonic server that is not Navidrome
+ * has no batch lookup, so an unbounded `Promise.all` opened 1000 concurrent
+ * `getSong.view` calls.
  */
 const UPSTREAM_FANOUT = 8;
 

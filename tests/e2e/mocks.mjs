@@ -232,7 +232,17 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 		smart: new Map(),
 		smartSongs: ['s5a', 's6a', 's7a'],
 		smartWrites: [],
-		smartMade: 0
+		smartMade: 0,
+		/**
+		 * Song ids whose art is the album's, not the file's, as a library with
+		 * a `cover.jpg` beside the tracks answers `hasCoverArt: false`. And
+		 * song ids whose record was first released in 1973 and reissued in
+		 * the file's own year, as a remaster carries both.
+		 */
+		folderArt: new Set(),
+		reissues: new Set(),
+		/** Answer `POST /auth/login` with 429, as Navidrome's limit on sign-ins does. */
+		loginLimited: false
 	};
 
 	const name = (i) => `Artist ${String(i).padStart(4, '0')}`;
@@ -300,8 +310,9 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 			discNumber: s.discNumber ?? 0,
 			year: 2000 + (i % 20),
 			releaseYear: 2000 + (i % 20),
+			...(state.reissues.has(s.id) ? { originalYear: 1973 } : {}),
 			genre: s.genre ?? '',
-			hasCoverArt: s.coverArt !== undefined,
+			hasCoverArt: !state.folderArt.has(s.id),
 			size: s.size,
 			suffix: s.suffix,
 			bitRate: s.bitRate,
@@ -338,6 +349,9 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 		}
 
 		if (url.pathname === '/auth/login' && req.method === 'POST') {
+			// Before the credential check, as Navidrome's limit counts requests
+			// per address whatever they carry.
+			if (state.loginLimited) return reply(429, { error: 'Too Many Requests' });
 			// The same accounts the Subsonic side signs in, and the same
 			// passwords: a Navidrome has one user list.
 			const expected = sent.username === state.username ? state.password : state.others.get(sent.username);
@@ -363,7 +377,9 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 		// Whose token it is, for what a user alone may read.
 		const who = nd.names.get(`nd-${bearer[1]}`) ?? state.username;
 		// Songs by id, as Navidrome 0.64.2 answers `/api/song`: the filter's
-		// value is a list of ids, and the answer is in the server's order.
+		// value is a list of ids, and the answer comes in the server's order,
+		// which is neither the request's nor the library's. Here it is the
+		// reverse, so a caller that keeps the order it asked in is visible.
 		if (url.pathname === '/api/song' && req.method === 'GET') {
 			let filter = {};
 			try {
@@ -377,8 +393,11 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 					const i = index(id);
 					return !state.missing.has(id) && !state.hidden.get(who)?.has(id) && i >= 0 && i < artistCount;
 				})
-				.map((id) => navSong(index(id), id.endsWith('b') ? 'b' : 'a'));
-			return reply(200, songs);
+				.map((id) => navSong(index(id), id.endsWith('b') ? 'b' : 'a'))
+				.reverse();
+			const delay = state.delays.get('/api/song') ?? 0;
+			const answer = () => reply(200, songs);
+			return delay > 0 ? new Promise((resolve) => setTimeout(() => resolve(answer()), delay)) : answer();
 		}
 		// Playlists as Navidrome 0.64.2 answers them, smart ones alone held here:
 		// another user's refused with 403, an unknown id 404, an operator it

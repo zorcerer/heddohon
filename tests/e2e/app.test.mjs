@@ -2442,7 +2442,8 @@ describe('playing things', () => {
 		subsonic.calls.reset();
 		// The current track first, then the rest, as the page asks for a
 		// restored queue. One batch covers the whole of it, and the queue keeps
-		// the order it was saved in, not the server's.
+		// the order it was saved in, not the server's: the mock answers a batch
+		// in the reverse of what was asked for.
 		const ids = ['s3b', 's0a', 's2b', 's4a', 's1b', 's5a', 's2a', 's0b', 's3a', 's4b', 's1a', 's5b'];
 		const response = await user.json('/api/songs', 'POST', { ids });
 		assert.equal(response.status, 200);
@@ -2459,6 +2460,99 @@ describe('playing things', () => {
 		assert.equal(songs[0].coverArt, 'mf-s3b');
 		assert.equal(songs[0].year, 2003);
 		assert.equal(songs[0].quality.format, 'flac');
+	});
+
+	test('a restored queue keeps the cover of a track that has only the album art', async () => {
+		// `hasCoverArt` speaks for the file alone. A library whose covers are a
+		// `cover.jpg` beside the tracks answers false for every one of them, and
+		// the queue showed no cover at all where a fresh load showed the album's.
+		subsonic.state.folderArt.add('s1a');
+		subsonic.calls.reset();
+		try {
+			const ids = ['s1a', 's0a', 's2b', 's4a', 's1b', 's5a', 's2a', 's0b'];
+			const { songs } = await (await user.json('/api/songs', 'POST', { ids })).json();
+			assert.deepEqual(
+				songs.map((song) => song.id),
+				ids
+			);
+			const [albumCovered, ownArt] = songs;
+			assert.equal(albumCovered.albumId, 'al1');
+			assert.equal(albumCovered.coverArt, 'al-al1', 'the album cover, which Subsonic builds from the album id');
+			assert.equal(ownArt.coverArt, 'mf-s0a', 'a file with its own art keeps its own cover');
+		} finally {
+			subsonic.state.folderArt.delete('s1a');
+		}
+	});
+
+	test('a restored queue dates a remaster by the file, as the per-id path does', async () => {
+		// `originalYear` is the record's first release. Subsonic sends the
+		// file's own `year`, so a reissue must not come back dated by its first
+		// release in a restored queue and by the edition everywhere else.
+		subsonic.state.reissues.add('s1a');
+		try {
+			const ids = ['s1a', 's0a', 's2b', 's4a', 's1b', 's5a', 's2a', 's0b'];
+			const { songs } = await (await user.json('/api/songs', 'POST', { ids })).json();
+			assert.equal(songs[0].year, 2001, 'the edition, not the 1973 first release');
+		} finally {
+			subsonic.state.reissues.delete('s1a');
+		}
+	});
+
+	test('a queue longer than one batch is read in chunks and keeps its order', async () => {
+		const ids = Array.from({ length: 120 }, (_, i) => `s${i}a`);
+		subsonic.calls.reset();
+		const { songs } = await (await user.json('/api/songs', 'POST', { ids })).json();
+		assert.equal(songs.length, ids.length);
+		assert.deepEqual(
+			songs.map((song) => song.id),
+			ids
+		);
+		assert.equal(subsonic.calls.get('/api/song'), 2, '100 ids a call');
+	});
+
+	test('a queue still restores one track at a time when Navidrome limits its sign-in', async () => {
+		// A refused token asks for a new sign-in, and Navidrome limits those per
+		// address. Thrown out of the batch, it answered 502 and the page dropped
+		// the whole queue; the per-id calls need no session.
+		const nd = subsonic.state.navidrome;
+		const acceptFrom = nd.acceptFrom;
+		subsonic.state.loginLimited = true;
+		nd.acceptFrom = nd.issued + 1;
+		subsonic.calls.reset();
+		try {
+			const ids = ['s3b', 's0a', 's2b', 's4a', 's1b', 's5a', 's2a', 's0b'];
+			const response = await user.json('/api/songs', 'POST', { ids });
+			assert.equal(response.status, 200, 'the queue restores');
+			const { songs } = await response.json();
+			assert.deepEqual(
+				songs.map((song) => song.id),
+				ids
+			);
+			assert.equal(subsonic.calls.get('getSong'), ids.length, 'one call per track');
+		} finally {
+			subsonic.state.loginLimited = false;
+			nd.acceptFrom = acceptFrom;
+		}
+	});
+
+	test('a lookup after a sign-in that answered nothing gets a session again', async () => {
+		// The lookup above left no session behind: its sign-in was limited, and
+		// a sign-in that fails is not kept. A server that is not Navidrome
+		// answers `/auth/login` with 404, and that null used to be held for
+		// half an hour, so every later call had no session and made no request.
+		const active = subsonic.state.navidrome;
+		const ids = ['s3b', 's0a', 's2b', 's4a', 's1b', 's5a', 's2a', 's0b'];
+		subsonic.state.navidrome = null;
+		try {
+			const fallback = await user.json('/api/songs', 'POST', { ids });
+			assert.equal(fallback.status, 200, 'the queue falls back to the per-id calls');
+		} finally {
+			subsonic.state.navidrome = active;
+		}
+		subsonic.calls.reset();
+		const again = await user.json('/api/songs', 'POST', { ids });
+		assert.equal(again.status, 200);
+		assert.equal(subsonic.calls.get('/api/song'), 1, 'the batch is asked for again');
 	});
 
 	test('a server that is not Navidrome is read one track at a time', async () => {
