@@ -6,7 +6,9 @@ import { accountOfHandle, MAX_BIO, pageOf, pageSettings } from '$lib/server/prof
 export const load: PageServerLoad = async ({ locals, params }) => {
 	const session = locals.session!;
 	const accountId = await accountOfHandle(params.handle, session.account.id);
-	const page = accountId ? await pageOf(accountId) : null;
+	// Signed in, so the user name may stand in for a display name, as it does
+	// on the account's own page. The public link does not carry it.
+	const page = accountId ? await pageOf(accountId, 'signed-in') : null;
 	if (!accountId || !page) error(404, 'Not found');
 	const own = accountId === session.account.id;
 	return {

@@ -219,11 +219,14 @@ function releaseGroups(artistId: string): Promise<ReleaseGroup[]> {
 				const date = group['first-release-date'];
 				const type = group['primary-type'];
 				const secondary = group['secondary-types'];
-				if (typeof group.id !== 'string' || typeof group.title !== 'string') continue;
+				if (typeof group.id !== 'string' || !MBID.test(group.id) || typeof group.title !== 'string') continue;
 				if (typeof date !== 'string' || !/^\d{4}-\d{2}(-\d{2})?$/.test(date)) continue;
 				if (type !== 'Album' && type !== 'EP') continue;
 				if (Array.isArray(secondary) && secondary.length > 0) continue;
-				groups.push({ id: group.id, title: group.title.slice(0, 300), date, type });
+				// The id is the one value from MusicBrainz that goes into an
+				// address (the shelf's link), so it is held to the same pattern as
+				// an artist's; a group without one is left out.
+				groups.push({ id: group.id.toLowerCase(), title: group.title.slice(0, 300), date, type });
 			}
 			if (listed.length < 100 || (page + 1) * 100 >= Number(body?.['release-group-count'] ?? 0)) break;
 		}

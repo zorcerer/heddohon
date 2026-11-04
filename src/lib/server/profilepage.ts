@@ -256,8 +256,18 @@ async function topArtists(accountId: string): Promise<TopArtist[]> {
 	return rows.map((row) => ({ id: row.id, name: row.name, plays: Number(row.plays) }));
 }
 
-/** The page of an account, as anyone allowed to see it is sent it. */
-async function viewOf(accountId: string): Promise<ProfileView | null> {
+/**
+ * The word a public page reads as where the account set no display name. The
+ * music server's user name signs in to the music server and to Heddohon, and
+ * the rest of a public page leaves out what does that (the handle, the account
+ * id), so a link held by anyone does not carry it either.
+ */
+const LISTENER = 'Listener';
+
+/** Who is looking: signed in here, or anyone holding the public link. */
+type PageViewer = 'signed-in' | 'public';
+
+async function viewOf(accountId: string, viewer: PageViewer): Promise<ProfileView | null> {
 	const database = await store();
 	const owner = await database.get<{ backend: string; username: string; handle: string | null; name: string | null; avatar_at: number | null }>(
 		`SELECT a.backend, a.username, p.handle, p.name, p.avatar_at FROM accounts a
@@ -272,7 +282,7 @@ async function viewOf(accountId: string): Promise<ProfileView | null> {
 	]);
 	return {
 		handle: owner.handle,
-		name: owner.name ?? owner.username,
+		name: owner.name ?? (viewer === 'signed-in' ? owner.username : LISTENER),
 		avatar: owner.avatar_at === null ? null : Number(owner.avatar_at),
 		backend: owner.backend as BackendKind,
 		bio: row?.bio ?? null,
@@ -295,7 +305,7 @@ async function viewOf(accountId: string): Promise<ProfileView | null> {
 /** The account's own page, made (empty) where it has none. */
 export async function ownPage(accountId: string): Promise<ProfileView> {
 	await ensureHandle(accountId);
-	return (await viewOf(accountId))!;
+	return (await viewOf(accountId, 'signed-in'))!;
 }
 
 /** The account a handle names, if `viewer` may see its page: its own, or a listed one. */
@@ -310,8 +320,9 @@ export async function accountOfHandle(handle: string, viewer: string): Promise<s
 	return row.account_id === viewer || Number(row.listed ?? 0) === 1 ? row.account_id : null;
 }
 
-export async function pageOf(accountId: string): Promise<ProfileView | null> {
-	return viewOf(accountId);
+/** A page as a viewer sees it; the public link is the default, since it is the one without a session. */
+export async function pageOf(accountId: string, viewer: PageViewer = 'public'): Promise<ProfileView | null> {
+	return viewOf(accountId, viewer);
 }
 
 /** The pages listed to the accounts here, for `/people`, by name. */
