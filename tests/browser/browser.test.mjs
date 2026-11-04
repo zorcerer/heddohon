@@ -5255,19 +5255,25 @@ describe('on a phone', () => {
 				assert.equal(midway.translate, 'none', 'the sheet is sliding, not morphing');
 				assert.ok(midway.shrinking, 'the sheet is not shrinking into the dock');
 
-				// The dock fades in once the sheet has gone. Fading under it
-				// finishes while the sheet still covers it, so the dock lands at
-				// full opacity in the frame the sheet disappears.
+				// The dock fades in from the frame the sheet goes, and the flying
+				// cover stays over the dock's art until that fade ends. Removed
+				// with the sheet, the cover blinked out while the dock was still
+				// at opacity 0, which read as the close redrawing itself.
 				const arriving = await page
 					.waitForFunction(() => {
 						const sheet = document.querySelector('.app > .player');
 						if (getComputedStyle(sheet).visibility !== 'hidden') return false;
 						const dock = document.querySelector('.phone-dock');
 						const style = getComputedStyle(dock);
-						return { visibility: style.visibility, opacity: Number(style.opacity) };
+						return {
+							visibility: style.visibility,
+							opacity: Number(style.opacity),
+							ghost: document.querySelectorAll('.hh-cover-ghost').length
+						};
 					}, null, { timeout: 2000 })
 					.then((handle) => handle.jsonValue());
 				assert.equal(arriving.visibility, 'visible', 'the dock is still hidden as the sheet goes');
+				assert.equal(arriving.ghost, 1, 'the cover left with the sheet, before the dock was in');
 				assert.ok(arriving.opacity < 1, `the dock is already full as the sheet goes (${arriving.opacity})`);
 
 				await page.waitForTimeout(700);
@@ -5277,10 +5283,11 @@ describe('on a phone', () => {
 						ghost: document.querySelectorAll('.hh-cover-ghost').length,
 						visibility: getComputedStyle(wrapper).visibility,
 						transform: getComputedStyle(wrapper).transform,
-						held: wrapper.classList.contains('morphing') || wrapper.classList.contains('parking')
+						held: wrapper.classList.contains('morphing') || wrapper.classList.contains('parking'),
+						dock: Number(getComputedStyle(document.querySelector('.phone-dock')).opacity)
 					};
 				});
-				assert.deepEqual(after, { ghost: 0, visibility: 'hidden', transform: 'none', held: false });
+				assert.deepEqual(after, { ghost: 0, visibility: 'hidden', transform: 'none', held: false, dock: 1 });
 				assert.equal(await page.locator('.phone-dock').isVisible(), true, 'the dock is not back');
 			} finally {
 				await page.close();
