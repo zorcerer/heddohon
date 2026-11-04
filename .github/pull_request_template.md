@@ -1,6 +1,6 @@
 <!-- For anything beyond a small fix, link the issue where the approach was agreed. See CONTRIBUTING.md. -->
 
-**What this changes**, for someone using Heddohon:
+<!-- What changes for someone using Heddohon: one bullet per change in behaviour, with its values. -->
 
 **How it was checked:**
 
