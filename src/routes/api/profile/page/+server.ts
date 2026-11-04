@@ -1,7 +1,7 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { destroyAllSessions } from '$lib/server/auth';
 import { UpstreamError } from '$lib/server/backends';
+import { refusedCredential } from '$lib/server/library';
 import {
 	cleanBio,
 	FAVOURITE_SLOTS,
@@ -69,11 +69,7 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
 		if (failed) return json({ error: 'That album is not in your library.', slot: failed.slot }, { status: 404 });
 	} catch (err) {
 		if (err instanceof UpstreamError) {
-			// A rejected credential ends the sessions, as `library()` does.
-			if (err.kind === 'auth') {
-				await destroyAllSessions(session.account.id);
-				error(401, 'Your music server credentials are no longer valid. Sign in again.');
-			}
+			await refusedCredential(locals, err);
 			error(502, 'The music server did not answer. Try again.');
 		}
 		throw err;

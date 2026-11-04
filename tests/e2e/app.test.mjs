@@ -3578,7 +3578,11 @@ describe('sessions ending', () => {
 			['/api/playlists/pl1/tracks', 'POST', { songIds: ['s1a'] }],
 			['/api/playlists/pl1/tracks', 'DELETE', { indices: [0] }],
 			['/api/playlists/pl1/export', 'GET', undefined],
-			['/api/download/s1a', 'GET', undefined]
+			['/api/download/s1a', 'GET', undefined],
+			// These four mapped the refusal by hand before the helper answered it.
+			['/api/playlists/smart', 'POST', { name: 'Refused', rules: { match: 'all', rules: [{ field: 'playcount', op: 'gt', value: 3 }], sort: 'lastplayed', order: 'desc', limit: 50 } }],
+			['/api/playlists/match', 'POST', { tracks: [{ title: 'Song', artist: 'Artist' }] }],
+			['/api/shares', 'POST', { kind: 'song', id: 's1a', days: 1 }]
 		];
 		// Play reports are only sent when the account asks for them, so it is on
 		// for this test whatever the ones before it left.
@@ -3593,9 +3597,14 @@ describe('sessions ending', () => {
 				const client = new Client(app.url);
 				await client.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' });
 				subsonic.state.password = 'changed-upstream';
+				// Navidrome keeps a session token past a password change, so the
+				// smart playlist call would go through on one held from earlier.
+				subsonic.state.navidrome.acceptFrom = subsonic.state.navidrome.issued + 1;
 				try {
-					if (data === undefined) await client.request(path, { method });
-					else await client.json(path, method, data);
+					const answer = data === undefined ? await client.request(path, { method }) : await client.json(path, method, data);
+					// The answer itself says so, or the player reads the refusal as the
+					// music server failing and keeps going (#270).
+					assert.equal(answer.status, 401, `${method} ${path} answered ${answer.status} for a refused credential`);
 					// Settings is answered from this database, so it says whether the
 					// session is still there without asking the music server. A handler
 					// that left it alive answers 200 here.

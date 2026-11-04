@@ -1,7 +1,6 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { backendFor, UpstreamError } from '$lib/server/backends';
-import { destroyAllSessions } from '$lib/server/auth';
 import {
 	DEFAULT_SHARE_LIFETIME,
 	ShareLimitError,
@@ -13,6 +12,7 @@ import {
 } from '$lib/server/shares';
 import { log } from '$lib/server/log';
 import { config } from '$lib/server/config';
+import { refusedCredential } from '$lib/server/library';
 
 /** The account's own live links, with what they point at. */
 export const GET: RequestHandler = async ({ locals }) => {
@@ -62,10 +62,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 		else if (!(await backend.getSongs(session.credential, [id]))[0]) error(404, missing);
 	} catch (err) {
 		if (err instanceof UpstreamError) {
-			if (err.kind === 'auth') {
-				await destroyAllSessions(session.account.id);
-				error(401, 'Your music server credentials are no longer valid. Please sign in again.');
-			}
+			await refusedCredential(locals, err);
 			error(err.kind === 'not_found' ? 404 : 502, err.kind === 'not_found' ? missing : err.message);
 		}
 		throw err;

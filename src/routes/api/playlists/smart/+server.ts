@@ -1,8 +1,8 @@
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { backendFor, UpstreamError } from '$lib/server/backends';
-import { destroyAllSessions } from '$lib/server/auth';
 import { checkRules, toCriteria } from '$lib/smartrules';
+import { refusedCredential } from '$lib/server/library';
 
 const MAX_NAME = 200;
 
@@ -29,10 +29,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 		return json({ id, name }, { status: 201 });
 	} catch (err) {
 		if (err instanceof UpstreamError) {
-			if (err.kind === 'auth') {
-				await destroyAllSessions(session.account.id);
-				error(401, 'Your music server credentials are no longer valid. Sign in again.');
-			}
+			await refusedCredential(locals, err);
 			error(err.kind === 'forbidden' ? 403 : err.status === 404 ? 404 : 502, err.message);
 		}
 		throw err;

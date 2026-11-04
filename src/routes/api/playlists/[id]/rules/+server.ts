@@ -1,9 +1,9 @@
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { backendFor, UpstreamError } from '$lib/server/backends';
-import { destroyAllSessions } from '$lib/server/auth';
 import { forgetSharedItems } from '$lib/server/shares';
 import { checkRules, toCriteria } from '$lib/smartrules';
+import { refusedCredential } from '$lib/server/library';
 
 /**
  * Replaces a smart playlist's rules: the body is `{ rules }`, as for a new
@@ -32,10 +32,7 @@ export const PUT: RequestHandler = async ({ locals, params, request }) => {
 		return json({ id: params.id, rules: checked.rules });
 	} catch (err) {
 		if (err instanceof UpstreamError) {
-			if (err.kind === 'auth') {
-				await destroyAllSessions(session.account.id);
-				error(401, 'Your music server credentials are no longer valid. Sign in again.');
-			}
+			await refusedCredential(locals, err);
 			error(err.kind === 'forbidden' ? 403 : err.status === 404 ? 404 : 502, err.message);
 		}
 		throw err;
