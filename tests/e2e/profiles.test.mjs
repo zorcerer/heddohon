@@ -59,6 +59,8 @@ test('an account has an empty page of its own, seen by nobody else', async () =>
 	assert.deepEqual(own.page.favourites, [null, null, null, null]);
 	assert.deepEqual(own.settings, { listed: false, recent: false, top: false, linkMadeAt: null });
 	assert.equal((await owner.page(`/people/${handle}`)).response.status, 200);
+	// Signed in, the user name stands in for a display name that is not set.
+	assert.match((await owner.page(`/people/${handle}`)).html, /testuser/);
 	assert.equal((await other.page(`/people/${handle}`)).response.status, 404);
 	assert.equal((await other.request(`/api/people/${handle}/cover/f0`)).status, 404);
 });
@@ -143,6 +145,10 @@ test('the public link shows the page to anyone, until it is withdrawn or replace
 	// Nothing leads into the library, and the handle is not on it.
 	assert.doesNotMatch(shown.html, /href="\/albums\//);
 	assert.doesNotMatch(shown.html, new RegExp(handle));
+	// Nor is the user name, which signs in to the music server and here: a page
+	// without a display name reads as a listener to anyone holding the link.
+	assert.doesNotMatch(shown.html, /testuser/, 'the public link carries the user name');
+	assert.match(shown.html, /Listener/, 'the public link does not read as a listener');
 	assert.equal((await visitor.request(`${path}/cover/f2`)).status, 200);
 	assert.equal((await visitor.request(`${path}/cover/f1`)).status, 404);
 	assert.equal((await visitor.request(`${path}/avatar`)).status, 404);

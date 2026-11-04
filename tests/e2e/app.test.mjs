@@ -4374,7 +4374,7 @@ describe('new releases', () => {
 	 * What the home page's data says of the shelf: its releases' groups, in
 	 * order. Streamed, so drawn in the browser and not in the server's HTML.
 	 */
-	const shelf = async (client) => [...(await (await client.request('/__data.json')).text()).matchAll(/release-group\/(rg-[\w-]+)/g)].map((m) => m[1]);
+	const shelf = async (client) => [...(await (await client.request('/__data.json')).text()).matchAll(/release-group\/([\w-]+)/g)].map((m) => m[1]);
 
 	test('is off unless the server allows it, and then until an account turns it on', async () => {
 		assert.doesNotMatch((await user.page('/settings?tab=history')).html, /New releases on the home page/);
@@ -4401,8 +4401,10 @@ describe('new releases', () => {
 		const found = await shelf(listener);
 		assert.ok(Date.now() - started < 2000, `the first visit took ${Date.now() - started}ms`);
 		// The announced EP first, then the album out 20 days ago; not the one the
-		// library has, the live one, the old one or the single.
-		assert.deepEqual(found, ['rg-3-soon', 'rg-0-new']);
+		// library has, the live one, the old one or the single. And not the group
+		// MusicBrainz gave without an id: its id goes into the shelf's link.
+		assert.deepEqual(found, ['33333333-3333-4333-8333-000000000001', 'a10c0000-0000-4000-8000-000000000001']);
+		assert.ok(!found.includes('rg-not-an-id'), 'a release group with no MusicBrainz id was listed');
 
 		// Artist 0000's id came from the music server; only Artist 0003 was searched for.
 		const searches = musicbrainz.requests.filter((request) => request.path === '/ws/2/artist');
@@ -4412,7 +4414,7 @@ describe('new releases', () => {
 		assert.ok(gaps.every((gap) => gap >= 1000), `requests ${gaps.join(', ')}ms apart`);
 
 		const asked = musicbrainz.requests.length;
-		assert.deepEqual(await shelf(listener), ['rg-3-soon', 'rg-0-new']);
+		assert.deepEqual(await shelf(listener), ['33333333-3333-4333-8333-000000000001', 'a10c0000-0000-4000-8000-000000000001']);
 		assert.equal(musicbrainz.requests.length, asked, 'the shelf was not held');
 	});
 
@@ -4438,7 +4440,7 @@ describe('new releases', () => {
 		const listener = new Client(on.url);
 		await listener.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' });
 		const started = Date.now();
-		assert.deepEqual(await shelf(listener), ['rg-3-soon', 'rg-0-new']);
+		assert.deepEqual(await shelf(listener), ['33333333-3333-4333-8333-000000000001', 'a10c0000-0000-4000-8000-000000000001']);
 		assert.ok(Date.now() - started < 2000, `the visit after a restart took ${Date.now() - started}ms`);
 		// What MusicBrainz said is kept too: the new shelf asked it nothing.
 		for (let wait = 0; wait < 40 && JSON.parse(readFileSync(file, 'utf8')).shelves[0][1] === twoDaysAgo; wait++) {

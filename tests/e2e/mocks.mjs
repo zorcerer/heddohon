@@ -1246,15 +1246,17 @@ export async function startMusicBrainz() {
 	});
 	const groups = {
 		'b09c8a50-7bfa-434f-a2cf-f9bf9f6f91a5': () => [
-			group('rg-0-new', 'Fresh Start', day(-20)),
+			group('a10c0000-0000-4000-8000-000000000001', 'Fresh Start', day(-20)),
 			// In the library already, live, and old.
-			group('rg-0-owned', 'Album 0', day(-5)),
-			group('rg-0-live', 'Live at Home', day(-3), 'Album', ['Live']),
-			group('rg-0-old', 'Debut', '2001-05-01')
+			group('a10c0000-0000-4000-8000-000000000002', 'Album 0', day(-5)),
+			group('a10c0000-0000-4000-8000-000000000003', 'Live at Home', day(-3), 'Album', ['Live']),
+			group('a10c0000-0000-4000-8000-000000000004', 'Debut', '2001-05-01'),
+			// Not a MusicBrainz id, so not one for the shelf's link.
+			group('rg-not-an-id', 'Not An Id', day(-1))
 		],
 		'33333333-3333-4333-8333-333333333333': () => [
-			group('rg-3-soon', 'Next One', day(40), 'EP'),
-			group('rg-3-single', 'A Single', day(-2), 'Single')
+			group('33333333-3333-4333-8333-000000000001', 'Next One', day(40), 'EP'),
+			group('33333333-3333-4333-8333-000000000002', 'A Single', day(-2), 'Single')
 		]
 	};
 	const server = await listen((req, res) => {

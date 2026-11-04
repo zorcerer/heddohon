@@ -1142,8 +1142,10 @@ each on, the albums it played lately and its most played artists of the last
   and artists do not link into the library.
 - **The public link** is `hhpr_` and 43 random characters, stored as an HMAC
   under a key of its own, shown once as it is made; a new one replaces it.
-  The public page has the owner's name (the user name where no display name
-  is set), picture, bio, albums and the lists the owner turned on, with
+  The public page has the owner's display name, `Listener` where none is set
+  (the user name signs in to the music server and to Heddohon, so a link held
+  by anyone does not carry it), picture, bio, albums and the lists the owner
+  turned on, with
   `noindex`, without the handle and without links into the library. Its
   covers carry `private, max-age=300`, its picture the same.
 - **What ends it.** A password change seen at sign-in (on Subsonic, also how
