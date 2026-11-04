@@ -66,6 +66,7 @@ export function morphSheet(opening: boolean) {
 }
 
 function run(opening: boolean, pulled: number) {
+	const mine = ++generation;
 	const wrapper = document.querySelector<HTMLElement>('.app > .player');
 	const panel = wrapper?.querySelector<HTMLElement>('aside.panel');
 	const dock = document.querySelector<HTMLElement>('.phone-dock');
@@ -115,24 +116,37 @@ function run(opening: boolean, pulled: number) {
 
 	// The cover, between the top of the sheet and the thumbnail in the dock.
 	const image = coverIn(sheetArt) ?? coverIn(dockArt);
-	// The sheet's own cover is hidden for the whole morph, so the flying one is
-	// the only cover on screen. The fade alone left it showing, squashed, for
-	// the first 30 percent of a close (down to 0.32 of its height at 120ms) and
-	// from halfway through an open.
-	if (sheetArt) {
-		hiddenArt = sheetArt;
-		sheetArt.style.visibility = 'hidden';
+	const picture = image ? new Image() : null;
+	if (picture && image) {
+		picture.src = image.currentSrc || image.src;
+		picture.alt = '';
 	}
-	if (sheetArt && big && image) {
+	// The sheet's own cover is hidden for the morph, so the flying one is the
+	// only cover on screen. The fade alone left it showing, squashed, for the
+	// first 30 percent of a close (down to 0.32 of its height at 120ms) and
+	// from halfway through an open.
+	//
+	// Hidden once the flying cover holds a decoded frame, not before: a new
+	// `img` draws nothing until it has one, and hiding the sheet's at the same
+	// moment left the artwork blank for the first frames. Until the decode
+	// lands the sheet's cover is still there to be seen, and on the way down
+	// the two are in the same place.
+	if (sheetArt && picture) {
+		const art = sheetArt;
+		const decoded = () => {
+			if (mine !== generation) return;
+			hiddenArt = art;
+			art.style.visibility = 'hidden';
+		};
+		void picture.decode().then(decoded, decoded);
+	}
+	if (sheetArt && big && picture) {
 		const start = opening ? small : new DOMRect(big.left, big.top + pulled, big.width, big.height);
 		const end = opening ? big : small;
 		ghost = document.createElement('div');
 		ghost.setAttribute('aria-hidden', 'true');
 		ghost.className = 'hh-cover-ghost';
 		const inside = document.createElement('div');
-		const picture = document.createElement('img');
-		picture.src = image.currentSrc || image.src;
-		picture.alt = '';
 		const layer = document.createElement('span');
 		inside.append(picture, layer);
 		ghost.append(inside);
@@ -196,7 +210,6 @@ function run(opening: boolean, pulled: number) {
 	// page that stops drawing frames (a backgrounded tab, or headless WebKit,
 	// where this was found) leaves it pending, and a sheet held mid-morph
 	// cannot be pressed.
-	const mine = ++generation;
 	const done = () => {
 		if (mine === generation) finish(opening);
 	};

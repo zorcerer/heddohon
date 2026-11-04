@@ -5255,6 +5255,19 @@ describe('on a phone', () => {
 				assert.equal(midway.translate, 'none', 'the sheet is sliding, not morphing');
 				assert.ok(midway.shrinking, 'the sheet is not shrinking into the dock');
 
+				// The flying cover has its picture and its own layer from the
+				// first frame. Without the layer WebKit drew nothing for the
+				// first frames of the morph, which on a phone was the art
+				// flashing to the page's ground.
+				const flying = await page.evaluate(() => {
+					const img = document.querySelector('.hh-cover-ghost img');
+					if (!img) return null;
+					return { decoded: img.complete && img.naturalWidth > 0, willChange: getComputedStyle(img).willChange };
+				});
+				assert.ok(flying, 'no cover flying to the dock');
+				assert.equal(flying.decoded, true, 'the flying cover had no picture yet');
+				assert.match(flying.willChange, /filter/, 'the flying cover has no layer of its own');
+
 				// The dock fades in under the sheet, so it is already full when
 				// the sheet lands: the fade ends as the morph does. It used to
 				// start after the sheet had gone, and the dock came up from
