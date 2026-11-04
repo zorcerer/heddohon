@@ -307,6 +307,14 @@ later, the first to sign the link token it sends through last.fm.
   from Heddohon's address, so a token per request would lock the endpoint.
   A password change misses the cache and signs in afresh. A token Navidrome
   refuses is replaced once.
+- **A restored queue reads Navidrome's own `/api/song`**, through the same
+  session token, for up to 100 song ids a request (`songsByIds` in
+  `navidrome.ts`): 1000 saved tracks cost one sign-in and 10 requests instead
+  of 1000 `getSong` calls. The ids are the account's own saved queue and the
+  answer is read with the account's token; nothing from it is stored. A batch
+  that fails, and a sign-in Navidrome refuses or limits, falls back to the
+  per-id Subsonic calls. The endpoint is Navidrome's interface API, not a
+  documented one, checked against 0.64.2 on 2026-11-04.
 - **The Last.fm return is a GET that changes state upstream.** last.fm sends
   the browser to `/settings/lastfm` with its token, beside Navidrome's signed
   link token (`uid`, valid 5 minutes, naming the Navidrome user) and a `state`

@@ -289,14 +289,32 @@ function toSong(raw: Record<string, any>): Song {
  * The names differ from Subsonic's child: `trackNumber`, `discNumber` with 0
  * for none, `hasCoverArt` instead of a cover id, the listener's annotations
  * present only when set, and the ReplayGain values flat rather than under
- * `replayGain`. The cover id is the one Subsonic builds for the track
- * (`mf-` and the song's id), which Navidrome answers `getCoverArt` for.
+ * `replayGain`.
+ *
+ * `hasCoverArt` says only whether the file carries its own picture, so the
+ * cover is built the way Navidrome's Subsonic answer builds it: the file's
+ * art, else the disc's, else the album's. This answer does not say whether
+ * the album has art, so a library whose albums carry none asks for a cover
+ * that is not there; the cover route answers that as it answers any cover the
+ * music server does not have, and nothing is written to the cache for it.
+ *
+ * `year` is the file's own year, which is the value Subsonic sends as `year`.
+ * `originalYear` is the record's first release, so preferring it dated a 2011
+ * remaster of a 1973 album 1973 in a restored queue and 2011 on the per-id
+ * path.
  */
+function coverArtOf(raw: Record<string, unknown>, id: string, disc: number | null): string | null {
+	if (raw.hasCoverArt === true) return `mf-${id}`;
+	const albumId = typeof raw.albumId === 'string' && raw.albumId !== '' ? raw.albumId : null;
+	if (albumId === null) return null;
+	return disc !== null && disc > 0 ? `dc-${albumId}:${disc}` : `al-${albumId}`;
+}
+
 function fromNative(raw: Record<string, unknown>): Song {
 	const id = String(raw.id);
 	const disc = numberOrNull(raw.discNumber);
 	const year =
-		[raw.originalYear, raw.releaseYear, raw.year]
+		[raw.year, raw.releaseYear, raw.originalYear]
 			.map((candidate) => numberOrNull(candidate))
 			.find((candidate) => candidate !== null && candidate > 0) ?? null;
 	const text = (value: unknown) => (typeof value === 'string' && value !== '' ? value : null);
@@ -313,7 +331,7 @@ function fromNative(raw: Record<string, unknown>): Song {
 		disc: disc !== null && disc > 0 ? disc : null,
 		year,
 		genre: text(raw.genre),
-		coverArt: raw.hasCoverArt === true ? `mf-${id}` : null,
+		coverArt: coverArtOf(raw, id, disc),
 		starred: raw.starred === true,
 		starredAt: starredAt(raw.starredAt),
 		playCount: numberOrNull(raw.playCount),
@@ -903,11 +921,11 @@ export const subsonicBackend: MediaBackend = {
 	async getSongs(cred, ids) {
 		// Navidrome answers many ids in one request, so a queue restored on it
 		// costs one request per 100 tracks instead of one per track. Below
-		// `NATIVE_BATCH` ids the per-id calls are no more requests, and a login
-		// Navidrome limits per address is not spent on them: a single lookup,
-		// as the plugin makes for a reported play, keeps answering from the
-		// Subsonic API, which is what refuses a credential that no longer
-		// signs in.
+		// `NATIVE_BATCH` ids the Subsonic API answers instead: a session with
+		// Navidrome costs a sign-in against a limit per address that every
+		// account here shares, and a single lookup, as the plugin makes for a
+		// reported play, is not worth one. The Subsonic call is also what
+		// refuses a credential that no longer signs in.
 		//
 		// An id the batch leaves out is a track removed from the library, or
 		// the whole list on a server with no batch lookup; both are looked up
@@ -915,11 +933,20 @@ export const subsonicBackend: MediaBackend = {
 		// Jellyfin leaves it out of a batch. Rethrown, it rejected the lookup
 		// and a saved queue holding one deleted track did not restore. Any
 		// other failure still rejects.
+		//
+		// A sign-in that is refused or limited reaches here as a thrown
+		// `UpstreamError` from `songsByIds`, before any song is read. The
+		// per-id calls below need no session, so the queue still restores;
+		// they are what reports a credential the music server will not take.
 		const found = new Map<string, Song>();
 		if (ids.length >= NATIVE_BATCH) {
-			for (const raw of (await songsByIds(cred, ids)) ?? []) {
-				const song = fromNative(raw);
-				found.set(song.id, song);
+			try {
+				for (const raw of (await songsByIds(cred, ids)) ?? []) {
+					const song = fromNative(raw);
+					found.set(song.id, song);
+				}
+			} catch (err) {
+				if (!(err instanceof UpstreamError)) throw err;
 			}
 		}
 

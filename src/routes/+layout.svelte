@@ -276,9 +276,10 @@
 	 * account to another device. Only ids are stored, and the metadata is
 	 * fetched here, so a re-tagged track shows its current details.
 	 *
-	 * The current track is looked up first and shown, and the rest follows. On
-	 * Subsonic every id is its own upstream call, eight at a time, so a queue
-	 * of 1000 tracks held the player empty until the last call answered.
+	 * The current track is looked up first and shown, and the rest follows. A
+	 * queue of 1000 tracks held the player empty until the last call answered,
+	 * every id being its own upstream call, eight at a time; on Navidrome the
+	 * rest is now one request per 100 tracks.
 	 *
 	 * A queue the listener starts while the lookups are out wins: the saved one
 	 * is put in only if the player still holds what it held at the start.

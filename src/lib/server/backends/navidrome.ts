@@ -59,7 +59,10 @@ const MAX_SESSIONS = 1000;
 /**
  * Session tokens, keyed by a digest of the username and password, so a
  * password change finds no entry and signs in afresh. The promise is held, so
- * concurrent callers share one login, and a rejected one is dropped.
+ * concurrent callers share one login. A sign-in that answered no token, or
+ * threw, is not kept: null is what a server that is not Navidrome answers to
+ * `/auth/login`, and a throw is a refusal or a limit, so either held would
+ * leave every later call without a session for half an hour.
  */
 const sessions = new Map<string, { token: Promise<string | null>; until: number }>();
 
@@ -83,9 +86,12 @@ function session(cred: StoredCredential, fresh = false): Promise<string | null> 
 	sessions.delete(key);
 	sessions.set(key, { token, until: Date.now() + SESSION_TTL_MS });
 	if (sessions.size > MAX_SESSIONS) sessions.delete(sessions.keys().next().value!);
-	token.catch(() => {
+	const drop = () => {
 		if (sessions.get(key)?.token === token) sessions.delete(key);
-	});
+	};
+	token.then((value) => {
+		if (value === null) drop();
+	}, drop);
 	return token;
 }
 
@@ -154,10 +160,13 @@ const SONGS_PER_CALL = 100;
  * `{"id": ["a", "b"]}` answers with both, where the `{"in": [...]}` form
  * answers 500 from the SQL layer. Measured on Navidrome 0.64.2, 2026-11-04.
  *
- * Null when this server is not Navidrome, or answered in a shape this cannot
- * read, so the caller takes the Subsonic calls instead. An id the library no
- * longer holds is left out, as a batch on Jellyfin leaves it out. The answer
- * is in the server's own order, so the caller puts the songs in its own.
+ * Null when this server is not Navidrome, when a chunk answers a status this
+ * cannot read, or when the answer is not a list of songs, so the caller takes
+ * the Subsonic calls instead. A sign-in Navidrome refuses or limits is thrown
+ * by `login`, not turned into null: the caller decides what to do with it. An
+ * id the library no longer holds is left out, as a batch on Jellyfin leaves it
+ * out. The answer is in the server's own order, so the caller puts the songs
+ * in its own.
  */
 export async function songsByIds(
 	cred: StoredCredential,
