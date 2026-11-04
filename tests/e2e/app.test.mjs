@@ -2928,6 +2928,19 @@ describe('covers', () => {
 		assert.deepEqual(cached, streamed);
 	});
 
+	test('a cover a browser says came from another site is served but not stored', async () => {
+		subsonic.calls.reset();
+		const cross = await user.request('/api/cover/al-9?size=192', { headers: { 'sec-fetch-site': 'cross-site' } });
+		assert.equal(cross.status, 200, 'the cover is not refused');
+		await cross.arrayBuffer();
+		// The write to disk happens after the response.
+		await new Promise((done) => setTimeout(done, 300));
+		const before = subsonic.calls.get('getCoverArt');
+		const again = await user.request('/api/cover/al-9?size=192');
+		await again.arrayBuffer();
+		assert.equal(subsonic.calls.get('getCoverArt'), before + 1, 'the cross-site cover was stored');
+	});
+
 	test('a cover the music server calls HTML is not served as HTML', async () => {
 		const response = await user.request('/api/cover/html?size=256');
 		assert.equal(response.headers.get('content-type'), 'application/octet-stream');

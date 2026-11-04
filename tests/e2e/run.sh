@@ -115,6 +115,9 @@ expect_eq 'anonymous API answers 401' "$(http "$ANON" GET /api/settings)" 401
 hardened 'gate 401'
 expect_eq 'unknown page answers 404' "$(http "$ANON" GET /login/nothing-here)" 404
 hardened '404'
+expect_eq 'trailing slash answers 308' "$(http "$ANON" GET /albums/)" 308
+expect_eq 'trailing slash keeps the path' "$(header location)" /albums
+hardened 'trailing-slash redirect'
 
 echo '# Sign-in'
 expect_eq 'wrong password answers 401' "$(login "$A" subsonic testuser wrong)" 401

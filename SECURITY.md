@@ -1542,6 +1542,13 @@ Covers are cached under `$HEDDOHON_DATA_DIR/covers` (see
   outlives its request. Stopping it, or `destroyAllSessions` for the account
   (a rejected or changed credential), ends it. On Jellyfin it fills only the
   administrator's own entries, since the key carries the viewer.
+- **A request from another site is served, not stored.** `Sec-Fetch-Site`
+  decides: `same-origin`, `none` (a typed or bookmarked navigation) and a
+  request without the header are kept; `cross-site` and `same-site` are not.
+  The cookie is `SameSite=Lax`, so a cross-site navigation arrives signed in,
+  and another site could otherwise fill the cache with covers of its choosing.
+  The cover is still served: refusing it would answer whether the visitor is
+  signed in.
 - **Kept filled, the server starts a fill itself.** An administrator can switch
   on "Keep it filled" (`PUT /api/cover-fill`, the same gate). The server then
   starts a fill once a day and after a restart, with no request behind it, by
@@ -1800,7 +1807,6 @@ session token and any `u`, `t`, `s` or `p` query parameter.
   Trusted Web Activity) and takes passkeys as Chrome does.
 - **Upstream redirects from http to https** are followed to any port on the
   same host, so that Jellyfin's 8096 to 8920 upgrade works.
-- **`GET /api/cover/[id]`** writes to the cache and sits outside the origin check.
 - **The scrypt salt** is a constant shared by every deployment.
 - **A cover that misses the cache** is read into memory before its size is checked.
 - **A listen-together link can still be filled for visitors without an
