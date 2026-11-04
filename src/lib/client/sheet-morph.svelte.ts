@@ -28,11 +28,38 @@ import { takeRelease } from './sheet.svelte';
 export const sheetMorph = $state<{ phase: 'morphing' | 'parking' | null }>({ phase: null });
 
 let running: Animation[] = [];
+/** The flying cover's own animations, which outlive the rest of a close. */
+let flying: Animation[] = [];
 let ghost: HTMLElement | null = null;
 let hiddenArt: HTMLElement | null = null;
+let handover: ReturnType<typeof setTimeout> | null = null;
 
 function cleanUp() {
+	if (handover !== null) {
+		clearTimeout(handover);
+		handover = null;
+	}
 	for (const animation of running) animation.cancel();
+	running = [];
+	flying = [];
+	ghost?.remove();
+	ghost = null;
+	if (hiddenArt) hiddenArt.style.visibility = '';
+	hiddenArt = null;
+}
+
+/**
+ * The flying cover goes once the dock's own art is in.
+ *
+ * It is held past the morph by the dock's fade, which starts as the sheet
+ * goes (`--dur-morph`, then `--dur-hover`). Removed with the sheet, it
+ * vanished while the dock was still at opacity 0, and the cover blinked out
+ * and back in.
+ */
+function releaseGhost() {
+	handover = null;
+	for (const animation of flying) animation.cancel();
+	flying = [];
 	running = [];
 	ghost?.remove();
 	ghost = null;
@@ -75,7 +102,7 @@ function run(opening: boolean, pulled: number) {
 		return;
 	}
 
-	const duration = opening ? DUR.travel : 440;
+	const duration = opening ? DUR.travel : DUR.morph;
 	const sheet = wrapper.getBoundingClientRect();
 	const target = dock.getBoundingClientRect();
 	// Both covers are measured before anything is animated. With `fill: 'both'`
@@ -160,7 +187,7 @@ function run(opening: boolean, pulled: number) {
 		]) {
 			layer.style.setProperty(name, drawn.getPropertyValue(name));
 		}
-		running.push(
+		flying.push(
 			picture.animate(turn({ filter: 'none' }, { filter }), options),
 			layer.animate(turn({ opacity: 0 }, { opacity: 1 }), options)
 		);
@@ -172,25 +199,35 @@ function run(opening: boolean, pulled: number) {
 			inside.style.setProperty('mask-image', mask);
 			inside.style.setProperty('-webkit-mask-image', mask);
 			const size = (value: string): Keyframe => ({ maskSize: value, webkitMaskSize: value });
-			running.push(inside.animate(turn(size('100% 200%'), size('100% 100%')), options));
+			flying.push(inside.animate(turn(size('100% 200%'), size('100% 100%')), options));
 		}
 		// The sheet's cover rounds its top corners only, on the image itself.
 		const bigRadius = getComputedStyle(sheetArt.querySelector('img') ?? sheetArt).borderRadius;
 		const smallRadius = getComputedStyle(dockArt).borderRadius;
-		const box = (rect: DOMRect, r: string) => ({
+		const box = (rect: DOMRect, r: string, shadow: string) => ({
 			left: `${rect.left}px`,
 			top: `${rect.top}px`,
 			width: `${rect.width}px`,
 			height: `${rect.height}px`,
-			borderRadius: r
+			borderRadius: r,
+			boxShadow: shadow
 		});
-		running.push(
+		// The shadow goes with the size: the dock's art carries a smaller one,
+		// and left as it was, the cover's shadow shrank in one frame as it
+		// landed.
+		const ghostShadow = getComputedStyle(ghost).boxShadow;
+		const dockShadow = getComputedStyle(dockArt).boxShadow;
+		flying.push(
 			ghost.animate(
-				opening ? [box(start, smallRadius), box(end, bigRadius)] : [box(start, bigRadius), box(end, smallRadius)],
+				opening
+					? [box(start, smallRadius, dockShadow), box(end, bigRadius, ghostShadow)]
+					: [box(start, bigRadius, ghostShadow), box(end, smallRadius, dockShadow)],
 				options
 			)
 		);
 	}
+
+	running.push(...flying);
 
 	// Finished by the animation, or by the clock if the animation is held up. A
 	// page that stops drawing frames (a backgrounded tab, or headless WebKit,
@@ -228,11 +265,15 @@ function finish(opening: boolean) {
 	// Waiting a frame for it would never end where no frames are drawn.
 	sheetMorph.phase = 'parking';
 	void tick().then(() => {
-		cleanUp();
+		// The sheet's own animations go; the flying cover stays for the dock's
+		// fade, which starts as the sheet goes.
+		for (const animation of running) if (!flying.includes(animation)) animation.cancel();
+		running = [...flying];
 		if (wrapper) {
 			wrapper.style.transformOrigin = '';
 			void getComputedStyle(wrapper).visibility;
 		}
 		if (sheetMorph.phase === 'parking') sheetMorph.phase = null;
+		if (ghost) handover = setTimeout(releaseGhost, DUR.hover);
 	});
 }

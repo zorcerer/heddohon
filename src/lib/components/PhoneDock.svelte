@@ -295,13 +295,15 @@
 		}
 
 		/*
-		 * With a track, the sheet morphs into this and is gone at about
-		 * `--dur-travel`. The dock waits for it, then fades in: fading under the
-		 * sheet finishes before the sheet leaves, and lands as a frame of its own.
+		 * With a track, the sheet morphs into this and is gone at
+		 * `--dur-morph`. The dock waits for it, then fades in over
+		 * `--dur-hover`, and the flying cover stays over the dock's art until
+		 * that fade ends (`client/sheet-morph.svelte.ts`). Fading under the
+		 * sheet instead would animate a layer under its glass.
 		 */
 		.phone-dock.playing {
 			transition:
-				opacity var(--dur-hover) var(--ease-out) var(--dur-travel),
+				opacity var(--dur-hover) var(--ease-out) var(--dur-morph),
 				visibility 0s linear 0s;
 		}
 

@@ -13,7 +13,9 @@ export const DUR = {
 	press: 120,
 	hover: 220,
 	state: 340,
-	travel: 480
+	travel: 480,
+	/** The sheet shrinking into the dock, `--dur-morph` in `app.css`. */
+	morph: 440
 } as const;
 
 /**

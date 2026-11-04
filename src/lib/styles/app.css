@@ -147,6 +147,10 @@
 	--sheet-in: var(--dur-travel) var(--ease-out);
 	--sheet-out-duration: 300ms;
 	--sheet-out: var(--sheet-out-duration) var(--ease-exit);
+	/* The sheet shrinking into the dock on a phone, which is shorter than the
+	   trip it came in on. The dock's fade waits for it, and the flying cover
+	   outlives it by that fade (`client/sheet-morph.svelte.ts`). */
+	--dur-morph: 440ms;
 }
 
 /* A damped spring (damping ratio 0.7), sampled: 4.6 percent past the target at
