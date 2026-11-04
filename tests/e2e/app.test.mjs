@@ -3560,6 +3560,58 @@ describe('sessions ending', () => {
 		}
 	});
 
+	test('every JSON handler ends the account’s sessions when the credential is refused', async () => {
+		// The same rule as the page above, for the handlers that answer JSON and do
+		// their own error mapping. Each is driven with what it accepts, so the
+		// upstream is really asked.
+		const calls = [
+			['/api/songs', 'POST', { ids: ['s1a', 's2a'] }],
+			['/api/lyrics/s1a', 'GET', undefined],
+			['/api/playback', 'POST', { songId: 's1a', event: 'start', position: 0, completed: false }],
+			['/api/tracks', 'POST', { source: 'artist', id: 'ar1', part: 'first' }],
+			['/api/star', 'POST', { id: 's1a', kind: 'song', starred: true }],
+			['/api/playlists', 'GET', undefined],
+			['/api/playlists', 'POST', { name: 'Refused' }],
+			['/api/playlists/pl1', 'PATCH', { name: 'Refused' }],
+			['/api/playlists/pl1', 'DELETE', undefined],
+			['/api/playlists/pl1/tracks', 'POST', { songIds: ['s1a'] }],
+			['/api/playlists/pl1/tracks', 'DELETE', { indices: [0] }],
+			['/api/playlists/pl1/export', 'GET', undefined],
+			['/api/download/s1a', 'GET', undefined]
+		];
+		// Play reports are only sent when the account asks for them, so it is on
+		// for this test whatever the ones before it left.
+		const setting = async (reportPlayback) => {
+			const client = new Client(app.url);
+			await client.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' });
+			return client.json('/api/settings', 'PATCH', { reportPlayback });
+		};
+		assert.equal((await setting(true)).status, 200);
+		try {
+			for (const [path, method, data] of calls) {
+				const client = new Client(app.url);
+				await client.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' });
+				subsonic.state.password = 'changed-upstream';
+				try {
+					if (data === undefined) await client.request(path, { method });
+					else await client.json(path, method, data);
+					// Settings is answered from this database, so it says whether the
+					// session is still there without asking the music server. A handler
+					// that left it alive answers 200 here.
+					const after = await client.request('/api/settings');
+					assert.equal(after.status, 401, `${method} ${path} left the session alive`);
+				} finally {
+					subsonic.state.password = 'testpass';
+				}
+			}
+		} finally {
+			assert.equal((await setting(false)).status, 200);
+			// Every session for the account was ended here, this suite's own client
+			// included: it signs in again so the tests after this one have one.
+			await user.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' });
+		}
+	});
+
 	test('signing out ends the session', async () => {
 		const client = new Client(app.url);
 		await client.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' });

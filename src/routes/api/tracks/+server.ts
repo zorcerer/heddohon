@@ -5,7 +5,7 @@ import { backendFor, UpstreamError } from '$lib/server/backends';
 import { mapLimited } from '$lib/server/backends/http';
 import { remembered } from '$lib/server/listings';
 import { albumDetail, albumsByArtist, folderDetail } from '$lib/server/details';
-import type { LibraryContext } from '$lib/server/library';
+import { refusedCredential, type LibraryContext } from '$lib/server/library';
 import { dailyMixes } from '$lib/server/mixes';
 import type { MixSeed, Song } from '$lib/types';
 
@@ -132,6 +132,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 		}
 		return json(more === undefined ? { songs } : { songs, more });
 	} catch (err) {
+		await refusedCredential(locals, err);
 		if (err instanceof UpstreamError) error(err.status === 404 ? 404 : 502, err.message);
 		throw err;
 	}

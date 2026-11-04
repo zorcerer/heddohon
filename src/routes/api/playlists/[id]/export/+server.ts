@@ -2,6 +2,7 @@ import { error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { backendFor, UpstreamError } from '$lib/server/backends';
 import { PLAYLIST_EXPORT_FORMATS, playlistFile, type PlaylistExportFormat } from '$lib/server/playlistfiles';
+import { refusedCredential } from '$lib/server/library';
 
 /**
  * A playlist the account can read, as a file: `m3u` (each entry by its file
@@ -36,6 +37,7 @@ export const GET: RequestHandler = async ({ locals, params, url }) => {
 			}
 		});
 	} catch (err) {
+		await refusedCredential(locals, err);
 		if (err instanceof UpstreamError) error(err.kind === 'forbidden' ? 403 : err.status === 404 ? 404 : 502, err.message);
 		throw err;
 	}

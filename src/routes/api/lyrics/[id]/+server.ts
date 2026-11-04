@@ -2,6 +2,7 @@ import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { backendFor, UpstreamError } from '$lib/server/backends';
 import { lrclibLyrics } from '$lib/server/lrclib';
+import { refusedCredential } from '$lib/server/library';
 
 export const GET: RequestHandler = async ({ locals, params }) => {
 	const session = locals.session;
@@ -29,6 +30,7 @@ export const GET: RequestHandler = async ({ locals, params }) => {
 			{ headers: { 'cache-control': 'private, max-age=3600' } }
 		);
 	} catch (err) {
+		await refusedCredential(locals, err);
 		if (err instanceof UpstreamError) {
 			// A server without lyrics support reads as "no lyrics".
 			if (err.kind === 'not_found' || err.kind === 'protocol') return json({ lyrics: null });
