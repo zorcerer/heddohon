@@ -694,9 +694,30 @@
 		if (type !== 'enter') settleStarred();
 	});
 
+	/*
+	 * Whether the sheet was on screen when the current navigation began.
+	 *
+	 * A sheet opened after that belongs to the page being loaded: its entry has
+	 * to be made on the arriving page, not on the one being left. A sheet that
+	 * was open when the navigation began (a link followed from inside it) goes
+	 * down with the page.
+	 */
+	let sheetAtNavigationStart = false;
+	beforeNavigate(() => {
+		sheetAtNavigationStart = player.panelOpen;
+	});
+
 	afterNavigate(({ type }) => {
 		// Back to an entry the sheet was open over leaves it to the effect below.
 		if (type === 'enter' || !player.sheetLayout || !player.panelOpen || page.state.sheet) return;
+		// The router pushes the arriving page's entry once its data has loaded,
+		// so a sheet entry made during the load belonged to the page being left,
+		// and the arriving page found none and shut the sheet. Mark the arriving
+		// page instead, and the sheet stays up.
+		if (!sheetAtNavigationStart) {
+			pushState('', { ...page.state, sheet: true });
+			return;
+		}
 		player.togglePanel();
 	});
 
@@ -721,6 +742,10 @@
 		const phone = player.sheetLayout && player.viewportKnown;
 		untrack(() => {
 			if (!phone || !signedIn) return;
+			// A push during a load belongs to the page being left and is left
+			// behind when the router pushes the arriving page's own entry. The
+			// arriving page is marked in afterNavigate.
+			if (navigating.to && open) return;
 			if (open && !page.state.sheet && !leaving) pushState('', { ...page.state, sheet: true });
 			else if (!open && page.state.sheet && !leaving) {
 				leaving = true;
@@ -737,7 +762,11 @@
 				if (player.panelOpen) pushState('', { ...page.state, sheet: true });
 				return;
 			}
-			if (marked !== player.panelOpen) player.togglePanel();
+			if (marked !== player.panelOpen) {
+				// The arriving page has no entry until afterNavigate marks it.
+				if (navigating.to && player.panelOpen) return;
+				player.togglePanel();
+			}
 		});
 	});
 
