@@ -2438,6 +2438,46 @@ describe('playing things', () => {
 		subsonic.state.missing.clear();
 	});
 
+	test('a saved queue on Navidrome is read in one request, in the order it was saved', async () => {
+		subsonic.calls.reset();
+		// The current track first, then the rest, as the page asks for a
+		// restored queue. One batch covers the whole of it, and the queue keeps
+		// the order it was saved in, not the server's.
+		const ids = ['s3b', 's0a', 's2b', 's4a', 's1b', 's5a', 's2a', 's0b', 's3a', 's4b', 's1a', 's5b'];
+		const response = await user.json('/api/songs', 'POST', { ids });
+		assert.equal(response.status, 200);
+		const { songs } = await response.json();
+		assert.deepEqual(
+			songs.map((song) => song.id),
+			ids
+		);
+		assert.equal(subsonic.calls.get('/api/song'), 1, 'the queue was read in one call');
+		assert.equal(subsonic.calls.get('getSong'), 0, 'a track was looked up on its own');
+		// What the row and the queue need, from the names Navidrome uses.
+		assert.equal(songs[0].title, 'Song 3b');
+		assert.equal(songs[0].track, 2);
+		assert.equal(songs[0].coverArt, 'mf-s3b');
+		assert.equal(songs[0].year, 2003);
+		assert.equal(songs[0].quality.format, 'flac');
+	});
+
+	test('a server that is not Navidrome is read one track at a time', async () => {
+		const active = subsonic.state.navidrome;
+		subsonic.state.navidrome = null;
+		subsonic.calls.reset();
+		try {
+			const ids = ['s3b', 's0a', 's2b', 's4a', 's1b', 's5a', 's2a', 's0b', 's3a', 's4b', 's1a', 's5b'];
+			const { songs } = await (await user.json('/api/songs', 'POST', { ids })).json();
+			assert.deepEqual(
+				songs.map((song) => song.id),
+				ids
+			);
+			assert.equal(subsonic.calls.get('getSong'), ids.length, 'one call per track');
+		} finally {
+			subsonic.state.navidrome = active;
+		}
+	});
+
 	test('a ranged stream request is answered 206 with the range', async () => {
 		const response = await user.request('/api/stream/s1a?mode=raw', { headers: { range: 'bytes=0-99' } });
 		assert.equal(response.status, 206);
