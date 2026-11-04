@@ -5365,6 +5365,42 @@ describe('on a phone', () => {
 			assert.deepEqual(problems, []);
 		});
 
+		/*
+		 * A sheet opened while the next page is still loading arrived on a page
+		 * that shut it. The history entry it had pushed belonged to the page
+		 * being left, so the arriving page had none, and afterNavigate closed
+		 * the sheet. It stays now, and the arriving page carries its entry.
+		 */
+		test('a sheet opened during a page load stays open when the page arrives', async () => {
+			const { page, problems } = await phonePage('/');
+			try {
+				await playAlbum(page, 18);
+				await page.goto(app.url + '/albums', { waitUntil: 'networkidle' });
+				subsonic.state.delays.set('getAlbumList2', 1500);
+				// The Library page waits on this call. The sheet is opened in the
+				// load, as a thumb does after tapping a tab.
+				await tap(page, page.getByRole('navigation', { name: 'Primary' }).getByRole('link', { name: 'Library' }));
+				await page.waitForTimeout(100);
+				await tap(page, page.locator('#dock-open'));
+				await page.waitForFunction(() => document.querySelector('.app').classList.contains('player-open'));
+				await page.waitForURL(/\/library$/);
+				await page.waitForTimeout(600);
+				assert.equal(await sheetOpen(page), true, 'the sheet closed when the page arrived');
+
+				// The page it arrived on carries the sheet's entry: a back closes
+				// the sheet and leaves the page under it.
+				await page.goBack();
+				await page.waitForFunction(() => !document.querySelector('.app').classList.contains('player-open'), null, {
+					timeout: 5000
+				});
+				assert.equal(new URL(page.url()).pathname, '/library', 'back left the page under the sheet');
+			} finally {
+				subsonic.state.delays.clear();
+				await page.close();
+			}
+			assert.deepEqual(problems, []);
+		});
+
 		test('the tabs fold away scrolling down, and come back scrolling up', async () => {
 			const { page, problems } = await phonePage('/');
 			try {
