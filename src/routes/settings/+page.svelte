@@ -94,6 +94,22 @@
 
 	// A local editable copy; re-seeded whenever the server sends new values.
 	let settings = $state(untrack(() => ({ ...data.settings })));
+	/** The colour schemes from files for the chosen theme, other than Terminal (`schemes.ts`). */
+	const themeSchemes = $derived(data.customSchemes.filter((scheme) => scheme.base === settings.theme));
+	/** Terminal's own schemes, written into `terminal-schemes.css`. */
+	const TERMINAL_SCHEMES = ['heddohon', 'nord', 'dracula', 'gruvbox', 'catppuccin', 'tokyo-night', 'solarized', 'one-dark', 'monokai', 'everforest'];
+	/**
+	 * A scheme colours one theme. A theme changed to one it does not colour goes
+	 * back to that theme's own colours, so the scheme menu never shows a value it
+	 * does not list.
+	 */
+	function keepScheme() {
+		const offered =
+			settings.theme === 'terminal'
+				? TERMINAL_SCHEMES.includes(settings.scheme) || data.customSchemes.some((scheme) => scheme.id === settings.scheme && scheme.base === 'terminal')
+				: settings.scheme === 'heddohon' || themeSchemes.some((scheme) => scheme.id === settings.scheme);
+		if (!offered) settings.scheme = 'heddohon';
+	}
 	let saving = $state(false);
 	let clearing = $state(false);
 	let clearingHistory = $state(false);
@@ -563,7 +579,7 @@
 
 			<label class="row">
 				<span class="label">Theme</span>
-				<select class="hh-input control" name="theme" bind:value={settings.theme}>
+				<select class="hh-input control" name="theme" bind:value={settings.theme} onchange={keepScheme}>
 					<option value="terminal">Terminal</option>
 					<option value="dark">Liquid</option>
 					<option value="light">Paper</option>
@@ -588,7 +604,19 @@
 						<option value="one-dark">One Dark</option>
 						<option value="monokai">Monokai</option>
 						<option value="everforest">Everforest</option>
-						{#each data.customSchemes as scheme (scheme.id)}
+						{#each data.customSchemes.filter((scheme) => scheme.base === 'terminal') as scheme (scheme.id)}
+							<option value={scheme.id}>{scheme.name}</option>
+						{/each}
+					</select>
+				</label>
+			{:else if themeSchemes.length}
+				<!-- Liquid, Paper and Phosphor have no schemes of their own: one from a
+				     file (`schemes.ts`) is offered under the theme it colours. -->
+				<label class="row">
+					<span class="label">Colour scheme</span>
+					<select class="hh-input control" name="scheme" bind:value={settings.scheme}>
+						<option value="heddohon">Heddohon</option>
+						{#each themeSchemes as scheme (scheme.id)}
 							<option value={scheme.id}>{scheme.name}</option>
 						{/each}
 					</select>
