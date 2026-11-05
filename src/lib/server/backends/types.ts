@@ -333,6 +333,16 @@ export interface MediaBackend {
 	 * an `UpstreamError` of kind `conflict` is thrown.
 	 */
 	movePlaylistEntry(cred: StoredCredential, id: string, move: PlaylistMove): Promise<void>;
+	/**
+	 * Replaces every entry of a playlist with the given songs, in order. This
+	 * is what a smart playlist Heddohon evaluates itself is written with
+	 * (`smartplaylists.ts`), which only Jellyfin needs: Navidrome fills its
+	 * own from the rules it keeps, so the member is present on the Jellyfin
+	 * adapter alone. The new songs are added before the old entries are
+	 * removed, so a failure mid-way leaves the old list beside some new
+	 * entries rather than an empty playlist, and a later attempt finishes it.
+	 */
+	replacePlaylistSongs?(cred: StoredCredential, id: string, songIds: string[]): Promise<void>;
 	deletePlaylist(cred: StoredCredential, id: string): Promise<void>;
 	reportPlayback(cred: StoredCredential, report: PlaybackReport): Promise<void>;
 

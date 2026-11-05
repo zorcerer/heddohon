@@ -66,6 +66,10 @@ export interface Song {
 	 * server keeps no ratings: Jellyfin has only likes, so it is always null there.
 	 */
 	rating: number | null;
+	/** Epoch millis the track was added to the library, where the server reports it. */
+	createdAt: number | null;
+	/** Epoch millis the account last played it, where the server reports it; null for never. */
+	lastPlayedAt: number | null;
 	quality: AudioQuality;
 	/** Null when the server reports no loudness data for the file. */
 	replayGain: ReplayGain | null;

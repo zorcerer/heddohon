@@ -41,6 +41,8 @@ export function stationSong(station: RadioStation): Song {
 		starredAt: null,
 		playCount: null,
 		rating: null,
+		createdAt: null,
+		lastPlayedAt: null,
 		quality: {
 			format: null,
 			bitrateKbps: null,

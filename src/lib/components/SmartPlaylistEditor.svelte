@@ -23,7 +23,8 @@
 		defaultValue,
 		type RuleField,
 		type RuleOp,
-		type SmartRules
+		type SmartRules,
+		type SortField
 	} from '$lib/smartrules';
 
 	let {
@@ -32,6 +33,8 @@
 		busy = false,
 		error = null,
 		saveLabel = 'Save rules',
+		fields = RULE_FIELDS,
+		sorts = SORT_FIELDS,
 		onsave,
 		oncancel
 	}: {
@@ -40,6 +43,9 @@
 		busy?: boolean;
 		error?: string | null;
 		saveLabel?: string;
+		/** What this music server can answer a rule on (`RULE_FIELDS_BY_BACKEND`). */
+		fields?: readonly RuleField[];
+		sorts?: readonly SortField[];
 		onsave: (rules: SmartRules, name: string) => void;
 		oncancel: () => void;
 	} = $props();
@@ -49,7 +55,7 @@
 	let name = $state('');
 	let nameField = $state<HTMLInputElement | null>(null);
 
-	const checked = $derived(checkRules($state.snapshot(draft)));
+	const checked = $derived(checkRules($state.snapshot(draft), fields));
 	const problem = $derived('error' in checked ? checked.error : null);
 
 	$effect(() => {
@@ -130,7 +136,7 @@
 					onchange={(event) => setField(index, event.currentTarget.value as RuleField)}
 					aria-label="Field of rule {index + 1}"
 				>
-					{#each RULE_FIELDS as field (field)}
+					{#each fields as field (field)}
 						<option value={field}>{FIELDS[field].label}</option>
 					{/each}
 				</select>
@@ -238,7 +244,7 @@
 		<label>
 			<span>Sorted by</span>
 			<select class="hh-input" bind:value={draft.sort}>
-				{#each SORT_FIELDS as field (field)}
+				{#each sorts as field (field)}
 					<option value={field}>{SORT_LABELS[field]}</option>
 				{/each}
 			</select>

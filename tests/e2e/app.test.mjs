@@ -6753,7 +6753,7 @@ describe('smart playlists', () => {
 		assert.equal(subsonic.state.smart.has('sm-own'), false);
 	});
 
-	test('a Subsonic server that is not Navidrome, and a Jellyfin account, offer none', async () => {
+	test('a Subsonic server that is not Navidrome offers none, and Jellyfin offers the ones Heddohon keeps', async () => {
 		const navidrome = subsonic.state.navidrome;
 		subsonic.state.navidrome = null;
 		try {
@@ -6768,14 +6768,94 @@ describe('smart playlists', () => {
 		}
 		const client = new Client(app.url);
 		assert.equal((await client.signIn({ username: 'jfuser', password: 'jfpass', backend: 'jellyfin' })).status, 303);
-		assert.doesNotMatch((await client.page('/playlists')).html, /New smart playlist/);
-		assert.equal((await make(client, 'Nope', valid())).status, 404);
+		// Jellyfin has none of its own; Heddohon keeps them (`smart playlists on
+		// Jellyfin` below). A playlist made by hand still has no rules to change.
+		assert.match((await client.page('/playlists')).html, /New smart playlist/);
 		assert.equal((await setRules(client, 'jpl', valid())).status, 404);
 		// The picker still lists the playlists songs can be added to.
 		assert.deepEqual((await listed(client)).map(({ id, tracksEditable }) => ({ id, tracksEditable })), [
 			{ id: 'jpl', tracksEditable: true },
 			{ id: 'jother', tracksEditable: false }
 		]);
+	});
+});
+
+describe('smart playlists on Jellyfin', () => {
+	// Jellyfin has none of its own (#237): Heddohon keeps the rules, works the
+	// songs out from the library read with the account's credential, and writes
+	// them into a real Jellyfin playlist.
+	const client = new Client('');
+	const album = (name) => ({ match: 'all', rules: [{ field: 'album', op: 'is', value: name }], sort: 'title', order: 'asc', limit: null });
+	const entries = (id) => jellyfin.state.made.get(id)?.entries.map((entry) => entry.songId);
+	before(async () => {
+		client.base = app.url;
+		assert.equal((await client.signIn({ username: 'jfuser', password: 'jfpass', backend: 'jellyfin' })).status, 303);
+	});
+	afterEach(() => {
+		jellyfin.state.played = [];
+	});
+	after(() => {
+		// Later checks list this user's Jellyfin playlists.
+		jellyfin.state.made.clear();
+	});
+
+	test('a new one is a Jellyfin playlist holding the songs its rules match, in their order', async () => {
+		const made = await client.json('/api/playlists/smart', 'POST', { name: 'Second album', rules: album('Second') });
+		assert.equal(made.status, 201);
+		const { id } = await made.json();
+		assert.match(id, /^jsm\d+$/, 'no playlist was made on Jellyfin');
+		assert.deepEqual(entries(id), ['t1', 't2', 't3']);
+
+		// Listed as smart, and its page shows the rules and takes no edits by hand.
+		assert.match((await client.page('/playlists')).html, /smart/);
+		const { response, html } = await client.page(`/playlists/${id}`);
+		assert.equal(response.status, 200);
+		assert.match(html, /Album is “Second”/);
+		const edit = await client.json(`/api/playlists/${id}/tracks`, 'POST', { songIds: ['jt1'] });
+		assert.equal(edit.status, 409, 'a hand edit would be undone by the next evaluation');
+		assert.deepEqual(entries(id), ['t1', 't2', 't3']);
+	});
+
+	test('new rules rewrite its songs, and a rule on a field Jellyfin lacks is refused', async () => {
+		const { id } = await (await client.json('/api/playlists/smart', 'POST', { name: 'To change', rules: album('Second') })).json();
+		const changed = await client.json(`/api/playlists/${id}/rules`, 'PUT', { rules: album('First') });
+		assert.equal(changed.status, 200);
+		assert.deepEqual(entries(id), ['jt1', 'jt2', 'jt3']);
+
+		// Jellyfin keeps no ratings, so a rating rule would match nothing.
+		const rated = await client.json(`/api/playlists/${id}/rules`, 'PUT', {
+			rules: { match: 'all', rules: [{ field: 'rating', op: 'gt', value: 3 }], sort: 'title', order: 'asc', limit: null }
+		});
+		assert.equal(rated.status, 400);
+		assert.deepEqual(entries(id), ['jt1', 'jt2', 'jt3']);
+	});
+
+	test('its songs are worked out again when its page opens past the refresh time', async () => {
+		const played = { match: 'all', rules: [{ field: 'playcount', op: 'gt', value: 0 }], sort: 'playcount', order: 'desc', limit: null };
+		const { id } = await (await client.json('/api/playlists/smart', 'POST', { name: 'Played', rules: played })).json();
+		assert.deepEqual(entries(id), []);
+
+		jellyfin.state.played = [{ Id: 't2', AlbumId: 'b2', PlayCount: 4, LastPlayedDate: '2026-11-01T10:00:00Z' }];
+		// Within the refresh time the page shows what was written.
+		await client.page(`/playlists/${id}`);
+		assert.deepEqual(entries(id), []);
+
+		const { default: Database } = await import('better-sqlite3');
+		const database = new Database(join(app.dataDir, 'heddohon.db'));
+		try {
+			assert.equal(database.prepare('UPDATE smart_playlists SET evaluated_at = 0 WHERE playlist_id = ?').run(id).changes, 1);
+		} finally {
+			database.close();
+		}
+		await client.page(`/playlists/${id}`);
+		assert.deepEqual(entries(id), ['t2']);
+	});
+
+	test('a deleted one takes its rules with it', async () => {
+		const { id } = await (await client.json('/api/playlists/smart', 'POST', { name: 'Gone', rules: album('Second') })).json();
+		assert.equal((await client.request(`/api/playlists/${id}`, { method: 'DELETE' })).status, 200);
+		assert.equal(jellyfin.state.made.has(id), false);
+		assert.equal((await client.json(`/api/playlists/${id}/rules`, 'PUT', { rules: album('First') })).status, 404);
 	});
 });
 
