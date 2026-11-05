@@ -39,7 +39,7 @@ command line: `play` and the name of an album, an artist or a song starts the
 best match. Queueing, mixes,
 seeking and the volume work the same way.
 
-**Four themes, coloured by the artwork.** Terminal, Liquid, Paper and Phosphor.
+**Four themes, coloured by the artwork.** Terminal, Liquid, Paper and Phosphor, and colour schemes for any of them from files an administrator adds ([Configuration](https://github.com/zorcerer/heddohon/wiki/Configuration#colour-schemes-from-files)).
 
 ## Also
 
