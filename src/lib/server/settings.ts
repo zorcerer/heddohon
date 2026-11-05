@@ -198,13 +198,15 @@ const SCHEME_GROUND: Record<(typeof SCHEMES)[number], string> = {
 	everforest: '#2d353b'
 };
 
-/** The ground the page is drawn on, for `theme-color`: the scheme's in Terminal, the theme's otherwise. */
+/** The ground the page is drawn on, for `theme-color`: the colour scheme's, from a file or Terminal's own, else the theme's. */
 export function groundOf(settings: Pick<UserSettings, 'theme' | 'scheme'>): string {
+	const custom = customSchemes().find((scheme) => scheme.id === settings.scheme && scheme.base === settings.theme);
+	if (custom) return custom.ground;
 	if (settings.theme !== 'terminal') return THEME_GROUND[settings.theme];
 	if (Object.prototype.hasOwnProperty.call(SCHEME_GROUND, settings.scheme)) {
 		return SCHEME_GROUND[settings.scheme as keyof typeof SCHEME_GROUND];
 	}
-	return customSchemes().find((scheme) => scheme.id === settings.scheme)?.ground ?? THEME_GROUND.terminal;
+	return THEME_GROUND.terminal;
 }
 
 const DEFAULT_SETTINGS: UserSettings = {

@@ -22,6 +22,14 @@
  * Read once, as the server starts. A file added later is offered after a
  * restart; one that is refused is named in the log with the reason.
  *
+ * Version 2 names the theme a file colours, `base`: `liquid`, `paper`,
+ * `terminal` or `phosphor`. A Terminal one is read as version 1. For the other
+ * three the file gives `ground`, `raised` and `foreground` (and may give
+ * `text`, `positive`, `danger` and `accent`, a colour or `artwork`), and the
+ * theme keeps its layout, shapes, glass and glow: only its 18 colours come
+ * from the file (`paletteScheme`). Paper takes a light ground and the others a
+ * dark one.
+ *
  * The format, version 1 (any key but the first four may be left out):
  *
  * ```json
@@ -45,6 +53,12 @@ import { config } from './config';
 import { log, reason } from './log';
 
 export const SCHEME_VERSION = 1;
+/** Version 2 names the theme a file colours (`base`); version 1 is a Terminal scheme. */
+export const THEME_VERSION = 2;
+
+/** The themes a file may colour, by the name the root carries in `data-theme`. */
+const BASES = { liquid: 'dark', paper: 'light', terminal: 'terminal', phosphor: 'phosphor' } as const;
+export type SchemeBase = (typeof BASES)[keyof typeof BASES];
 
 /** The built-in schemes' names, which a file may not take (`SCHEMES` in `settings.ts`). */
 const RESERVED = new Set([
@@ -70,6 +84,8 @@ const HEX = /^#[0-9a-f]{6}$/i;
 export interface CustomScheme {
 	id: string;
 	name: string;
+	/** The theme it colours (`data-theme`): Terminal for a version 1 file. */
+	base: SchemeBase;
 	/** `--bg-base`, for `theme-color`. */
 	ground: string;
 	/** The custom properties it sets, under Terminal and for each fixed accent. */
@@ -122,11 +138,16 @@ function fadeUntil(colour: string, toward: string, ground: string, ratio: number
 
 /** `colour` lightened toward white until it holds `ratio` against `other`, or as near as white gets. */
 function lightenUntil(colour: string, other: string, ratio: number): string {
+	return shiftUntil(colour, '#ffffff', other, ratio);
+}
+
+/** `colour` taken toward `end` until it holds `ratio` against `other`, or as near as `end` gets. */
+function shiftUntil(colour: string, end: string, other: string, ratio: number): string {
 	for (let step = 0; step <= 100; step++) {
-		const next = mix(colour, '#ffffff', step / 100);
+		const next = mix(colour, end, step / 100);
 		if (contrast(next, other) >= ratio) return next;
 	}
-	return '#ffffff';
+	return end;
 }
 
 function hue(colour: string): number {
@@ -155,9 +176,18 @@ export function readScheme(id: string, input: unknown): CustomScheme {
 	if (RESERVED.has(id)) throw new Refused('a built-in scheme has that name');
 	if (typeof input !== 'object' || input === null || Array.isArray(input)) throw new Refused('it is not a JSON object');
 	const raw = input as Record<string, unknown>;
-	if (raw.heddohon !== SCHEME_VERSION) throw new Refused(`"heddohon" is not ${SCHEME_VERSION}, the version this server reads`);
+	if (raw.heddohon !== SCHEME_VERSION && raw.heddohon !== THEME_VERSION) {
+		throw new Refused(`"heddohon" is not ${SCHEME_VERSION} or ${THEME_VERSION}, the versions this server reads`);
+	}
 	const name = typeof raw.name === 'string' ? raw.name.trim() : '';
 	if (!name || name.length > 40) throw new Refused('"name" is missing or longer than 40 characters');
+	if (raw.heddohon === THEME_VERSION) {
+		const base = BASES[raw.base as keyof typeof BASES];
+		if (typeof raw.base !== 'string' || !Object.prototype.hasOwnProperty.call(BASES, raw.base)) {
+			throw new Refused(`"base" is not one of ${Object.keys(BASES).join(', ')}`);
+		}
+		if (base !== 'terminal') return paletteScheme(id, name, base, raw);
+	}
 
 	const ground = colourAt(raw, 'ground');
 	if (luminance(ground) > 0.06) throw new Refused('"ground" is too light: Terminal is drawn light on dark');
@@ -219,7 +249,79 @@ export function readScheme(id: string, input: unknown): CustomScheme {
 	--danger: ${danger};
 }
 ${accents.join('\n')}`;
-	return { id, name, ground, css };
+	return { id, name, base: 'terminal', ground, css };
+}
+
+/**
+ * A file colouring Liquid, Paper or Phosphor: the 18 colours of the theme's
+ * root, derived from a few the way a Terminal scheme's are, and checked on the
+ * surface most text sits on. The theme keeps its own layout, shapes, glass,
+ * shadows and glow; only colour comes from the file.
+ *
+ * Paper is drawn dark on light and the other two light on dark, so a ground
+ * the wrong way round is refused rather than drawn unreadable. `accent` is
+ * `artwork` (or left out), and the theme takes its accent from the cover as it
+ * does now, or a colour, taken toward the text until it holds 4.5:1 on the
+ * surface, with its label in whichever of the ground and the text reads
+ * better on it, at 4.5:1 or more.
+ */
+function paletteScheme(id: string, name: string, base: Exclude<SchemeBase, 'terminal'>, raw: Record<string, unknown>): CustomScheme {
+	const light = base === 'light';
+	const ground = colourAt(raw, 'ground');
+	if (light && luminance(ground) < 0.6) throw new Refused('"ground" is too dark: Paper is drawn dark on light');
+	if (!light && luminance(ground) > 0.06) throw new Refused(`"ground" is too light: ${base === 'dark' ? 'Liquid' : 'Phosphor'} is drawn light on dark`);
+	const raised = colourAt(raw, 'raised');
+	const foreground = colourAt(raw, 'foreground');
+	const surface = mix(ground, raised, 0.5);
+	if (contrast(foreground, surface) < 7) {
+		throw new Refused(`"foreground" holds ${contrast(foreground, surface).toFixed(1)}:1 on the surface, under 7:1`);
+	}
+	const text = colourAt(raw, 'text', fadeUntil(foreground, surface, surface, Math.max(7, contrast(foreground, surface) * 0.85)));
+	if (contrast(text, surface) < 4.6) throw new Refused(`"text" holds ${contrast(text, surface).toFixed(1)}:1 on the surface, under 4.6:1`);
+	const muted = fadeUntil(text, surface, surface, Math.max(5.3, 4.6 + 0.3 * (contrast(text, surface) - 4.6)));
+	const faint = fadeUntil(text, surface, surface, 4.6);
+	const toward = light ? '#000000' : '#ffffff';
+	const fixed = (colour: string) => shiftUntil(colour, light ? '#000000' : '#ffffff', surface, 4.5);
+	const positive = fixed(colourAt(raw, 'positive', light ? '#2f7d4f' : '#7fc8a9'));
+	const danger = fixed(colourAt(raw, 'danger', light ? '#b3323d' : '#e0777f'));
+
+	let accent = '';
+	if (raw.accent !== undefined && raw.accent !== 'artwork') {
+		const shown = fixed(colourAt(raw, 'accent'));
+		const label = contrast(ground, shown) >= contrast(foreground, shown) ? ground : foreground;
+		if (contrast(label, shown) < 4.5) {
+			throw new Refused(`"accent" holds ${contrast(label, shown).toFixed(1)}:1 under its label, under 4.5:1`);
+		}
+		accent = `
+	--accent: ${shown};
+	--accent-strong: ${mix(shown, toward, 0.3)};
+	--accent-quiet: ${mix(ground, shown, 0.3)};
+	--accent-contrast: ${label};
+	--art-h: ${hue(shown)} !important;
+	--art-s: 40% !important;
+	--art-l: 52% !important;`;
+	}
+
+	const css = `/* ${id}.json */
+:root[data-theme='${base}'][data-scheme='${id}'] {
+	--bg-base: ${ground};
+	--bg-sunken: ${mix(ground, '#000000', light ? 0.04 : 0.16)};
+	--bg-surface: ${surface};
+	--bg-raised: ${raised};
+	--bg-hover: ${mix(raised, foreground, 0.07)};
+	--bg-active: ${mix(raised, foreground, 0.12)};
+	--text-strong: ${foreground};
+	--text-default: ${text};
+	--text-muted: ${muted};
+	--text-faint: ${faint};
+	--text-muted-through: ${mix(muted, foreground, 0.35)};
+	--text-faint-through: ${mix(faint, foreground, 0.35)};
+	--border-hairline: ${mix(ground, foreground, 0.08)};
+	--border-strong: ${mix(ground, foreground, 0.18)};
+	--positive: ${positive};
+	--danger: ${danger};${accent}
+}`;
+	return { id, name, base, ground, css };
 }
 
 let loaded: CustomScheme[] | null = null;

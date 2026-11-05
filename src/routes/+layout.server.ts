@@ -67,8 +67,8 @@ export const load: LayoutServerLoad = async ({ locals, url }) => {
 		serverLabel:
 			cfg.upstreams.find((upstream) => upstream.kind === session?.account.backend)?.label ?? '',
 		settings: locals.settings ?? defaultSettings(),
-		// Terminal's colour schemes from files, offered beside the built-in ones.
-		customSchemes: customSchemes().map(({ id, name }) => ({ id, name })),
+		// Colour schemes from files, each offered under the theme it colours.
+		customSchemes: customSchemes().map(({ id, name, base }) => ({ id, name, base })),
 		sessionExpiresAt: session?.expiresAt ?? null,
 		isLoginPage: url.pathname === '/login',
 		// A shared link, a listen-together link, a now-playing link and a public

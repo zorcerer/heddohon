@@ -476,6 +476,62 @@ describe('settings', () => {
 		}
 	});
 
+	/*
+	 * #182, version 2: a file names the theme it colours. Liquid, Paper and
+	 * Phosphor keep their layout, glass and glow, and take the file's colours,
+	 * checked for contrast on the surface; a ground the wrong way round for
+	 * its theme is refused, and a fixed accent is held to 4.5:1 under its label.
+	 */
+	test('a theme file colours Liquid, Paper or Phosphor, checked like a Terminal scheme', async () => {
+		const dataDir = mkdtempSync(join(tmpdir(), 'heddohon-e2e-themefiles-'));
+		mkdirSync(join(dataDir, 'themes'));
+		const write = (id, body) => writeFileSync(join(dataDir, 'themes', `${id}.json`), JSON.stringify({ heddohon: 2, ...body }));
+		write('harbour', { name: 'Harbour', base: 'liquid', ground: '#0d1117', raised: '#1c2128', foreground: '#f0f3f6', accent: '#58a6ff' });
+		write('linen', { name: 'Linen', base: 'paper', ground: '#f6f1e7', raised: '#fffdf8', foreground: '#1f1a14' });
+		write('amber-crt', { name: 'Amber CRT', base: 'phosphor', ground: '#0c0a06', raised: '#1a160d', foreground: '#ffd28a' });
+		write('dark-paper', { name: 'Dark paper', base: 'paper', ground: '#101010', raised: '#202020', foreground: '#f0f0f0' });
+		write('no-base', { name: 'No base', ground: '#0d1117', raised: '#1c2128', foreground: '#f0f3f6' });
+		write('faint-text', { name: 'Faint', base: 'liquid', ground: '#0d1117', raised: '#1c2128', foreground: '#3a3f46' });
+		const app = await startApp({ subsonicUrl: subsonic.url, jellyfinUrl: jellyfin.url, dataDir, env: { HEDDOHON_DEFAULT_THEME: 'liquid' } });
+		const client = new Client(app.url);
+		try {
+			await client.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' });
+			// The files are read at the first page drawn.
+			await client.page('/');
+			const output = app.output();
+			assert.match(output, /scheme-refused.*dark-paper\.json.*too dark: Paper/);
+			assert.match(output, /scheme-refused.*no-base\.json.*is not one of liquid, paper, terminal, phosphor/);
+			assert.match(output, /scheme-refused.*faint-text\.json.*foreground/);
+
+			assert.equal((await (await client.json('/api/settings', 'PATCH', { theme: 'dark', scheme: 'harbour' })).json()).scheme, 'harbour');
+			const { html } = await client.page('/');
+			assert.match(html, /data-theme="dark"/);
+			assert.match(html, /data-scheme="harbour"/);
+			assert.match(html, /name="theme-color" content="#0d1117"/);
+			const style = html.match(/<style id="hh-schemes">([\s\S]*?)<\/style>/)?.[1] ?? '';
+			assert.match(style, /:root\[data-theme='dark'\]\[data-scheme='harbour'\] \{\n\t--bg-base: #0d1117;/);
+			assert.match(style, /:root\[data-theme='light'\]\[data-scheme='linen'\]/);
+			assert.match(style, /:root\[data-theme='phosphor'\]\[data-scheme='amber-crt'\]/);
+			// A fixed accent sets the accent, and the cover's hue under it; one left
+			// out leaves the theme's accent, which follows the cover.
+			const harbour = style.match(/\[data-scheme='harbour'\] \{([^}]*)\}/)?.[1] ?? '';
+			assert.match(harbour, /--accent: #[0-9a-f]{6};/);
+			assert.match(harbour, /--accent-contrast: #[0-9a-f]{6};/);
+			assert.doesNotMatch(style.match(/\[data-scheme='linen'\] \{([^}]*)\}/)?.[1] ?? '', /--accent:/);
+			assert.doesNotMatch(style, /dark-paper|no-base|faint-text/);
+
+			// Each theme's own menu lists its files; Terminal's lists none of them.
+			const settings = (await client.page('/settings')).html;
+			assert.match(settings, /<option value="harbour"[^>]*>Harbour<\/option>/);
+			// A scheme for another theme draws nothing in this one, and the ground
+			// is the theme's own.
+			await client.json('/api/settings', 'PATCH', { theme: 'terminal' });
+			assert.match((await client.page('/')).html, /name="theme-color" content="#08090a"/);
+		} finally {
+			await app.stop();
+		}
+	});
+
 	test('settings saved before Terminal existed move to the default theme once, and a choice made since is kept', async () => {
 		const { default: Database } = await import('better-sqlite3');
 		const dataDir = mkdtempSync(join(tmpdir(), 'heddohon-e2e-themes-'));
