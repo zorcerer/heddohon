@@ -123,80 +123,102 @@ describe('the policy', () => {
 });
 
 describe('playing from a card', () => {
-	test('a slow play shows it is busy, and a second click is ignored', async () => {
+	/*
+	 * The spinner waits 150ms in the CSS (`pending-show` in MediaCard.svelte), and
+	 * these checks used to wait that out in real time: on a loaded runner the
+	 * tracks request took past 150ms and a "fast" play showed the spinner (#262).
+	 * The request is held here until the check lets it go, and the spinner's
+	 * delay is read off its animation, paused and set where the check needs it.
+	 */
+	const holdTracks = async (page) => {
+		const held = [];
+		let release;
+		const released = new Promise((done) => (release = done));
+		await page.route('**/api/tracks', async (route) => {
+			held.push(route);
+			await released;
+			await route.continue();
+		});
+		return { held, release };
+	};
+	const playButton = (page, href) => {
+		const button = page.locator(`a.card[href="${href}"]:has(button.play)`).first().locator('button.play');
+		return {
+			button,
+			state: () =>
+				button.evaluate((b) => {
+					const spinner = b.querySelector('.spinner');
+					return {
+						busy: b.getAttribute('aria-busy'),
+						spinner: spinner ? getComputedStyle(spinner).opacity : null,
+						glyph: getComputedStyle(b.querySelector('.glyph')).opacity
+					};
+				}),
+			// Pauses the spinner's and the icon's 150ms delay at `ms`.
+			at: (ms) =>
+				button.evaluate((b, ms) => {
+					const animations = b.getAnimations({ subtree: true }).filter((a) => /pending-(show|hide)$/.test(a.animationName));
+					for (const animation of animations) {
+						animation.pause();
+						animation.currentTime = ms;
+					}
+					return animations.length;
+				}, ms)
+		};
+	};
+
+	test('a slow play shows it is busy past 150ms, and a second press is ignored', async () => {
 		const { page, problems } = await watchedPage();
 		await page.goto(app.url + '/', { waitUntil: 'networkidle' });
-		// Album 3, which no test before this one opens: an album read in the last
-		// minute is held (`details.ts`), and its play would be answered at once.
-		const card = page.locator('a.card[href="/albums/al3"]:has(button.play)').first();
-		const button = card.locator('button.play');
-		const state = () =>
-			button.evaluate((b) => {
-				const spinner = b.querySelector('.spinner');
-				return {
-					busy: b.getAttribute('aria-busy'),
-					spinner: spinner ? getComputedStyle(spinner).opacity : null,
-					glyph: getComputedStyle(b.querySelector('.glyph')).opacity,
-					button: getComputedStyle(b).opacity
-				};
-			});
-
-		// Not hovered, since hovering preloads the album page. The wait stays: the
-		// timings below are measured from a settled page, and on a CI runner a
-		// page just loaded let 60ms stretch past the 150ms.
-		await page.waitForTimeout(600);
-		subsonic.state.delays.set('getAlbum', 1500);
-		subsonic.calls.reset();
+		const { held, release } = await holdTracks(page);
+		const { button, state, at } = playButton(page, '/albums/al3');
 		try {
 			// From the keyboard: the button takes no pointer clicks unless it is
 			// focused or busy, since the cover's hover no longer shows it.
 			await button.focus();
 			await page.keyboard.press('Enter');
-			await page.waitForTimeout(60);
-			// The button fades in on the press, so its own opacity is checked at the
-			// next step, once the fade is over.
-			const early = await state();
-			assert.deepEqual({ ...early, button: undefined }, { busy: 'true', spinner: '0', glyph: '1', button: undefined }, 'no spinner before 150ms');
+			await page.waitForFunction(() => document.querySelector('a.card[href="/albums/al3"] button.play .spinner'));
+			assert.equal(await at(149), 2, 'the spinner and the icon each have a delay');
+			assert.deepEqual(await state(), { busy: 'true', spinner: '0', glyph: '1' }, 'no spinner before 150ms');
+			await at(150);
+			assert.deepEqual(await state(), { busy: 'true', spinner: '1', glyph: '0' }, 'the spinner from 150ms');
 
-			await page.waitForTimeout(340);
 			await page.keyboard.press('Enter');
-			await page.mouse.move(5, 5);
-			await page.waitForTimeout(100);
-			assert.deepEqual(await state(), { busy: 'true', spinner: '1', glyph: '0', button: '1' }, 'spinner shown, button held up');
-
-			await page.waitForFunction((b) => b?.getAttribute('aria-busy') === 'false', await button.elementHandle(), {
-				timeout: 5000
-			});
+			assert.equal(held.length, 1, 'the second press must not fetch again');
+			release();
+			await page.waitForFunction((b) => b?.getAttribute('aria-busy') === 'false', await button.elementHandle(), { timeout: 5000 });
 			assert.equal((await state()).spinner, null);
-			assert.equal(subsonic.calls.get('getAlbum'), 1, 'the second click must not fetch again');
+			assert.equal(held.length, 1);
 		} finally {
-			subsonic.state.delays.clear();
+			release();
+			await page.unroute('**/api/tracks');
 		}
 		await page.close();
 		assert.deepEqual(problems, []);
 	});
 
-	test('a fast play never shows the spinner', async () => {
-		const { page } = await watchedPage();
+	test('a play answered within 150ms never shows the spinner', async () => {
+		const { page, problems } = await watchedPage();
 		await page.goto(app.url + '/', { waitUntil: 'networkidle' });
-		const card = page.locator('a.card:has(button.play)').first();
-		const button = card.locator('button.play');
-		await card.hover();
-		// Hovering preloads the album page. A click while that was loading put the
-		// tracks request behind it, past 150ms on a CI runner once, and the spinner
-		// showed.
-		await page.waitForTimeout(600);
-		await button.focus();
-		await page.keyboard.press('Enter');
-		for (let sample = 0; sample < 8; sample++) {
-			const opacity = await button.evaluate((b) => {
-				const spinner = b.querySelector('.spinner');
-				return spinner ? getComputedStyle(spinner).opacity : '0';
-			});
-			assert.equal(opacity, '0');
-			await page.waitForTimeout(20);
+		const { release } = await holdTracks(page);
+		const { button, state, at } = playButton(page, '/albums/al4');
+		try {
+			await button.focus();
+			await page.keyboard.press('Enter');
+			await page.waitForFunction(() => document.querySelector('a.card[href="/albums/al4"] button.play .spinner'));
+			// The answer arrives at 149ms on the spinner's clock, however long the
+			// runner took to get there.
+			await at(149);
+			assert.deepEqual(await state(), { busy: 'true', spinner: '0', glyph: '1' });
+			release();
+			await page.waitForFunction((b) => b?.getAttribute('aria-busy') === 'false', await button.elementHandle(), { timeout: 5000 });
+			assert.deepEqual(await state(), { busy: 'false', spinner: null, glyph: '1' }, 'the play icon throughout');
+		} finally {
+			release();
+			await page.unroute('**/api/tracks');
 		}
 		await page.close();
+		assert.deepEqual(problems, []);
 	});
 });
 
@@ -1951,6 +1973,26 @@ describe('the tint through changes that come close together', () => {
 		subsonic.state.coverColors.set('al-32', [40, 60, 210]);
 		subsonic.state.coverColors.set('al-33', [40, 190, 60]);
 		const { page, problems } = await watchedPage();
+		/*
+		 * The fade to the second album is held halfway, both layers on screen,
+		 * for longer than the 900ms it is meant to take. That is a busy machine
+		 * made certain: the transition starts late and the clock runs out first.
+		 * Timed by the clock alone, the third colour was written into a visible
+		 * layer then, and this check lost about one full run in four (#262).
+		 */
+		const tint = (call) =>
+			page.evaluate((call) => {
+				const running = [...document.querySelectorAll('.hh-tint-morph')].flatMap((surface) =>
+					surface.getAnimations().filter((animation) => animation.transitionProperty === '--tint-mix')
+				);
+				for (const transition of running) {
+					if (call === 'hold') {
+						transition.pause();
+						transition.currentTime = 450;
+					} else transition.play();
+				}
+				return running.length;
+			}, call);
 		try {
 			await page.goto(app.url + '/albums/al31', { waitUntil: 'networkidle' });
 			await page.waitForTimeout(1200);
@@ -1958,12 +2000,17 @@ describe('the tint through changes that come close together', () => {
 			const stop = await sampleLayers(page);
 			await navigate(page, '/albums/al32');
 			await page.waitForURL(/\/albums\/al32$/);
+			await page.waitForFunction(() =>
+				[...document.querySelectorAll('.hh-tint-morph')].some((surface) =>
+					surface.getAnimations().some((animation) => animation.transitionProperty === '--tint-mix')
+				)
+			);
+			assert.ok((await tint('hold')) > 0, 'no fade to hold');
 			await navigate(page, '/albums/al33');
 			await page.waitForURL(/\/albums\/al33$/);
-			// Until the rail shows the last album's colour, and then the length of
-			// a fade. That is two fades of 900ms and the fetch of a cover, which a
-			// fixed 2.2s did not always cover: on a runner under load the sampling
-			// stopped on the second album's blue (CI, 2026-10-07 and 2026-10-08).
+			// Past the clock's end of the fade, with the fade still halfway.
+			await page.waitForTimeout(1500);
+			await tint('play');
 			await page
 				.waitForFunction(
 					() => {
