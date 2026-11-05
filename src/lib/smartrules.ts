@@ -22,6 +22,8 @@
  * matches a song with no year, which Navidrome holds as 0.
  */
 
+import type { BackendKind, Song } from './types';
+
 export type RuleKind = 'text' | 'number' | 'boolean' | 'days';
 
 export const RULE_FIELDS = [
@@ -116,6 +118,23 @@ export const SORT_FIELDS = [
 ] as const;
 export type SortField = (typeof SORT_FIELDS)[number];
 
+/**
+ * The fields each music server can answer a rule on, offered in the editor
+ * and enforced in `checkRules`. Jellyfin keeps no ratings (a track's `rating`
+ * is always null there), so a rating rule would match nothing and read as a
+ * broken playlist rather than an absent feature. A sort by a field follows
+ * the same list, `random` aside.
+ */
+export const RULE_FIELDS_BY_BACKEND: Record<BackendKind, readonly RuleField[]> = {
+	subsonic: RULE_FIELDS,
+	jellyfin: RULE_FIELDS.filter((field) => field !== 'rating')
+};
+
+export const SORT_FIELDS_BY_BACKEND: Record<BackendKind, readonly SortField[]> = {
+	subsonic: SORT_FIELDS,
+	jellyfin: SORT_FIELDS.filter((field) => field !== 'rating')
+};
+
 export const MAX_RULES = 20;
 export const MAX_TEXT = 200;
 export const MAX_LIMIT = 1000;
@@ -199,9 +218,11 @@ function checkValue(field: RuleField, op: RuleOp, value: unknown): RuleValue | n
 
 /**
  * A rule set from the browser, held to the fields, operators and bounds
- * above. The rule set, or the reason it was refused, for a 400.
+ * above. `fields` is what the music server can answer (`RULE_FIELDS_BY_BACKEND`):
+ * a rule or a sort on a field outside it is refused. The rule set, or the
+ * reason it was refused, for a 400.
  */
-export function checkRules(input: unknown): { rules: SmartRules } | { error: string } {
+export function checkRules(input: unknown, fields: readonly RuleField[] = RULE_FIELDS): { rules: SmartRules } | { error: string } {
 	if (!isRecord(input)) return { error: 'Rules are required' };
 	if (input.match !== 'all' && input.match !== 'any') return { error: 'Match must be all or any' };
 	if (!Array.isArray(input.rules) || input.rules.length === 0) return { error: 'At least one rule is required' };
@@ -213,12 +234,14 @@ export function checkRules(input: unknown): { rules: SmartRules } | { error: str
 		const op = RULE_OPS.find((name) => name === rule.op);
 		if (!field) return { error: `Rule ${n + 1} has no known field` };
 		if (!op) return { error: `Rule ${n + 1} has no known operator` };
+		if (!fields.includes(field)) return { error: `Rule ${n + 1}: this music server has no ${FIELDS[field].label.toLowerCase()} for a track` };
 		const value = checkValue(field, op, rule.value);
 		if (value === null) return { error: `Rule ${n + 1}: ${FIELDS[field].label.toLowerCase()} ${OP_LABELS[op]} needs a valid value` };
 		rules.push({ field, op, value });
 	}
 	const sort = SORT_FIELDS.find((name) => name === input.sort);
 	if (!sort) return { error: 'Sort by a known field' };
+	if (sort !== 'random' && !fields.includes(sort)) return { error: 'This music server cannot sort by that field' };
 	if (input.order !== 'asc' && input.order !== 'desc') return { error: 'Order must be asc or desc' };
 	const limit = input.limit === null ? null : within(input.limit, 1, MAX_LIMIT, true);
 	if (limit === null && input.limit !== null) return { error: `The limit must be 1 to ${MAX_LIMIT} songs, or none` };
@@ -361,3 +384,145 @@ export const SORT_LABELS: Record<SortField, string> = {
 	dateadded: 'Added',
 	random: 'Random'
 };
+
+/* ── Evaluating the rules here ──────────────────────────────────────────────
+ *
+ * For a server that has no smart playlists of its own (Jellyfin), Heddohon
+ * works the songs out itself, over the library read with the account's own
+ * credential (`smartplaylists.ts`). The semantics follow Navidrome's, checked
+ * against 0.64.2 (the header of this file): no value matches nothing (a null
+ * genre is not "not jazz"), a missing number reads as 0 (an unknown year, an
+ * unrated track, never played), and `notInTheLast` matches a song with no
+ * date at all.
+ */
+
+function fieldValue(song: Song, field: RuleField): string | number | boolean | null {
+	switch (field) {
+		case 'title':
+			return song.title;
+		case 'artist':
+			return song.artist;
+		case 'album':
+			return song.album;
+		case 'albumartist':
+			return song.albumArtist;
+		case 'genre':
+			return song.genre;
+		case 'year':
+			return song.year;
+		case 'rating':
+			return song.rating;
+		case 'playcount':
+			return song.playCount;
+		case 'duration':
+			return song.duration;
+		case 'loved':
+			return song.starred;
+		case 'lastplayed':
+			return song.lastPlayedAt;
+		case 'dateadded':
+			return song.createdAt;
+	}
+}
+
+const DAY_MS = 86_400_000;
+
+/** One rule against one song. `now` is passed so a test fixes "today". */
+export function matchesRule(song: Song, rule: SmartRule, now: number = Date.now()): boolean {
+	const value = fieldValue(song, rule.field);
+	switch (FIELDS[rule.field].kind) {
+		case 'text': {
+			if (typeof value !== 'string') return false;
+			const text = value.toLowerCase();
+			const asked = String(rule.value).toLowerCase();
+			switch (rule.op) {
+				case 'is':
+					return text === asked;
+				case 'isNot':
+					return text !== asked;
+				case 'contains':
+					return text.includes(asked);
+				case 'notContains':
+					return !text.includes(asked);
+				case 'startsWith':
+					return text.startsWith(asked);
+				default:
+					return false;
+			}
+		}
+		case 'number': {
+			const number = typeof value === 'number' ? value : 0;
+			switch (rule.op) {
+				case 'is':
+					return number === rule.value;
+				case 'gt':
+					return number > (rule.value as number);
+				case 'lt':
+					return number < (rule.value as number);
+				case 'inTheRange': {
+					const [low, high] = rule.value as [number, number];
+					return number >= low && number <= high;
+				}
+				default:
+					return false;
+			}
+		}
+		case 'boolean':
+			return rule.op === 'is' && value === rule.value;
+		case 'days': {
+			if (typeof value !== 'number') return rule.op === 'notInTheLast';
+			const within = now - value <= (rule.value as number) * DAY_MS;
+			return rule.op === 'inTheLast' ? within : !within;
+		}
+	}
+}
+
+/** The comparison behind a sort: no value reads as 0 or the empty string, ties break on the id. */
+function sortKey(song: Song, sort: Exclude<SortField, 'random'>): string | number {
+	switch (sort) {
+		case 'title':
+		case 'artist':
+		case 'album':
+		case 'albumartist':
+			return String(fieldValue(song, sort) ?? '').toLowerCase();
+		default:
+			return Number(fieldValue(song, sort as RuleField) ?? 0);
+	}
+}
+
+function shuffled(songs: Song[]): Song[] {
+	const copy = [...songs];
+	for (let i = copy.length - 1; i > 0; i--) {
+		const j = Math.floor(Math.random() * (i + 1));
+		[copy[i], copy[j]] = [copy[j], copy[i]];
+	}
+	return copy;
+}
+
+/**
+ * The songs matching a rule set, in its order: the result a smart playlist
+ * holds. Without a limit the answer is still capped at `MAX_LIMIT` songs: the
+ * result is written to the music server in chunks, and the cap is the one the
+ * editor's own limit has. Ties break on the song id, so the same library
+ * evaluates to the same list; `random` reshuffles on every evaluation, as
+ * Navidrome reshuffles on every read.
+ */
+export function evaluateRules(songs: Song[], rules: SmartRules, now: number = Date.now()): Song[] {
+	const matched = songs.filter((song) =>
+		rules.match === 'all'
+			? rules.rules.every((rule) => matchesRule(song, rule, now))
+			: rules.rules.some((rule) => matchesRule(song, rule, now))
+	);
+	const sort = rules.sort;
+	const ordered =
+		sort === 'random'
+			? shuffled(matched)
+			: [...matched].sort((a, b) => {
+					const direction = rules.order === 'asc' ? 1 : -1;
+					const keyA = sortKey(a, sort);
+					const keyB = sortKey(b, sort);
+					const by = typeof keyA === 'string' ? keyA.localeCompare(keyB as string) : keyA - (keyB as number);
+					return by !== 0 ? by * direction : a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+				});
+	return ordered.slice(0, rules.limit ?? MAX_LIMIT);
+}

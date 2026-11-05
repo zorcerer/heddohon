@@ -341,8 +341,17 @@ On Navidrome, an account makes and edits smart playlists: rules Navidrome
 keeps and evaluates itself (added 2026-10-20). Heddohon calls the same
 `/api/playlist` endpoints Navidrome's web interface uses, through the session
 token above (`navidrome.ts`), and plays the result through the Subsonic API
-like any playlist. Jellyfin accounts, and Subsonic servers that are not
-Navidrome, are offered none.
+like any playlist. Subsonic servers that are not Navidrome are offered none.
+
+On Jellyfin, which has no smart playlists, Heddohon keeps the rules and fills
+an ordinary Jellyfin playlist from them (`smartplaylists.ts`, added
+2026-11-05). The rules are stored in `smart_playlists`, by account and
+playlist; the songs are worked out from the library listing read with that
+account's own credential, when the playlist is made, when its rules change,
+and when its page opens more than 15 minutes after the last time, and they
+are written into the playlist only when they changed. Other Jellyfin apps see
+the playlist and its songs, not the rules. A rating rule is refused on
+Jellyfin, which keeps no ratings.
 
 - **The browser never sends Navidrome's rules.** It sends the editor's model,
   which `checkRules` in `src/lib/smartrules.ts` holds to 12 fields, 10
@@ -357,7 +366,13 @@ Navidrome, are offered none.
   no session, and refuses any change to a smart playlist's songs.
 - **Rules a file defines are not changed here** (`409`): Navidrome would take
   the change and import the `.nsp` file over it at its next scan.
-- **Nothing is stored here.** The rules live in Navidrome.
+- **On Navidrome nothing is stored here.** The rules live in Navidrome. On
+  Jellyfin the rules and the ids last written are stored here, with no
+  credential, and go with the account when it is deleted.
+- **A Jellyfin smart playlist takes no edit to its songs by hand** (`409`
+  from `/api/playlists/[id]/tracks`, an error from the MCP tools, and
+  `readOnly` in their listing): Jellyfin would take it, and the next
+  evaluation would put the songs back.
 
 ## Plays from the Navidrome plugin
 

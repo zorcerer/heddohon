@@ -176,6 +176,8 @@
 			initial={blankRules()}
 			naming
 			saveLabel="Create"
+			fields={data.smartFields}
+			sorts={data.smartSorts}
 			busy={smartBusy}
 			error={smartError}
 			onsave={createSmart}

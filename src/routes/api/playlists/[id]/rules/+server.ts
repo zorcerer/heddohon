@@ -1,8 +1,9 @@
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { backendFor, UpstreamError } from '$lib/server/backends';
+import { UpstreamError } from '$lib/server/backends';
 import { forgetSharedItems } from '$lib/server/shares';
-import { checkRules, toCriteria } from '$lib/smartrules';
+import { checkRules } from '$lib/smartrules';
+import { smartFor } from '$lib/server/smartplaylists';
 import { refusedCredential } from '$lib/server/library';
 
 /**
@@ -17,16 +18,16 @@ export const PUT: RequestHandler = async ({ locals, params, request }) => {
 	if (params.id.length === 0 || params.id.length >= 256) error(400, 'id is required');
 
 	const body = (await request.json().catch(() => null)) as { rules?: unknown } | null;
-	const checked = checkRules(body?.rules);
+	const smart = smartFor(session);
+	if (!smart) error(404, 'This music server has no smart playlists');
+	const checked = checkRules(body?.rules, smart.fields);
 	if ('error' in checked) error(400, checked.error);
 
-	const smart = backendFor(session.account.backend).smartPlaylists;
-	if (!smart) error(404, 'This music server has no smart playlists');
 	try {
-		const current = await smart.rules(session.credential, params.id);
+		const current = await smart.rules(params.id);
 		if (!current) error(404, 'That playlist has no rules');
 		if (current.fromFile) error(409, 'A file on the music server defines these rules; change them there');
-		await smart.setRules(session.credential, params.id, toCriteria(checked.rules));
+		await smart.setRules(params.id, checked.rules);
 		// A link to this playlist serves the new songs on its next request.
 		forgetSharedItems(session.account.id);
 		return json({ id: params.id, rules: checked.rules });

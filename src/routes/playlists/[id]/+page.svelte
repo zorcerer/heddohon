@@ -379,6 +379,8 @@
 	{#if editingRules && smart?.rules}
 		<SmartPlaylistEditor
 			initial={smart.rules}
+			fields={data.smartFields}
+			sorts={data.smartSorts}
 			{busy}
 			onsave={saveRules}
 			oncancel={() => (editingRules = false)}

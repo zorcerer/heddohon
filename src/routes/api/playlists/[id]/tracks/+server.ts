@@ -3,12 +3,25 @@ import type { RequestHandler } from './$types';
 import { backendFor, UpstreamError } from '$lib/server/backends';
 import { forgetSharedItems } from '$lib/server/shares';
 import { refusedCredential } from '$lib/server/library';
+import { smartFor } from '$lib/server/smartplaylists';
+import type { AuthenticatedSession } from '$lib/server/auth';
 
 const MAX_SONGS = 1000;
+
+/**
+ * A playlist Heddohon fills from rules (Jellyfin, `smartplaylists.ts`) takes no
+ * edit to its songs: Jellyfin would take it, and the next evaluation would put
+ * the songs back. Navidrome refuses such edits to its own smart playlists.
+ */
+async function refuseHeldSmart(session: AuthenticatedSession, id: string): Promise<void> {
+	const smart = smartFor(session);
+	if (smart?.heldHere && (await smart.rules(id))) error(409, 'A smart playlist is filled from its rules; change those instead');
+}
 
 export const POST: RequestHandler = async ({ locals, params, request }) => {
 	const session = locals.session;
 	if (!session) error(401, 'Not signed in');
+	await refuseHeldSmart(session, params.id);
 
 	const body = (await request.json().catch(() => null)) as { songIds?: unknown } | null;
 	const songIds = Array.isArray(body?.songIds)
@@ -37,6 +50,7 @@ export const POST: RequestHandler = async ({ locals, params, request }) => {
 export const DELETE: RequestHandler = async ({ locals, params, request }) => {
 	const session = locals.session;
 	if (!session) error(401, 'Not signed in');
+	await refuseHeldSmart(session, params.id);
 
 	const body = (await request.json().catch(() => null)) as { indices?: unknown } | null;
 	// Deduplicated and bounded like the songs above. Unbounded, 60,000 indices
@@ -74,6 +88,7 @@ export const DELETE: RequestHandler = async ({ locals, params, request }) => {
 export const PATCH: RequestHandler = async ({ locals, params, request }) => {
 	const session = locals.session;
 	if (!session) error(401, 'Not signed in');
+	await refuseHeldSmart(session, params.id);
 
 	const body = (await request.json().catch(() => null)) as {
 		from?: unknown;
