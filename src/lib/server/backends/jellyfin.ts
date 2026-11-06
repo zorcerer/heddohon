@@ -58,7 +58,7 @@ import type {
 	SearchResults,
 	Song,
 	StarKind
-} from '$lib/types';
+} from '#lib/types.ts';
 import { randomUUID } from 'node:crypto';
 import { APP_VERSION } from '../version';
 

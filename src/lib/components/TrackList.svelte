@@ -1,12 +1,12 @@
 <script lang="ts">
-	import type { Song } from '$lib/types';
-	import { player } from '$lib/client/player.svelte';
-	import { formatDuration } from '$lib/client/format';
-	import { contextMenu } from '$lib/client/context-menu.svelte';
-	import { SelectableList } from '$lib/client/selection.svelte';
-	import { addSongsToPlaylist } from '$lib/client/playlists.svelte';
-	import { shareComposer } from '$lib/client/share.svelte';
-	import { together } from '$lib/client/together.svelte';
+	import type { Song } from '#lib/types.ts';
+	import { player } from '#lib/client/player.svelte.ts';
+	import { formatDuration } from '#lib/client/format.ts';
+	import { contextMenu } from '#lib/client/context-menu.svelte.ts';
+	import { SelectableList } from '#lib/client/selection.svelte.ts';
+	import { addSongsToPlaylist } from '#lib/client/playlists.svelte.ts';
+	import { shareComposer } from '#lib/client/share.svelte.ts';
+	import { together } from '#lib/client/together.svelte.ts';
 	import { page } from '$app/state';
 	import Cover from './Cover.svelte';
 	import FavouriteButton from './FavouriteButton.svelte';

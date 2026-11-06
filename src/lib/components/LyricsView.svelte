@@ -10,10 +10,10 @@
 	 *
 	 * Synced lyrics follow playback, and clicking a timed line seeks to it.
 	 */
-	import { activeLineIndex, lyricsWindow } from '$lib/client/lyrics.svelte';
-	import { player } from '$lib/client/player.svelte';
-	import { formatDuration } from '$lib/client/format';
-	import { prefersReducedMotion } from '$lib/client/sleeve-transition.svelte';
+	import { activeLineIndex, lyricsWindow } from '#lib/client/lyrics.svelte.ts';
+	import { player } from '#lib/client/player.svelte.ts';
+	import { formatDuration } from '#lib/client/format.ts';
+	import { prefersReducedMotion } from '#lib/client/sleeve-transition.svelte.ts';
 
 	let scroller = $state<HTMLElement | null>(null);
 	/** Cleared a few seconds after the reader stops touching the lyrics. */

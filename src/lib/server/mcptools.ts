@@ -13,7 +13,7 @@
  * body. An argument that is wrong comes back as a failed call the assistant
  * reads, which is how the protocol asks for it.
  */
-import type { Album, AlbumDetail, AlbumSort, Artist, ArtistDetail, Playlist, PlaylistDetail, Song, StarKind } from '$lib/types';
+import type { Album, AlbumDetail, AlbumSort, Artist, ArtistDetail, Playlist, PlaylistDetail, Song, StarKind } from '#lib/types.ts';
 import type { LibraryContext } from './library';
 import { albumDetail, artistDetail, forgetDetails } from './details';
 import { forgetListings, remembered } from './listings';

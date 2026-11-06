@@ -179,7 +179,10 @@ function arrive(block: HTMLElement, withCover: boolean): () => void {
 export function heroSweep(): (node: HTMLElement) => () => void {
 	let block: HTMLElement | null = null;
 	let cancel: (() => void) | null = null;
-	afterNavigate(({ from }) => {
+	afterNavigate(({ from, shallow, type }) => {
+		// SvelteKit 3 runs this for the sheet's own entry too (a shallow
+		// `goto`), which SvelteKit 2's `pushState` did not.
+		if (shallow && type === 'goto') return;
 		if (!from || !block) return;
 		cancel?.();
 		const children = [...block.children] as HTMLElement[];

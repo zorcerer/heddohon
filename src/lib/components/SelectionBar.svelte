@@ -5,8 +5,8 @@
 	 * `selection.svelte.ts`.
 	 */
 	import { beforeNavigate } from '$app/navigation';
-	import { player } from '$lib/client/player.svelte';
-	import { selection, selectionActions } from '$lib/client/selection.svelte';
+	import { player } from '#lib/client/player.svelte.ts';
+	import { selection, selectionActions } from '#lib/client/selection.svelte.ts';
 	import Icon from './Icon.svelte';
 
 	const count = $derived(selection.count);
@@ -14,7 +14,10 @@
 	/** On a phone, the open player covers the page's list, and the bar with it, but not the queue's. */
 	const covered = $derived(player.sheetLayout && player.panelOpen && !selection.source?.inPlayer);
 
-	beforeNavigate(() => selection.clear());
+	// Not for the sheet's own entry, a shallow `goto` in SvelteKit 3.
+	beforeNavigate(({ shallow, type }) => {
+		if (!(shallow && type === 'goto')) selection.clear();
+	});
 
 	/*
 	 * Escape leaves the selection, unless something above the page has it: the

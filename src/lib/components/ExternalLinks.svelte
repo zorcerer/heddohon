@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { ExternalLink } from '$lib/types';
+	import type { ExternalLink } from '#lib/types.ts';
 	import Icon from './Icon.svelte';
 
 	/**

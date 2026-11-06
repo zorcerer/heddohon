@@ -6,7 +6,7 @@ import { config } from './config';
 import { now, store } from './db';
 import { FEATURE_IDS, type FeatureId } from './features';
 import { customSchemes } from './schemes';
-import type { AlbumSort } from '$lib/types';
+import type { AlbumSort } from '#lib/types.ts';
 
 /**
  * A value of `data-theme`. Settings shows `dark` as Liquid and `light` as

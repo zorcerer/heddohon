@@ -1,7 +1,7 @@
 <script lang="ts">
 	import Icon from './Icon.svelte';
 	import MediaShelf from './MediaShelf.svelte';
-	import type { NewRelease } from '$lib/server/newreleases';
+	import type { NewRelease } from '#lib/server/newreleases.ts';
 
 	/**
 	 * The home page's "New releases": albums and EPs by the artists played

@@ -1,8 +1,8 @@
 <script lang="ts">
 	import MediaCard from './MediaCard.svelte';
 	import MediaShelf from './MediaShelf.svelte';
-	import { playContainer } from '$lib/client/actions';
-	import type { RememberedAlbum } from '$lib/server/history';
+	import { playContainer } from '#lib/client/actions.ts';
+	import type { RememberedAlbum } from '#lib/server/history.ts';
 
 	/**
 	 * The home page's "On this day", set as an almanac: a calendar leaf for the

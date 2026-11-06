@@ -14,12 +14,12 @@
 	 * added it, and a member can take back a track of their own.
 	 */
 	import { onMount, untrack } from 'svelte';
-	import { colorOfImage, DEFAULT_ARTWORK_COLOR, holdArtworkColor } from '$lib/client/artwork';
-	import { formatDuration } from '$lib/client/format';
-	import Reactions from '$lib/components/Reactions.svelte';
-	import type { FloatingReaction } from '$lib/client/together.svelte';
-	import type { MemberView, PartyState, QueueRow } from '$lib/server/together';
-	import type { Song } from '$lib/types';
+	import { colorOfImage, DEFAULT_ARTWORK_COLOR, holdArtworkColor } from '#lib/client/artwork.ts';
+	import { formatDuration } from '#lib/client/format.ts';
+	import Reactions from '#lib/components/Reactions.svelte';
+	import type { FloatingReaction } from '#lib/client/together.svelte.ts';
+	import type { MemberView, PartyState, QueueRow } from '#lib/server/together.ts';
+	import type { Song } from '#lib/types.ts';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();

@@ -1,9 +1,9 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { config } from '$lib/server/config';
-import { log } from '$lib/server/log';
-import { beginOidc, linkOf, unlinkIdentity } from '$lib/server/oidc';
-import { checkProof, type Proof } from '$lib/server/twofactor';
+import { config } from '#lib/server/config.ts';
+import { log } from '#lib/server/log.ts';
+import { beginOidc, linkOf, unlinkIdentity } from '#lib/server/oidc.ts';
+import { checkProof, type Proof } from '#lib/server/twofactor.ts';
 
 /**
  * The account's link to the identity provider, for Settings, Security:

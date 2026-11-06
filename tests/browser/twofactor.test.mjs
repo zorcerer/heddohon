@@ -173,3 +173,12 @@ test('a passkey signs in on its own from the sign-in page', async () => {
 	await page.waitForURL((url) => url.pathname === '/');
 	assert.deepEqual(problems, []);
 });
+
+// SvelteKit 3's `goto` refuses an address that is no page of the app, and
+// SvelteKit 2 loaded one whole. Refused, the sign-in stayed on its page.
+test('a passkey sign-in for an address that is no page of the app goes there', async () => {
+	await context.clearCookies();
+	await page.goto(`${app.url}/login?next=${encodeURIComponent('/healthz')}`);
+	await page.getByRole('button', { name: 'Sign in with a passkey' }).click();
+	await page.waitForURL((url) => url.pathname === '/healthz');
+});

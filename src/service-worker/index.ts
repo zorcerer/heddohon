@@ -1,8 +1,3 @@
-/// <reference no-default-lib="true"/>
-/// <reference lib="esnext" />
-/// <reference lib="webworker" />
-/// <reference types="@sveltejs/kit" />
-
 /**
  * The offline page, and nothing else.
  *
@@ -10,23 +5,25 @@
  * showed the browser's error page. This worker answers a failed page load with
  * `static/offline.html`, which waits for the server and reloads.
  *
- * It handles top-level page loads (GET navigations) only. Bundles, `/api/*`,
- * streams, covers and shared links never pass through `respondWith`, and
- * nothing a page loads is cached. The one cache holds the offline page and its
- * script, so a sign-out leaves no account data in it.
+ * It handles top-level page loads (GET navigations), and the offline page's
+ * own script. Bundles, `/api/*`, streams, covers and shared links never pass
+ * through `respondWith`, and nothing a page loads is cached. The one cache
+ * holds the offline page and its script, so a sign-out leaves no account data
+ * in it.
  *
  * A new build replaces the worker at once (`skipWaiting`). The worker serves
- * none of the app's own files, so a page open during the swap keeps the
- * bundles it loaded.
+ * none of the app's bundles, so a page open during the swap keeps the ones it
+ * loaded.
  */
-import { version } from '$service-worker';
-import { MARKER, SECURITY_HEADERS, STATIC_HTML_CSP } from '$lib/headers';
+import { version } from '$app/env';
+import { MARKER, SECURITY_HEADERS, STATIC_HTML_CSP } from '#lib/headers.ts';
 
 const sw = self as unknown as ServiceWorkerGlobalScope;
 
 const CACHE = `offline-${version}`;
 const OFFLINE_PAGE = '/offline.html';
-const PRECACHE = [OFFLINE_PAGE, '/offline.js'];
+const OFFLINE_SCRIPT = '/offline.js';
+const PRECACHE = [OFFLINE_PAGE, OFFLINE_SCRIPT];
 
 /** Statuses a reverse proxy answers with when Heddohon behind it is down. */
 const GATEWAY_FAILURES = new Set([502, 503, 504]);
@@ -88,9 +85,25 @@ async function navigate(event: FetchEvent): Promise<Response> {
 	}
 }
 
+/*
+ * The offline page's script, from the cache when the network fails. Without
+ * it the page never asks again and never reloads. It used to come from the
+ * browser's HTTP cache; adapter-node 6 serves static files without
+ * `Last-Modified`, and Chromium then had no copy to use offline.
+ */
+async function offlineScript(request: Request): Promise<Response> {
+	try {
+		return await fetch(request);
+	} catch {
+		return (await caches.match(OFFLINE_SCRIPT)) ?? Response.error();
+	}
+}
+
 sw.addEventListener('fetch', (event) => {
 	const { request } = event;
-	if (request.mode !== 'navigate' || request.method !== 'GET') return;
-	if (new URL(request.url).origin !== sw.location.origin) return;
-	event.respondWith(navigate(event));
+	if (request.method !== 'GET') return;
+	const url = new URL(request.url);
+	if (url.origin !== sw.location.origin) return;
+	if (request.mode === 'navigate') event.respondWith(navigate(event));
+	else if (url.pathname === OFFLINE_SCRIPT) event.respondWith(offlineScript(request));
 });

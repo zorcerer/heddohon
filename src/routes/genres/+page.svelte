@@ -1,8 +1,8 @@
 <script lang="ts">
-	import Icon from '$lib/components/Icon.svelte';
-	import SectionHeader from '$lib/components/SectionHeader.svelte';
-	import { playContainer } from '$lib/client/actions';
-	import type { Genre } from '$lib/types';
+	import Icon from '#lib/components/Icon.svelte';
+	import SectionHeader from '#lib/components/SectionHeader.svelte';
+	import { playContainer } from '#lib/client/actions.ts';
+	import type { Genre } from '#lib/types.ts';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();

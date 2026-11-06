@@ -25,7 +25,7 @@
 			class:active={sort === active}
 			href={href(sort)}
 			aria-current={sort === active ? 'true' : undefined}
-			data-sveltekit-noscroll
+			data-sveltekit-reset="false"
 		>
 			{labels[sort] ?? sort}
 		</a>

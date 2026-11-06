@@ -1,9 +1,9 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { backendFor } from '$lib/server/backends';
-import { library } from '$lib/server/library';
-import { forgetListings } from '$lib/server/listings';
-import { forgetDetails } from '$lib/server/details';
+import { backendFor } from '#lib/server/backends/index.ts';
+import { library } from '#lib/server/library.ts';
+import { forgetListings } from '#lib/server/listings.ts';
+import { forgetDetails } from '#lib/server/details.ts';
 
 /** Sets the listener's rating of a song or an album, 1 to 5, or clears it with 0. */
 export const POST: RequestHandler = async (event) => {

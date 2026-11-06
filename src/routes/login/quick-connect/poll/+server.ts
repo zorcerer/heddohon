@@ -8,11 +8,11 @@ import {
 	rememberDevice,
 	storeAccount,
 	type UpstreamSignIn
-} from '$lib/server/auth';
-import { beginStep } from '$lib/server/twofactor';
-import { backendFor, UpstreamError, type QuickConnectState } from '$lib/server/backends';
-import { safeNext } from '$lib/server/next';
-import { config } from '$lib/server/config';
+} from '#lib/server/auth.ts';
+import { beginStep } from '#lib/server/twofactor.ts';
+import { backendFor, UpstreamError, type QuickConnectState } from '#lib/server/backends/index.ts';
+import { safeNext } from '#lib/server/next.ts';
+import { config } from '#lib/server/config.ts';
 import {
 	claim,
 	clearPending,
@@ -21,8 +21,8 @@ import {
 	mayCheckUpstream,
 	readPending,
 	release
-} from '$lib/server/quickconnect';
-import { log, reason } from '$lib/server/log';
+} from '#lib/server/quickconnect.ts';
+import { log, reason } from '#lib/server/log.ts';
 
 /**
  * Asks whether the code this browser is showing has been approved, and signs

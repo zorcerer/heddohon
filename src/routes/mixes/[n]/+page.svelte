@@ -1,12 +1,12 @@
 <script lang="ts">
-	import Icon from '$lib/components/Icon.svelte';
-	import HeroTitle from '$lib/components/HeroTitle.svelte';
-	import Sleeve from '$lib/components/Sleeve.svelte';
-	import TrackList from '$lib/components/TrackList.svelte';
-	import { formatLongDuration } from '$lib/client/format';
-	import { player } from '$lib/client/player.svelte';
-	import { addSongsToPlaylist } from '$lib/client/playlists.svelte';
-	import { heroSweep } from '$lib/client/motion';
+	import Icon from '#lib/components/Icon.svelte';
+	import HeroTitle from '#lib/components/HeroTitle.svelte';
+	import Sleeve from '#lib/components/Sleeve.svelte';
+	import TrackList from '#lib/components/TrackList.svelte';
+	import { formatLongDuration } from '#lib/client/format.ts';
+	import { player } from '#lib/client/player.svelte.ts';
+	import { addSongsToPlaylist } from '#lib/client/playlists.svelte.ts';
+	import { heroSweep } from '#lib/client/motion.ts';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();

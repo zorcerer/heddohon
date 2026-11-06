@@ -5,8 +5,8 @@
  * a library page renders hundreds of rows, each of which would fetch the
  * playlist list.
  */
-import type { Playlist, Song } from '$lib/types';
-import type { SmartRules } from '$lib/smartrules';
+import type { Playlist, Song } from '#lib/types.ts';
+import type { SmartRules } from '#lib/smartrules.ts';
 
 interface AddRequest {
 	songIds: string[];

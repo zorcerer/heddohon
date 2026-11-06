@@ -18,7 +18,7 @@
  * turned off is listed, to be withdrawn, and opens nothing.
  */
 import { randomUUID } from 'node:crypto';
-import type { BackendKind } from '$lib/types';
+import type { BackendKind } from '#lib/types.ts';
 import type { StoredCredential } from './backends';
 import { mcpDigest, openJson, randomToken } from './crypto';
 import { now, store } from './db';

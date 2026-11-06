@@ -1,10 +1,10 @@
 import { error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { sessionByHandle, tiedToSession } from '$lib/server/auth';
-import { readCastToken } from '$lib/server/cast';
-import { proxyMedia, proxyTranscode, relayRequestFor, streamRequestFrom } from '$lib/server/proxy';
-import { getSettings } from '$lib/server/settings';
-import type { TranscodeRequest } from '$lib/server/backends/types';
+import { sessionByHandle, tiedToSession } from '#lib/server/auth.ts';
+import { readCastToken } from '#lib/server/cast.ts';
+import { proxyMedia, proxyTranscode, relayRequestFor, streamRequestFrom } from '#lib/server/proxy.ts';
+import { getSettings } from '#lib/server/settings.ts';
+import type { TranscodeRequest } from '#lib/server/backends/types.ts';
 
 /**
  * A track for a speaker or a TV, by a cast address; see `cast.ts`. Public, as

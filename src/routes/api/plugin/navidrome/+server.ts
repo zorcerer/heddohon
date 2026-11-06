@@ -1,8 +1,8 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { UpstreamError } from '$lib/server/backends';
-import { config } from '$lib/server/config';
-import { log } from '$lib/server/log';
+import { UpstreamError } from '#lib/server/backends/index.ts';
+import { config } from '#lib/server/config.ts';
+import { log } from '#lib/server/log.ts';
 import {
 	MAX_HISTORY_PAGE,
 	MAX_PLAYS,
@@ -15,7 +15,7 @@ import {
 	wanted,
 	type PluginPlay,
 	type PluginPlayback
-} from '$lib/server/plugin';
+} from '#lib/server/plugin.ts';
 
 /** The version of the messages the plugin sends; `protocol` in `main.go` of zorcerer/heddohon-navidrome-plugin. */
 const PROTOCOL = 1;

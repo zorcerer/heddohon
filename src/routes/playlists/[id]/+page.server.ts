@@ -1,8 +1,8 @@
 import type { PageServerLoad } from './$types';
-import { library } from '$lib/server/library';
-import { log, reason } from '$lib/server/log';
-import type { SmartRules } from '$lib/smartrules';
-import { smartFor } from '$lib/server/smartplaylists';
+import { library } from '#lib/server/library.ts';
+import { log, reason } from '#lib/server/log.ts';
+import type { SmartRules } from '#lib/smartrules.ts';
+import { smartFor } from '#lib/server/smartplaylists.ts';
 
 /**
  * What the page shows of a smart playlist's rules: the rules, or null where

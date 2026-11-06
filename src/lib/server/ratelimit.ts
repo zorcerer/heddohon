@@ -21,7 +21,7 @@
  *
  * State is in the database, so a restart does not clear the counters.
  */
-import type { BackendKind } from '$lib/types';
+import type { BackendKind } from '#lib/types.ts';
 import { store } from './db';
 import { log } from './log';
 

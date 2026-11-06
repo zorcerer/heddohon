@@ -10,7 +10,7 @@
 import { accessSync, chmodSync, constants, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { publishOrigins } from './origin';
-import { building } from '$app/environment';
+import { building } from '$app/env';
 
 export type BackendKind = 'subsonic' | 'jellyfin';
 
@@ -510,7 +510,7 @@ export function parseOrigins(raw: string): string[] {
 
 /**
  * The addresses saved for this deployment, where the environment sets no
- * `ORIGIN`. With `ORIGIN` in the environment the adapter already has the
+ * `ORIGIN`. With `ORIGIN` in the environment every request is served on that
  * one address, and a saved list is not read. See `origin.ts`.
  */
 function savedOrigins(): string[] {

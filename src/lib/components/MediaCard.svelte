@@ -4,10 +4,10 @@
 	import Cover from './Cover.svelte';
 	import Icon from './Icon.svelte';
 	import Sleeve from './Sleeve.svelte';
-	import { LAUNCH_MS, sleeveToken, sleeveTransition } from '$lib/client/sleeve-transition.svelte';
-	import { ambience } from '$lib/client/ambience.svelte';
-	import { warmAlbumCover } from '$lib/client/format';
-	import { contextMenu, type MenuAlbum } from '$lib/client/context-menu.svelte';
+	import { LAUNCH_MS, sleeveToken, sleeveTransition } from '#lib/client/sleeve-transition.svelte.ts';
+	import { ambience } from '#lib/client/ambience.svelte.ts';
+	import { warmAlbumCover } from '#lib/client/format.ts';
+	import { contextMenu, type MenuAlbum } from '#lib/client/context-menu.svelte.ts';
 
 	let {
 		href,

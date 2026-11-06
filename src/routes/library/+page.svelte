@@ -1,8 +1,8 @@
 <script lang="ts">
-	import Icon from '$lib/components/Icon.svelte';
-	import MediaCard from '$lib/components/MediaCard.svelte';
-	import MediaShelf from '$lib/components/MediaShelf.svelte';
-	import { playContainer } from '$lib/client/actions';
+	import Icon from '#lib/components/Icon.svelte';
+	import MediaCard from '#lib/components/MediaCard.svelte';
+	import MediaShelf from '#lib/components/MediaShelf.svelte';
+	import { playContainer } from '#lib/client/actions.ts';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();

@@ -1,11 +1,11 @@
 <script lang="ts">
-	import { contextMenu } from '$lib/client/context-menu.svelte';
+	import { contextMenu } from '#lib/client/context-menu.svelte.ts';
 	/**
 	 * One release given a panel of its own: its artwork fills the panel, cropped
 	 * and zoomed in past its edges, with the details over the darker lower
 	 * corner. The page's only poster-scale element.
 	 */
-	import type { Album } from '$lib/types';
+	import type { Album } from '#lib/types.ts';
 	import Cover from './Cover.svelte';
 	import Icon from './Icon.svelte';
 

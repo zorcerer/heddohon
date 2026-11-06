@@ -1,5 +1,5 @@
-import type { ClientInit } from '@sveltejs/kit';
-import { installer } from '$lib/client/install.svelte';
+import type { ClientInit } from '@sveltejs/kit/hooks';
+import { installer } from '#lib/client/install.svelte.ts';
 
 /**
  * Waits between attempts at a page's data, in milliseconds: about 5 seconds in

@@ -55,7 +55,7 @@ import type {
 	ReplayGain,
 	Song,
 	StarKind
-} from '$lib/types';
+} from '#lib/types.ts';
 
 const API_VERSION = '1.16.1';
 /** The `c` parameter: what the music server knows this client as. `plugin.ts` knows its own plays by it. */

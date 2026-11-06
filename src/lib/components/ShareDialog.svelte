@@ -9,10 +9,10 @@
 	 * accent fills when chosen, one primary button, and the same sweep along
 	 * its bottom edge while the server answers.
 	 */
-	import { browser } from '$app/environment';
+	import { browser } from '$app/env';
 	import { page } from '$app/state';
-	import { shareComposer, SHARE_LIFETIMES } from '$lib/client/share.svelte';
-	import { together } from '$lib/client/together.svelte';
+	import { shareComposer, SHARE_LIFETIMES } from '#lib/client/share.svelte.ts';
+	import { together } from '#lib/client/together.svelte.ts';
 	import Cover from './Cover.svelte';
 	import Icon from './Icon.svelte';
 

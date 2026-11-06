@@ -12,7 +12,7 @@
 import type { Account } from './auth';
 import { backendFor, UpstreamError, type StoredCredential } from './backends';
 import { log, reason } from './log';
-import type { Song } from '$lib/types';
+import type { Song } from '#lib/types.ts';
 
 /** Entries in each list the report shows. */
 const LISTED = 50;

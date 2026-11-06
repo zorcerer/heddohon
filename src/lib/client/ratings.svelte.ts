@@ -8,7 +8,7 @@
  * of this module stays empty and server renders use the loaded value.
  */
 import { SvelteMap, SvelteSet } from 'svelte/reactivity';
-import type { RatingKind } from '$lib/types';
+import type { RatingKind } from '#lib/types.ts';
 
 const changed = new SvelteMap<string, number>();
 const pending = new SvelteSet<string>();

@@ -12,15 +12,15 @@
 	import type { ComponentProps } from 'svelte';
 	import { beforeNavigate } from '$app/navigation';
 	import { page } from '$app/state';
-	import { fetchTracks, playContainer, playInstantMix, queueContainer } from '$lib/client/actions';
-	import { contextMenu } from '$lib/client/context-menu.svelte';
-	import { isStarred, setStarred } from '$lib/client/favourites.svelte';
-	import { ratingOf, setRating } from '$lib/client/ratings.svelte';
-	import { player } from '$lib/client/player.svelte';
-	import { addSongsToPlaylist } from '$lib/client/playlists.svelte';
-	import { selection, selectionActions } from '$lib/client/selection.svelte';
-	import { shareComposer } from '$lib/client/share.svelte';
-	import { together } from '$lib/client/together.svelte';
+	import { fetchTracks, playContainer, playInstantMix, queueContainer } from '#lib/client/actions.ts';
+	import { contextMenu } from '#lib/client/context-menu.svelte.ts';
+	import { isStarred, setStarred } from '#lib/client/favourites.svelte.ts';
+	import { ratingOf, setRating } from '#lib/client/ratings.svelte.ts';
+	import { player } from '#lib/client/player.svelte.ts';
+	import { addSongsToPlaylist } from '#lib/client/playlists.svelte.ts';
+	import { selection, selectionActions } from '#lib/client/selection.svelte.ts';
+	import { shareComposer } from '#lib/client/share.svelte.ts';
+	import { together } from '#lib/client/together.svelte.ts';
 	import Icon from './Icon.svelte';
 
 	type IconName = ComponentProps<typeof Icon>['name'];
@@ -324,7 +324,10 @@
 		if (subject?.kind === 'selection' && selection.count === 0) contextMenu.close();
 	});
 
-	beforeNavigate(() => contextMenu.close());
+	// Not for the sheet's own entry, a shallow `goto` in SvelteKit 3.
+	beforeNavigate(({ shallow, type }) => {
+		if (!(shallow && type === 'goto')) contextMenu.close();
+	});
 </script>
 
 {#if subject && heading}

@@ -6,7 +6,7 @@
 	 * line under the dialog is what "Add to listen together" on a track came
 	 * to, for a member adding from the app.
 	 */
-	import { together } from '$lib/client/together.svelte';
+	import { together } from '#lib/client/together.svelte.ts';
 	import Icon from './Icon.svelte';
 
 	let dialog = $state<HTMLDialogElement | null>(null);

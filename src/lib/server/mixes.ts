@@ -17,7 +17,7 @@
  * a mix plays from what is kept, so a track removed since fails as a stale
  * queue does.
  */
-import type { Song } from '$lib/types';
+import type { Song } from '#lib/types.ts';
 import type { LibraryContext } from './library';
 import { UpstreamError } from './backends';
 import { artistDetail } from './details';

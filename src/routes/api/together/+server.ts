@@ -1,6 +1,6 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { endParty, hostedBy, joinedBy, startParty, togetherEnabled } from '$lib/server/together';
+import { endParty, hostedBy, joinedBy, startParty, togetherEnabled } from '#lib/server/together.ts';
 
 /** The party this browser hosts, and the one this account has joined as a member, or null for each. */
 export const GET: RequestHandler = async ({ locals }) => {

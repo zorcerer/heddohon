@@ -4,7 +4,7 @@ import adapter from '@sveltejs/adapter-node';
 import type { Adapter } from '@sveltejs/kit';
 import { sveltekit } from '@sveltejs/kit/vite';
 import { defineConfig } from 'vite';
-import { SECURITY_HEADERS, STATIC_HTML_CSP } from './src/lib/headers';
+import { SECURITY_HEADERS, STATIC_HTML_CSP } from './src/lib/headers.ts';
 
 /*
  * adapter-node, with the hardening headers on the files it serves itself.
@@ -14,8 +14,8 @@ import { SECURITY_HEADERS, STATIC_HTML_CSP } from './src/lib/headers';
  * `hooks.server.ts`, and SvelteKit answers a trailing-slash redirect before
  * the hooks too. Those went out without `nosniff`, framing protection or HSTS,
  * and `offline.html` without a policy. The adapter has no option for this, so
- * after it writes `build/index.js` a middleware that sets the same headers is
- * put ahead of its handler. A response SvelteKit renders sets them again from
+ * after it writes the build a middleware that sets the same headers is put
+ * ahead of its handler. A response SvelteKit renders sets them again from
  * `harden()`, to the same values.
  *
  * The build fails if the entry no longer has the shape this edits.
@@ -26,11 +26,14 @@ function hardenedAdapter(): Adapter {
 		...base,
 		async adapt(builder) {
 			await base.adapt(builder);
+			// The entry re-exports the server, which rolldown bundles into
+			// `server/`; the request listener there calls the handler once.
 			const entry = join('build', 'index.js');
-			const source = await readFile(entry, 'utf8');
-			const hook = '.use(handler)';
+			const listener = join('build', 'server', 'adapter-index.js');
+			const source = await readFile(listener, 'utf8');
+			const hook = 'return handler(req, res, ';
 			if (source.split(hook).length !== 2) {
-				throw new Error(`adapter-node's ${entry} no longer calls ${hook} once; see hardenedAdapter in vite.config.ts`);
+				throw new Error(`adapter-node's ${listener} no longer calls ${hook.trim()} once; see hardenedAdapter in vite.config.ts`);
 			}
 			await writeFile(
 				join('build', 'security-headers.js'),
@@ -47,12 +50,23 @@ function hardenedAdapter(): Adapter {
 				].join('\n')
 			);
 			/*
-			 * The saved addresses (`src/lib/server/origin.ts`). For a request
-			 * that arrives on one, the adapter is told that address in the two
+			 * The address a request is served on, told to the adapter in the two
 			 * headers it can be set to trust, as a reverse proxy would tell it.
 			 *
-			 * Only where the operator has set none of `ORIGIN`, `PROTOCOL_HEADER`
-			 * and `HOST_HEADER`: with any of them the address is theirs to give.
+			 * `ORIGIN` in the environment is every request's address, whatever
+			 * its `Host`. adapter-node 5 read it itself and built each request
+			 * on it; adapter-node 6 takes an address only at build time
+			 * (`paths.origin`), and an image is built before anyone deploys it.
+			 * So it is given here, as it was given there, and the origin check in
+			 * `hooks.server.ts` compares `Origin` with the same address as before.
+			 * An `ORIGIN` that is not an address makes every request a 400, as
+			 * adapter-node 5 did.
+			 *
+			 * Without it, the saved addresses (`src/lib/server/origin.ts`): a
+			 * request that arrives on one is given that one. Only where the
+			 * operator has set neither `PROTOCOL_HEADER` nor `HOST_HEADER`: with
+			 * either the address is theirs to give.
+			 *
 			 * The header names are set here, before the adapter's module reads
 			 * them, which is why this import is the first in the entry. Whatever
 			 * a client sent under those names is removed from every request.
@@ -63,7 +77,14 @@ function hardenedAdapter(): Adapter {
 					'// Written by hardenedAdapter in vite.config.ts; see src/lib/server/origin.ts.',
 					"const PROTOCOL = 'x-heddohon-protocol';",
 					"const HOST = 'x-heddohon-host';",
-					'const active = !process.env.ORIGIN && !process.env.PROTOCOL_HEADER && !process.env.HOST_HEADER;',
+					"const given = process.env.ORIGIN?.trim() ?? '';",
+					'let pinned = null;',
+					'try {',
+					'\tif (given) pinned = new URL(given);',
+					'} catch {',
+					'\t// Answered in savedOrigin.',
+					'}',
+					'const active = Boolean(given) || (!process.env.PROTOCOL_HEADER && !process.env.HOST_HEADER);',
 					'if (active) {',
 					'\tprocess.env.PROTOCOL_HEADER = PROTOCOL;',
 					'\tprocess.env.HOST_HEADER = HOST;',
@@ -72,6 +93,16 @@ function hardenedAdapter(): Adapter {
 					'\tif (active) {',
 					'\t\tdelete req.headers[PROTOCOL];',
 					'\t\tdelete req.headers[HOST];',
+					'\t}',
+					'\tif (given) {',
+					'\t\tif (!pinned) {',
+					'\t\t\tres.statusCode = 400;',
+					"\t\t\tres.end('Bad Request');",
+					'\t\t\treturn;',
+					'\t\t}',
+					'\t\treq.headers[PROTOCOL] = pinned.protocol.slice(0, -1);',
+					'\t\treq.headers[HOST] = pinned.host;',
+					'\t} else if (active) {',
 					'\t\tconst host = req.headers.host;',
 					'\t\tconst saved = globalThis.__heddohonSavedOrigins;',
 					'\t\tif (host && Array.isArray(saved)) {',
@@ -95,9 +126,18 @@ function hardenedAdapter(): Adapter {
 				].join('\n')
 			);
 			await writeFile(
-				entry,
-				`import { savedOrigin } from './saved-origin.js';\nimport { securityHeaders } from './security-headers.js';\n${source.replace(hook, '.use(securityHeaders, savedOrigin, handler)')}`
+				join('build', 'hardened.js'),
+				[
+					'// Written by hardenedAdapter in vite.config.ts.',
+					"import { savedOrigin } from './saved-origin.js';",
+					"import { securityHeaders } from './security-headers.js';",
+					'export const hardened = (handler) => (req, res, next) =>',
+					'\tsecurityHeaders(req, res, () => savedOrigin(req, res, () => handler(req, res, next)));',
+					''
+				].join('\n')
 			);
+			await writeFile(listener, `import { hardened } from '../hardened.js';\n${source.replace(hook, 'return hardened(handler)(req, res, ')}`);
+			await writeFile(entry, `import './saved-origin.js';\n${await readFile(entry, 'utf8')}`);
 		}
 	};
 }
@@ -129,7 +169,7 @@ const targets = {
  * `default-src 'none'` denies first, and the rest is what the app loads, all
  * from its own origin: bundles, the bundled fonts, covers from `/api/cover`,
  * audio from `/api/stream`, fetches to `/api/*`, and the service worker that
- * serves the offline page (`src/service-worker.ts`). The tree carries no
+ * serves the offline page (`src/service-worker/index.ts`). The tree carries no
  * external origin and no `data:` or `blob:` URL.
  *
  * `style-src-attr` is separate. The shell in `app.html` and every component

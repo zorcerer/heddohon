@@ -20,7 +20,7 @@
  *   the arrows alone move between rows, and Ctrl or Cmd and A picks the list.
  * - Escape leaves the selection (`SelectionBar`).
  */
-import type { Song } from '$lib/types';
+import type { Song } from '#lib/types.ts';
 import { isStarred, setStarred } from './favourites.svelte';
 import { player } from './player.svelte';
 import { addSongsToPlaylist } from './playlists.svelte';

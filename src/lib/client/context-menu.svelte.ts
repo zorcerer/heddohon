@@ -5,7 +5,7 @@
  * picker and for its reason: a library page renders hundreds of rows and
  * cards, and each says only what it is when it is clicked.
  */
-import type { Song } from '$lib/types';
+import type { Song } from '#lib/types.ts';
 
 /** What a card knows of an album: enough to act on it and to name it. */
 export interface MenuAlbum {

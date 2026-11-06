@@ -24,7 +24,7 @@
  * The handle is the profile's (`profiles` in `listening.ts`), which the
  * "Listening now" list uses too; the account id is never shown.
  */
-import type { BackendKind } from '$lib/types';
+import type { BackendKind } from '#lib/types.ts';
 import type { Account } from './auth';
 import type { StoredCredential } from './backends';
 import { backendFor, UpstreamError } from './backends';

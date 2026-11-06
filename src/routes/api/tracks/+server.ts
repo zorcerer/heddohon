@@ -1,13 +1,13 @@
 import { json, error } from '@sveltejs/kit';
-import { config } from '$lib/server/config';
+import { config } from '#lib/server/config.ts';
 import type { RequestHandler } from './$types';
-import { backendFor, UpstreamError } from '$lib/server/backends';
-import { mapLimited } from '$lib/server/backends/http';
-import { remembered } from '$lib/server/listings';
-import { albumDetail, albumsByArtist, folderDetail } from '$lib/server/details';
-import { refusedCredential, type LibraryContext } from '$lib/server/library';
-import { dailyMixes } from '$lib/server/mixes';
-import type { MixSeed, Song } from '$lib/types';
+import { backendFor, UpstreamError } from '#lib/server/backends/index.ts';
+import { mapLimited } from '#lib/server/backends/http.ts';
+import { remembered } from '#lib/server/listings.ts';
+import { albumDetail, albumsByArtist, folderDetail } from '#lib/server/details.ts';
+import { refusedCredential, type LibraryContext } from '#lib/server/library.ts';
+import { dailyMixes } from '#lib/server/mixes.ts';
+import type { MixSeed, Song } from '#lib/types.ts';
 
 type Source = 'album' | 'playlist' | 'artist' | 'genre' | 'folder' | 'starred' | 'random' | 'mix' | 'daily';
 

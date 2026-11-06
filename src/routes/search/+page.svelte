@@ -1,12 +1,12 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { untrack } from 'svelte';
-	import Icon from '$lib/components/Icon.svelte';
-	import MediaCard from '$lib/components/MediaCard.svelte';
-	import MediaGrid from '$lib/components/MediaGrid.svelte';
-	import SectionHeader from '$lib/components/SectionHeader.svelte';
-	import TrackList from '$lib/components/TrackList.svelte';
-	import { playContainer } from '$lib/client/actions';
+	import Icon from '#lib/components/Icon.svelte';
+	import MediaCard from '#lib/components/MediaCard.svelte';
+	import MediaGrid from '#lib/components/MediaGrid.svelte';
+	import SectionHeader from '#lib/components/SectionHeader.svelte';
+	import TrackList from '#lib/components/TrackList.svelte';
+	import { playContainer } from '#lib/client/actions.ts';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -39,7 +39,7 @@
 		timer = setTimeout(() => {
 			sent = next.trim();
 			const target = sent ? `/search?q=${encodeURIComponent(sent)}` : '/search';
-			void goto(target, { keepFocus: true, replaceState: true, noScroll: true });
+			void goto(target, { reset: false, replace: true });
 		}, 1000);
 	}
 

@@ -1,12 +1,12 @@
 import { error, redirect, type RequestEvent } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { config } from '$lib/server/config';
-import { accountById, createSession, destroySession, rememberDevice } from '$lib/server/auth';
-import { backendFor, UpstreamError } from '$lib/server/backends';
-import { accountOfIdentity, finishOidc, linkIdentity, type OidcReturn } from '$lib/server/oidc';
-import { oidcKeys, pruneLoginAttempts, reserveLoginAttempt, visitorAddress } from '$lib/server/ratelimit';
-import { beginStep } from '$lib/server/twofactor';
-import { log } from '$lib/server/log';
+import { config } from '#lib/server/config.ts';
+import { accountById, createSession, destroySession, rememberDevice } from '#lib/server/auth.ts';
+import { backendFor, UpstreamError } from '#lib/server/backends/index.ts';
+import { accountOfIdentity, finishOidc, linkIdentity, type OidcReturn } from '#lib/server/oidc.ts';
+import { oidcKeys, pruneLoginAttempts, reserveLoginAttempt, visitorAddress } from '#lib/server/ratelimit.ts';
+import { beginStep } from '#lib/server/twofactor.ts';
+import { log } from '#lib/server/log.ts';
 
 /**
  * Where the identity provider sends the browser back (`oidc.ts`), for a

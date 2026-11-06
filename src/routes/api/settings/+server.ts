@@ -1,9 +1,9 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { getSettings, saveSettings } from '$lib/server/settings';
-import { shareApps } from '$lib/server/remote';
-import { libraryContext } from '$lib/server/library';
-import { prepareNewReleases } from '$lib/server/newreleases';
+import { getSettings, saveSettings } from '#lib/server/settings.ts';
+import { shareApps } from '#lib/server/remote.ts';
+import { libraryContext } from '#lib/server/library.ts';
+import { prepareNewReleases } from '#lib/server/newreleases.ts';
 
 export const GET: RequestHandler = async ({ locals }) => {
 	if (!locals.session) error(401, 'Not signed in');

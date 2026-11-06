@@ -23,8 +23,8 @@
 	 * bars have fallen.
 	 */
 	import { MediaQuery } from 'svelte/reactivity';
-	import { player } from '$lib/client/player.svelte';
-	import { processing } from '$lib/client/processing.svelte';
+	import { player } from '#lib/client/player.svelte.ts';
+	import { processing } from '#lib/client/processing.svelte.ts';
 
 	/** `player` sits over the foot of the artwork; `screen` along the foot of the living-room screen. */
 	let { place }: { place: 'player' | 'screen' } = $props();

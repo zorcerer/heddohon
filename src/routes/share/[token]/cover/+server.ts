@@ -1,5 +1,5 @@
 import type { RequestHandler } from './$types';
-import { coverShared } from '$lib/server/share-media';
+import { coverShared } from '#lib/server/share-media.ts';
 
 /** The shared item's own cover. See `share-media.ts`. */
 const handler: RequestHandler = (event) => coverShared(event, null);

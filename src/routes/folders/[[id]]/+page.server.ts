@@ -1,10 +1,10 @@
 import { error } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
-import { config } from '$lib/server/config';
-import { library } from '$lib/server/library';
-import { folderDetail } from '$lib/server/details';
-import { paginate, readPageNumber } from '$lib/server/paging';
-import type { FolderRef, Song } from '$lib/types';
+import { config } from '#lib/server/config.ts';
+import { library } from '#lib/server/library.ts';
+import { folderDetail } from '#lib/server/details.ts';
+import { paginate, readPageNumber } from '#lib/server/paging.ts';
+import type { FolderRef, Song } from '#lib/types.ts';
 
 type Entry = { folder: FolderRef } | { song: Song };
 

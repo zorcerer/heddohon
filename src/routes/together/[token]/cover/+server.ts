@@ -1,9 +1,9 @@
 import { error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { sessionByHandle } from '$lib/server/auth';
-import { backendFor } from '$lib/server/backends';
-import { nearestCoverSize, proxySharedMedia, streamRequestFrom } from '$lib/server/proxy';
-import { partyFor, togetherEnabled } from '$lib/server/together';
+import { sessionByHandle } from '#lib/server/auth.ts';
+import { backendFor } from '#lib/server/backends/index.ts';
+import { nearestCoverSize, proxySharedMedia, streamRequestFrom } from '#lib/server/proxy.ts';
+import { partyFor, togetherEnabled } from '#lib/server/together.ts';
 
 /** The cover of the track the party is on; `?song=` as for the stream. */
 const handler: RequestHandler = async (event) => {

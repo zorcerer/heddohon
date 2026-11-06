@@ -1,16 +1,16 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { createSession, destroySession, rememberDevice } from '$lib/server/auth';
-import { safeNext } from '$lib/server/next';
-import { passkeyStartKeys, pruneLoginAttempts, reserveLoginAttempt, visitorAddress } from '$lib/server/ratelimit';
+import { createSession, destroySession, rememberDevice } from '#lib/server/auth.ts';
+import { safeNext } from '#lib/server/next.ts';
+import { passkeyStartKeys, pruneLoginAttempts, reserveLoginAttempt, visitorAddress } from '#lib/server/ratelimit.ts';
 import {
 	finishStepWithPasskey,
 	passkeysOffered,
 	signInOptions,
 	signInWithPasskey,
 	stepPasskeyOptions
-} from '$lib/server/twofactor';
-import { log } from '$lib/server/log';
+} from '#lib/server/twofactor.ts';
+import { log } from '#lib/server/log.ts';
 
 /**
  * Passkeys at sign-in, under `/login`, so reachable without a session. Each

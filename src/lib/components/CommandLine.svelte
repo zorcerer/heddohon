@@ -12,8 +12,8 @@
 		run,
 		scoped,
 		type Found
-	} from '$lib/client/commands';
-	import type { SearchResults } from '$lib/types';
+	} from '#lib/client/commands.ts';
+	import type { SearchResults } from '#lib/types.ts';
 
 	/*
 	 * Terminal's command line, in the path strip: `:`, `;` (the same key

@@ -48,7 +48,7 @@ in the next release, whose notes credit you.
 
 ### Setting up
 
-Node 22 or later.
+Node 22.17 or later.
 
 ```bash
 git clone -b dev https://github.com/zorcerer/heddohon.git && cd heddohon

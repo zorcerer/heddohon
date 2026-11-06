@@ -1,9 +1,9 @@
 import { error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { accountById } from '$lib/server/auth';
-import { backendFor } from '$lib/server/backends';
-import { accountOfNowPlaying, coverOf } from '$lib/server/nowplaying';
-import { nearestCoverSize, proxySharedMedia, streamRequestFrom } from '$lib/server/proxy';
+import { accountById } from '#lib/server/auth.ts';
+import { backendFor } from '#lib/server/backends/index.ts';
+import { accountOfNowPlaying, coverOf } from '#lib/server/nowplaying.ts';
+import { nearestCoverSize, proxySharedMedia, streamRequestFrom } from '#lib/server/proxy.ts';
 
 /**
  * The cover of what the link's account is playing, read through its own

@@ -4,7 +4,7 @@
 	 * and the oversized hit area are hard to express there, and keyboard support
 	 * is added by hand.
 	 */
-	import { DUR } from '$lib/client/motion';
+	import { DUR } from '#lib/client/motion.ts';
 
 	let {
 		value,

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
-	import type { ProfileView } from '$lib/server/profilepage';
+	import type { ProfileView } from '#lib/server/profilepage.ts';
 	import Avatar from './Avatar.svelte';
 	import ProfileCover from './ProfileCover.svelte';
 

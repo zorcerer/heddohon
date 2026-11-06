@@ -1,14 +1,14 @@
 <script lang="ts">
 	import { page as pageState } from '$app/state';
-	import Icon from '$lib/components/Icon.svelte';
-	import MediaCard from '$lib/components/MediaCard.svelte';
-	import MediaGrid from '$lib/components/MediaGrid.svelte';
-	import Pager from '$lib/components/Pager.svelte';
-	import SectionHeader from '$lib/components/SectionHeader.svelte';
-	import SortChips from '$lib/components/SortChips.svelte';
-	import TrackList from '$lib/components/TrackList.svelte';
-	import { playContainer } from '$lib/client/actions';
-	import { player } from '$lib/client/player.svelte';
+	import Icon from '#lib/components/Icon.svelte';
+	import MediaCard from '#lib/components/MediaCard.svelte';
+	import MediaGrid from '#lib/components/MediaGrid.svelte';
+	import Pager from '#lib/components/Pager.svelte';
+	import SectionHeader from '#lib/components/SectionHeader.svelte';
+	import SortChips from '#lib/components/SortChips.svelte';
+	import TrackList from '#lib/components/TrackList.svelte';
+	import { playContainer } from '#lib/client/actions.ts';
+	import { player } from '#lib/client/player.svelte.ts';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -39,7 +39,7 @@
 	}
 
 	function sortHref(sort: Sort): string {
-		const params = new URLSearchParams(pageState.url.searchParams);
+		const params = new URLSearchParams(pageState.url.search);
 		params.set('tab', data.tab);
 		params.set('sort', sort);
 		if (sort === 'random') params.set('seed', String(data.reshuffleSeed));
@@ -50,7 +50,7 @@
 	}
 
 	function pageHref(target: number): string {
-		const params = new URLSearchParams(pageState.url.searchParams);
+		const params = new URLSearchParams(pageState.url.search);
 		params.set('tab', data.tab);
 		params.set('page', String(target));
 		params.set('sort', data.sort);
@@ -94,7 +94,7 @@
 							class:active={tab === data.tab}
 							href={tabHref(tab)}
 							aria-current={tab === data.tab ? 'page' : undefined}
-							data-sveltekit-noscroll
+							data-sveltekit-reset="false"
 						>
 							{LABELS[tab]}
 							<span class="hh-numeric count">{data.counts[tab].toLocaleString()}</span>

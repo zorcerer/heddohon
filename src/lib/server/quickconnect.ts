@@ -12,7 +12,7 @@
  * also sends back the code it shows, and a cookie with a different code is
  * refused, which covers deployments where the prefix cannot be used.
  */
-import type { BackendKind } from '$lib/types';
+import type { BackendKind } from '#lib/types.ts';
 import { cookieSecure, type CookieContext } from './auth';
 import { constantTimeEquals, openJson, sealJson } from './crypto';
 

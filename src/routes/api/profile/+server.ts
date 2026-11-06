@@ -1,7 +1,7 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { config } from '$lib/server/config';
-import { cleanName, getProfile, saveProfile, type Profile } from '$lib/server/listening';
+import { config } from '#lib/server/config.ts';
+import { cleanName, getProfile, saveProfile, type Profile } from '#lib/server/listening.ts';
 
 /** A profile as its own account is sent it. The picture is fetched by the handle and its version. */
 const view = (profile: Profile) => ({
