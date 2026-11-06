@@ -76,7 +76,7 @@ test('an album is picked and the page listed, and another account sees it under 
 	await owner.page.getByRole('button', { name: /Album 3/ }).click();
 	await owner.page.getByRole('button', { name: /Album 5/ }).click();
 	await owner.page.getByRole('textbox', { name: /Bio/ }).fill('Records I keep coming back to.');
-	await owner.page.getByLabel(/The other accounts on this server/).check();
+	await owner.page.getByRole('checkbox', { name: /The other accounts on this server/ }).check();
 	await owner.page.getByRole('button', { name: 'Save', exact: true }).click();
 	// A save closes the editor.
 	await heading.waitFor({ state: 'hidden' });

@@ -47,6 +47,9 @@
 	import MixButton from './MixButton.svelte';
 	import QualityBadge from './QualityBadge.svelte';
 	import RatingStars from './RatingStars.svelte';
+	import Tip from './Tip.svelte';
+	import Busy from './Busy.svelte';
+	import SwipeRow from './bits/SwipeRow.svelte';
 	import { remote } from '#lib/client/remote.svelte.ts';
 	import { together } from '#lib/client/together.svelte.ts';
 	import Seekbar from './Seekbar.svelte';
@@ -377,65 +380,86 @@
 							class:dragged={drag?.from === index}
 							style:translate={rowShift(index)}
 						>
-							<!-- The menu is a second way to what the row's buttons do. -->
-							<!-- svelte-ignore a11y_no_static_element_interactions -->
-							<div class="row" class:current={index === player.index} class:past={index < player.index}
-								class:selected={queueSelect.has(index)}
-								onclickcapture={(event) => queueSelect.click(event, index)}
-								onmousedown={(event) => queueSelect.mousedown(event)}
-								onpointerdown={(event) => queueSelect.pointerdown(event, index)}
-								onpointermove={(event) => queueSelect.pointermove(event)}
-								onpointerup={() => queueSelect.pointerend()}
-								onpointercancel={() => queueSelect.pointerend()}
-								oncontextmenu={(event) => {
-									if (queueSelect.contextmenu(event, index)) return;
-									if (queueSelect.has(index)) {
-										contextMenu.open(event, { kind: 'selection' });
-										return;
-									}
-									contextMenu.open(event, {
-										kind: 'song',
-										song: track,
-										play: () => void player.jumpTo(index),
-										remove: { label: 'Remove from the queue', run: () => player.removeAt(index) }
-									});
-								}}
-							>
-								<!-- Dragged by pointer or finger, or moved one place at a time
-								     with the arrow keys while it has focus. -->
-								<button
-									class="row-grip"
-									data-select-skip
-									type="button"
-									aria-label="Move {track.title}. Use the up and down arrow keys."
-									title="Drag to reorder"
-									onpointerdown={(event) => startDrag(event, index)}
-									onpointermove={moveDrag}
-									onpointerup={endDrag}
-									onpointercancel={cancelDrag}
-									onkeydown={(event) => nudge(event, index)}
+							{#snippet queueRow()}
+								<!-- The menu is a second way to what the row's buttons do. -->
+								<!-- svelte-ignore a11y_no_static_element_interactions -->
+								<div class="row" class:current={index === player.index} class:past={index < player.index}
+									class:selected={queueSelect.has(index)}
+									onclickcapture={(event) => queueSelect.click(event, index)}
+									onmousedown={(event) => queueSelect.mousedown(event)}
+									onpointerdown={(event) => queueSelect.pointerdown(event, index)}
+									onpointermove={(event) => queueSelect.pointermove(event)}
+									onpointerup={() => queueSelect.pointerend()}
+									onpointercancel={() => queueSelect.pointerend()}
+									oncontextmenu={(event) => {
+										if (queueSelect.contextmenu(event, index)) return;
+										if (queueSelect.has(index)) {
+											contextMenu.open(event, { kind: 'selection' });
+											return;
+										}
+										contextMenu.open(event, {
+											kind: 'song',
+											song: track,
+											play: () => void player.jumpTo(index),
+											remove: { label: 'Remove from the queue', run: () => player.removeAt(index) }
+										});
+									}}
 								>
-									<Icon name="grip" size={14} />
-								</button>
-								<button class="row-art" onclick={() => player.jumpTo(index)} aria-label="Play {track.title}">
-									<Cover coverArt={track.coverArt} size={96} alt="" radius="var(--r-sm)" />
-									<span class="row-play"><Icon name="play" size={12} /></span>
-								</button>
-								<span class="row-text">
-									<span class="row-title hh-truncate">{track.title}</span>
-									<span class="row-sub hh-truncate hh-muted">
-										{track.artist ?? 'Unknown artist'}{#if track.addedBy}<span class="row-by">{` · Added by ${track.addedBy.name}`}</span>{/if}
+									<!-- Dragged by pointer or finger, or moved one place at a time
+									     with the arrow keys while it has focus. -->
+									<button
+										class="row-grip"
+										data-select-skip
+										type="button"
+										aria-label="Move {track.title}. Use the up and down arrow keys."
+										title="Drag to reorder"
+										onpointerdown={(event) => startDrag(event, index)}
+										onpointermove={moveDrag}
+										onpointerup={endDrag}
+										onpointercancel={cancelDrag}
+										onkeydown={(event) => nudge(event, index)}
+									>
+										<Icon name="grip" size={14} />
+									</button>
+									<button class="row-art" onclick={() => player.jumpTo(index)} aria-label="Play {track.title}">
+										<Cover coverArt={track.coverArt} size={96} alt="" radius="var(--r-sm)" />
+										<span class="row-play"><Icon name="play" size={12} /></span>
+									</button>
+									<span class="row-text">
+										<span class="row-title hh-truncate">{track.title}</span>
+										<span class="row-sub hh-truncate hh-muted">
+											{track.artist ?? 'Unknown artist'}{#if track.addedBy}<span class="row-by">{` · Added by ${track.addedBy.name}`}</span>{/if}
+										</span>
 									</span>
-								</span>
-								<button
-									class="row-remove"
-									onclick={() => player.removeAt(index)}
-									aria-label="Remove {track.title} from the queue"
-									title="Remove"
+									<button
+										class="row-remove"
+										onclick={() => player.removeAt(index)}
+										aria-label="Remove {track.title} from the queue"
+										title="Remove"
+									>
+										<Icon name="close" size={13} />
+									</button>
+								</div>
+							{/snippet}
+							<!-- On a phone, Svelte Bits' SwipeRow: a swipe to the left shows Remove,
+							     and a long one removes the track. -->
+							{#if player.sheetLayout}
+								<SwipeRow
+									actions={[{ id: 'remove', label: 'Remove', color: 'var(--danger)', dismiss: true }]}
+									onAction={() => player.removeAt(index)}
+									onCommit={() => player.removeAt(index)}
+									height={52}
+									radius={8}
+									rowColor="var(--bg-surface)"
+									textColor="var(--text-default)"
+									label={track.title}
+									className="hh-swipe"
 								>
-									<Icon name="close" size={13} />
-								</button>
-							</div>
+									{@render queueRow()}
+								</SwipeRow>
+							{:else}
+								{@render queueRow()}
+							{/if}
 						</li>
 					{/each}
 				</ol>
@@ -575,9 +599,7 @@
 			/>
 			<div class="times">
 				<span class="hh-numeric">{formatDuration(player.currentTime)}</span>
-				{#if player.notice}
-					<span class="notice hh-truncate" role="status">{player.notice}</span>
-				{:else if song && !song.live && showQualityBadge}
+				{#if song && !song.live && showQualityBadge}
 					<!--
 						The badge is also the switch. Pressing it asks the music server
 						to convert instead of sending the file, and pressing it again
@@ -639,7 +661,7 @@
 				title={player.running ? 'Pause' : 'Play'}
 			>
 				{#if player.buffering}
-					<span class="spinner" aria-hidden="true"></span>
+					<span class="spinner"><Busy cell={5} /></span>
 				{:else}
 					<!-- Both glyphs are drawn, one over the other, and the one not wanted
 					     shrinks away as the other grows in. Heavier than the set's
@@ -816,120 +838,130 @@
 		</div>
 
 		<!-- The footer row, which is what switches the stage. -->
-		<div class="tools">
-			<button
-				class="tool"
-				class:on={details}
-				onclick={() => (details = !details)}
-				disabled={!song || song.live}
-				aria-pressed={details}
-				aria-label="Track details"
-				title="Track details"
-			>
-				<Icon name="info" size={18} />
-			</button>
+		<Tip group>
+			<div class="tools">
+				<Tip label="Track details">
+					<button
+						class="tool"
+						class:on={details}
+						onclick={() => (details = !details)}
+						disabled={!song || song.live}
+						aria-pressed={details}
+						aria-label="Track details"
+					>
+						<Icon name="info" size={18} />
+					</button>
+				</Tip>
 
-			<button
-				class="tool"
-				class:on={lyricsWindow.open}
-				onclick={showLyrics}
-				disabled={!song || song.live}
-				aria-pressed={lyricsWindow.open}
-				aria-label="Lyrics"
-				title="Lyrics"
-			>
-				<Icon name="lyrics" size={18} />
-			</button>
+				<Tip label="Lyrics">
+					<button
+						class="tool"
+						class:on={lyricsWindow.open}
+						onclick={showLyrics}
+						disabled={!song || song.live}
+						aria-pressed={lyricsWindow.open}
+						aria-label="Lyrics"
+					>
+						<Icon name="lyrics" size={18} />
+					</button>
+				</Tip>
 
-			<!-- Here and not beside the favourite and playlist buttons: a third 44px
-			     round there leaves the title about 160px on a docked panel. -->
-			{#if page.data.sharing}
-				<button
-					class="tool"
-					onclick={() => song && shareComposer.open(song)}
-					disabled={!song || song.live}
-					aria-label="Share a link to this song"
-					title="Share"
-				>
-					<Icon name="share" size={18} />
-				</button>
-			{/if}
-
-			<button
-				class="tool"
-				class:on={volumeOpen}
-				onclick={() => (volumeOpen = !volumeOpen)}
-				aria-pressed={volumeOpen}
-				aria-label="Volume"
-				title="Volume"
-			>
-				<Icon name={volumeIcon} size={18} />
-			</button>
-
-			<button
-				class="tool"
-				class:on={sleepOpen || player.sleep !== null}
-				onclick={() => (sleepOpen = !sleepOpen)}
-				aria-expanded={sleepOpen}
-				aria-label={sleepMinutesLeft !== null
-					? `Sleep timer, pausing in ${sleepMinutesLeft} minutes`
-					: player.sleep
-						? 'Sleep timer, pausing at the end of this track'
-						: 'Sleep timer'}
-				title="Sleep timer"
-			>
-				<Icon name="moon" size={18} />
-				{#if sleepMinutesLeft !== null}
-					<span class="count hh-numeric">{sleepMinutesLeft}</span>
+				<!-- Here and not beside the favourite and playlist buttons: a third 44px
+				     round there leaves the title about 160px on a docked panel. -->
+				{#if page.data.sharing}
+					<Tip label="Share">
+						<button
+							class="tool"
+							onclick={() => song && shareComposer.open(song)}
+							disabled={!song || song.live}
+							aria-label="Share a link to this song"
+						>
+							<Icon name="share" size={18} />
+						</button>
+					</Tip>
 				{/if}
-			</button>
 
-			<!-- Only while another browser of the account has the player open, or
-			     another app of it is playing, so the row is otherwise its usual
-			     seven. -->
-			{#if remote.peers.length + remote.apps.length > 0}
-				<button
-					class="tool"
-					class:on={remote.open}
-					onclick={() => (remote.open = true)}
-					aria-label="Devices ({remote.peers.length + remote.apps.length} other)"
-					title="Devices"
-				>
-					<Icon name="devices" size={18} />
-					<span class="count hh-numeric">{remote.peers.length + remote.apps.length}</span>
-				</button>
-			{/if}
+				<Tip label="Volume">
+					<button
+						class="tool"
+						class:on={volumeOpen}
+						onclick={() => (volumeOpen = !volumeOpen)}
+						aria-pressed={volumeOpen}
+						aria-label="Volume"
+					>
+						<Icon name={volumeIcon} size={18} />
+					</button>
+				</Tip>
 
-			<button
-				class="tool"
-				class:on={player.queueOpen}
-				onclick={showQueue}
-				aria-pressed={player.queueOpen}
-				aria-label="Queue"
-				title="Queue ({player.queue.length})"
-			>
-				<Icon name="queue" size={18} />
-				<!-- Keyed, so a track added from anywhere pops the count as it changes. -->
-				{#key player.queue.length}
-					{#if player.queue.length > 0}
-						<span class="count hh-numeric">{player.queue.length}</span>
-					{/if}
-				{/key}
-			</button>
+				<Tip label="Sleep timer">
+					<button
+						class="tool"
+						class:on={sleepOpen || player.sleep !== null}
+						onclick={() => (sleepOpen = !sleepOpen)}
+						aria-expanded={sleepOpen}
+						aria-label={sleepMinutesLeft !== null
+							? `Sleep timer, pausing in ${sleepMinutesLeft} minutes`
+							: player.sleep
+								? 'Sleep timer, pausing at the end of this track'
+								: 'Sleep timer'}
+					>
+						<Icon name="moon" size={18} />
+						{#if sleepMinutesLeft !== null}
+							<span class="count hh-numeric">{sleepMinutesLeft}</span>
+						{/if}
+					</button>
+				</Tip>
 
-			<button
-				id="player-hide"
-				class="tool"
-				onclick={hidePanel}
-				aria-label="Hide the player"
-				title="Hide the player"
-			>
-				<!-- Down on a phone, where the sheet goes down; right beside the page,
-				     where the panel goes off the right-hand edge. -->
-				<span class="beside"><Icon name="chevron-right" size={18} /></span>
-				<span class="below"><Icon name="chevron-down" size={18} /></span>
-			</button>
-		</div>
+				<!-- Only while another browser of the account has the player open, or
+				     another app of it is playing, so the row is otherwise its usual
+				     seven. -->
+				{#if remote.peers.length + remote.apps.length > 0}
+					<Tip label="Devices">
+						<button
+							class="tool"
+							class:on={remote.open}
+							onclick={() => (remote.open = true)}
+							aria-label="Devices ({remote.peers.length + remote.apps.length} other)"
+						>
+							<Icon name="devices" size={18} />
+							<span class="count hh-numeric">{remote.peers.length + remote.apps.length}</span>
+						</button>
+					</Tip>
+				{/if}
+
+				<Tip label="Queue ({player.queue.length})">
+					<button
+						class="tool"
+						class:on={player.queueOpen}
+						onclick={showQueue}
+						aria-pressed={player.queueOpen}
+						aria-label="Queue"
+					>
+						<Icon name="queue" size={18} />
+						<!-- Keyed, so a track added from anywhere pops the count as it changes. -->
+						{#key player.queue.length}
+							{#if player.queue.length > 0}
+								<span class="count hh-numeric">{player.queue.length}</span>
+							{/if}
+						{/key}
+					</button>
+				</Tip>
+
+				<Tip label="Hide the player">
+					<button
+						id="player-hide"
+						class="tool"
+						onclick={hidePanel}
+						aria-label="Hide the player"
+					>
+						<!-- Down on a phone, where the sheet goes down; right beside the page,
+						     where the panel goes off the right-hand edge. -->
+						<span class="beside"><Icon name="chevron-right" size={18} /></span>
+						<span class="below"><Icon name="chevron-down" size={18} /></span>
+					</button>
+				</Tip>
+			</div>
+		</Tip>
 
 		{#if player.error}
 			<p class="error" role="alert">{player.error}</p>
@@ -1182,6 +1214,8 @@
 
 	.row {
 		display: grid;
+		flex: 1;
+		min-width: 0;
 		grid-template-columns: 1.25rem 2.25rem minmax(0, 1fr) auto;
 		align-items: center;
 		gap: var(--space-3);
@@ -1472,14 +1506,6 @@
 		text-align: right;
 	}
 
-	/* Where the quality badge is, so a message moves nothing on the panel. The
-	   middle track is `auto`, so the width has to be capped here. */
-	.notice {
-		max-width: 11rem;
-		color: var(--text-default);
-		text-align: center;
-	}
-
 	/* ── Transport ───────────────────────────────────────────────────── */
 
 	.transport {
@@ -1571,25 +1597,12 @@
 	}
 
 	.spinner {
-		width: 1.6rem;
-		height: 1.6rem;
-		border-radius: 50%;
-		border: 2px solid color-mix(in srgb, currentColor 30%, transparent);
-		border-top-color: currentColor;
-		animation: spin 0.7s linear infinite;
+		display: grid;
+		place-items: center;
 	}
 
-	@keyframes spin {
-		to {
-			transform: rotate(360deg);
-		}
-	}
 
 	@media (prefers-reduced-motion: reduce) {
-		.spinner {
-			animation-duration: 2.4s;
-		}
-
 		/* Both states are correct without the movement. */
 		.fold {
 			transition: none;

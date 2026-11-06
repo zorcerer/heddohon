@@ -97,6 +97,11 @@ reviewed by me and by multiple AI-assisted audits, documented in [SECURITY.md](S
 Art of the Fugue played by Kimiko Ishizaka
 ([CC0](https://creativecommons.org/publicdomain/zero/1.0/)).
 
+The animated controls in `src/lib/components/bits/` are from
+[Svelte Bits](https://sveltebits.xyz) by David Haz, under the MIT licence with
+the Commons Clause ([its text](src/lib/components/bits/LICENSE.md)): they come
+with Heddohon, and may not be sold or passed on by themselves.
+
 <p align="center">
   <a href="https://ko-fi.com/zorcerer"><img src="https://ko-fi.com/img/githubbutton_sm.svg" alt="Support Heddohon on Ko-fi"></a>
 </p>

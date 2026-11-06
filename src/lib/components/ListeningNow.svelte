@@ -19,6 +19,7 @@
 	import Avatar from './Avatar.svelte';
 	import Cover from './Cover.svelte';
 	import Icon from './Icon.svelte';
+	import Switch from './Switch.svelte';
 
 	let { backend, username }: { backend: BackendKind; username: string } = $props();
 
@@ -201,12 +202,7 @@
 				</a>
 				<label class="mine">
 					<span class="label">Show others what I play</span>
-					<input
-						type="checkbox"
-						checked={you.shown}
-						disabled={saving}
-						onchange={(event) => setShown(event.currentTarget.checked)}
-					/>
+					<Switch checked={you.shown} disabled={saving} onchange={(on) => setShown(on)} />
 				</label>
 			</footer>
 		{/if}
@@ -543,13 +539,6 @@
 		font-size: 0.875rem;
 		font-weight: 500;
 		color: var(--text-strong);
-	}
-
-	input[type='checkbox'] {
-		width: 1.15rem;
-		height: 1.15rem;
-		accent-color: var(--accent);
-		cursor: pointer;
 	}
 
 	@media (prefers-reduced-motion: reduce) {

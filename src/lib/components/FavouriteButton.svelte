@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { isPending, isStarred, setStarred } from '#lib/client/favourites.svelte.ts';
 	import type { StarKind } from '#lib/types.ts';
-	import Icon from './Icon.svelte';
+	import PulseHeart from './bits/PulseHeart.svelte';
 
 	let {
 		id,
@@ -22,93 +22,40 @@
 		labelled?: boolean;
 	} = $props();
 
-	/** Set by a press that favourites, for the one-off pop below. */
-	let popped = $state(false);
-
 	// Optimistic: the heart flips at once and reverts if the server refuses. The
 	// state is kept per item in favourites.svelte.ts, since the player passes
 	// this one instance a new `id` at each track change.
 	const active = $derived(isStarred(kind, id, starred));
-
-	// A pop started for one item does not carry over to the next.
-	$effect.pre(() => {
-		void id;
-		popped = false;
-	});
-
-	function toggle(event: MouseEvent) {
-		event.stopPropagation();
-		event.preventDefault();
-		if (isPending(kind, id)) return;
-
-		const nextValue = !active;
-		popped = nextValue;
-		void setStarred(kind, id, nextValue);
-	}
+	const name = $derived(active ? 'Remove from favourites' : 'Add to favourites');
 </script>
 
-<button
-	class="fav"
-	class:active
-	class:labelled
-	class:popped={popped && active}
-	onanimationend={() => (popped = false)}
-	onclick={toggle}
-	aria-pressed={active}
-	aria-label={active ? 'Remove from favourites' : 'Add to favourites'}
-	title={active ? 'Remove from favourites' : 'Add to favourites'}
+<!-- Svelte Bits' PulseHeart: the heart contracts to a dot and pulses back in its new state. -->
+<PulseHeart
+	liked={active}
+	onChange={(liked) => void setStarred(kind, id, liked)}
+	disabled={isPending(kind, id)}
+	showCount={false}
+	{size}
+	corner={6}
+	idleColor="var(--text-faint)"
+	likedColor="var(--danger)"
+	pillColor="transparent"
+	textColor="currentColor"
+	label={name}
+	title={name}
+	contained
+	className={`fav${labelled ? ' labelled' : ''}${active ? ' active' : ''}`}
 >
-	<Icon name={active ? 'heart-filled' : 'heart'} {size} />
 	{#if labelled}<span class="label" aria-hidden="true">{active ? 'favourited' : 'favourite'}</span>{/if}
-</button>
+</PulseHeart>
 
 <style>
-	.fav {
-		display: grid;
-		place-items: center;
-		padding: 0.3rem;
+	/* The heart's colours, its press and its swell are PulseHeart's own. */
+	:global(.fav) {
 		border-radius: var(--r-sm);
-		color: var(--text-faint);
-		transition:
-			color var(--transition),
-			background var(--transition);
 	}
 
-	.fav:hover {
-		color: var(--text-default);
-		filter: var(--glow-icon);
-	}
-
-	.fav.active {
-		color: var(--danger);
-	}
-
-	.fav.active:hover {
-		color: var(--danger);
-	}
-
-	/*
-	 * The heart swells and settles as it fills. The glyph moves and the button
-	 * does not: in the player panel this button carries a backdrop-filter, and
-	 * transforms stay off glass.
-	 */
-	.fav.popped :global(svg) {
-		animation: heart-pop var(--dur-state) var(--ease-out);
-	}
-
-	@keyframes heart-pop {
-		0% {
-			scale: 1;
-		}
-		35% {
-			scale: 1.28;
-		}
-		100% {
-			scale: 1;
-		}
-	}
-
-	.label {
+	:global(.fav .label) {
 		display: none;
 	}
 
@@ -116,9 +63,7 @@
 
 	/* Among a page's actions it is one of them: the word between brackets, on
 	   their size and spacing, with the heart where their glyph is. */
-	:global([data-theme='terminal']) .fav.labelled {
-		display: inline-flex;
-		align-items: center;
+	:global([data-theme='terminal'] .fav.labelled) {
 		gap: 0.4rem;
 		padding: 0.5rem 0.125rem;
 		border-radius: 0;
@@ -128,50 +73,37 @@
 		white-space: nowrap;
 	}
 
-	:global([data-theme='terminal']) .fav.labelled .label {
+	:global([data-theme='terminal'] .fav.labelled .label) {
 		display: inline;
-	}
-
-	:global([data-theme='terminal']) .fav.labelled::before,
-	:global([data-theme='terminal']) .fav.labelled::after {
-		color: var(--text-faint);
-		transition: color var(--transition);
 	}
 
 	/* Each with an empty alternative text; the plain declaration is for Safari
 	   before 17.4. */
-	:global([data-theme='terminal']) .fav.labelled::before {
+	:global([data-theme='terminal'] .fav.labelled::before) {
 		content: '[';
 		content: '[' / '';
 		/* Against the label, as `.hh-button`'s are (`terminal.css`). */
 		margin-right: -0.35rem;
+		color: var(--text-faint);
 	}
 
-	:global([data-theme='terminal']) .fav.labelled::after {
+	:global([data-theme='terminal'] .fav.labelled::after) {
 		content: ']';
 		content: ']' / '';
 		margin-left: -0.35rem;
+		color: var(--text-faint);
 	}
 
-	:global([data-theme='terminal']) .fav.labelled:hover,
-	:global([data-theme='terminal']) .fav.labelled:focus-visible {
+	:global([data-theme='terminal'] .fav.labelled:hover),
+	:global([data-theme='terminal'] .fav.labelled:focus-visible),
+	:global([data-theme='terminal'] .fav.labelled:hover::before),
+	:global([data-theme='terminal'] .fav.labelled:hover::after) {
 		color: var(--accent);
-	}
-
-	:global([data-theme='terminal']) .fav.labelled:hover::before,
-	:global([data-theme='terminal']) .fav.labelled:hover::after {
-		color: var(--accent);
-	}
-
-	/* The heart keeps its own red when it is filled, under either colour of
-	   the word. */
-	:global([data-theme='terminal']) .fav.labelled.active :global(svg) {
-		color: var(--danger);
 	}
 
 	/* On a phone the actions are glyphs in keys, and so is this one. */
 	@media (max-width: 36rem) {
-		:global([data-theme='terminal']) .fav.labelled {
+		:global([data-theme='terminal'] .fav.labelled) {
 			justify-content: center;
 			width: 2.75rem;
 			height: 2.75rem;
@@ -180,12 +112,12 @@
 			border-radius: var(--r-sm);
 		}
 
-		:global([data-theme='terminal']) .fav.labelled .label {
+		:global([data-theme='terminal'] .fav.labelled .label) {
 			display: none;
 		}
 
-		:global([data-theme='terminal']) .fav.labelled::before,
-		:global([data-theme='terminal']) .fav.labelled::after {
+		:global([data-theme='terminal'] .fav.labelled::before),
+		:global([data-theme='terminal'] .fav.labelled::after) {
 			content: none;
 		}
 	}

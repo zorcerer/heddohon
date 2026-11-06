@@ -4,6 +4,7 @@
 	import { listeners } from '#lib/client/listeners.svelte.ts';
 	import Cover from './Cover.svelte';
 	import Icon from './Icon.svelte';
+	import Check from './Check.svelte';
 
 	/**
 	 * The owner's controls for their profile page: the name and picture (the
@@ -279,9 +280,9 @@
 
 		<fieldset class="field">
 			<legend class="hh-eyebrow">Who sees it</legend>
-			<label class="check"><input type="checkbox" bind:checked={listed} /> The other accounts on this server, under People</label>
-			<label class="check"><input type="checkbox" bind:checked={recent} /> Show the albums I listened to lately</label>
-			<label class="check"><input type="checkbox" bind:checked={top} /> Show my most played artists of the last 30 days</label>
+			<Check bind:checked={listed} label="The other accounts on this server, under People" />
+			<Check bind:checked={recent} label="Show the albums I listened to lately" />
+			<Check bind:checked={top} label="Show my most played artists of the last 30 days" />
 		</fieldset>
 
 		{#if problem}
@@ -453,12 +454,6 @@
 
 	.thumb {
 		width: 2.5rem;
-	}
-
-	.check {
-		display: flex;
-		gap: var(--space-2);
-		align-items: center;
 	}
 
 	.small {

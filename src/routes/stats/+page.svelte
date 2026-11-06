@@ -3,6 +3,8 @@
 	import Cover from '#lib/components/Cover.svelte';
 	import ListeningCharts from '#lib/components/ListeningCharts.svelte';
 	import ListeningTabs from '#lib/components/ListeningTabs.svelte';
+	import Segment from '#lib/components/Segment.svelte';
+	import CountUp from '#lib/components/bits/CountUp.svelte';
 	import MediaCard from '#lib/components/MediaCard.svelte';
 	import MediaGrid from '#lib/components/MediaGrid.svelte';
 	import SectionHeader from '#lib/components/SectionHeader.svelte';
@@ -145,13 +147,13 @@
 	<header>
 		<h1 class="hh-display">Your listening</h1>
 		<ListeningTabs />
-		<nav class="periods" aria-label="Period">
-			{#each PERIODS as period (period.id)}
-				<a class="chip" class:active={data.period === period.id} aria-current={data.period === period.id ? 'page' : undefined} href="/stats?period={period.id}" data-sveltekit-reset="false">
-					{period.label}
-				</a>
-			{/each}
-		</nav>
+		<div class="periods">
+			<Segment
+				items={PERIODS.map((period) => ({ value: period.id, label: period.label, href: `/stats?period=${period.id}` }))}
+				value={data.period}
+				label="Period"
+			/>
+		</div>
 		{#if (data.period === 'year' || data.period === 'all') && data.historyDays === 90}
 			<p class="hh-muted note">
 				History is kept for 90 days. <a href="/settings?tab=history">Keep it longer</a> to sum up a year.
@@ -165,7 +167,7 @@
 		<section class="figures" aria-label="In numbers">
 			<div class="figure hero">
 				<span class="label">Plays</span>
-				<span class="number hh-numeric">{stats.plays.toLocaleString()}</span>
+				<CountUp class="number hh-numeric" to={stats.plays} separator="," duration={1} />
 				{#if since}<span class="hh-muted sub">since {since}</span>{/if}
 				{#if against(stats.plays, stats.before?.plays)}<span class="hh-muted sub change">{against(stats.plays, stats.before?.plays)}</span>{/if}
 			</div>
@@ -176,12 +178,12 @@
 			</div>
 			<div class="figure">
 				<span class="label">Artists</span>
-				<span class="number hh-numeric">{stats.artists.toLocaleString()}</span>
+				<CountUp class="number hh-numeric" to={stats.artists} separator="," duration={1} />
 				{#if against(stats.artists, stats.before?.artists)}<span class="hh-muted sub change">{against(stats.artists, stats.before?.artists)}</span>{/if}
 			</div>
 			<div class="figure">
 				<span class="label">Tracks</span>
-				<span class="number hh-numeric">{stats.tracks.toLocaleString()}</span>
+				<CountUp class="number hh-numeric" to={stats.tracks} separator="," duration={1} />
 				{#if against(stats.tracks, stats.before?.tracks)}<span class="hh-muted sub change">{against(stats.tracks, stats.before?.tracks)}</span>{/if}
 			</div>
 			<div class="figure">
@@ -305,8 +307,6 @@
 
 	.periods {
 		display: flex;
-		flex-wrap: wrap;
-		gap: var(--space-1);
 	}
 
 	/* The sort chips' material; see `SortChips`. */
@@ -326,14 +326,9 @@
 			border-color var(--transition);
 	}
 
-	.chip:hover,
-	.chip.active {
+	.chip:hover {
 		color: var(--text-strong);
 		border-color: var(--border-strong);
-	}
-
-	.chip.active {
-		background: color-mix(in srgb, var(--accent) 18%, var(--control-face));
 	}
 
 	.note {
@@ -368,14 +363,14 @@
 		color: var(--text-muted);
 	}
 
-	.figure .number {
+	.figure :global(.number) {
 		font-size: 1.75rem;
 		font-weight: 600;
 		color: var(--text-strong);
 		font-variant-numeric: proportional-nums;
 	}
 
-	.figure.hero .number {
+	.figure.hero :global(.number) {
 		font-size: 3rem;
 		line-height: 1.05;
 	}

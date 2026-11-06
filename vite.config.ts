@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import adapter from '@sveltejs/adapter-node';
 import type { Adapter } from '@sveltejs/kit';
 import { sveltekit } from '@sveltejs/kit/vite';
+import tailwindcss from '@tailwindcss/vite';
 import { defineConfig } from 'vite';
 import { SECURITY_HEADERS, STATIC_HTML_CSP } from './src/lib/headers.ts';
 
@@ -198,6 +199,7 @@ export default defineConfig({
 	 */
 	build: { cssMinify: 'lightningcss', assetsInlineLimit: 0 },
 	plugins: [
+		tailwindcss(),
 		sveltekit({
 			compilerOptions: {
 				runes: ({ filename }) =>
