@@ -1,16 +1,16 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { page as pageState } from '$app/state';
-	import Icon from '$lib/components/Icon.svelte';
-	import MediaCard from '$lib/components/MediaCard.svelte';
-	import MediaGrid from '$lib/components/MediaGrid.svelte';
-	import SmartPlaylistEditor from '$lib/components/SmartPlaylistEditor.svelte';
-	import SortChips from '$lib/components/SortChips.svelte';
-	import { playContainer } from '$lib/client/actions';
-	import { createPlaylist, createSmartPlaylist } from '$lib/client/playlists.svelte';
-	import { blankRules, type SmartRules } from '$lib/smartrules';
-	import { formatLongDuration } from '$lib/client/format';
-	import type { PlaylistSort } from '$lib/types';
+	import Icon from '#lib/components/Icon.svelte';
+	import MediaCard from '#lib/components/MediaCard.svelte';
+	import MediaGrid from '#lib/components/MediaGrid.svelte';
+	import SmartPlaylistEditor from '#lib/components/SmartPlaylistEditor.svelte';
+	import SortChips from '#lib/components/SortChips.svelte';
+	import { playContainer } from '#lib/client/actions.ts';
+	import { createPlaylist, createSmartPlaylist } from '#lib/client/playlists.svelte.ts';
+	import { blankRules, type SmartRules } from '#lib/smartrules.ts';
+	import { formatLongDuration } from '#lib/client/format.ts';
+	import type { PlaylistSort } from '#lib/types.ts';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -84,7 +84,7 @@
 	}
 
 	function sortHref(sort: PlaylistSort): string {
-		const params = new URLSearchParams(pageState.url.searchParams);
+		const params = new URLSearchParams(pageState.url.search);
 		params.set('sort', sort);
 		return `/playlists?${params}`;
 	}

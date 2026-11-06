@@ -1,7 +1,7 @@
 import type { PageServerLoad } from './$types';
-import { config } from '$lib/server/config';
-import { shareAccess, sharedItem } from '$lib/server/shares';
-import { log } from '$lib/server/log';
+import { config } from '#lib/server/config.ts';
+import { shareAccess, sharedItem } from '#lib/server/shares.ts';
+import { log } from '#lib/server/log.ts';
 
 /**
  * Opens a shared link, for anyone who has it.

@@ -1,7 +1,7 @@
 import { error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { listen, togetherEnabled } from '$lib/server/together';
-import { visitorAddress } from '$lib/server/ratelimit';
+import { listen, togetherEnabled } from '#lib/server/together.ts';
+import { visitorAddress } from '#lib/server/ratelimit.ts';
 
 /** See `routes/api/remote/events`: the same keepalive, for the same proxies. */
 const KEEPALIVE_MS = 25_000;

@@ -10,9 +10,9 @@
 	 * Navidrome that a track started and nothing after, and the entry says so:
 	 * the time shown is then worked out from the start.
 	 */
-	import { remote } from '$lib/client/remote.svelte';
-	import { player } from '$lib/client/player.svelte';
-	import { formatDuration } from '$lib/client/format';
+	import { remote } from '#lib/client/remote.svelte.ts';
+	import { player } from '#lib/client/player.svelte.ts';
+	import { formatDuration } from '#lib/client/format.ts';
 	import Cover from './Cover.svelte';
 	import Icon from './Icon.svelte';
 	import Seekbar from './Seekbar.svelte';

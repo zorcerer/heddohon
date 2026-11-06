@@ -5,10 +5,10 @@
 	 * drawn in the browser and nothing of it is sent anywhere.
 	 */
 	import { onMount } from 'svelte';
-	import { browser } from '$app/environment';
-	import Cover from '$lib/components/Cover.svelte';
-	import Icon from '$lib/components/Icon.svelte';
-	import ListeningTabs from '$lib/components/ListeningTabs.svelte';
+	import { browser } from '$app/env';
+	import Cover from '#lib/components/Cover.svelte';
+	import Icon from '#lib/components/Icon.svelte';
+	import ListeningTabs from '#lib/components/ListeningTabs.svelte';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -229,18 +229,18 @@
 		<h1 class="hh-display">{title}</h1>
 		<ListeningTabs />
 		<nav class="periods" aria-label="Period">
-			<a class="chip" href={step.back} data-sveltekit-noscroll aria-label="The {data.month === null ? 'year' : 'month'} before">
+			<a class="chip" href={step.back} data-sveltekit-reset="false" aria-label="The {data.month === null ? 'year' : 'month'} before">
 				<Icon name="chevron-left" size={14} />
 			</a>
 			{#if data.month === null}
 				{#each data.years.slice(0, 6) as year (year)}
-					<a class="chip" class:active={year === data.year} aria-current={year === data.year ? 'page' : undefined} href="?year={year}" data-sveltekit-noscroll>{year}</a>
+					<a class="chip" class:active={year === data.year} aria-current={year === data.year ? 'page' : undefined} href="?year={year}" data-sveltekit-reset="false">{year}</a>
 				{/each}
 			{:else}
-				<a class="chip" href="?year={data.year}" data-sveltekit-noscroll>All of {data.year}</a>
+				<a class="chip" href="?year={data.year}" data-sveltekit-reset="false">All of {data.year}</a>
 			{/if}
 			{#if step.on}
-				<a class="chip" href={step.on} data-sveltekit-noscroll aria-label="The {data.month === null ? 'year' : 'month'} after">
+				<a class="chip" href={step.on} data-sveltekit-reset="false" aria-label="The {data.month === null ? 'year' : 'month'} after">
 					<Icon name="chevron-right" size={14} />
 				</a>
 			{/if}

@@ -1,12 +1,12 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import Cover from '$lib/components/Cover.svelte';
-	import ListeningCharts from '$lib/components/ListeningCharts.svelte';
-	import ListeningTabs from '$lib/components/ListeningTabs.svelte';
-	import MediaCard from '$lib/components/MediaCard.svelte';
-	import MediaGrid from '$lib/components/MediaGrid.svelte';
-	import SectionHeader from '$lib/components/SectionHeader.svelte';
-	import { playContainer } from '$lib/client/actions';
+	import Cover from '#lib/components/Cover.svelte';
+	import ListeningCharts from '#lib/components/ListeningCharts.svelte';
+	import ListeningTabs from '#lib/components/ListeningTabs.svelte';
+	import MediaCard from '#lib/components/MediaCard.svelte';
+	import MediaGrid from '#lib/components/MediaGrid.svelte';
+	import SectionHeader from '#lib/components/SectionHeader.svelte';
+	import { playContainer } from '#lib/client/actions.ts';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -147,7 +147,7 @@
 		<ListeningTabs />
 		<nav class="periods" aria-label="Period">
 			{#each PERIODS as period (period.id)}
-				<a class="chip" class:active={data.period === period.id} aria-current={data.period === period.id ? 'page' : undefined} href="/stats?period={period.id}" data-sveltekit-noscroll>
+				<a class="chip" class:active={data.period === period.id} aria-current={data.period === period.id ? 'page' : undefined} href="/stats?period={period.id}" data-sveltekit-reset="false">
 					{period.label}
 				</a>
 			{/each}

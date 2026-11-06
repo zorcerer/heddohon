@@ -7,7 +7,7 @@
 	 * carried behind it read as an opaque smudge against translucent glass.
 	 */
 	import Cover from './Cover.svelte';
-	import { sleeveTransition } from '$lib/client/sleeve-transition.svelte';
+	import { sleeveTransition } from '#lib/client/sleeve-transition.svelte.ts';
 
 	let {
 		coverArt,

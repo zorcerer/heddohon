@@ -1,13 +1,13 @@
 import type { PageServerLoad } from './$types';
-import { forgottenAlbums } from '$lib/server/history';
-import { libraryContext, librarySettled } from '$lib/server/library';
-import { remembered } from '$lib/server/listings';
-import { log, reason } from '$lib/server/log';
-import { dailyMixes, summary } from '$lib/server/mixes';
-import { newReleases } from '$lib/server/newreleases';
-import { unseenFeatures } from '$lib/server/features';
-import { ensureHandle, getProfile } from '$lib/server/listening';
-import { profilesOn } from '$lib/server/profilepage';
+import { forgottenAlbums } from '#lib/server/history.ts';
+import { libraryContext, librarySettled } from '#lib/server/library.ts';
+import { remembered } from '#lib/server/listings.ts';
+import { log, reason } from '#lib/server/log.ts';
+import { dailyMixes, summary } from '#lib/server/mixes.ts';
+import { newReleases } from '#lib/server/newreleases.ts';
+import { unseenFeatures } from '#lib/server/features.ts';
+import { ensureHandle, getProfile } from '#lib/server/listening.ts';
+import { profilesOn } from '#lib/server/profilepage.ts';
 
 /** Favourite songs shown on the home page. */
 const FAVOURITES_SHOWN = 8;

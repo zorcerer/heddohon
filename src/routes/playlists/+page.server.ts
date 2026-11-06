@@ -1,8 +1,8 @@
 import type { PageServerLoad } from './$types';
-import { library } from '$lib/server/library';
-import { log, reason } from '$lib/server/log';
-import { smartFor } from '$lib/server/smartplaylists';
-import type { Playlist, PlaylistSort } from '$lib/types';
+import { library } from '#lib/server/library.ts';
+import { log, reason } from '#lib/server/log.ts';
+import { smartFor } from '#lib/server/smartplaylists.ts';
+import type { Playlist, PlaylistSort } from '#lib/types.ts';
 
 const SORTS: PlaylistSort[] = [
 	'recentlyUpdated',

@@ -24,8 +24,8 @@ import {
 	type RuleField,
 	type SmartRules,
 	type SortField
-} from '$lib/smartrules';
-import type { Song } from '$lib/types';
+} from '#lib/smartrules.ts';
+import type { Song } from '#lib/types.ts';
 
 /**
  * How old a Jellyfin smart playlist's songs may be when its page opens before

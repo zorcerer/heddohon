@@ -1,7 +1,7 @@
 import type { RequestHandler } from './$types';
-import { tiedToSession } from '$lib/server/auth';
-import { proxyMedia, proxyTranscode, relayRequestFor, streamRequestFrom } from '$lib/server/proxy';
-import type { TranscodeRequest } from '$lib/server/backends/types';
+import { tiedToSession } from '#lib/server/auth.ts';
+import { proxyMedia, proxyTranscode, relayRequestFor, streamRequestFrom } from '#lib/server/proxy.ts';
+import type { TranscodeRequest } from '#lib/server/backends/types.ts';
 
 /**
  * Audio, as the file is on disk unless the account has asked otherwise.

@@ -1,17 +1,17 @@
 import { json } from '@sveltejs/kit';
 import { randomUUID } from 'node:crypto';
 import type { RequestHandler } from './$types';
-import { config } from '$lib/server/config';
-import { backendFor, isBackendKind, UpstreamError } from '$lib/server/backends';
-import { QUICK_CONNECT_TTL_MS, clearPending, savePending } from '$lib/server/quickconnect';
+import { config } from '#lib/server/config.ts';
+import { backendFor, isBackendKind, UpstreamError } from '#lib/server/backends/index.ts';
+import { QUICK_CONNECT_TTL_MS, clearPending, savePending } from '#lib/server/quickconnect.ts';
 import {
 	pruneLoginAttempts,
 	quickConnectKeys,
 	refundLoginAttempt,
 	reserveLoginAttempt,
 	visitorAddress
-} from '$lib/server/ratelimit';
-import { log, reason } from '$lib/server/log';
+} from '#lib/server/ratelimit.ts';
+import { log, reason } from '#lib/server/log.ts';
 
 /**
  * Starts a Quick Connect request and answers with the code to show. Under

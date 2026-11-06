@@ -8,12 +8,12 @@
 	 * (`isScreenPage`), and leaves the keys to this page.
 	 */
 	import { goto } from '$app/navigation';
-	import Cover from '$lib/components/Cover.svelte';
-	import Icon from '$lib/components/Icon.svelte';
-	import Visualiser from '$lib/components/Visualiser.svelte';
-	import { player } from '$lib/client/player.svelte';
-	import { activeLineIndex, lyricsWindow } from '$lib/client/lyrics.svelte';
-	import { formatDuration } from '$lib/client/format';
+	import Cover from '#lib/components/Cover.svelte';
+	import Icon from '#lib/components/Icon.svelte';
+	import Visualiser from '#lib/components/Visualiser.svelte';
+	import { player } from '#lib/client/player.svelte.ts';
+	import { activeLineIndex, lyricsWindow } from '#lib/client/lyrics.svelte.ts';
+	import { formatDuration } from '#lib/client/format.ts';
 
 	/** How long the pointer may rest before it and the way out are hidden. */
 	const IDLE_MS = 3000;

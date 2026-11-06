@@ -21,9 +21,9 @@
  */
 import { error, redirect } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { backendFor } from '$lib/server/backends';
-import { constantTimeEquals, linkStateDigest } from '$lib/server/crypto';
-import { log, reason } from '$lib/server/log';
+import { backendFor } from '#lib/server/backends/index.ts';
+import { constantTimeEquals, linkStateDigest } from '#lib/server/crypto.ts';
+import { log, reason } from '#lib/server/log.ts';
 
 export const GET: RequestHandler = async ({ locals, url }) => {
 	const session = locals.session;

@@ -25,7 +25,7 @@
 		type RuleOp,
 		type SmartRules,
 		type SortField
-	} from '$lib/smartrules';
+	} from '#lib/smartrules.ts';
 
 	let {
 		initial,

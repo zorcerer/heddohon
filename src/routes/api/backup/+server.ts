@@ -1,8 +1,8 @@
 import { error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { backendFor } from '$lib/server/backends';
-import { BackupBusyError, BackupTooLargeError, makeBackup } from '$lib/server/backup';
-import { log } from '$lib/server/log';
+import { backendFor } from '#lib/server/backends/index.ts';
+import { BackupBusyError, BackupTooLargeError, makeBackup } from '#lib/server/backup.ts';
+import { log } from '#lib/server/log.ts';
 
 /**
  * The database as a ZIP; see `backup.ts`.

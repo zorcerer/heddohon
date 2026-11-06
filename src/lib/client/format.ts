@@ -1,4 +1,4 @@
-import type { AudioQuality } from '$lib/types';
+import type { AudioQuality } from '#lib/types.ts';
 
 export function formatDuration(seconds: number | null | undefined): string {
 	if (seconds === null || seconds === undefined || !Number.isFinite(seconds) || seconds < 0) {

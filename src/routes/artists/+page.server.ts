@@ -1,7 +1,7 @@
 import type { PageServerLoad } from './$types';
-import { library } from '$lib/server/library';
-import { remembered } from '$lib/server/listings';
-import { paginate, readPageNumber } from '$lib/server/paging';
+import { library } from '#lib/server/library.ts';
+import { remembered } from '#lib/server/listings.ts';
+import { paginate, readPageNumber } from '#lib/server/paging.ts';
 
 export const load: PageServerLoad = async (event) => {
 	// The whole list comes back from upstream on every call, and this page loads

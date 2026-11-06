@@ -1,6 +1,6 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { report, togetherEnabled } from '$lib/server/together';
+import { report, togetherEnabled } from '#lib/server/together.ts';
 
 /** Titles and names are shown, not stored; 300 characters is past any real one. */
 const MAX_TEXT = 300;

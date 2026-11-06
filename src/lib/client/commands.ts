@@ -6,12 +6,12 @@
  * same calls, so the line reaches nothing an account could not reach with the
  * pointer. Parsing and matching are plain functions, apart from the player.
  */
-import { goto, invalidateAll } from '$app/navigation';
+import { goto, refreshAll } from '$app/navigation';
 import { playContainer, playInstantMix, queueContainer } from './actions';
 import { setStarred } from './favourites.svelte';
 import { player } from './player.svelte';
 import { ratingOf, setRating } from './ratings.svelte';
-import type { Album, Artist, SearchResults, Song } from '$lib/types';
+import type { Album, Artist, SearchResults, Song } from '#lib/types.ts';
 
 /** Something a search found, which `play`, `queue` and `mix` take. */
 export type Found =
@@ -159,7 +159,7 @@ async function saveSettings(patch: Record<string, string>): Promise<Record<strin
 	if (!response.ok) throw new Refused('The setting was not saved.');
 	const saved = (await response.json()) as Record<string, unknown>;
 	// The layout writes the theme and the scheme onto the page from its data.
-	await invalidateAll();
+	await refreshAll();
 	return saved;
 }
 

@@ -1,7 +1,7 @@
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { backendFor } from '$lib/server/backends';
-import { reportStatus, startReport } from '$lib/server/libraryreport';
+import { backendFor } from '#lib/server/backends/index.ts';
+import { reportStatus, startReport } from '#lib/server/libraryreport.ts';
 
 /** Where the account's library report stands. The settings page asks while one is made. */
 export const GET: RequestHandler = ({ locals }) => {

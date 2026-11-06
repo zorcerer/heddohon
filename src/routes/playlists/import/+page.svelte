@@ -5,11 +5,11 @@
 	 * and saved on the music server once the listener has seen it.
 	 */
 	import { goto } from '$app/navigation';
-	import Icon from '$lib/components/Icon.svelte';
-	import { decode, readPlaylistFile, type FilePlaylist, type FileTrack } from '$lib/client/playlistfile';
-	import { createPlaylist } from '$lib/client/playlists.svelte';
-	import { formatDuration } from '$lib/client/format';
-	import type { Song } from '$lib/types';
+	import Icon from '#lib/components/Icon.svelte';
+	import { decode, readPlaylistFile, type FilePlaylist, type FileTrack } from '#lib/client/playlistfile.ts';
+	import { createPlaylist } from '#lib/client/playlists.svelte.ts';
+	import { formatDuration } from '#lib/client/format.ts';
+	import type { Song } from '#lib/types.ts';
 
 	/** What one request asks for and one playlist holds; see `MAX_IMPORT_TRACKS`. */
 	const MAX_TRACKS = 1000;

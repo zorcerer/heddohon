@@ -10,8 +10,8 @@
 	 * or once the account has run the installed app. Settings, Appearance keeps
 	 * the offer.
 	 */
-	import { APP_KINDS, APP_RELEASES, installer, INSTALL_STEPS } from '$lib/client/install.svelte';
-	import { player } from '$lib/client/player.svelte';
+	import { APP_KINDS, APP_RELEASES, installer, INSTALL_STEPS } from '#lib/client/install.svelte.ts';
+	import { player } from '#lib/client/player.svelte.ts';
 	import Icon from './Icon.svelte';
 
 	let { appName, dismissed }: { appName: string; dismissed: boolean } = $props();

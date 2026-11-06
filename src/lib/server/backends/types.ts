@@ -15,7 +15,7 @@ import type {
 	Song,
 	MixSeed,
 	StarKind
-} from '$lib/types';
+} from '#lib/types.ts';
 import type { LastfmStart, ScrobblerLinks, ScrobblerService } from './navidrome';
 
 /**

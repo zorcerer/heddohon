@@ -1,20 +1,19 @@
 <script lang="ts">
-	import { enhance } from '$app/forms';
-	import { invalidateAll, replaceState } from '$app/navigation';
+	import { enhance, type SubmitFunction } from '$app/forms';
+	import { refreshAll, goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import type { SubmitFunction } from '@sveltejs/kit';
 	import { untrack } from 'svelte';
-	import Cover from '$lib/components/Cover.svelte';
-	import Avatar from '$lib/components/Avatar.svelte';
-	import Icon from '$lib/components/Icon.svelte';
-	import SecuritySettings from '$lib/components/SecuritySettings.svelte';
-	import { avatarUrl, listeners } from '$lib/client/listeners.svelte';
-	import { player } from '$lib/client/player.svelte';
-	import { EQ_FREQUENCIES, EQ_RANGE_DB } from '$lib/client/audiochain';
-	import { EQ_PRESETS, processing } from '$lib/client/processing.svelte';
-	import { APP_KINDS, APP_RELEASES, installer, INSTALL_STEPS } from '$lib/client/install.svelte';
-	import { formatBytes, formatLongDuration } from '$lib/client/format';
-	import type { ReportStatus } from '$lib/server/libraryreport';
+	import Cover from '#lib/components/Cover.svelte';
+	import Avatar from '#lib/components/Avatar.svelte';
+	import Icon from '#lib/components/Icon.svelte';
+	import SecuritySettings from '#lib/components/SecuritySettings.svelte';
+	import { avatarUrl, listeners } from '#lib/client/listeners.svelte.ts';
+	import { player } from '#lib/client/player.svelte.ts';
+	import { EQ_FREQUENCIES, EQ_RANGE_DB } from '#lib/client/audiochain.ts';
+	import { EQ_PRESETS, processing } from '#lib/client/processing.svelte.ts';
+	import { APP_KINDS, APP_RELEASES, installer, INSTALL_STEPS } from '#lib/client/install.svelte.ts';
+	import { formatBytes, formatLongDuration } from '#lib/client/format.ts';
+	import type { ReportStatus } from '#lib/server/libraryreport.ts';
 
 	/** One of Heddohon's own apps for this system, where there is one; see `install.svelte.ts`. */
 	const appKind = $derived(
@@ -290,7 +289,7 @@
 		)
 	);
 
-	function tabFrom(url: URL): Tab {
+	function tabFrom(url: { readonly searchParams: { has(name: string): boolean; get(name: string): string | null } }): Tab {
 		const requested = url.searchParams.get('tab');
 		if (TABS.some((entry) => entry.id === requested)) return requested as Tab;
 		// The way back from last.fm lands on the section that started it.
@@ -317,7 +316,7 @@
 		if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
 		event.preventDefault();
 		tab = next;
-		replaceState(`?tab=${next}`, page.state);
+		goto(`?tab=${next}`, { shallow: true, replace: true, state: page.state });
 	}
 
 	// A browser signs out only sessions that began before it did.
@@ -358,7 +357,7 @@
 		const was = filling;
 		fill = await response.json();
 		// The loader reports the held size, which the fill has changed.
-		if (was && !filling) await invalidateAll();
+		if (was && !filling) await refreshAll();
 	}
 
 	$effect(() => {
@@ -473,7 +472,7 @@
 			linking = service;
 			return async ({ update }) => {
 				await update({ reset: false });
-				await invalidateAll();
+				await refreshAll();
 				linking = null;
 			};
 		};
@@ -488,7 +487,7 @@
 			mcpBusy = busy;
 			return async ({ update }) => {
 				await update({ reset: true });
-				await invalidateAll();
+				await refreshAll();
 				mcpBusy = null;
 			};
 		};
@@ -503,7 +502,7 @@
 			return async ({ update }) => {
 				// Reset, so a webhook address or a token does not stay in the field.
 				await update({ reset: true });
-				await invalidateAll();
+				await refreshAll();
 				integrating = null;
 			};
 		};
@@ -543,8 +542,8 @@
 				class:active={entry.id === shown}
 				href="?tab={entry.id}"
 				aria-current={entry.id === shown ? 'page' : undefined}
-				data-sveltekit-noscroll
-				data-sveltekit-preload-data="off"
+				data-sveltekit-reset="false"
+				data-sveltekit-preload-data="false"
 				onclickcapture={(event) => selectTab(event, entry.id)}
 			>
 				{entry.label}
@@ -567,7 +566,7 @@
 				// The action returns only this page's data. Settings also drive the
 				// layout (theme, grid density, player behaviour), so the layout load
 				// re-runs.
-				await invalidateAll();
+				await refreshAll();
 				saving = false;
 			};
 		}}
@@ -1061,7 +1060,7 @@
 								ending = entry.handle;
 								return async ({ update }) => {
 									await update({ reset: false });
-									await invalidateAll();
+									await refreshAll();
 									ending = null;
 								};
 							}}
@@ -1096,7 +1095,7 @@
 						ending = 'others';
 						return async ({ update }) => {
 							await update({ reset: false });
-							await invalidateAll();
+							await refreshAll();
 							ending = null;
 						};
 					}}
@@ -1441,7 +1440,7 @@
 						mcpBusy = 'switch';
 						return async ({ update }) => {
 							await update({ reset: false });
-							await invalidateAll();
+							await refreshAll();
 							mcpBusy = null;
 						};
 					}}
@@ -1612,7 +1611,7 @@
 								withdrawing = share.id;
 								return async ({ update }) => {
 									await update({ reset: false });
-									await invalidateAll();
+									await refreshAll();
 									withdrawing = null;
 								};
 							}}
@@ -1640,7 +1639,7 @@
 					withdrawing = 'all';
 					return async ({ update }) => {
 						await update({ reset: false });
-						await invalidateAll();
+						await refreshAll();
 						withdrawing = null;
 					};
 				}}
@@ -1699,7 +1698,7 @@
 						await update({ reset: false });
 						// The loader reports the held size, so the figures above only
 						// follow the clear once it has re-run.
-						await invalidateAll();
+						await refreshAll();
 						clearing = false;
 					};
 				}}
@@ -1968,7 +1967,7 @@
 					featuresBusy = true;
 					return async ({ update }) => {
 						await update({ reset: false });
-						await invalidateAll();
+						await refreshAll();
 						featuresBusy = false;
 					};
 				}}
@@ -2080,7 +2079,7 @@
 				importingHistory = true;
 				return async ({ update }) => {
 					await update({ reset: false });
-					await invalidateAll();
+					await refreshAll();
 					importingHistory = false;
 				};
 			}}
@@ -2117,7 +2116,7 @@
 				clearingHistory = true;
 				return async ({ update }) => {
 					await update({ reset: false });
-					await invalidateAll();
+					await refreshAll();
 					clearingHistory = false;
 				};
 			}}

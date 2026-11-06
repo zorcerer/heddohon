@@ -2704,7 +2704,13 @@ describe('playing things', () => {
 
 		test('is streamed as it arrives on the first request: no length, no ranges, not kept', async () => {
 			subsonic.calls.reset();
-			const response = await user.request('/api/stream/s2a?mode=mp3-192', { headers: { range: 'bytes=0-' } });
+			// Still arriving when the answer starts, as a transcode is. SvelteKit 3
+			// measures a body that has all arrived within one tick, and sends that
+			// length, which is then true.
+			subsonic.state.streamSlowMs = 50;
+			const response = await user.request('/api/stream/s2a?mode=mp3-192', { headers: { range: 'bytes=0-' } }).finally(() => {
+				subsonic.state.streamSlowMs = 0;
+			});
 			assert.equal(response.status, 200);
 			assert.equal(response.headers.get('accept-ranges'), null);
 			assert.equal(response.headers.get('content-length'), null);
@@ -6407,7 +6413,10 @@ describe('an AI assistant, through the MCP endpoint', () => {
 	test('keeps to the transport: one message a request, and no stream', async () => {
 		const auth = { authorization: `Bearer ${token}` };
 		assert.equal((await fetch(`${on.url}/api/mcp`, { headers: auth })).status, 405);
-		assert.equal((await fetch(`${on.url}/api/mcp`, { method: 'DELETE', headers: auth })).status, 405);
+		assert.equal((await fetch(`${on.url}/api/mcp`, { method: 'DELETE', headers: { ...auth, origin: on.url } })).status, 405);
+		// SvelteKit 3 refuses a write with no Content-Type and no Origin of the
+		// app's as a form could send it, ahead of the route.
+		assert.equal((await fetch(`${on.url}/api/mcp`, { method: 'DELETE', headers: auth })).status, 403);
 		// Without the token, those are refused as everything else is.
 		assert.equal((await fetch(`${on.url}/api/mcp`)).status, 401);
 		assert.equal((await post(token, { jsonrpc: '2.0', method: 'notifications/initialized' })).status, 202);

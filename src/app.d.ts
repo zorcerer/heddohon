@@ -1,5 +1,5 @@
-import type { Account, AuthenticatedSession } from '$lib/server/auth';
-import type { UserSettings } from '$lib/server/settings';
+import type { Account, AuthenticatedSession } from '#lib/server/auth.ts';
+import type { UserSettings } from '#lib/server/settings.ts';
 
 declare global {
 	namespace App {

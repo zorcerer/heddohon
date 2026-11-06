@@ -1,11 +1,11 @@
 import { error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { backendFor, UpstreamError } from '$lib/server/backends';
-import { config } from '$lib/server/config';
-import { tiedToSession } from '$lib/server/auth';
-import { proxyMedia, streamRequestFrom } from '$lib/server/proxy';
-import type { Song } from '$lib/types';
-import { refusedCredential } from '$lib/server/library';
+import { backendFor, UpstreamError } from '#lib/server/backends/index.ts';
+import { config } from '#lib/server/config.ts';
+import { tiedToSession } from '#lib/server/auth.ts';
+import { proxyMedia, streamRequestFrom } from '#lib/server/proxy.ts';
+import type { Song } from '#lib/types.ts';
+import { refusedCredential } from '#lib/server/library.ts';
 
 /**
  * The original file, as a download.

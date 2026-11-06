@@ -1,8 +1,8 @@
 import type { PageServerLoad } from './$types';
-import { library, libraryContext } from '$lib/server/library';
-import { log, reason } from '$lib/server/log';
-import { appearsOn, artistDetail } from '$lib/server/details';
-import { externalLinks, similarArtists } from '$lib/server/suggestions';
+import { library, libraryContext } from '#lib/server/library.ts';
+import { log, reason } from '#lib/server/log.ts';
+import { appearsOn, artistDetail } from '#lib/server/details.ts';
+import { externalLinks, similarArtists } from '#lib/server/suggestions.ts';
 
 /**
  * How many cards the "You might like" shelf asks the music server for. The

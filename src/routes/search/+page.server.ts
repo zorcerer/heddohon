@@ -1,8 +1,8 @@
 import type { PageServerLoad } from './$types';
-import { library, libraryContext } from '$lib/server/library';
-import { remembered } from '$lib/server/listings';
-import { log, reason } from '$lib/server/log';
-import type { Genre } from '$lib/types';
+import { library, libraryContext } from '#lib/server/library.ts';
+import { remembered } from '#lib/server/listings.ts';
+import { log, reason } from '#lib/server/log.ts';
+import type { Genre } from '#lib/types.ts';
 
 const LIMIT = 24;
 

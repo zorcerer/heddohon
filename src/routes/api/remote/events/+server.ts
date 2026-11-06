@@ -1,10 +1,10 @@
 import { error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { config } from '$lib/server/config';
-import { tiedToSession } from '$lib/server/auth';
-import { deviceLabel } from '$lib/server/device';
-import { arrived } from '$lib/server/listening';
-import { join, leave } from '$lib/server/remote';
+import { config } from '#lib/server/config.ts';
+import { tiedToSession } from '#lib/server/auth.ts';
+import { deviceLabel } from '#lib/server/device.ts';
+import { arrived } from '#lib/server/listening.ts';
+import { join, leave } from '#lib/server/remote.ts';
 
 /**
  * A comment line this often keeps the stream open through a reverse proxy that

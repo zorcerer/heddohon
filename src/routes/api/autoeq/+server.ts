@@ -1,6 +1,6 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { autoEqEnabled, MAX_QUERY_LENGTH, searchAutoEq } from '$lib/server/autoeq';
+import { autoEqEnabled, MAX_QUERY_LENGTH, searchAutoEq } from '#lib/server/autoeq.ts';
 
 /** Headphones in the AutoEq database whose name matches `?q=`. */
 export const GET: RequestHandler = async ({ locals, url }) => {

@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { ratingOf, setRating } from '$lib/client/ratings.svelte';
-	import type { RatingKind } from '$lib/types';
+	import { ratingOf, setRating } from '#lib/client/ratings.svelte.ts';
+	import type { RatingKind } from '#lib/types.ts';
 	import Icon from './Icon.svelte';
 
 	let {

@@ -1,21 +1,21 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { player } from '$lib/client/player.svelte';
-	import AlbumTile from '$lib/components/AlbumTile.svelte';
-	import FeaturedRelease from '$lib/components/FeaturedRelease.svelte';
-	import MediaCard from '$lib/components/MediaCard.svelte';
-	import MediaShelf from '$lib/components/MediaShelf.svelte';
-	import OnThisDayShelf from '$lib/components/OnThisDayShelf.svelte';
-	import RediscoverShelf from '$lib/components/RediscoverShelf.svelte';
-	import NewReleasesShelf from '$lib/components/NewReleasesShelf.svelte';
-	import FeatureNotice from '$lib/components/FeatureNotice.svelte';
-	import SectionHeader from '$lib/components/SectionHeader.svelte';
-	import TrackList from '$lib/components/TrackList.svelte';
-	import Icon from '$lib/components/Icon.svelte';
-	import Avatar from '$lib/components/Avatar.svelte';
-	import { avatarUrl } from '$lib/client/listeners.svelte';
-	import { playContainer } from '$lib/client/actions';
-	import type { RememberedAlbum } from '$lib/server/history';
+	import { player } from '#lib/client/player.svelte.ts';
+	import AlbumTile from '#lib/components/AlbumTile.svelte';
+	import FeaturedRelease from '#lib/components/FeaturedRelease.svelte';
+	import MediaCard from '#lib/components/MediaCard.svelte';
+	import MediaShelf from '#lib/components/MediaShelf.svelte';
+	import OnThisDayShelf from '#lib/components/OnThisDayShelf.svelte';
+	import RediscoverShelf from '#lib/components/RediscoverShelf.svelte';
+	import NewReleasesShelf from '#lib/components/NewReleasesShelf.svelte';
+	import FeatureNotice from '#lib/components/FeatureNotice.svelte';
+	import SectionHeader from '#lib/components/SectionHeader.svelte';
+	import TrackList from '#lib/components/TrackList.svelte';
+	import Icon from '#lib/components/Icon.svelte';
+	import Avatar from '#lib/components/Avatar.svelte';
+	import { avatarUrl } from '#lib/client/listeners.svelte.ts';
+	import { playContainer } from '#lib/client/actions.ts';
+	import type { RememberedAlbum } from '#lib/server/history.ts';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();

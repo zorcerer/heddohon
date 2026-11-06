@@ -1,9 +1,9 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { backendFor, UpstreamError } from '$lib/server/backends';
-import { forgetSharedItems } from '$lib/server/shares';
-import { refusedCredential } from '$lib/server/library';
-import { smartFor } from '$lib/server/smartplaylists';
+import { backendFor, UpstreamError } from '#lib/server/backends/index.ts';
+import { forgetSharedItems } from '#lib/server/shares.ts';
+import { refusedCredential } from '#lib/server/library.ts';
+import { smartFor } from '#lib/server/smartplaylists.ts';
 
 const MAX_NAME = 200;
 

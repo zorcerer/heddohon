@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { isPending, isStarred, setStarred } from '$lib/client/favourites.svelte';
-	import type { StarKind } from '$lib/types';
+	import { isPending, isStarred, setStarred } from '#lib/client/favourites.svelte.ts';
+	import type { StarKind } from '#lib/types.ts';
 	import Icon from './Icon.svelte';
 
 	let {

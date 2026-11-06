@@ -16,8 +16,8 @@
  * This module also knows whether the account has joined someone else's party
  * as a member, for "Add to listen together" on a track.
  */
-import type { AdditionEvent, MemberView, PartyView } from '$lib/server/together';
-import type { Song } from '$lib/types';
+import type { AdditionEvent, MemberView, PartyView } from '#lib/server/together.ts';
+import type { Song } from '#lib/types.ts';
 import { player } from './player.svelte';
 
 /** A report that has not moved further than this from where it was is not sent again. */

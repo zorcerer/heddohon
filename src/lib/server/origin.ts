@@ -1,9 +1,10 @@
 /**
  * The addresses saved for a deployment, and what follows from one.
  *
- * SvelteKit's adapter works out the address a request is served on, once per
- * request: from `ORIGIN` where the environment sets it, and otherwise from
- * the `Host` header with `https` assumed. That guess is wrong for a
+ * The address a request is served on is worked out once per request: from
+ * `ORIGIN` where the environment sets it (`savedOrigin` in `vite.config.ts`
+ * gives it to the adapter), and otherwise by the adapter from the `Host`
+ * header with `https` assumed. That guess is wrong for a
  * deployment opened over plain http on a local network, which is where a
  * first run happens: the browser sends `Origin: http://…`, the server
  * believes `https://…`, and every write is refused as cross-origin, sign-in

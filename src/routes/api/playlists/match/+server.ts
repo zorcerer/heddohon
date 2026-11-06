@@ -1,8 +1,8 @@
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { backendFor, UpstreamError } from '$lib/server/backends';
-import { MAX_IMPORT_TRACKS, matchTracks, type WantedTrack } from '$lib/server/playlistfiles';
-import { refusedCredential } from '$lib/server/library';
+import { backendFor, UpstreamError } from '#lib/server/backends/index.ts';
+import { MAX_IMPORT_TRACKS, matchTracks, type WantedTrack } from '#lib/server/playlistfiles.ts';
+import { refusedCredential } from '#lib/server/library.ts';
 
 /** Characters kept of a title, an artist or an album from a file. */
 const MAX_TEXT = 300;

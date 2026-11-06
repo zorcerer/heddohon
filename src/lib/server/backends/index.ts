@@ -1,4 +1,4 @@
-import type { BackendKind } from '$lib/types';
+import type { BackendKind } from '#lib/types.ts';
 import { jellyfinBackend } from './jellyfin';
 import { subsonicBackend } from './subsonic';
 import type { MediaBackend } from './types';

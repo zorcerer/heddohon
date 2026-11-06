@@ -1,6 +1,6 @@
 import type { PageServerLoad } from './$types';
-import { library } from '$lib/server/library';
-import type { AlbumSort } from '$lib/types';
+import { library } from '#lib/server/library.ts';
+import type { AlbumSort } from '#lib/types.ts';
 
 const SORTS: AlbumSort[] = [
 	'recentlyAdded',

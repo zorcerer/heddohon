@@ -1,8 +1,8 @@
 import { error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { backendFor, UpstreamError } from '$lib/server/backends';
-import { PLAYLIST_EXPORT_FORMATS, playlistFile, type PlaylistExportFormat } from '$lib/server/playlistfiles';
-import { refusedCredential } from '$lib/server/library';
+import { backendFor, UpstreamError } from '#lib/server/backends/index.ts';
+import { PLAYLIST_EXPORT_FORMATS, playlistFile, type PlaylistExportFormat } from '#lib/server/playlistfiles.ts';
+import { refusedCredential } from '#lib/server/library.ts';
 
 /**
  * A playlist the account can read, as a file: `m3u` (each entry by its file

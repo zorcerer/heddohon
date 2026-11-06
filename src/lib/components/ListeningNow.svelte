@@ -12,10 +12,10 @@
 	 * Mounted once in the root layout. `client/listeners.svelte.ts` holds the
 	 * state, and the name and the picture are set under Settings, Account.
 	 */
-	import { avatarUrl, listeners } from '$lib/client/listeners.svelte';
-	import { player } from '$lib/client/player.svelte';
-	import type { Listener } from '$lib/server/listening';
-	import type { BackendKind } from '$lib/types';
+	import { avatarUrl, listeners } from '#lib/client/listeners.svelte.ts';
+	import { player } from '#lib/client/player.svelte.ts';
+	import type { Listener } from '#lib/server/listening.ts';
+	import type { BackendKind } from '#lib/types.ts';
 	import Avatar from './Avatar.svelte';
 	import Cover from './Cover.svelte';
 	import Icon from './Icon.svelte';

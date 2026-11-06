@@ -4,11 +4,11 @@
 	 * page renders hundreds of track rows, and a picker per row would make
 	 * hundreds of requests for the same list.
 	 */
-	import { playlistPicker } from '$lib/client/playlists.svelte';
-	import { formatLongDuration } from '$lib/client/format';
+	import { playlistPicker } from '#lib/client/playlists.svelte.ts';
+	import { formatLongDuration } from '#lib/client/format.ts';
 	import Icon from './Icon.svelte';
 	import { slide } from 'svelte/transition';
-	import { DUR, easeOut, motion } from '$lib/client/motion';
+	import { DUR, easeOut, motion } from '#lib/client/motion.ts';
 
 	let dialog = $state<HTMLDialogElement | null>(null);
 	let newName = $state('');

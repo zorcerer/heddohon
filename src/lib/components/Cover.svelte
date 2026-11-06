@@ -26,7 +26,7 @@
 
 <script lang="ts">
 	import { untrack } from 'svelte';
-	import { coverUrl } from '$lib/client/format';
+	import { coverUrl } from '#lib/client/format.ts';
 	import Icon from './Icon.svelte';
 
 	let {

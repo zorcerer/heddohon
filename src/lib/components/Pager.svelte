@@ -30,7 +30,7 @@
 {#if hasPrevious || hasNext}
 	<nav class="pager" aria-label={label}>
 		{#if hasPrevious}
-			<a class="hh-button previous" href={href(page - 1)} rel="prev" data-sveltekit-noscroll>
+			<a class="hh-button previous" href={href(page - 1)} rel="prev" data-sveltekit-reset="false">
 				<Icon name="chevron-right" size={16} />
 				Previous
 			</a>
@@ -48,7 +48,7 @@
 		</span>
 
 		{#if hasNext}
-			<a class="hh-button next" href={href(page + 1)} rel="next" data-sveltekit-noscroll>
+			<a class="hh-button next" href={href(page + 1)} rel="next" data-sveltekit-reset="false">
 				Next
 				<Icon name="chevron-right" size={16} />
 			</a>

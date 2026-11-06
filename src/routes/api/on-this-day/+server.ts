@@ -1,6 +1,6 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { onThisDay } from '$lib/server/history';
+import { onThisDay } from '#lib/server/history.ts';
 
 /** Albums on the home page's "On this day" shelf. */
 const SHOWN = 12;

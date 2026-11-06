@@ -1,9 +1,9 @@
 import { json } from '@sveltejs/kit';
-import { version } from '$app/environment';
+import { version } from '$app/env';
 import type { RequestHandler } from './$types';
-import { ConfigError, SetupRequired, config } from '$lib/server/config';
-import { log, reason } from '$lib/server/log';
-import { store } from '$lib/server/db';
+import { ConfigError, SetupRequired, config } from '#lib/server/config.ts';
+import { log, reason } from '#lib/server/log.ts';
+import { store } from '#lib/server/db.ts';
 
 /**
  * Liveness probe for Docker/Kubernetes. Reports whether the configuration is

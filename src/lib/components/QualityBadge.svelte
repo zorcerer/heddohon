@@ -1,6 +1,6 @@
 <script lang="ts">
-	import type { AudioQuality } from '$lib/types';
-	import { formatQuality, qualityDetail } from '$lib/client/format';
+	import type { AudioQuality } from '#lib/types.ts';
+	import { formatQuality, qualityDetail } from '#lib/client/format.ts';
 
 	let {
 		quality,

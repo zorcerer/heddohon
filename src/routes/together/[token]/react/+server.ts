@@ -1,6 +1,6 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { react, REACTIONS, togetherEnabled } from '$lib/server/together';
+import { react, REACTIONS, togetherEnabled } from '#lib/server/together.ts';
 
 /**
  * A reaction from a listener, relayed to everyone in the party. Only one of

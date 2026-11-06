@@ -1,14 +1,14 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
-	import { goto, invalidateAll } from '$app/navigation';
-	import { passkeyFailure, passkeysAvailable, usePasskey } from '$lib/client/webauthn';
+	import { goto, refreshAll } from '$app/navigation';
+	import { passkeyFailure, passkeysAvailable, usePasskey } from '#lib/client/webauthn.ts';
 	import { onMount, untrack } from 'svelte';
-	import { forgetSavedOutput } from '$lib/client/output.svelte';
+	import { forgetSavedOutput } from '#lib/client/output.svelte.ts';
 	import { page } from '$app/state';
-	import { applyArtworkColor, holdArtworkColor, randomArtworkColor } from '$lib/client/artwork';
-	import { prefersReducedMotion } from '$lib/client/sleeve-transition.svelte';
-	import Icon from '$lib/components/Icon.svelte';
-	import Logo from '$lib/components/Logo.svelte';
+	import { applyArtworkColor, holdArtworkColor, randomArtworkColor } from '#lib/client/artwork.ts';
+	import { prefersReducedMotion } from '#lib/client/sleeve-transition.svelte.ts';
+	import Icon from '#lib/components/Icon.svelte';
+	import Logo from '#lib/components/Logo.svelte';
 	import type { ActionData, PageData } from './$types';
 
 	const SOURCE_URL = 'https://github.com/zorcerer/heddohon';
@@ -42,6 +42,16 @@
 	 * page chose.
 	 */
 	const LEAVE_MS = 380;
+
+	/**
+	 * Opens the page the sign-in was for. SvelteKit 3's `goto` refuses an
+	 * address that is no page of the app, where SvelteKit 2 loaded it whole; a
+	 * `next` can be any path of this server, so such a one is loaded whole here.
+	 */
+	async function arrive(next: string | undefined): Promise<void> {
+		const to = next ?? '/';
+		await goto(to, { refreshAll: true }).catch(() => location.assign(to));
+	}
 
 	async function leave(): Promise<void> {
 		phase = 'leaving';
@@ -160,7 +170,7 @@
 			stopPolling();
 			quickConnect = { step: 'signed-in' };
 			await leave();
-			await goto(body.next ?? '/', { invalidateAll: true });
+			await arrive(body.next);
 			return;
 		}
 		if (body?.state === 'expired') {
@@ -173,7 +183,7 @@
 			// for it, as after a password.
 			stopPolling();
 			quickConnect = { step: 'idle' };
-			await invalidateAll();
+			await refreshAll();
 			return;
 		}
 		pollTimer = setTimeout(() => poll(code), POLL_MS);
@@ -222,11 +232,11 @@
 			const answered = await post({ action: 'verify', for: purpose, credential, next });
 			const body = await answered.json().catch(() => null);
 			if (!answered.ok || body?.state !== 'signed-in') {
-				if (body?.restart) await invalidateAll();
+				if (body?.restart) await refreshAll();
 				throw new Error(body?.error ?? 'The passkey was not accepted.');
 			}
 			await leave();
-			await goto(body.next ?? '/', { invalidateAll: true });
+			await arrive(body.next);
 		} catch (err) {
 			passkeyError = passkeyFailure(err);
 		} finally {

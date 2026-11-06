@@ -1,10 +1,10 @@
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { UpstreamError } from '$lib/server/backends';
-import { forgetSharedItems } from '$lib/server/shares';
-import { checkRules } from '$lib/smartrules';
-import { smartFor } from '$lib/server/smartplaylists';
-import { refusedCredential } from '$lib/server/library';
+import { UpstreamError } from '#lib/server/backends/index.ts';
+import { forgetSharedItems } from '#lib/server/shares.ts';
+import { checkRules } from '#lib/smartrules.ts';
+import { smartFor } from '#lib/server/smartplaylists.ts';
+import { refusedCredential } from '#lib/server/library.ts';
 
 /**
  * Replaces a smart playlist's rules: the body is `{ rules }`, as for a new

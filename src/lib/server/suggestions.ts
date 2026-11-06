@@ -13,7 +13,7 @@
  *
  * `memo.ts` has how entries are held and shared.
  */
-import type { Album, Artist, ExternalLink } from '$lib/types';
+import type { Album, Artist, ExternalLink } from '#lib/types.ts';
 import type { LibraryContext } from './library';
 import { Memo } from './memo';
 

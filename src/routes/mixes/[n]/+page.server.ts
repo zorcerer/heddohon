@@ -1,7 +1,7 @@
 import { error } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
-import { library } from '$lib/server/library';
-import { dailyMixes } from '$lib/server/mixes';
+import { library } from '#lib/server/library.ts';
+import { dailyMixes } from '#lib/server/mixes.ts';
 
 export const load: PageServerLoad = async (event) => {
 	const mixes = await library(event, (ctx) => dailyMixes(ctx));

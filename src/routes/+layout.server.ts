@@ -1,10 +1,10 @@
 import type { LayoutServerLoad } from './$types';
-import { backendFor } from '$lib/server/backends';
-import { SetupRequired, config } from '$lib/server/config';
-import { radioEnabled } from '$lib/server/radio';
-import { defaultSettings, shippedSettings } from '$lib/server/settings';
-import { customSchemes } from '$lib/server/schemes';
-import { APP_VERSION } from '$lib/server/version';
+import { backendFor } from '#lib/server/backends/index.ts';
+import { SetupRequired, config } from '#lib/server/config.ts';
+import { radioEnabled } from '#lib/server/radio.ts';
+import { defaultSettings, shippedSettings } from '#lib/server/settings.ts';
+import { customSchemes } from '#lib/server/schemes.ts';
+import { APP_VERSION } from '#lib/server/version.ts';
 
 export const load: LayoutServerLoad = async ({ locals, url }) => {
 	let cfg;

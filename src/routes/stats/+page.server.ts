@@ -1,6 +1,6 @@
 import type { PageServerLoad } from './$types';
-import { listeningStats, periodBefore, periodStart, STATS_PERIODS, type StatsPeriod } from '$lib/server/history';
-import { getSettings } from '$lib/server/settings';
+import { listeningStats, periodBefore, periodStart, STATS_PERIODS, type StatsPeriod } from '#lib/server/history.ts';
+import { getSettings } from '#lib/server/settings.ts';
 
 export const load: PageServerLoad = async ({ locals, url }) => {
 	const accountId = locals.session!.account.id;

@@ -1,10 +1,10 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { sessionByHandle } from '$lib/server/auth';
-import { backendFor, UpstreamError } from '$lib/server/backends';
-import { library } from '$lib/server/library';
-import type { Song } from '$lib/types';
-import { admit, enqueue, togetherEnabled, withdraw, type AddRefusal } from '$lib/server/together';
+import { sessionByHandle } from '#lib/server/auth.ts';
+import { backendFor, UpstreamError } from '#lib/server/backends/index.ts';
+import { library } from '#lib/server/library.ts';
+import type { Song } from '#lib/types.ts';
+import { admit, enqueue, togetherEnabled, withdraw, type AddRefusal } from '#lib/server/together.ts';
 
 function refuse(refusal: AddRefusal): never {
 	if (refusal === 'unknown') error(404, 'This listening session has ended.');

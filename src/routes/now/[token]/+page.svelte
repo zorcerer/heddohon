@@ -6,7 +6,7 @@
 	 * while nothing plays. See `nowplaying.ts`.
 	 */
 	import { onMount, untrack } from 'svelte';
-	import type { NowPlaying } from '$lib/server/nowplaying';
+	import type { NowPlaying } from '#lib/server/nowplaying.ts';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();

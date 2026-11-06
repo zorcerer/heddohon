@@ -14,12 +14,12 @@
  *
  * A profile is fetched only by an id in the index, so no free text from a
  * request reaches the upstream URL. The answer is parsed into numbers
- * (`$lib/autoeq`), each held to a range. Redirects are refused and both bodies
+ * (`#lib/autoeq.ts`), each held to a range. Redirects are refused and both bodies
  * are capped.
  */
 import { readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { MAX_CORRECTION_BYTES, parseParametricEq, type Correction } from '$lib/autoeq';
+import { MAX_CORRECTION_BYTES, parseParametricEq, type Correction } from '#lib/autoeq.ts';
 import { config } from './config';
 import { log, reason } from './log';
 import { APP_VERSION } from './version';

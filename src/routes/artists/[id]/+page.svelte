@@ -1,20 +1,20 @@
 <script lang="ts">
-	import HeroTitle from '$lib/components/HeroTitle.svelte';
-	import Cover from '$lib/components/Cover.svelte';
-	import FeaturedRelease from '$lib/components/FeaturedRelease.svelte';
-	import FavouriteButton from '$lib/components/FavouriteButton.svelte';
-	import MixButton from '$lib/components/MixButton.svelte';
-	import Icon from '$lib/components/Icon.svelte';
-	import MediaCard from '$lib/components/MediaCard.svelte';
-	import ExternalLinks from '$lib/components/ExternalLinks.svelte';
-	import MediaGrid from '$lib/components/MediaGrid.svelte';
-	import MediaShelf from '$lib/components/MediaShelf.svelte';
-	import SectionHeader from '$lib/components/SectionHeader.svelte';
-	import TrackList from '$lib/components/TrackList.svelte';
-	import { playContainer } from '$lib/client/actions';
-	import { heroSweep } from '$lib/client/motion';
-	import { RELEASE_GROUPS, releaseKind } from '$lib/releases';
-	import type { Album } from '$lib/types';
+	import HeroTitle from '#lib/components/HeroTitle.svelte';
+	import Cover from '#lib/components/Cover.svelte';
+	import FeaturedRelease from '#lib/components/FeaturedRelease.svelte';
+	import FavouriteButton from '#lib/components/FavouriteButton.svelte';
+	import MixButton from '#lib/components/MixButton.svelte';
+	import Icon from '#lib/components/Icon.svelte';
+	import MediaCard from '#lib/components/MediaCard.svelte';
+	import ExternalLinks from '#lib/components/ExternalLinks.svelte';
+	import MediaGrid from '#lib/components/MediaGrid.svelte';
+	import MediaShelf from '#lib/components/MediaShelf.svelte';
+	import SectionHeader from '#lib/components/SectionHeader.svelte';
+	import TrackList from '#lib/components/TrackList.svelte';
+	import { playContainer } from '#lib/client/actions.ts';
+	import { heroSweep } from '#lib/client/motion.ts';
+	import { RELEASE_GROUPS, releaseKind } from '#lib/releases.ts';
+	import type { Album } from '#lib/types.ts';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();

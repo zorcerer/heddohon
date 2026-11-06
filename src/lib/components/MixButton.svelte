@@ -8,8 +8,8 @@
 	 * is empty, and the button says so for four seconds, with the queue left as
 	 * it was. The label is a live region, for a screen reader.
 	 */
-	import { playInstantMix } from '$lib/client/actions';
-	import type { MixSeed } from '$lib/types';
+	import { playInstantMix } from '#lib/client/actions.ts';
+	import type { MixSeed } from '#lib/types.ts';
 	import Icon from './Icon.svelte';
 
 	let {

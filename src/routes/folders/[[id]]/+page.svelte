@@ -1,10 +1,10 @@
 <script lang="ts">
-	import Cover from '$lib/components/Cover.svelte';
-	import Icon from '$lib/components/Icon.svelte';
-	import Pager from '$lib/components/Pager.svelte';
-	import TrackList from '$lib/components/TrackList.svelte';
-	import { fetchTracks } from '$lib/client/actions';
-	import { player } from '$lib/client/player.svelte';
+	import Cover from '#lib/components/Cover.svelte';
+	import Icon from '#lib/components/Icon.svelte';
+	import Pager from '#lib/components/Pager.svelte';
+	import TrackList from '#lib/components/TrackList.svelte';
+	import { fetchTracks } from '#lib/client/actions.ts';
+	import { player } from '#lib/client/player.svelte.ts';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();

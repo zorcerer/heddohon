@@ -22,7 +22,7 @@
  */
 import { randomBytes, randomInt } from 'node:crypto';
 import type { Cookies } from '@sveltejs/kit';
-import type { BackendKind } from '$lib/types';
+import type { BackendKind } from '#lib/types.ts';
 import { now, store } from './db';
 import {
 	constantTimeEquals,

@@ -4,10 +4,10 @@
 	 * a queue of one live item (`client/radio.ts`), through this server
 	 * (`server/radio.ts`).
 	 */
-	import Icon from '$lib/components/Icon.svelte';
-	import { player } from '$lib/client/player.svelte';
-	import { radioSongId, stationSong } from '$lib/client/radio';
-	import type { RadioStation } from '$lib/types';
+	import Icon from '#lib/components/Icon.svelte';
+	import { player } from '#lib/client/player.svelte.ts';
+	import { radioSongId, stationSong } from '#lib/client/radio.ts';
+	import type { RadioStation } from '#lib/types.ts';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();

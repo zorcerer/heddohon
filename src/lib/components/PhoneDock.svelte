@@ -17,10 +17,10 @@
 	 */
 	import { afterNavigate } from '$app/navigation';
 	import { navigating, page } from '$app/state';
-	import { player } from '$lib/client/player.svelte';
-	import { handOff } from '$lib/client/handoff';
-	import { DUR, EASE_OUT_CSS, popGlyph, skipGlyph } from '$lib/client/motion';
-	import { prefersReducedMotion } from '$lib/client/sleeve-transition.svelte';
+	import { player } from '#lib/client/player.svelte.ts';
+	import { handOff } from '#lib/client/handoff.ts';
+	import { DUR, EASE_OUT_CSS, popGlyph, skipGlyph } from '#lib/client/motion.ts';
+	import { prefersReducedMotion } from '#lib/client/sleeve-transition.svelte.ts';
 	import Cover from './Cover.svelte';
 	import Icon from './Icon.svelte';
 
@@ -78,7 +78,10 @@
 		return () => removeEventListener('scroll', onScroll);
 	});
 
-	afterNavigate(() => {
+	afterNavigate(({ shallow, type }) => {
+		// SvelteKit 3 runs this for the sheet's own entry too (a shallow
+		// `goto`), which SvelteKit 2's `pushState` did not.
+		if (shallow && type === 'goto') return;
 		folded = false;
 	});
 

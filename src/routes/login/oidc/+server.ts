@@ -1,8 +1,8 @@
 import { error, redirect } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { config } from '$lib/server/config';
-import { safeNext } from '$lib/server/next';
-import { beginOidc } from '$lib/server/oidc';
+import { config } from '#lib/server/config.ts';
+import { safeNext } from '#lib/server/next.ts';
+import { beginOidc } from '#lib/server/oidc.ts';
 
 /**
  * Starts a sign-in through the identity provider and sends the browser there
@@ -19,5 +19,7 @@ export const GET: RequestHandler = async (event) => {
 	const next = safeNext(event.url.searchParams.get('next'));
 	const to = await beginOidc(event, 'sign-in', null, next);
 	if (!to) redirect(303, `/login?oidc=unreachable&next=${encodeURIComponent(next)}`);
-	redirect(303, to);
+	// The provider's authorisation endpoint, from its discovery document; the
+	// one place Heddohon sends a browser to another site.
+	redirect(303, to, { external: [new URL(to).origin] });
 };

@@ -1,6 +1,6 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { autoEqEnabled, autoEqProfile } from '$lib/server/autoeq';
+import { autoEqEnabled, autoEqProfile } from '#lib/server/autoeq.ts';
 
 /**
  * The correction for one profile, by the id a search returned. An id the index

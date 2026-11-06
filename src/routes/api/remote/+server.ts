@@ -1,7 +1,7 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { config } from '$lib/server/config';
-import { relay, type RemoteCommand } from '$lib/server/remote';
+import { config } from '#lib/server/config.ts';
+import { relay, type RemoteCommand } from '#lib/server/remote.ts';
 
 const SIMPLE = ['toggle', 'play', 'pause', 'next', 'previous'] as const;
 /** The saved queue's cap; see `/api/play-state`. */

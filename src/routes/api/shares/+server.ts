@@ -1,6 +1,6 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { backendFor, UpstreamError } from '$lib/server/backends';
+import { backendFor, UpstreamError } from '#lib/server/backends/index.ts';
 import {
 	DEFAULT_SHARE_LIFETIME,
 	ShareLimitError,
@@ -9,10 +9,10 @@ import {
 	isShareKind,
 	isShareLifetime,
 	ownsPlaylist
-} from '$lib/server/shares';
-import { log } from '$lib/server/log';
-import { config } from '$lib/server/config';
-import { refusedCredential } from '$lib/server/library';
+} from '#lib/server/shares.ts';
+import { log } from '#lib/server/log.ts';
+import { config } from '#lib/server/config.ts';
+import { refusedCredential } from '#lib/server/library.ts';
 
 /** The account's own live links, with what they point at. */
 export const GET: RequestHandler = async ({ locals }) => {

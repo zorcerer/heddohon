@@ -1,48 +1,49 @@
 <script lang="ts">
-	import '$lib/styles/app.css';
-	import '$lib/styles/terminal.css';
-	import '$lib/styles/terminal-schemes.css';
-	import '$lib/styles/phosphor.css';
+	import '#lib/styles/app.css';
+	import '#lib/styles/terminal.css';
+	import '#lib/styles/terminal-schemes.css';
+	import '#lib/styles/phosphor.css';
 	import { tick, untrack } from 'svelte';
-	import { afterNavigate, beforeNavigate, onNavigate, preloadCode, pushState } from '$app/navigation';
+	import { afterNavigate, beforeNavigate, onNavigate, preloadCode, goto } from '$app/navigation';
 	import { navigating, page, updated } from '$app/state';
-	import { player } from '$lib/client/player.svelte';
-	import { audioOutputs } from '$lib/client/output.svelte';
-	import { processing } from '$lib/client/processing.svelte';
-	import { remote } from '$lib/client/remote.svelte';
-	import { settleStarred } from '$lib/client/favourites.svelte';
-	import { together } from '$lib/client/together.svelte';
-	import { followCanvas, tintFrom } from '$lib/client/artwork';
-	import { ambience } from '$lib/client/ambience.svelte';
+	import { player } from '#lib/client/player.svelte.ts';
+	import { audioOutputs } from '#lib/client/output.svelte.ts';
+	import { processing } from '#lib/client/processing.svelte.ts';
+	import { remote } from '#lib/client/remote.svelte.ts';
+	import { settleStarred } from '#lib/client/favourites.svelte.ts';
+	import { together } from '#lib/client/together.svelte.ts';
+	import { followCanvas, tintFrom } from '#lib/client/artwork.ts';
+	import { ambience } from '#lib/client/ambience.svelte.ts';
 	import {
 		prefersReducedMotion,
 		resetSleeveTokens,
 		sleeveTransition,
 		supportsViewTransitions
-	} from '$lib/client/sleeve-transition.svelte';
-	import { handOff } from '$lib/client/handoff';
-	import { glideEnd, glideFrom } from '$lib/client/glide';
-	import { DUR } from '$lib/client/motion';
-	import { sheetDrag } from '$lib/client/sheet.svelte';
-	import { morphSheet, sheetMorph } from '$lib/client/sheet-morph.svelte';
-	import { installPress } from '$lib/client/press';
-	import Cover from '$lib/components/Cover.svelte';
-	import Icon from '$lib/components/Icon.svelte';
-	import NowPlayingPanel from '$lib/components/NowPlayingPanel.svelte';
-	import PhoneDock from '$lib/components/PhoneDock.svelte';
-	import DevicesDialog from '$lib/components/DevicesDialog.svelte';
-	import InstallCard from '$lib/components/InstallCard.svelte';
-	import ListeningNow from '$lib/components/ListeningNow.svelte';
-	import Reactions from '$lib/components/Reactions.svelte';
-	import TogetherDialog from '$lib/components/TogetherDialog.svelte';
-	import ContextMenu from '$lib/components/ContextMenu.svelte';
-	import SelectionBar from '$lib/components/SelectionBar.svelte';
-	import PlaylistPicker from '$lib/components/PlaylistPicker.svelte';
-	import ShareDialog from '$lib/components/ShareDialog.svelte';
-	import PathStrip from '$lib/components/PathStrip.svelte';
-	import Sidebar from '$lib/components/Sidebar.svelte';
+	} from '#lib/client/sleeve-transition.svelte.ts';
+	import { handOff } from '#lib/client/handoff.ts';
+	import { glideEnd, glideFrom } from '#lib/client/glide.ts';
+	import { DUR } from '#lib/client/motion.ts';
+	import { sheetDrag } from '#lib/client/sheet.svelte.ts';
+	import { morphSheet, sheetMorph } from '#lib/client/sheet-morph.svelte.ts';
+	import { installPress } from '#lib/client/press.ts';
+	import Cover from '#lib/components/Cover.svelte';
+	import Icon from '#lib/components/Icon.svelte';
+	import NowPlayingPanel from '#lib/components/NowPlayingPanel.svelte';
+	import PhoneDock from '#lib/components/PhoneDock.svelte';
+	import DevicesDialog from '#lib/components/DevicesDialog.svelte';
+	import InstallCard from '#lib/components/InstallCard.svelte';
+	import ListeningNow from '#lib/components/ListeningNow.svelte';
+	import Reactions from '#lib/components/Reactions.svelte';
+	import TogetherDialog from '#lib/components/TogetherDialog.svelte';
+	import ContextMenu from '#lib/components/ContextMenu.svelte';
+	import SelectionBar from '#lib/components/SelectionBar.svelte';
+	import PlaylistPicker from '#lib/components/PlaylistPicker.svelte';
+	import ShareDialog from '#lib/components/ShareDialog.svelte';
+	import PathStrip from '#lib/components/PathStrip.svelte';
+	import Sidebar from '#lib/components/Sidebar.svelte';
 	import type { LayoutData, Snapshot } from './$types';
-	import type { Song } from '$lib/types';
+	import type { RouteId } from '$app/types';
+	import type { Song } from '#lib/types.ts';
 
 	let { data, children }: { data: LayoutData; children: import('svelte').Snippet } = $props();
 
@@ -149,26 +150,25 @@
 	});
 
 	/**
-	 * Every signed-in page, by a path that matches its route. `_` stands in for
-	 * an id: preloading fetches a route's code, not its data.
+	 * Every signed-in page, by its route id: preloading fetches a route's code,
+	 * not its data, so no id has to be made up for it.
 	 */
-	const PAGE_PATHS = [
+	const PAGE_ROUTES: RouteId[] = [
 		'/',
 		'/library',
 		'/albums',
-		'/albums/_',
+		'/albums/[id]',
 		'/artists',
-		'/artists/_',
+		'/artists/[id]',
 		'/genres',
 		'/radio',
-		'/genres/_',
+		'/genres/[id]',
 		'/playlists',
 		'/playlists/import',
-		'/playlists/_',
+		'/playlists/[id]',
 		'/people',
-		'/people/_',
-		'/folders',
-		'/folders/_',
+		'/people/[handle]',
+		'/folders/[[id]]',
 		'/history',
 		'/screen',
 		'/stats',
@@ -192,9 +192,9 @@
 		if (!signedIn) return;
 		let cancelled = false;
 		const timer = setTimeout(async () => {
-			for (const path of PAGE_PATHS) {
+			for (const route of PAGE_ROUTES) {
 				if (cancelled) return;
-				await preloadCode(path).catch(() => undefined);
+				await preloadCode(route).catch(() => undefined);
 			}
 		}, 3000);
 		return () => {
@@ -209,7 +209,10 @@
 	 * minutes (`version.pollInterval` in `vite.config.ts`). While music plays
 	 * the tab keeps its code, since a full page load stops playback.
 	 */
-	beforeNavigate(({ willUnload, to }) => {
+	beforeNavigate(({ willUnload, to, shallow, type }) => {
+		// SvelteKit 3 runs this for the sheet's own entry too (a shallow
+		// `goto`), which SvelteKit 2's `pushState` did not.
+		if (shallow && type === 'goto') return;
 		if (updated.current && !willUnload && to?.url && !player.playing) location.href = to.url.href;
 	});
 
@@ -381,6 +384,7 @@
 	 * reduced motion, it is an ordinary navigation.
 	 */
 	onNavigate((navigation) => {
+		if (navigation.shallow && navigation.type === 'goto') return;
 		// The data is here: the wait for it is over. See `waiting`.
 		landed = true;
 
@@ -559,7 +563,7 @@
 	let risingTimer: ReturnType<typeof setTimeout> | undefined;
 	const RISE_HOLD_MS = 900;
 
-	async function fadeThroughRoom(navigation: import('@sveltejs/kit').OnNavigate): Promise<void> {
+	async function fadeThroughRoom(navigation: import('$app/navigation').OnNavigate): Promise<void> {
 		veil = 'in';
 		navigation.complete.then(
 			() => {
@@ -581,7 +585,7 @@
 	 * inside it, so the column kept one position for every page: an album
 	 * opened from 400px down the library opened 400px down its own page. A new
 	 * sort or page number of the same page keeps its place, as those links ask
-	 * with `data-sveltekit-noscroll`. SvelteKit restores the snapshot on Back
+	 * with `data-sveltekit-reset="false"`. SvelteKit restores the snapshot on Back
 	 * after the new page is in and before the view transition takes its
 	 * picture, so the sleeve's way back finds the card where it was.
 	 *
@@ -655,7 +659,8 @@
 		});
 	});
 
-	afterNavigate(({ type, from, to }) => {
+	afterNavigate(({ type, from, to, shallow }) => {
+		if (shallow && type === 'goto') return;
 		if (type === 'enter' || type === 'popstate') return;
 		if (from?.url.pathname === to?.url.pathname) return;
 		// `instant`: the column scrolls smoothly for everything else.
@@ -691,7 +696,8 @@
 	// On a phone the sheet covers the page, so a link followed from inside it
 	// (the artist, the album, the artwork) opened a page nobody could see. The
 	// sheet goes down by itself.
-	afterNavigate(({ type }) => {
+	afterNavigate(({ type, shallow }) => {
+		if (shallow && type === 'goto') return;
 		if (type !== 'enter') settleStarred();
 	});
 
@@ -704,11 +710,13 @@
 	 * down with the page.
 	 */
 	let sheetAtNavigationStart = false;
-	beforeNavigate(() => {
+	beforeNavigate(({ shallow, type }) => {
+		if (shallow && type === 'goto') return;
 		sheetAtNavigationStart = player.panelOpen;
 	});
 
-	afterNavigate(({ type }) => {
+	afterNavigate(({ type, shallow }) => {
+		if (shallow && type === 'goto') return;
 		// Back to an entry the sheet was open over leaves it to the effect below.
 		if (type === 'enter' || !player.sheetLayout || !player.panelOpen || page.state.sheet) return;
 		// The router pushes the arriving page's entry once its data has loaded,
@@ -716,7 +724,7 @@
 		// and the arriving page found none and shut the sheet. Mark the arriving
 		// page instead, and the sheet stays up.
 		if (!sheetAtNavigationStart) {
-			pushState('', { ...page.state, sheet: true });
+			goto('', { shallow: true, state: { ...page.state, sheet: true } });
 			return;
 		}
 		player.togglePanel();
@@ -729,7 +737,7 @@
 	 * went back a page nobody could see, and the sheet closed over a different
 	 * page than it had opened on.
 	 *
-	 * Opening adds the entry (`pushState`, which loads nothing). Closing from
+	 * Opening adds the entry (a shallow `goto`, which loads nothing). Closing from
 	 * the sheet itself (its chevron, a pull down) steps back off it. `leaving`
 	 * is set for that step: a sheet opened again before the step lands gets a
 	 * new entry and stays open. A link followed from inside the sheet replaces
@@ -747,7 +755,7 @@
 			// behind when the router pushes the arriving page's own entry. The
 			// arriving page is marked in afterNavigate.
 			if (navigating.to && open) return;
-			if (open && !page.state.sheet && !leaving) pushState('', { ...page.state, sheet: true });
+			if (open && !page.state.sheet && !leaving) goto('', { shallow: true, state: { ...page.state, sheet: true } });
 			else if (!open && page.state.sheet && !leaving) {
 				leaving = true;
 				history.back();
@@ -760,7 +768,7 @@
 			if (!player.sheetLayout || !player.viewportKnown) return;
 			if (leaving && !marked) {
 				leaving = false;
-				if (player.panelOpen) pushState('', { ...page.state, sheet: true });
+				if (player.panelOpen) goto('', { shallow: true, state: { ...page.state, sheet: true } });
 				return;
 			}
 			if (marked !== player.panelOpen) {

@@ -14,18 +14,18 @@
 	 * of its own: both wanted the right edge. The footer row switches them.
 	 */
 	import { untrack } from 'svelte';
-	import { SLEEP_MINUTES, player } from '$lib/client/player.svelte';
-	import { audioOutputs } from '$lib/client/output.svelte';
-	import { handOff } from '$lib/client/handoff';
-	import { artworkColor } from '$lib/client/artwork';
-	import { contextMenu } from '$lib/client/context-menu.svelte';
-	import { SelectableList } from '$lib/client/selection.svelte';
-	import { formatBytes, formatDuration } from '$lib/client/format';
-	import { lyricsWindow } from '$lib/client/lyrics.svelte';
-	import { playlistPicker } from '$lib/client/playlists.svelte';
-	import { prefersReducedMotion } from '$lib/client/sleeve-transition.svelte';
-	import { shareComposer } from '$lib/client/share.svelte';
-	import { pullHandlers } from '$lib/client/sheet.svelte';
+	import { SLEEP_MINUTES, player } from '#lib/client/player.svelte.ts';
+	import { audioOutputs } from '#lib/client/output.svelte.ts';
+	import { handOff } from '#lib/client/handoff.ts';
+	import { artworkColor } from '#lib/client/artwork.ts';
+	import { contextMenu } from '#lib/client/context-menu.svelte.ts';
+	import { SelectableList } from '#lib/client/selection.svelte.ts';
+	import { formatBytes, formatDuration } from '#lib/client/format.ts';
+	import { lyricsWindow } from '#lib/client/lyrics.svelte.ts';
+	import { playlistPicker } from '#lib/client/playlists.svelte.ts';
+	import { prefersReducedMotion } from '#lib/client/sleeve-transition.svelte.ts';
+	import { shareComposer } from '#lib/client/share.svelte.ts';
+	import { pullHandlers } from '#lib/client/sheet.svelte.ts';
 	import { page } from '$app/state';
 	import {
 		DUR,
@@ -37,8 +37,8 @@
 		popGlyph,
 		skipGlyph,
 		turnGlyph
-	} from '$lib/client/motion';
-	import { scramble } from '$lib/client/scramble';
+	} from '#lib/client/motion.ts';
+	import { scramble } from '#lib/client/scramble.ts';
 	import { flip } from 'svelte/animate';
 	import Cover from './Cover.svelte';
 	import FavouriteButton from './FavouriteButton.svelte';
@@ -47,8 +47,8 @@
 	import MixButton from './MixButton.svelte';
 	import QualityBadge from './QualityBadge.svelte';
 	import RatingStars from './RatingStars.svelte';
-	import { remote } from '$lib/client/remote.svelte';
-	import { together } from '$lib/client/together.svelte';
+	import { remote } from '#lib/client/remote.svelte.ts';
+	import { together } from '#lib/client/together.svelte.ts';
 	import Seekbar from './Seekbar.svelte';
 	import Visualiser from './Visualiser.svelte';
 

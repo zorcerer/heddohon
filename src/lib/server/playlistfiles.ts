@@ -13,7 +13,7 @@
 import type { MediaBackend, StoredCredential } from './backends';
 import { mapLimited } from './backends/http';
 import { csvLine } from './csv';
-import type { PlaylistDetail, Song } from '$lib/types';
+import type { PlaylistDetail, Song } from '#lib/types.ts';
 
 export const PLAYLIST_EXPORT_FORMATS = ['m3u', 'm3u-titles', 'csv'] as const;
 export type PlaylistExportFormat = (typeof PLAYLIST_EXPORT_FORMATS)[number];

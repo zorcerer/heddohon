@@ -116,7 +116,8 @@ hardened 'gate 401'
 expect_eq 'unknown page answers 404' "$(http "$ANON" GET /login/nothing-here)" 404
 hardened '404'
 expect_eq 'trailing slash answers 308' "$(http "$ANON" GET /albums/)" 308
-expect_eq 'trailing slash keeps the path' "$(header location)" /albums
+# SvelteKit 3 sends the address relative to the one asked for (`../albums`).
+expect_eq 'trailing slash keeps the path' "$(node -e 'console.log(new URL(process.argv[1], "http://x/albums/").pathname)' "$(header location)")" /albums
 hardened 'trailing-slash redirect'
 
 echo '# Sign-in'

@@ -12,7 +12,7 @@ import { readdir, readFile, rename, rm, stat, unlink, writeFile } from 'node:fs/
 import { basename, join } from 'node:path';
 import { config } from './config';
 import { log, reason } from './log';
-import type { BackendKind } from '$lib/types';
+import type { BackendKind } from '#lib/types.ts';
 
 /**
  * Content types kept, and the extension each is stored under. The extension is

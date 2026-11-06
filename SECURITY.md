@@ -1416,6 +1416,14 @@ first-run setup or by an administrator under Settings, Storage:
   reverse proxy would, and removes whatever a client sent under those names.
   Where the operator sets `ORIGIN`, `PROTOCOL_HEADER` or `HOST_HEADER`, the
   saved list is not used.
+- `ORIGIN` in the environment is every request's address, whatever its
+  `Host`, given to the adapter in the same two headers. adapter-node 5 read
+  `ORIGIN` itself; adapter-node 6, which SvelteKit 3 needs, takes an address
+  only at build time, and an image is built before it is deployed. Decided
+  by the maintainer on 2026-11-05 to keep `ORIGIN` exactly as before: every
+  request is pinned to it, so the origin check compares `Origin` with the
+  same address. An `ORIGIN` that is not an address answers every request
+  with a 400, as adapter-node 5 did.
 - No check is relaxed. SvelteKit's and this one both run as before, against
   that address. A saved address is matched against `Host`, which names the
   server the request was sent to, so a page on another site is refused
@@ -1439,9 +1447,10 @@ connection's own unless the operator sets adapter-node's `ADDRESS_HEADER`;
 set where the proxy does not overwrite that header, a client can name any
 address there and avoid the per-address counts, and the count per username
 and the 50 listeners still apply (**Known gaps**). The host and scheme a
-request is served on come from `ORIGIN`, or from adapter-node's
-`HOST_HEADER` and `PROTOCOL_HEADER` where the operator sets them. With none
-of the three set, a saved address is matched against `Host` and passed to
+request is served on come from `ORIGIN`, given to the adapter in
+`x-heddohon-host` and `x-heddohon-protocol` for every request, or from
+adapter-node's `HOST_HEADER` and `PROTOCOL_HEADER` where the operator sets
+them. With none of the three set, a saved address is matched against `Host` and passed to
 the adapter in two headers of Heddohon's own, `x-heddohon-host` and
 `x-heddohon-protocol`, which are removed from every incoming request first
 (`savedOrigin` in `vite.config.ts`); otherwise `Host` with https assumed.
@@ -1730,7 +1739,7 @@ bundled font families, covers from `/api/cover`, audio from `/api/stream`, and
 fetches to `/api/*`. The source carries no external origin, no `data:` or
 `blob:` URL.
 
-The one worker is the service worker in `src/service-worker.ts`. It answers a
+The one worker is the service worker in `src/service-worker/index.ts`. It answers a
 page load that fails, or a 502 to 504 without the `x-heddohon` header every
 Heddohon response carries (a reverse proxy's page for a stopped Heddohon),
 with a static offline page, sent with the same headers as any other page. It
@@ -2309,8 +2318,9 @@ Found holding:
   them, and are only set for a `Host` that is exactly a saved host, to that
   saved address. A forged `Host` changes the address of the forger's own
   request alone: the cookie name and `Secure` it is answered with, never a
-  check against another site. With `ORIGIN`, `HOST_HEADER` or
-  `PROTOCOL_HEADER` set, the two headers are read by nothing.
+  check against another site. With `ORIGIN` set, the two headers carry
+  `ORIGIN` on every request, whatever a client sent. With `HOST_HEADER` or
+  `PROTOCOL_HEADER` set and no `ORIGIN`, the two headers are read by nothing.
 - `Authorization` on `/api/mcp` (an HMAC digest looked up) and on
   `/api/plugin/navidrome` (compared in constant time).
 - `Range`, `If-None-Match` and `If-Modified-Since`, passed to the music

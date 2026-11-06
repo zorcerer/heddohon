@@ -18,7 +18,7 @@
  */
 import { closeSync, mkdirSync, openSync, readdirSync, unlinkSync, writeSync } from 'node:fs';
 import { join } from 'node:path';
-import { building } from '$app/environment';
+import { building } from '$app/env';
 
 const DEFAULT_KEEP_DAYS = 7;
 /** Ten years; the bound only keeps the date arithmetic sane. */

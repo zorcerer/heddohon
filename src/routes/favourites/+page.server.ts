@@ -1,8 +1,8 @@
 import type { PageServerLoad } from './$types';
-import { library } from '$lib/server/library';
-import { remembered } from '$lib/server/listings';
-import { paginate, readPageNumber } from '$lib/server/paging';
-import type { Album, Artist, Song } from '$lib/types';
+import { library } from '#lib/server/library.ts';
+import { remembered } from '#lib/server/listings.ts';
+import { paginate, readPageNumber } from '#lib/server/paging.ts';
+import type { Album, Artist, Song } from '#lib/types.ts';
 
 const TABS = ['songs', 'albums', 'artists'] as const;
 type Tab = (typeof TABS)[number];

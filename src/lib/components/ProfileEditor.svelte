@@ -1,7 +1,7 @@
 <script lang="ts">
-	import { invalidateAll } from '$app/navigation';
-	import type { PageSettings, ProfileView } from '$lib/server/profilepage';
-	import { listeners } from '$lib/client/listeners.svelte';
+	import { refreshAll } from '$app/navigation';
+	import type { PageSettings, ProfileView } from '#lib/server/profilepage.ts';
+	import { listeners } from '#lib/client/listeners.svelte.ts';
 	import Cover from './Cover.svelte';
 	import Icon from './Icon.svelte';
 
@@ -134,7 +134,7 @@
 			body: JSON.stringify({ bio: bio.trim() || null, albums: slots.map((slot) => slot?.id ?? null), listed, recent, top })
 		});
 		if (saved) {
-			await invalidateAll();
+			await refreshAll();
 			open = false;
 		}
 		busy = false;
@@ -145,14 +145,14 @@
 		input.value = '';
 		if (!file) return;
 		busy = true;
-		if (await listeners.setPicture(file)) await invalidateAll();
+		if (await listeners.setPicture(file)) await refreshAll();
 		else problem = listeners.error;
 		busy = false;
 	}
 
 	async function removePicture() {
 		busy = true;
-		if (await listeners.removePicture()) await invalidateAll();
+		if (await listeners.removePicture()) await refreshAll();
 		busy = false;
 	}
 
@@ -162,7 +162,7 @@
 		const made = await send('/api/profile/page', { method: 'POST' });
 		if (made) {
 			link = made.url;
-			await invalidateAll();
+			await refreshAll();
 		}
 		busy = false;
 	}
@@ -173,7 +173,7 @@
 		if (await send('/api/profile/page', { method: 'DELETE' })) {
 			link = null;
 			message = 'The public link no longer works.';
-			await invalidateAll();
+			await refreshAll();
 		}
 		busy = false;
 	}

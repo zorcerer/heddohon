@@ -13,11 +13,11 @@
  *    (`processing.svelte.ts`): the equaliser routes both elements through a
  *    graph at the output device's rate (`audiochain.ts`).
  */
-import { browser } from '$app/environment';
+import { browser } from '$app/env';
 import { untrack } from 'svelte';
-import type { Song } from '$lib/types';
-import type { Correction } from '$lib/autoeq';
-import type { UserSettings } from '$lib/server/settings';
+import type { Song } from '#lib/types.ts';
+import type { Correction } from '#lib/autoeq.ts';
+import type { UserSettings } from '#lib/server/settings.ts';
 import { AudioChain } from './audiochain';
 import { coverUrl, streamUrl } from './format';
 import { radioStreamUrl } from './radio';

@@ -1,6 +1,6 @@
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { accountOfNowPlaying, nowPlaying } from '$lib/server/nowplaying';
+import { accountOfNowPlaying, nowPlaying } from '#lib/server/nowplaying.ts';
 
 /**
  * What the link's account is playing, as JSON, without a sign-in: for Home

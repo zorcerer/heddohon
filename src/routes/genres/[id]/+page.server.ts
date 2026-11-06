@@ -1,7 +1,7 @@
 import { error } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
-import { library } from '$lib/server/library';
-import { remembered } from '$lib/server/listings';
+import { library } from '#lib/server/library.ts';
+import { remembered } from '#lib/server/listings.ts';
 
 const PAGE_SIZE = 60;
 

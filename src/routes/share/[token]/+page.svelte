@@ -21,14 +21,14 @@
 		DEFAULT_ARTWORK_COLOR,
 		holdArtworkColor,
 		randomArtworkColor
-	} from '$lib/client/artwork';
-	import { formatDuration } from '$lib/client/format';
-	import { skipGlyph } from '$lib/client/motion';
-	import { prefersReducedMotion } from '$lib/client/sleeve-transition.svelte';
-	import Icon from '$lib/components/Icon.svelte';
-	import Logo from '$lib/components/Logo.svelte';
-	import QualityBadge from '$lib/components/QualityBadge.svelte';
-	import Seekbar from '$lib/components/Seekbar.svelte';
+	} from '#lib/client/artwork.ts';
+	import { formatDuration } from '#lib/client/format.ts';
+	import { skipGlyph } from '#lib/client/motion.ts';
+	import { prefersReducedMotion } from '#lib/client/sleeve-transition.svelte.ts';
+	import Icon from '#lib/components/Icon.svelte';
+	import Logo from '#lib/components/Logo.svelte';
+	import QualityBadge from '#lib/components/QualityBadge.svelte';
+	import Seekbar from '#lib/components/Seekbar.svelte';
 	import type { PageData } from './$types';
 
 	const SOURCE_URL = 'https://github.com/zorcerer/heddohon';

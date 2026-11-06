@@ -2,7 +2,7 @@
  * Lyrics fetching and the state behind the lyrics view. Results are memoised
  * per track: the view is opened and closed more often than the track changes.
  */
-import type { Lyrics, Song } from '$lib/types';
+import type { Lyrics, Song } from '#lib/types.ts';
 
 const cache = new Map<string, Lyrics | null>();
 const MAX_CACHE_ENTRIES = 80;

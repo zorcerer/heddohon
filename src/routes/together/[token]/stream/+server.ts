@@ -1,9 +1,9 @@
 import { error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { sessionByHandle, tiedToSession } from '$lib/server/auth';
-import { backendFor } from '$lib/server/backends';
-import { proxySharedMedia, streamRequestFrom } from '$lib/server/proxy';
-import { partyFor, togetherEnabled } from '$lib/server/together';
+import { sessionByHandle, tiedToSession } from '#lib/server/auth.ts';
+import { backendFor } from '#lib/server/backends/index.ts';
+import { proxySharedMedia, streamRequestFrom } from '#lib/server/proxy.ts';
+import { partyFor, togetherEnabled } from '#lib/server/together.ts';
 
 /**
  * The track the party is on, through the host's account, for a listener with

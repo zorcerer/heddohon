@@ -35,7 +35,7 @@ import http from 'node:http';
 import https from 'node:https';
 import { isIP, type LookupFunction } from 'node:net';
 import { Readable } from 'node:stream';
-import type { RadioStation } from '$lib/types';
+import type { RadioStation } from '#lib/types.ts';
 import type { AuthenticatedSession } from './auth';
 import { backendFor } from './backends';
 import type { RadioStationSource } from './backends/types';

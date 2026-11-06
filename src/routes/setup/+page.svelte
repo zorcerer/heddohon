@@ -6,8 +6,8 @@
 	 * Everything is sent to `/api/setup` as JSON with the code, which this page
 	 * holds in memory for as long as it is open and nowhere else.
 	 */
-	import Icon from '$lib/components/Icon.svelte';
-	import Logo from '$lib/components/Logo.svelte';
+	import Icon from '#lib/components/Icon.svelte';
+	import Logo from '#lib/components/Logo.svelte';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
