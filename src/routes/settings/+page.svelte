@@ -774,6 +774,7 @@
 					</span>
 					<span class="control range">
 						<ElasticSlider
+							swell={false}
 							bind:value={settings.crossfadeSeconds}
 							startingValue={1}
 							maxValue={12}
@@ -894,6 +895,7 @@
 						<span class="hz hh-numeric">{bandLabel(frequency)}</span>
 						<span class="band-slider">
 							<ElasticSlider
+								swell={false}
 								value={processing.gains[band]}
 								startingValue={-EQ_RANGE_DB}
 								maxValue={EQ_RANGE_DB}

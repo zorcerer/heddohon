@@ -30,6 +30,8 @@
 		live?: boolean;
 		keyStep?: number;
 		shiftKeyStep?: number;
+		// Heddohon: whether it swells under the pointer; the stretch past an end stays.
+		swell?: boolean;
 		startingValue?: number;
 		maxValue?: number;
 		class?: string;
@@ -51,6 +53,7 @@
 		live = true,
 		keyStep,
 		shiftKeyStep,
+		swell = true,
 		startingValue = 0,
 		maxValue = 100,
 		class: className = '',
@@ -106,7 +109,7 @@
 		const cx = clientX.get();
 		const { left, width } = sliderRef.getBoundingClientRect();
 
-		const opacity = 0.7 + ((s - 1) / 0.2) * 0.3;
+		const opacity = swell ? 0.7 + ((s - 1) / 0.2) * 0.3 : 1;
 		outerEl.style.transform = `scale(${s})`;
 		outerEl.style.opacity = String(opacity);
 
@@ -191,7 +194,7 @@
 		dragValue = null;
 		animate(overflow, 0, { type: 'spring', bounce: 0.5 });
 	}
-	function onEnter() { if (!disabled && !reduced()) animate(scale, 1.2); }
+	function onEnter() { if (swell && !disabled && !reduced()) animate(scale, 1.2); }
 	function onLeave() { animate(scale, 1); }
 	// Heddohon: the keys a range input takes.
 	function onKeyDown(e: KeyboardEvent) {
@@ -220,6 +223,7 @@
 	<div
 		bind:this={outerEl}
 		class="slider-wrapper"
+		style:opacity={swell ? undefined : 1}
 		onmouseenter={onEnter}
 		onmouseleave={onLeave}
 		ontouchstart={onEnter}
