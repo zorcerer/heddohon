@@ -424,6 +424,9 @@
 					<input type="hidden" name="backend" value={data.servers[0].kind} />
 				{/if}
 
+				<!-- The server's answer is the field's default, not its `value`: Svelte
+				     sets a `value` as the page hydrates, over what was typed while
+				     its code ran, which on a slow phone emptied the field. -->
 				<label class="field">
 					<span class="hh-eyebrow label">Username</span>
 					<input
@@ -433,7 +436,7 @@
 						required
 						autocapitalize="none"
 						spellcheck="false"
-						value={form?.username ?? ''}
+						defaultValue={form?.username ?? ''}
 					/>
 				</label>
 
