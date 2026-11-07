@@ -13,11 +13,11 @@
  *    (`processing.svelte.ts`): the equaliser routes both elements through a
  *    graph at the output device's rate (`audiochain.ts`).
  */
-import { browser } from '$app/environment';
+import { browser } from '$app/env';
 import { untrack } from 'svelte';
-import type { Song } from '$lib/types';
-import type { Correction } from '$lib/autoeq';
-import type { UserSettings } from '$lib/server/settings';
+import type { Song } from '#lib/types.ts';
+import type { Correction } from '#lib/autoeq.ts';
+import type { UserSettings } from '#lib/server/settings.ts';
 import { AudioChain } from './audiochain';
 import { coverUrl, streamUrl } from './format';
 import { radioStreamUrl } from './radio';
@@ -211,6 +211,8 @@ class Player {
 	buffered = $state(0);
 	volume = $state(0.85);
 	muted = $state(false);
+	/** The server's `HEDDOHON_VOLUME_LIMIT`: what a full slider plays at. */
+	volumeLimit = 1;
 	repeat = $state<RepeatMode>('off');
 	shuffle = $state(false);
 	error = $state<string | null>(null);
@@ -1409,7 +1411,7 @@ class Player {
 		const incoming = this.#secondary;
 		if (!outgoing || !incoming) return this.#abandonCrossfade();
 
-		const level = (this.muted ? 0 : this.volume) * this.#sleepGain();
+		const level = (this.muted ? 0 : this.volume) * this.volumeLimit * this.#sleepGain();
 		const t = Math.min(1, (Date.now() - this.#fadeStartedAt) / (this.#fadeSeconds * 1000));
 		// Each side ramps to its own corrected level, so the join does not jump
 		// between two tracks mastered at different loudness.
@@ -1651,6 +1653,13 @@ class Player {
 		this.#giveUp(element, reason);
 	}
 
+	/** Takes the passing message away, as a swipe on it does. */
+	dismissNotice() {
+		if (this.#noticeTimer) clearTimeout(this.#noticeTimer);
+		this.#noticeTimer = null;
+		this.notice = null;
+	}
+
 	/** Shows a passing message, for `ms` or until it is taken away with 0. */
 	#say(text: string, ms = NOTICE_MS) {
 		if (this.#noticeTimer) clearTimeout(this.#noticeTimer);
@@ -1831,7 +1840,7 @@ class Player {
 		// arriving with every navigation re-ran it, its teardown detached the
 		// player, and every page change stopped the music.
 		untrack(() => {
-			const value = (this.muted ? 0 : this.volume) * this.#sleepGain();
+			const value = (this.muted ? 0 : this.volume) * this.volumeLimit * this.#sleepGain();
 			const chain = this.#chain;
 			if (chain) {
 				// Through the graph the elements play at full `volume`, and the level

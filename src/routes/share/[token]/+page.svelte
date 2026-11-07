@@ -21,14 +21,15 @@
 		DEFAULT_ARTWORK_COLOR,
 		holdArtworkColor,
 		randomArtworkColor
-	} from '$lib/client/artwork';
-	import { formatDuration } from '$lib/client/format';
-	import { skipGlyph } from '$lib/client/motion';
-	import { prefersReducedMotion } from '$lib/client/sleeve-transition.svelte';
-	import Icon from '$lib/components/Icon.svelte';
-	import Logo from '$lib/components/Logo.svelte';
-	import QualityBadge from '$lib/components/QualityBadge.svelte';
-	import Seekbar from '$lib/components/Seekbar.svelte';
+	} from '#lib/client/artwork.ts';
+	import { formatDuration } from '#lib/client/format.ts';
+	import { skipGlyph } from '#lib/client/motion.ts';
+	import { prefersReducedMotion } from '#lib/client/sleeve-transition.svelte.ts';
+	import Icon from '#lib/components/Icon.svelte';
+	import Busy from '#lib/components/Busy.svelte';
+	import Logo from '#lib/components/Logo.svelte';
+	import QualityBadge from '#lib/components/QualityBadge.svelte';
+	import Seekbar from '#lib/components/Seekbar.svelte';
 	import type { PageData } from './$types';
 
 	const SOURCE_URL = 'https://github.com/zorcerer/heddohon';
@@ -156,6 +157,11 @@
 	let waiting = $state(false);
 	let failed = $state(false);
 	let bufferedTo = $state(0);
+
+	// The page has no volume slider: it plays at the server's limit.
+	$effect(() => {
+		if (audio) audio.volume = data.volumeLimit;
+	});
 
 	const total = $derived(length > 0 ? length : (song?.duration ?? 0));
 
@@ -399,7 +405,7 @@
 						title={paused ? 'Play' : 'Pause'}
 					>
 						{#if waiting && !paused}
-							<span class="spinner" aria-hidden="true"></span>
+							<span class="spinner"><Busy cell={5} /></span>
 						{:else}
 							<Icon name={paused ? 'play' : 'pause'} size={30} strokeWidth={3.4} />
 						{/if}
@@ -912,19 +918,10 @@
 	}
 
 	.spinner {
-		width: 1.5rem;
-		height: 1.5rem;
-		border-radius: 50%;
-		border: 2px solid color-mix(in srgb, currentColor 30%, transparent);
-		border-top-color: currentColor;
-		animation: spin 0.7s linear infinite;
+		display: grid;
+		place-items: center;
 	}
 
-	@keyframes spin {
-		to {
-			transform: rotate(360deg);
-		}
-	}
 
 	.error {
 		margin: 0;
@@ -978,9 +975,6 @@
 	}
 
 	@media (prefers-reduced-motion: reduce) {
-		.spinner {
-			animation-duration: 2.4s;
-		}
 	}
 
 	/* One column, as the login page folds, with the crest behind the middle. */
