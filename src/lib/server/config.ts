@@ -78,6 +78,8 @@ export interface AppConfig {
 	sharing: boolean;
 	/** Whether the original file can be downloaded from the player. */
 	downloads: boolean;
+	/** What a full volume slider plays at, from 0.01 to 1 (`HEDDOHON_VOLUME_LIMIT`, in percent). */
+	volumeLimit: number;
 	/** Whether a browser can control playback on the account's other browsers; see `remote.ts`. */
 	remoteControl: boolean;
 	/** Whether accounts may show each other what they play; see `listening.ts`. Each account is off until it turns it on. */
@@ -606,6 +608,9 @@ function build(): AppConfig {
 		registrationHint: env('HEDDOHON_LOGIN_HINT') ?? null,
 		sharing: flagEnv('HEDDOHON_SHARING', true),
 		downloads: flagEnv('HEDDOHON_DOWNLOADS', true),
+		// The level a full volume slider plays at, in percent, for every player
+		// this server serves: the app, listen-together guests and share links.
+		volumeLimit: intEnv('HEDDOHON_VOLUME_LIMIT', 100, 1, 100) / 100,
 		// The browsers are known to one process only, so a deployment of several
 		// behind a load balancer turns it off.
 		remoteControl: flagEnv('HEDDOHON_REMOTE_CONTROL', true),
@@ -770,6 +775,7 @@ export function config(): AppConfig {
 			registrationHint: null,
 			sharing: true,
 			downloads: true,
+			volumeLimit: 1,
 			remoteControl: true,
 			listeners: true,
 			lrclibUrl: null,

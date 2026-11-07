@@ -19,6 +19,7 @@ export const load: LayoutServerLoad = async ({ locals, url }) => {
 			appVersion: APP_VERSION,
 			sharing: false,
 			downloads: false,
+			volumeLimit: 1,
 			remoteControl: false,
 			together: false,
 			listeners: false,
@@ -46,6 +47,8 @@ export const load: LayoutServerLoad = async ({ locals, url }) => {
 		// server will refuse.
 		sharing: cfg.sharing,
 		downloads: cfg.downloads,
+		// Scales every player's volume; see `HEDDOHON_VOLUME_LIMIT`.
+		volumeLimit: cfg.volumeLimit,
 		remoteControl: cfg.remoteControl,
 		// Listening together needs both; see `together.ts`.
 		together: cfg.sharing && cfg.remoteControl,
