@@ -4545,14 +4545,16 @@ describe('smart playlists', () => {
 describe('sliders and the playlist picker', () => {
 	const fillWidth = (page) =>
 		page.locator('[role="slider"][aria-label="Volume"] .slider-range').evaluate((el) => parseFloat(el.style.width));
-	/** The scale ElasticSlider gives the whole control, from its transform. */
+	/** The scale ElasticSlider gives the whole control under the pointer, from its transform. */
 	const swell = (page) =>
 		page
 			.locator('[role="slider"][aria-label="Volume"]')
 			.evaluate((el) => new DOMMatrix(getComputedStyle(el.closest('.slider-wrapper')).transform).a);
 
-	test('the volume swells under the pointer, empties on mute and sets a level where it is pressed', async () => {
+	test('the volume does not swell under the pointer, stretches past its end, empties on mute and sets a level where it is pressed', async () => {
 		const { page, problems } = await watchedPage();
+		const track = () =>
+			page.locator('[role="slider"][aria-label="Volume"] .slider-track-wrapper').evaluate((el) => new DOMMatrix(getComputedStyle(el).transform).a);
 		try {
 			await page.goto(app.url + '/albums', { waitUntil: 'networkidle' });
 			const before = await fillWidth(page);
@@ -4566,10 +4568,16 @@ describe('sliders and the playlist picker', () => {
 			const bar = page.locator('[role="slider"][aria-label="Volume"]');
 			const box = await bar.boundingBox();
 			await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-			await page.waitForFunction(
-				() => new DOMMatrix(getComputedStyle(document.querySelector('[role="slider"][aria-label="Volume"]').closest('.slider-wrapper')).transform).a > 1.1
-			);
-			assert.ok((await swell(page)) > 1.1, 'the slider did not swell under the pointer');
+			await page.waitForTimeout(400);
+			assert.equal(await swell(page), 1, 'the slider swelled under the pointer');
+
+			// Held and pulled past the end, the track stretches like a band.
+			await page.mouse.down();
+			await page.mouse.move(box.x + box.width + 60, box.y + box.height / 2, { steps: 6 });
+			await page.waitForFunction(() => new DOMMatrix(getComputedStyle(document.querySelector('[role="slider"][aria-label="Volume"] .slider-track-wrapper')).transform).a > 1.02);
+			assert.ok((await track()) > 1.02, 'the track did not stretch past its end');
+			await page.mouse.up();
+
 			await page.mouse.click(box.x + box.width * 0.25, box.y + box.height / 2);
 			await page.waitForFunction(() => Math.abs(parseFloat(document.querySelector('[role="slider"][aria-label="Volume"] .slider-range').style.width) - 25) < 8);
 		} finally {

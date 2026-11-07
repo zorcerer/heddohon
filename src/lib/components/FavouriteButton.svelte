@@ -35,10 +35,13 @@
 	onChange={(liked) => void setStarred(kind, id, liked)}
 	disabled={isPending(kind, id)}
 	showCount={false}
-	{size}
+	// PulseHeart's heart fills its box where the icon set's leaves a margin;
+	// beside a word, as the glyphs of the other actions are, a little larger.
+	size={Math.round(size * (labelled ? 0.85 : 0.7))}
 	corner={6}
-	idleColor="var(--text-faint)"
-	likedColor="var(--danger)"
+	// A place that colours what it holds (the player's rounds) sets these.
+	idleColor="var(--fav-idle, var(--text-faint))"
+	likedColor="var(--fav-liked, var(--danger))"
 	pillColor="transparent"
 	textColor="currentColor"
 	label={name}
@@ -75,6 +78,11 @@
 
 	:global([data-theme='terminal'] .fav.labelled .label) {
 		display: inline;
+	}
+
+	/* The heart against the bracket, as the other actions' glyphs are. */
+	:global([data-theme='terminal'] .fav.labelled > span:first-child) {
+		padding: 0;
 	}
 
 	/* Each with an empty alternative text; the plain declaration is for Safari

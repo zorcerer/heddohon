@@ -1394,6 +1394,12 @@
 
 	/* FavouriteButton draws its own button, so the wrapper adds no second face
 	   behind it. */
+	/* The heart takes the round's colour, as the glyphs beside it do. */
+	.round {
+		--fav-idle: currentColor;
+		--fav-liked: currentColor;
+	}
+
 	.round:has(:global(button)) {
 		background: none;
 		border: none;

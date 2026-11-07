@@ -303,7 +303,7 @@
 					<button class="hh-button hh-button--primary join" onclick={join}>Join{mayAdd ? ` as ${data.viewer?.name}` : ''}</button>
 				{:else}
 					<span class="volume">
-						<ElasticSlider bind:value={volume} startingValue={0} maxValue={1} isStepped stepSize={0.05} label="Volume" />
+						<ElasticSlider swell={false} bind:value={volume} startingValue={0} maxValue={1} isStepped stepSize={0.05} label="Volume" />
 					</span>
 				{/if}
 			</div>

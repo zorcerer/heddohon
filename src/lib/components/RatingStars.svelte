@@ -31,3 +31,23 @@
 	ariaLabel={current > 0 ? `Rated ${current} of 5` : 'Not rated'}
 	className="stars"
 />
+
+<style>
+	/* As the row of stars was: each star its own width, without the 44px a
+	   touch screen gives PeekRating's, which spread the five across the hero. */
+	:global(.stars [role='radio']) {
+		min-width: 0;
+		min-height: 0;
+	}
+
+	/* Outlined until lit, as Navidrome's are. */
+	:global(.stars [role='radio'] span:not([data-lit='true']) > svg) {
+		fill: none;
+	}
+
+	/* The room the stars rise into is above them; as much below centres them
+	   on the line of what is beside them. */
+	:global(.stars > div) {
+		padding-bottom: var(--pr-room);
+	}
+</style>

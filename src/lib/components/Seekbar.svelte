@@ -1,8 +1,9 @@
 <script lang="ts">
 	/**
-	 * A scrub bar: Svelte Bits' ElasticSlider, which swells under the pointer
-	 * and stretches when dragged past an end. It reports a position when it is
-	 * let go, or at once from the keys, and draws the buffered-ahead band.
+	 * A scrub bar: Svelte Bits' ElasticSlider, which stretches like a band when
+	 * dragged past an end, and does not swell under the pointer. It reports a
+	 * position when it is let go, or at once from the keys, and draws the
+	 * buffered-ahead band.
 	 */
 	import ElasticSlider from './bits/ElasticSlider.svelte';
 
@@ -55,6 +56,7 @@
 		maxValue={Math.max(max, 0)}
 		buffered={Math.min(bufferedTicked, max)}
 		live={false}
+		swell={false}
 		keyStep={5}
 		shiftKeyStep={30}
 		oncommit={(seconds) => onseek(seconds)}
