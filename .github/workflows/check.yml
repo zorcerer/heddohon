@@ -54,7 +54,9 @@ jobs:
     # On a merge, a release and a run started by hand. Not for a pull request.
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # The browser suite alone took about 13 minutes on a runner on 2026-11-07,
+    # with the animated controls and the WebGL aurora.
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v7
 

@@ -97,7 +97,8 @@ function totp(secret) {
 }
 
 async function signInWithPassword() {
-	await page.goto(`${app.url}/login`);
+	// Its code in and run: a press before the page hydrates is not taken.
+	await page.goto(`${app.url}/login`, { waitUntil: 'networkidle' });
 	await page.getByLabel('Username').fill('testuser');
 	await page.getByLabel('Password').fill('testpass');
 	await page.getByRole('button', { name: 'Sign in', exact: true }).click();

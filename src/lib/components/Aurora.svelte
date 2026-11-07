@@ -7,7 +7,17 @@
 	 * two colours of the cover playing (`--art-h`, `--art-s`, `--art-l` on the
 	 * root, from `client/artwork.ts`), 40 degrees either side of its hue as
 	 * the CSS aurora had them. `still` draws it once; so does a listener who
-	 * asked for less motion. 30 frames a second while it moves.
+	 * asked for less motion.
+	 *
+	 * Three frames a second, as the CSS aurora before it moved in steps: every
+	 * glass surface over it blurs again each time it changes. Slow enough that
+	 * a step is small.
+	 *
+	 * Drawn at a quarter of the room's width and height, a sixteenth of its
+	 * pixels, and scaled up: the bands are soft. Measured in headless Chromium
+	 * at 1440x900, which draws WebGL in software as a machine without a GPU
+	 * does, as the share of the time the page was busy: 108 percent moving at
+	 * full size, 7 percent at a quarter, and 1 to 4 percent still.
 	 */
 	let { still = false }: { still?: boolean } = $props();
 
@@ -48,4 +58,4 @@
 	});
 </script>
 
-<SoftAurora color1={colours[0]} color2={colours[1]} still={still || reduced} maxFps={3} enableMouseInteraction={false} speed={0.15} />
+<SoftAurora color1={colours[0]} color2={colours[1]} still={still || reduced} maxFps={3} resolution={0.25} enableMouseInteraction={false} speed={0.15} />

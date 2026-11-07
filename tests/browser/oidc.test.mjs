@@ -127,7 +127,13 @@ test('an account with a second factor is asked for it after the provider', async
 	await page.locator('input[name=code]').waitFor();
 	assert.equal(new URL(page.url()).pathname, '/login');
 	// The app's code was taken by the confirmation a moment ago, and is taken once.
-	await page.getByRole('button', { name: 'Use a recovery code' }).click();
+	// The page has just been loaded by the provider's redirect, and a press
+	// before it hydrates is not taken, so it is pressed until the field changes.
+	const toRecovery = page.getByRole('button', { name: 'Use a recovery code' });
+	for (let tries = 0; (await page.getByLabel('Recovery code').count()) === 0 && tries < 20; tries++) {
+		if (await toRecovery.count()) await toRecovery.click();
+		await page.waitForTimeout(250);
+	}
 	await page.getByLabel('Recovery code').fill(recovery);
 	await page.getByRole('button', { name: 'Verify' }).click();
 	await page.waitForURL((url) => url.pathname === '/');

@@ -28,6 +28,8 @@
 		// second while it moves: it is behind the app for as long as it is open.
 		still?: boolean;
 		maxFps?: number;
+		// Heddohon: the share of the element's pixels drawn, scaled up to fill it.
+		resolution?: number;
 	};
 
 	let {
@@ -46,7 +48,8 @@
 		enableMouseInteraction = true,
 		mouseInfluence = 0.25,
 		still = false,
-		maxFps = 60
+		maxFps = 60,
+		resolution = 1
 	}: Props = $props();
 
 	let containerRef: HTMLDivElement;
@@ -228,7 +231,10 @@ void main() {
 		containerRef.appendChild(gl.canvas);
 
 		const resize = () => {
-			renderer.setSize(containerRef.offsetWidth, containerRef.offsetHeight);
+			renderer.setSize(Math.ceil(containerRef.offsetWidth * resolution), Math.ceil(containerRef.offsetHeight * resolution));
+			// Heddohon: drawn small, shown at the element's size.
+			gl.canvas.style.width = '100%';
+			gl.canvas.style.height = '100%';
 			program.uniforms.uResolution.value = [gl.canvas.width, gl.canvas.height, gl.canvas.width / gl.canvas.height];
 		};
 		window.addEventListener('resize', resize);
