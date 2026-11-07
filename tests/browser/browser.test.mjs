@@ -7216,11 +7216,67 @@ describe('Phosphor', () => {
 	});
 });
 
+describe('signing in on a slow device', () => {
+	/*
+	 * Svelte sets an input's `value` attribute as it hydrates, over what was
+	 * typed before. On a slow phone the name typed while the page's code ran
+	 * was gone, and the press on Sign in found the field empty. The page's
+	 * name field takes the server's answer as its default value instead.
+	 */
+	test('a name and password typed before the page has hydrated still sign in', async () => {
+		const slow = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+		try {
+			const page = await slow.newPage();
+			const cdp = await slow.newCDPSession(page);
+			await cdp.send('Emulation.setCPUThrottlingRate', { rate: 6 });
+			await page.goto(`${app.url}/login`);
+			await page.getByLabel('Username').fill('testuser');
+			await page.getByLabel('Password').fill('testpass');
+			await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+			await page.waitForURL((url) => url.pathname === '/', { timeout: 15_000 });
+		} finally {
+			await slow.close();
+		}
+	});
+});
+
 describe('the menu on a right click', () => {
 	const menu = (page) => page.getByRole('menu');
 	const item = (page, name) => menu(page).getByRole('menuitem', { name, exact: true });
 	const names = (page) => menu(page).getByRole('menuitem').allTextContents().then((all) => all.map((text) => text.trim()));
 	const playing = (page) => page.waitForFunction(() => [...document.querySelectorAll('audio')].some((a) => !a.paused && a.currentTime > 0));
+
+	/*
+	 * Svelte Bits' motion on the menu: its items come in as AnimatedList's rows
+	 * do, and one highlight glides between them as GlideSelect's does, rather
+	 * than each item lighting on its own.
+	 */
+	test('its items come in on opening, and one highlight glides from item to item', async () => {
+		const { page, problems } = await watchedPage();
+		try {
+			await page.goto(app.url + '/albums/al1', { waitUntil: 'networkidle' });
+			await page.locator('.track').first().locator('.title').click({ button: 'right' });
+			const entering = await menu(page).evaluate((el) => el.getAnimations({ subtree: true }).filter((a) => a.animationName?.endsWith('item-in')).length);
+			assert.ok(entering >= 4, `${entering} items came in`);
+
+			const glide = menu(page).locator('.glide');
+			const at = () => glide.evaluate((el) => ({ y: new DOMMatrix(getComputedStyle(el).transform).f, shown: getComputedStyle(el).opacity }));
+			const top = (name) => item(page, name).evaluate((el) => el.offsetTop);
+			// The first time, it appears where it is wanted, without travelling.
+			await item(page, 'Play').hover();
+			await page.waitForFunction(() => getComputedStyle(document.querySelector('[role="menu"] .glide')).opacity === '1');
+			assert.equal((await at()).y, await top('Play'));
+			// The next, it glides.
+			await item(page, 'Add to queue').hover();
+			const moving = await glide.evaluate((el) => el.getAnimations().some((a) => a instanceof CSSTransition && a.transitionProperty === 'transform'));
+			assert.ok(moving, 'the highlight jumped instead of gliding');
+			await page.waitForFunction((y) => new DOMMatrix(getComputedStyle(document.querySelector('[role="menu"] .glide')).transform).f === y, await top('Add to queue'));
+			await page.keyboard.press('Escape');
+		} finally {
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
 
 	test('a song row opens a menu of what can be done with it, and Play next puts it after the one playing', async () => {
 		subsonic.state.albumSongs = 4;
