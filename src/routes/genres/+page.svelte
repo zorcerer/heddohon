@@ -4,6 +4,7 @@
 	import { playContainer } from '#lib/client/actions.ts';
 	import type { Genre } from '#lib/types.ts';
 	import type { PageData } from './$types';
+	import Rise from '#lib/components/Rise.svelte';
 
 	let { data }: { data: PageData } = $props();
 
@@ -63,26 +64,28 @@
 				<SectionHeader title="Largest" />
 				<!-- Type, not cover art: a genre has no artwork, and one album's
 				     would say that album is the genre. -->
-				<ul class="top hh-stagger">
-					{#each top as genre, rank (genre.id)}
-						<li class="feature">
-							<a class="open" href="/genres/{encodeURIComponent(genre.id)}">
-								<span class="rank hh-numeric" aria-hidden="true">{String(rank + 1).padStart(2, '0')}</span>
-								<span class="name hh-display hh-clamp-2">{genre.name}</span>
-								<span class="count hh-numeric">{counts(genre)}</span>
-							</a>
-							<button
-								class="play"
-								type="button"
-								onclick={() => playContainer('genre', genre.id)}
-								aria-label="Play {genre.name}"
-								title="Play a random selection"
-							>
-								<Icon name="play" size={13} />
-							</button>
-						</li>
-					{/each}
-				</ul>
+				<Rise>
+					<ul class="top">
+						{#each top as genre, rank (genre.id)}
+							<li class="feature">
+								<a class="open" href="/genres/{encodeURIComponent(genre.id)}">
+									<span class="rank hh-numeric" aria-hidden="true">{String(rank + 1).padStart(2, '0')}</span>
+									<span class="name hh-display hh-clamp-2">{genre.name}</span>
+									<span class="count hh-numeric">{counts(genre)}</span>
+								</a>
+								<button
+									class="play"
+									type="button"
+									onclick={() => playContainer('genre', genre.id)}
+									aria-label="Play {genre.name}"
+									title="Play a random selection"
+								>
+									<Icon name="play" size={13} />
+								</button>
+							</li>
+						{/each}
+					</ul>
+				</Rise>
 			</section>
 		{/if}
 

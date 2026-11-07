@@ -3,6 +3,7 @@
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import QrCode from './QrCode.svelte';
+	import Switch from './Switch.svelte';
 	import { createPasskey, passkeyFailure, passkeysAvailable, usePasskey } from '#lib/client/webauthn.ts';
 
 	/**
@@ -529,7 +530,7 @@
 				}}
 			>
 				<label class="switch">
-					<input type="checkbox" bind:checked={requireOn} disabled={admin.fromEnvironment} />
+					<Switch bind:checked={requireOn} disabled={admin.fromEnvironment} />
 					<span>
 						Require a second factor
 						{#if admin.fromEnvironment}

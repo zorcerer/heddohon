@@ -23,6 +23,7 @@
 	import { prefersReducedMotion } from '#lib/client/sleeve-transition.svelte.ts';
 	import Cover from './Cover.svelte';
 	import Icon from './Icon.svelte';
+	import Busy from './Busy.svelte';
 
 	const TABS = [
 		{ href: '/', label: 'Home', icon: 'home' as const, pattern: /^\/$/ },
@@ -202,8 +203,6 @@
 					<!-- The sheet is closed, so this line is where a phone hears of a failure. -->
 					{#if player.error}
 						<span class="artist failed hh-truncate" role="alert">{player.error}</span>
-					{:else if player.notice}
-						<span class="artist hh-truncate" role="status">{player.notice}</span>
 					{:else}
 						<span class="artist hh-truncate">{song.artist ?? 'Unknown artist'}</span>
 					{/if}
@@ -221,7 +220,7 @@
 				aria-busy={player.buffering}
 			>
 				{#if player.buffering}
-					<span class="spinner" aria-hidden="true"></span>
+					<span class="spinner"><Busy /></span>
 				{:else}
 					<Icon name={player.running ? 'pause' : 'play'} size={24} strokeWidth={2.6} />
 				{/if}
@@ -415,18 +414,8 @@
 		}
 
 		.spinner {
-			width: 1.25rem;
-			height: 1.25rem;
-			border: 2px solid currentColor;
-			border-right-color: transparent;
-			border-radius: 50%;
-			animation: spin 0.8s linear infinite;
-		}
-
-		@keyframes spin {
-			to {
-				rotate: 1turn;
-			}
+			display: grid;
+			place-items: center;
 		}
 
 		/*

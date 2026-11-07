@@ -9,6 +9,7 @@
 	import Cover from '#lib/components/Cover.svelte';
 	import Icon from '#lib/components/Icon.svelte';
 	import ListeningTabs from '#lib/components/ListeningTabs.svelte';
+	import CountUp from '#lib/components/bits/CountUp.svelte';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -258,17 +259,17 @@
 			</div>
 			<div class="figure">
 				<span class="label">Plays</span>
-				<span class="number hh-numeric">{stats.plays.toLocaleString()}</span>
+				<CountUp class="number hh-numeric" to={stats.plays} separator="," duration={1} />
 				{#if change(stats.plays, stats.before?.plays)}<span class="hh-muted sub">{change(stats.plays, stats.before?.plays)}</span>{/if}
 			</div>
 			<div class="figure">
 				<span class="label">Artists</span>
-				<span class="number hh-numeric">{stats.artists.toLocaleString()}</span>
+				<CountUp class="number hh-numeric" to={stats.artists} separator="," duration={1} />
 				{#if change(stats.artists, stats.before?.artists)}<span class="hh-muted sub">{change(stats.artists, stats.before?.artists)}</span>{/if}
 			</div>
 			<div class="figure">
 				<span class="label">Tracks</span>
-				<span class="number hh-numeric">{stats.tracks.toLocaleString()}</span>
+				<CountUp class="number hh-numeric" to={stats.tracks} separator="," duration={1} />
 				{#if change(stats.tracks, stats.before?.tracks)}<span class="hh-muted sub">{change(stats.tracks, stats.before?.tracks)}</span>{/if}
 			</div>
 		</section>
@@ -460,14 +461,14 @@
 		font-size: 0.8125rem;
 	}
 
-	.number {
+	.figure :global(.number) {
 		color: var(--text-strong);
 		font-size: 2rem;
 		font-weight: 600;
 		line-height: 1.1;
 	}
 
-	.hero .number {
+	.hero :global(.number) {
 		color: var(--accent);
 		font-size: 3rem;
 	}

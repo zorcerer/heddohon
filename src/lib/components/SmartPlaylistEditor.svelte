@@ -8,6 +8,7 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
 	import Icon from './Icon.svelte';
+	import Select from './Select.svelte';
 	import {
 		FIELDS,
 		MAX_DAYS,
@@ -119,10 +120,14 @@
 
 	<p class="lead">
 		Songs that match
-		<select class="hh-input inline" bind:value={draft.match} aria-label="Match all or any of the rules">
-			<option value="all">all</option>
-			<option value="any">any</option>
-		</select>
+		<Select
+			bind:value={draft.match}
+			label="Match all or any of the rules"
+			options={[
+				{ value: 'all', label: 'all' },
+				{ value: 'any', label: 'any' }
+			]}
+		/>
 		of these rules
 	</p>
 
@@ -130,26 +135,18 @@
 		{#each draft.rules as rule, index (index)}
 			{@const kind = FIELDS[rule.field].kind}
 			<li>
-				<select
-					class="hh-input"
+				<Select
 					value={rule.field}
-					onchange={(event) => setField(index, event.currentTarget.value as RuleField)}
-					aria-label="Field of rule {index + 1}"
-				>
-					{#each fields as field (field)}
-						<option value={field}>{FIELDS[field].label}</option>
-					{/each}
-				</select>
-				<select
-					class="hh-input"
+					onchange={(field) => setField(index, field)}
+					label="Field of rule {index + 1}"
+					options={fields.map((field) => ({ value: field, label: FIELDS[field].label }))}
+				/>
+				<Select
 					value={rule.op}
-					onchange={(event) => setOp(index, event.currentTarget.value as RuleOp)}
-					aria-label="Operator of rule {index + 1}"
-				>
-					{#each OPS_BY_KIND[kind] as op (op)}
-						<option value={op}>{OP_LABELS[op]}</option>
-					{/each}
-				</select>
+					onchange={(op) => setOp(index, op)}
+					label="Operator of rule {index + 1}"
+					options={OPS_BY_KIND[kind].map((op) => ({ value: op, label: OP_LABELS[op] }))}
+				/>
 				<span class="value">
 					{#if kind === 'text'}
 						<input
@@ -162,15 +159,15 @@
 							aria-label="Value of rule {index + 1}"
 						/>
 					{:else if kind === 'boolean'}
-						<select
-							class="hh-input"
+						<Select
 							value={rule.value ? 'yes' : 'no'}
-							onchange={(event) => (draft.rules[index].value = event.currentTarget.value === 'yes')}
-							aria-label="Value of rule {index + 1}"
-						>
-							<option value="yes">yes</option>
-							<option value="no">no</option>
-						</select>
+							onchange={(answer) => (draft.rules[index].value = answer === 'yes')}
+							label="Value of rule {index + 1}"
+							options={[
+								{ value: 'yes', label: 'yes' },
+								{ value: 'no', label: 'no' }
+							]}
+						/>
 					{:else if kind === 'days'}
 						<input
 							class="hh-input hh-numeric number"
@@ -243,17 +240,17 @@
 	<div class="order">
 		<label>
 			<span>Sorted by</span>
-			<select class="hh-input" bind:value={draft.sort}>
-				{#each sorts as field (field)}
-					<option value={field}>{SORT_LABELS[field]}</option>
-				{/each}
-			</select>
+			<Select label="Sorted by" bind:value={draft.sort} options={sorts.map((field) => ({ value: field, label: SORT_LABELS[field] }))} />
 		</label>
 		{#if draft.sort !== 'random'}
-			<select class="hh-input" bind:value={draft.order} aria-label="Order">
-				<option value="asc">ascending</option>
-				<option value="desc">descending</option>
-			</select>
+			<Select
+				bind:value={draft.order}
+				label="Order"
+				options={[
+					{ value: 'asc', label: 'ascending' },
+					{ value: 'desc', label: 'descending' }
+				]}
+			/>
 		{/if}
 		<label>
 			<span>At most</span>
@@ -320,10 +317,6 @@
 		width: auto;
 		padding: 0.45rem 0.65rem;
 		font-size: 0.875rem;
-	}
-
-	.inline {
-		min-width: 5rem;
 	}
 
 	.rules {

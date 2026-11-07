@@ -1651,6 +1651,13 @@ class Player {
 		this.#giveUp(element, reason);
 	}
 
+	/** Takes the passing message away, as a swipe on it does. */
+	dismissNotice() {
+		if (this.#noticeTimer) clearTimeout(this.#noticeTimer);
+		this.#noticeTimer = null;
+		this.notice = null;
+	}
+
 	/** Shows a passing message, for `ms` or until it is taken away with 0. */
 	#say(text: string, ms = NOTICE_MS) {
 		if (this.#noticeTimer) clearTimeout(this.#noticeTimer);

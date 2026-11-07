@@ -462,7 +462,8 @@ describe('settings', () => {
 			assert.match(style, /\[data-scheme='rose-pine'\] \{\n\t--bg-base: #191724;/);
 			assert.match(style, /\[data-scheme='rose-pine'\]\[data-accent='amber'\]/);
 			assert.doesNotMatch(style, /too-light|sneaky|url\(/);
-			assert.match((await client.page('/settings')).html, /<option value="rose-pine"[^>]*>Rosé Pine<\/option>/);
+			// The select draws its options when opened; the page carries them as data.
+			assert.match((await client.page('/settings')).html, /"rose-pine"[\s\S]{0,200}?Rosé Pine/);
 			await app.stop({ keepData: true });
 
 			// The file taken away: back on Terminal's own, and nothing in the head.
@@ -522,7 +523,7 @@ describe('settings', () => {
 
 			// Each theme's own menu lists its files; Terminal's lists none of them.
 			const settings = (await client.page('/settings')).html;
-			assert.match(settings, /<option value="harbour"[^>]*>Harbour<\/option>/);
+			assert.match(settings, /"harbour"[\s\S]{0,200}?Harbour/);
 			// A scheme for another theme draws nothing in this one, and the ground
 			// is the theme's own.
 			await client.json('/api/settings', 'PATCH', { theme: 'terminal' });
@@ -2001,8 +2002,9 @@ describe('listening history', () => {
 	});
 
 	test('Recently played, Your listening and Recap are tabs of each other, under History on the rail', async () => {
-		const current = (html) => /<nav class="tabs[^"]*" aria-label="Listening history">[\s\S]*?aria-current="page"[^>]*>([^<]+)</.exec(html)?.[1];
-		const rail = (html) => /title="([^"]+)" aria-current="page"/.exec(html)?.[1];
+		// The tab open is the segment's checked radio.
+		const current = (html) => /aria-label="Listening history"[\s\S]*?aria-checked="true"[^>]*>(?:<!--[^>]*-->|\s)*([^<]+?)\s*(?:<!--|<)/.exec(html)?.[1];
+		const rail = (html) => /class="link[^"]*" href="[^"]*" aria-current="page"[^>]*>[\s\S]*?hh-visually-hidden">([^<]+)</.exec(html)?.[1];
 		for (const [path, tab] of [['/history', 'Recently played'], ['/stats', 'Your listening'], ['/stats/recap', 'Recap']]) {
 			const { html } = await user.page(path);
 			assert.equal(current(html), tab, `${path} does not mark its tab`);
@@ -2269,7 +2271,7 @@ describe('Jellyfin favourites', () => {
 		const client = new Client(app.url);
 		await client.signIn({ username: 'jfuser', password: 'jfpass', backend: 'jellyfin' });
 		const pressed = (html, title) =>
-			new RegExp(`${title}[\\s\\S]*?aria-pressed="(true|false)"[^>]*aria-label="(?:Add to|Remove from) favourites`).exec(html)?.[1];
+			new RegExp(`${title}[\\s\\S]*?aria-pressed="(true|false)"[^>]*title="(?:Add to|Remove from) favourites`).exec(html)?.[1];
 		try {
 			assert.equal(pressed((await client.page('/albums/b2')).html, 'Track 1'), 'false');
 			const starred = await client.json('/api/star', 'POST', { id: 't1', kind: 'song', starred: true });
@@ -2360,7 +2362,8 @@ describe('your listening', () => {
 		await asFreshAccount('elsewhere', async (client) => {
 			const { html } = await client.page('/stats?period=decade');
 			assert.match(html, /Nothing played since/);
-			assert.match(html, /aria-current="page"[^>]*href="\/stats\?period=month"/);
+			// The period chosen is the segment's checked radio.
+			assert.match(html, /aria-label="Period"[^>]*>(?:(?!<\/button>)[\s\S])*?aria-checked="true"[^>]*>(?:(?!<\/button>)[\s\S])*?Last 30 days/);
 		});
 	});
 
@@ -3152,7 +3155,7 @@ describe('covers', () => {
 
 	test('a changed password switches off Keep it filled, and the account it runs as can switch it off without being an administrator', async () => {
 		const dailyOn = async (client) =>
-			/Keep it filled[\s\S]{0,900}?<input type="checkbox"[^>]*\schecked/.test((await client.page('/settings?tab=storage')).html);
+			/Keep it filled[\s\S]{0,1500}?role="switch"[^>]*aria-checked="true"/.test((await client.page('/settings?tab=storage')).html);
 		await asFreshAccount('keeper', async (client) => {
 			// Nobody has it on, so there is nothing of this account's to switch off.
 			subsonic.state.admin = false;
@@ -4917,9 +4920,9 @@ describe('optional features', () => {
 		const html = (await client.page('/settings?tab=features')).html;
 		const section = html.split('id="features"')[1]?.split('</section>')[0] ?? '';
 		return Object.fromEntries(
-			[...section.matchAll(/<input type="checkbox" name="([a-zA-Z]+)"([^>]*)>/g)].map(([, name, rest]) => [
+			[...section.matchAll(/<button\b(?=[^>]*\bid="switch-([a-zA-Z]+)")([^>]*)>/g)].map(([, name, rest]) => [
 				name,
-				`${/checked/.test(rest) ? 'on' : 'off'}${/disabled/.test(rest) ? ', locked' : ''}`
+				`${/aria-checked="true"/.test(rest) ? 'on' : 'off'}${/aria-disabled="true"/.test(rest) ? ', locked' : ''}`
 			])
 		);
 	};
@@ -6327,7 +6330,7 @@ describe('an AI assistant, through the MCP endpoint', () => {
 		const page = (await user.page('/settings?tab=ai')).html;
 		assert.ok(!page.includes('?/makeMcpToken'), 'Settings offers tokens on a server without the endpoint');
 		// An administrator is shown the switch, off.
-		assert.match(page, /Allow AI assistants[\s\S]*?<input type="checkbox" name="mcp"(?![^>]*checked)/);
+		assert.match(page, /Allow AI assistants[\s\S]*?<button\b(?=[^>]*\bid="switch-mcp")(?=[^>]*aria-checked="false")/);
 
 		client = new Client(on.url);
 		assert.equal((await client.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' })).status, 303);

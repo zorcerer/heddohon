@@ -17,6 +17,7 @@
 	import { playContainer } from '#lib/client/actions.ts';
 	import type { RememberedAlbum } from '#lib/server/history.ts';
 	import type { PageData } from './$types';
+	import Rise from '#lib/components/Rise.svelte';
 
 	let { data }: { data: PageData } = $props();
 
@@ -109,11 +110,13 @@
 						<h2 id="resume-title" class="hh-eyebrow">Jump back in</h2>
 						<Icon name="chevron-right" size={14} />
 					</a>
-					<div class="tiles hh-stagger" data-glide>
-						{#each resume as album (album.id)}
-							<AlbumTile {album} />
-						{/each}
-					</div>
+					<Rise>
+						<div class="tiles" data-glide>
+							{#each resume as album (album.id)}
+								<AlbumTile {album} />
+							{/each}
+						</div>
+					</Rise>
 				</section>
 			{/if}
 		</div>

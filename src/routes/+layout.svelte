@@ -3,6 +3,7 @@
 	import '#lib/styles/terminal.css';
 	import '#lib/styles/terminal-schemes.css';
 	import '#lib/styles/phosphor.css';
+	import '#lib/styles/bits.css';
 	import { tick, untrack } from 'svelte';
 	import { afterNavigate, beforeNavigate, onNavigate, preloadCode, goto } from '$app/navigation';
 	import { navigating, page, updated } from '$app/state';
@@ -30,6 +31,8 @@
 	import Icon from '#lib/components/Icon.svelte';
 	import NowPlayingPanel from '#lib/components/NowPlayingPanel.svelte';
 	import PhoneDock from '#lib/components/PhoneDock.svelte';
+	import SwipeToast from '#lib/components/bits/SwipeToast.svelte';
+	import Aurora from '#lib/components/Aurora.svelte';
 	import DevicesDialog from '#lib/components/DevicesDialog.svelte';
 	import InstallCard from '#lib/components/InstallCard.svelte';
 	import ListeningNow from '#lib/components/ListeningNow.svelte';
@@ -550,14 +553,13 @@
 
 	/*
 	 * The page arriving: it rises 12px into place while the veil clears, and
-	 * any `.hh-stagger` list in it (card grids, track lists) comes in item by
-	 * item. Translate on the page, which is not a backdrop root, so its glass
-	 * keeps its blur, and opacity only on the list items, which hold none. Only
-	 * for a navigation: a server-rendered page is whole in its first paint.
+	 * its lists rise in on their own as they come into view (`Rise`).
+	 * Translate on the page, which is not a backdrop root, so its glass keeps
+	 * its blur. Only for a navigation: a server-rendered page is whole in its
+	 * first paint.
 	 *
-	 * Held for the longest of those animations (the travel length plus 12 items
-	 * of stagger): taking the class off early would snap the late items into
-	 * place.
+	 * Held past the page's rise: taking the class off early would snap the page
+	 * into place.
 	 */
 	let rising = $state(false);
 	let risingTimer: ReturnType<typeof setTimeout> | undefined;
@@ -847,12 +849,25 @@
 		<!-- The room, and the aurora drifting in it when turned on; see `.aurora` in app.css. -->
 		<div class="hh-ambience" aria-hidden="true">
 			{#if data.settings?.aurora === 'moving' || data.settings?.aurora === 'still'}
-				<div class="aurora" class:still={data.settings.aurora === 'still'}></div>
+				<div class="aurora"><Aurora still={data.settings.aurora === 'still'} /></div>
 			{/if}
 		</div>
 
 		<Sidebar appName={data.appName} />
 		<PhoneDock />
+		<!-- The player's passing messages (a track skipped, a reconnect), as
+		     Svelte Bits' SwipeToast: it rises from the foot of the window and a
+		     swipe down or Escape puts it away. The player times them. -->
+		<SwipeToast
+			open={player.notice !== null}
+			title={player.notice}
+			duration={0}
+			closeButton={false}
+			onClose={() => player.dismissNotice()}
+			background="var(--bg-raised)"
+			color="var(--text-strong)"
+			className="hh-toast"
+		/>
 
 		<!--
 			Focusable on purpose, like the lyrics body. With no scrollbar the
@@ -961,6 +976,27 @@
 {/if}
 
 <style>
+	/* The toast in the middle of the window's foot, clear of the player panel's
+	   corner, and on a phone above the dock. */
+	:global(.hh-toast) {
+		left: 50%;
+		right: auto;
+		translate: -50% 0;
+		/* Its frame stays in the page when it has gone; only the card takes a
+		   press, and only while it is shown. */
+		pointer-events: none;
+	}
+
+	:global(.hh-toast [role='status']) {
+		pointer-events: auto;
+	}
+
+	@media (max-width: 600px) {
+		:global(.hh-toast) {
+			bottom: calc(var(--dock-space, 0px) + var(--space-2));
+		}
+	}
+
 	/*
 	 * Everything floats. The ambient wash is the page, and the rail, the player
 	 * and the queue sit on it as separate panes with air around them, so each
