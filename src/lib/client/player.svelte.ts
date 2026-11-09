@@ -211,6 +211,8 @@ class Player {
 	buffered = $state(0);
 	volume = $state(0.85);
 	muted = $state(false);
+	/** The server's `HEDDOHON_VOLUME_LIMIT`: what a full slider plays at. */
+	volumeLimit = 1;
 	repeat = $state<RepeatMode>('off');
 	shuffle = $state(false);
 	error = $state<string | null>(null);
@@ -1409,7 +1411,7 @@ class Player {
 		const incoming = this.#secondary;
 		if (!outgoing || !incoming) return this.#abandonCrossfade();
 
-		const level = (this.muted ? 0 : this.volume) * this.#sleepGain();
+		const level = (this.muted ? 0 : this.volume) * this.volumeLimit * this.#sleepGain();
 		const t = Math.min(1, (Date.now() - this.#fadeStartedAt) / (this.#fadeSeconds * 1000));
 		// Each side ramps to its own corrected level, so the join does not jump
 		// between two tracks mastered at different loudness.
@@ -1838,7 +1840,7 @@ class Player {
 		// arriving with every navigation re-ran it, its teardown detached the
 		// player, and every page change stopped the music.
 		untrack(() => {
-			const value = (this.muted ? 0 : this.volume) * this.#sleepGain();
+			const value = (this.muted ? 0 : this.volume) * this.volumeLimit * this.#sleepGain();
 			const chain = this.#chain;
 			if (chain) {
 				// Through the graph the elements play at full `volume`, and the level

@@ -158,6 +158,11 @@
 	let failed = $state(false);
 	let bufferedTo = $state(0);
 
+	// The page has no volume slider: it plays at the server's limit.
+	$effect(() => {
+		if (audio) audio.volume = data.volumeLimit;
+	});
+
 	const total = $derived(length > 0 ? length : (song?.duration ?? 0));
 
 	async function toggle() {

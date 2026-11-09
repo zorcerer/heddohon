@@ -112,7 +112,10 @@
 		// stops playback and restores the queue over itself.
 		const primary = primaryAudio;
 		const secondary = secondaryAudio;
-		untrack(() => player.attach(primary, secondary, data.settings));
+		untrack(() => {
+			player.volumeLimit = data.volumeLimit;
+			player.attach(primary, secondary, data.settings);
+		});
 		untrack(() => processing.init());
 		// Where the headphone database is on, a chosen profile a day old is asked for again.
 		untrack(() => {

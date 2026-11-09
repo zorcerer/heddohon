@@ -142,6 +142,33 @@ describe('how long a sign-in lasts', () => {
 	});
 });
 
+describe('the volume limit', () => {
+	/** The factor the layout hands every page, read from the data in the sign-in page. */
+	async function served(env) {
+		const set = await startApp({ subsonicUrl: subsonic.url, jellyfinUrl: jellyfin.url, env, healthy: false });
+		try {
+			const response = await fetch(`${set.url}/login`);
+			return { status: response.status, factor: Number(/volumeLimit:([\d.]+)/.exec(await response.text())?.[1]) };
+		} finally {
+			await set.stop();
+		}
+	}
+
+	test('a full slider plays at full level unless set', async () => {
+		assert.deepEqual(await served({}), { status: 200, factor: 1 });
+	});
+
+	test('HEDDOHON_VOLUME_LIMIT is a percentage, held between 1 and 100', async () => {
+		for (const [percent, factor] of [['50', 0.5], ['7', 0.07], ['0', 0.01], ['250', 1]]) {
+			assert.deepEqual(await served({ HEDDOHON_VOLUME_LIMIT: percent }), { status: 200, factor }, `set to ${percent}`);
+		}
+	});
+
+	test('a value that is not a number is a configuration the server refuses', async () => {
+		assert.equal((await served({ HEDDOHON_VOLUME_LIMIT: 'loud' })).status, 500);
+	});
+});
+
 describe('the gate', () => {
 	test('/healthz answers without a session and names no upstream URL', async () => {
 		const response = await fetch(`${app.url}/healthz`);

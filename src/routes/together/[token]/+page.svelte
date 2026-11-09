@@ -237,7 +237,7 @@
 	});
 
 	$effect(() => {
-		if (audio) audio.volume = volume;
+		if (audio) audio.volume = volume * data.volumeLimit;
 	});
 
 	/*
