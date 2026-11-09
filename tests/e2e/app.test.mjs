@@ -560,6 +560,122 @@ describe('settings', () => {
 		}
 	});
 
+	/*
+	 * #182, step 3: Liquid's and Paper's own colours are two files of that
+	 * format, read by what reads a file from the data directory and written
+	 * into the head of every page. The values are the ones `app.css` held
+	 * until then, Liquid's under the root's own selector, so Terminal and
+	 * Phosphor still stand on them for what they do not set.
+	 */
+	test("Liquid's and Paper's own colours are theme files, written into the head of every page", async () => {
+		const LIQUID = `:root,
+[data-theme='dark'] {
+	--bg-base: #0b0c0f;
+	--bg-sunken: #07080a;
+	--bg-surface: #111317;
+	--bg-raised: #181a1f;
+	--bg-hover: #202329;
+	--bg-active: #292c33;
+	--text-strong: #f7f8fa;
+	--text-default: #e1e3e7;
+	--text-muted: #a2a6ae;
+	--text-faint: #767a84;
+	--text-muted-through: #b7b9bd;
+	--text-faint-through: #95979b;
+	--border-hairline: #1f2227;
+	--border-strong: #30343c;
+	--positive: #7fc8a9;
+	--danger: #e0777f;
+}`;
+		const PAPER = `[data-theme='light'] {
+	--bg-base: #f0e7d5;
+	--bg-sunken: #e6ddcc;
+	--bg-surface: #f5eee1;
+	--bg-raised: #faf5eb;
+	--bg-hover: #eae1cf;
+	--bg-active: #e3d9c6;
+	--text-strong: #2e241a;
+	--text-default: #453b30;
+	--text-muted: #594f43;
+	--text-faint: #6c6256;
+	--text-muted-through: #4f463b;
+	--text-faint-through: #62584c;
+	--border-hairline: #d8cfbe;
+	--border-strong: #c0b6a6;
+	--positive: #4f6b3a;
+	--danger: #9c2b1b;
+}`;
+		const own = (html) => html.match(/<style id="hh-themes">\n([\s\S]*?)\n<\/style>/)?.[1] ?? '';
+		const dataDir = mkdtempSync(join(tmpdir(), 'heddohon-e2e-ownthemes-'));
+		mkdirSync(join(dataDir, 'themes'));
+		const write = (id, body) =>
+			writeFileSync(
+				join(dataDir, 'themes', `${id}.json`),
+				JSON.stringify({ heddohon: 2, base: 'liquid', ground: '#0d1117', raised: '#1c2128', foreground: '#f0f3f6', ...body })
+			);
+		write('harbour', { name: 'Harbour' });
+		// Every colour a file may state in place of the one made for it.
+		write('stated', {
+			name: 'Stated',
+			surface: '#131820',
+			sunken: '#090c11',
+			hover: '#252b33',
+			active: '#2f363f',
+			muted: '#a9b1ba',
+			faint: '#7d8590',
+			through: { muted: '#bcc3cb', faint: '#9aa2ac' },
+			hairline: '#21262d',
+			border: '#30363d'
+		});
+		write('dim', { name: 'Dim', faint: '#5a5e66' });
+		write('dim-through', { name: 'Dim through', through: { faint: '#5a5e66' } });
+		write('odd-edge', { name: 'Odd edge', hairline: 'thin' });
+		const app = await startApp({ subsonicUrl: subsonic.url, jellyfinUrl: jellyfin.url, dataDir, env: { HEDDOHON_DEFAULT_THEME: 'liquid' } });
+		const client = new Client(app.url);
+		try {
+			// Without an account, and the two in the order `app.css` had them.
+			const login = (await client.page('/login')).html;
+			assert.equal(own(login), `/* liquid.json */\n${LIQUID}\n/* paper.json */\n${PAPER}`);
+			assert.ok(login.indexOf('id="hh-themes"') < login.indexOf('</head>'), 'the colours are not in the head');
+			assert.match(login, /name="theme-color" content="#0b0c0f"/);
+
+			await client.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' });
+			for (const theme of ['dark', 'light', 'terminal', 'phosphor']) {
+				await client.json('/api/settings', 'PATCH', { theme });
+				const { html } = await client.page('/');
+				assert.match(html, new RegExp(`data-theme="${theme}"`));
+				assert.equal(own(html), own(login), `${theme} is served other colours`);
+				// A scheme from the data directory comes after, and names its scheme.
+				assert.ok(html.indexOf('id="hh-themes"') < html.indexOf('id="hh-schemes"'), 'a file would not win over the theme');
+			}
+			await client.json('/api/settings', 'PATCH', { theme: 'light' });
+			assert.match((await client.page('/')).html, /name="theme-color" content="#f0e7d5"/);
+			for (const [theme, ground] of [['dark', '#0b0c0f'], ['light', '#f0e7d5']]) {
+				const manifest = await (await fetch(`${app.url}/manifest.webmanifest?theme=${theme}`)).json();
+				assert.equal(manifest.background_color, ground);
+			}
+
+			// What a file states is drawn as stated; what it leaves out is made.
+			const style = (await client.page('/')).html.match(/<style id="hh-schemes">([\s\S]*?)<\/style>/)?.[1] ?? '';
+			assert.match(
+				style,
+				/\[data-scheme='stated'\] \{\n\t--bg-base: #0d1117;\n\t--bg-sunken: #090c11;\n\t--bg-surface: #131820;\n\t--bg-raised: #1c2128;\n\t--bg-hover: #252b33;\n\t--bg-active: #2f363f;\n\t--text-strong: #f0f3f6;\n\t--text-default: #[0-9a-f]{6};\n\t--text-muted: #a9b1ba;\n\t--text-faint: #7d8590;\n\t--text-muted-through: #bcc3cb;\n\t--text-faint-through: #9aa2ac;\n\t--border-hairline: #21262d;\n\t--border-strong: #30363d;\n/
+			);
+			const harbour = style.match(/\[data-scheme='harbour'\] \{([^}]*)\}/)?.[1] ?? '';
+			assert.match(harbour, /--bg-surface: #151920;/);
+			assert.match(harbour, /--bg-sunken: #0b0e13;/);
+			assert.doesNotMatch(harbour, /#131820|#a9b1ba|#21262d/);
+			// A stated tone is held to 4.5:1 on the ground.
+			const output = app.output();
+			assert.match(output, /scheme-refused.*file=dim\.json.*\\"faint\\" holds 2\.\d:1 on the ground, under 4\.5:1/);
+			assert.match(output, /scheme-refused.*dim-through\.json.*\\"through\.faint\\" holds 2\.\d:1 on the ground/);
+			assert.match(output, /scheme-refused.*odd-edge\.json.*\\"hairline\\" is not a colour written #rrggbb/);
+			assert.doesNotMatch(style, /dim|odd-edge/);
+		} finally {
+			await app.stop();
+		}
+	});
+
 	test('settings saved before Terminal existed move to the default theme once, and a choice made since is kept', async () => {
 		const { default: Database } = await import('better-sqlite3');
 		const dataDir = mkdtempSync(join(tmpdir(), 'heddohon-e2e-themes-'));

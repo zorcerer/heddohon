@@ -4,7 +4,7 @@ import { building, version } from '$app/env';
 import { resolveSession } from '#lib/server/auth.ts';
 import { hasSecondFactor } from '#lib/server/twofactor.ts';
 import { getSettings, defaultSettings, groundOf } from '#lib/server/settings.ts';
-import { customSchemeStyle } from '#lib/server/schemes.ts';
+import { colourStyle } from '#lib/server/schemes.ts';
 import { ConfigError, SetupRequired, config } from '#lib/server/config.ts';
 import { announceSetup, forgetPending } from '#lib/server/setup.ts';
 import { FALLBACK_HTML_CSP, SECURITY_HEADERS } from '#lib/headers.ts';
@@ -231,6 +231,8 @@ async function setupRequest(event: RequestEvent, resolve: Parameters<Handle>[0][
 					// The manifest is made from the configuration, which is what is
 					// missing. The setup page is not one to install.
 					.replace('<link rel="manifest" href="/manifest.webmanifest" />', '')
+					// The root's colours under Terminal's, as on every other page.
+					.replace('</head>', `${colourStyle()}</head>`)
 		});
 		harden(response.headers);
 		return response;
@@ -523,8 +525,9 @@ const handleRequest: Handle = async ({ event, resolve }) => {
 				// would resize the page in front of the reader.
 				.replace('data-scale="100"', `data-scale="${shown.uiScale}"`)
 				.replace('data-font="manrope"', `data-font="${shown.font}"`)
-				// Colour schemes from files, from checked colours alone (`schemes.ts`).
-				.replace('</head>', `${customSchemeStyle()}</head>`)
+				// Liquid's and Paper's colours and the colour schemes from files, from
+				// checked colours alone (`schemes.ts`).
+				.replace('</head>', `${colourStyle()}</head>`)
 	});
 
 	harden(response.headers);
