@@ -4644,6 +4644,94 @@ describe('the volume slider', () => {
 	});
 });
 
+describe('a volume limit on the server', () => {
+	/*
+	 * `HEDDOHON_VOLUME_LIMIT=50`: the slider still runs from 0 to 100, and what
+	 * the elements play at is half of it, through a crossfade as well, whose
+	 * ramps are computed apart from the steady level. The two pages that play
+	 * without the player, a share link and a listen-together guest, are held
+	 * to the same limit.
+	 */
+	test('halves what a full slider plays at, in the app, on a share link and for a guest', async () => {
+		const limited = await startApp({ subsonicUrl: subsonic.url, jellyfinUrl: jellyfin.url, env: { HEDDOHON_VOLUME_LIMIT: '50' } });
+		const view = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+		const visitor = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+		subsonic.state.audio = { type: 'audio/wav', body: silentWav(6) };
+		try {
+			const signIn = await view.request.post(`${limited.url}/login`, {
+				form: { username: 'testuser', password: 'testpass', backend: 'subsonic', next: '/' },
+				headers: { origin: limited.url, accept: 'text/html' },
+				maxRedirects: 0
+			});
+			assert.equal(signIn.status(), 303);
+			const saved = await view.request.patch(`${limited.url}/api/settings`, {
+				data: { volume: 1, transition: 'crossfade', crossfadeSeconds: 3, crossfadeWithinAlbum: true, installCardDismissed: true, aurora: 'off' },
+				headers: { origin: limited.url }
+			});
+			assert.equal(saved.status(), 200);
+
+			// The remote control's event stream stays open, so the page never
+			// reaches `networkidle`: the play button is waited for instead.
+			const page = await view.newPage();
+			const problems = [];
+			page.on('pageerror', (err) => problems.push(err.message));
+			await page.goto(limited.url + '/albums/al1');
+			const play = page.getByRole('button', { name: 'Play Song 1a', exact: true });
+			await play.waitFor();
+			await page.evaluate(() => {
+				window.__together = 0;
+				window.__loudest = 0;
+				setInterval(() => {
+					const playing = [...document.querySelectorAll('audio')].filter(
+						(a) => !a.paused && a.currentTime > 0 && a.currentSrc.includes('/api/stream/')
+					);
+					window.__together = Math.max(window.__together, playing.length);
+					window.__loudest = Math.max(window.__loudest, ...playing.map((a) => a.volume));
+				}, 50);
+			});
+			await play.click();
+			await page.waitForFunction(() => document.querySelector('aside.panel h2.title')?.textContent === 'Song 1b', null, {
+				timeout: 12_000
+			});
+			// The fade has ended once one track plays, at the level it holds.
+			const settled = () => {
+				const playing = [...document.querySelectorAll('audio')].filter(
+					(a) => !a.paused && a.currentTime > 0 && a.currentSrc.includes('/api/stream/')
+				);
+				return playing.length === 1 && playing[0].volume === 0.5;
+			};
+			await page.waitForFunction(settled, null, { timeout: 8000 });
+			const heard = await page.evaluate(() => ({ together: window.__together, loudest: window.__loudest }));
+			assert.equal(heard.together, 2, 'no crossfade happened, so its ramps were not measured');
+			assert.ok(heard.loudest <= 0.5, `a track played at ${heard.loudest} under a limit of 0.5`);
+			assert.equal(await page.locator('[role="slider"][aria-label="Volume"]').getAttribute('aria-valuetext'), '100 percent');
+			assert.deepEqual(problems, []);
+			await page.close();
+
+			const made = await (
+				await view.request.post(`${limited.url}/api/shares`, { data: { kind: 'album', id: 'al19', days: 1 }, headers: { origin: limited.url } })
+			).json();
+			const shared = await visitor.newPage();
+			await shared.goto(limited.url + made.path, { waitUntil: 'networkidle' });
+			// The layout's two elements are on the page as well, unused: the page's own is the one with an address.
+			await shared.waitForFunction(() => document.querySelector('audio[src*="/stream/"]')?.volume === 0.5, null, { timeout: 5000 });
+			await shared.close();
+
+			const started = await view.request.post(`${limited.url}/api/together`, { data: {}, headers: { origin: limited.url } });
+			assert.equal(started.status(), 200);
+			const guest = await visitor.newPage();
+			await guest.goto(limited.url + (await started.json()).party.url);
+			await guest.waitForFunction(() => document.querySelector('audio.together-audio')?.volume === 0.5, null, { timeout: 5000 });
+			await guest.close();
+		} finally {
+			subsonic.state.audio = null;
+			await visitor.close();
+			await view.close();
+			await limited.stop();
+		}
+	});
+});
+
 describe('motion', () => {
 	test('the rail marker travels to the destination at the click, and lands under it', async () => {
 		const { page, problems } = await watchedPage();
