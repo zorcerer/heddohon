@@ -6506,6 +6506,72 @@ describe('Paper, the light theme', () => {
 	});
 });
 
+describe("the themes' own colours", () => {
+	/*
+	 * #182: Liquid's and Paper's colours come from two theme files through
+	 * the head of the page, and no longer from `app.css`. Read as drawn, they
+	 * are the values the stylesheet held. Terminal and Phosphor keep their own
+	 * over them, and a change of theme under Settings needs no new page.
+	 */
+	test('Liquid and Paper are drawn in the colours of their files, signed out and in, and across a change of theme', async () => {
+		const TOKENS = ['bg-base', 'bg-sunken', 'bg-surface', 'bg-raised', 'bg-hover', 'bg-active', 'text-strong', 'text-default', 'text-muted', 'text-faint', 'text-muted-through', 'text-faint-through', 'border-hairline', 'border-strong', 'positive', 'danger'];
+		const LIQUID = ['#0b0c0f', '#07080a', '#111317', '#181a1f', '#202329', '#292c33', '#f7f8fa', '#e1e3e7', '#a2a6ae', '#767a84', '#b7b9bd', '#95979b', '#1f2227', '#30343c', '#7fc8a9', '#e0777f'];
+		const PAPER = ['#f0e7d5', '#e6ddcc', '#f5eee1', '#faf5eb', '#eae1cf', '#e3d9c6', '#2e241a', '#453b30', '#594f43', '#6c6256', '#4f463b', '#62584c', '#d8cfbe', '#c0b6a6', '#4f6b3a', '#9c2b1b'];
+		const view = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+		const settings = (patch) => view.request.patch(`${app.url}/api/settings`, { data: patch, headers: { origin: app.url } });
+		try {
+			const page = await view.newPage();
+			const drawn = () =>
+				page.evaluate((tokens) => {
+					const root = getComputedStyle(document.documentElement);
+					return tokens.map((token) => root.getPropertyValue(`--${token}`).trim());
+				}, TOKENS);
+			// What is painted, and not only what is declared.
+			const ground = () => page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+
+			await page.goto(`${app.url}/login`, { waitUntil: 'networkidle' });
+			assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), 'dark');
+			assert.deepEqual(await drawn(), LIQUID, 'signed out');
+			assert.equal(await ground(), 'rgb(11, 12, 15)');
+
+			const signIn = await view.request.post(`${app.url}/login`, {
+				form: { username: 'testuser', password: 'testpass', backend: 'subsonic', next: '/' },
+				headers: { origin: app.url, accept: 'text/html' },
+				maxRedirects: 0
+			});
+			assert.equal(signIn.status(), 303);
+			await settings({ theme: 'dark', scheme: 'heddohon' });
+			await page.goto(`${app.url}/settings`, { waitUntil: 'networkidle' });
+			assert.deepEqual(await drawn(), LIQUID, 'signed in');
+
+			// Paper chosen and saved: the page in front of the reader takes it.
+			await pick(select(page, 'theme'), 'light');
+			await page.getByRole('button', { name: 'Save settings' }).click();
+			await page.waitForFunction(() => document.documentElement.dataset.theme === 'light');
+			assert.deepEqual(await drawn(), PAPER, 'changed without a new page');
+			await page.reload({ waitUntil: 'networkidle' });
+			assert.deepEqual(await drawn(), PAPER, 'on a new page');
+			assert.equal(await ground(), 'rgb(240, 231, 213)');
+
+			// The other two set every one of them, over the root's.
+			for (const [theme, base, faint] of [
+				['terminal', '#08090a', '#7c828a'],
+				['phosphor', '#0a0b0c', '#80868e']
+			]) {
+				await settings({ theme });
+				await page.reload({ waitUntil: 'networkidle' });
+				const found = await drawn();
+				assert.deepEqual([found[0], found[9]], [base, faint], theme);
+				assert.ok(found.every((value, at) => value && value !== LIQUID[at]), `${theme} shows through to Liquid: ${found}`);
+			}
+			await page.close();
+		} finally {
+			await settings({ theme: 'dark', scheme: 'heddohon' });
+			await view.close();
+		}
+	});
+});
+
 describe('Terminal, the default theme', () => {
 	/*
 	 * The harness starts accounts in Liquid, which the rest of this file

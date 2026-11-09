@@ -1,0 +1,21 @@
+{
+	"heddohon": 2,
+	"name": "Liquid",
+	"base": "liquid",
+	"ground": "#0b0c0f",
+	"sunken": "#07080a",
+	"surface": "#111317",
+	"raised": "#181a1f",
+	"hover": "#202329",
+	"active": "#292c33",
+	"foreground": "#f7f8fa",
+	"text": "#e1e3e7",
+	"muted": "#a2a6ae",
+	"faint": "#767a84",
+	"through": { "muted": "#b7b9bd", "faint": "#95979b" },
+	"hairline": "#1f2227",
+	"border": "#30343c",
+	"accent": "artwork",
+	"positive": "#7fc8a9",
+	"danger": "#e0777f"
+}

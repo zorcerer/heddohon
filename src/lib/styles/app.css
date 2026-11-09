@@ -238,21 +238,12 @@
 	 * Taken a step darker on 2026-09-25 (ground #101114 to #0b0c0f, panes
 	 * #17191d to #111317), with the text a step brighter: the ground and the
 	 * panes were close enough to the text that the screen sat in a middle band.
+	 *
+	 * The grounds, the text tones, the edges, `--positive` and `--danger` are
+	 * not written here: they are a theme file, `server/themes/liquid.json`,
+	 * which `schemes.ts` reads and the server writes into the head of every
+	 * page under this rule's selector (#182).
 	 */
-	--bg-base: #0b0c0f;
-	--bg-sunken: #07080a;
-	--bg-surface: #111317;
-	--bg-raised: #181a1f;
-	--bg-hover: #202329;
-	--bg-active: #292c33;
-
-	--text-strong: #f7f8fa;
-	--text-default: #e1e3e7;
-	--text-muted: #a2a6ae;
-	--text-faint: #767a84;
-
-	--border-hairline: #1f2227;
-	--border-strong: #30343c;
 
 	/*
 	 * The accent is the artwork's hue, brighter and a little more saturated
@@ -269,8 +260,6 @@
 	--accent-quiet: hsl(var(--art-h) min(calc(var(--art-s) + 6%), 44%) 30%);
 	--accent-contrast: #0b0c0e;
 
-	--positive: #7fc8a9;
-	--danger: #e0777f;
 	/* The hi-res badge: one step brighter than the lossless badge's accent,
 	   with a fill and a heavier weight. `--accent-strong` holds the same
 	   worst-hue contrast. */
@@ -311,10 +300,10 @@
 	/*
 	 * Secondary tones for anything translucent. A muted grey depends on sitting
 	 * close to its own surface, and on a see-through face the thing behind
-	 * decides its contrast; see the note by `.hh-glass`.
+	 * decides its contrast; see the note by `.hh-glass`. They are
+	 * `--text-muted-through` and `--text-faint-through`, `through` in the
+	 * theme file.
 	 */
-	--text-muted-through: #b7b9bd;
-	--text-faint-through: #95979b;
 
 	/*
 	 * Hover and selection light the text instead of laying a plate under it.
@@ -357,22 +346,12 @@
  * 2026-09-29.
  */
 [data-theme='light'] {
-	--bg-base: #f0e7d5;
-	--bg-sunken: #e6ddcc;
-	--bg-surface: #f5eee1;
-	--bg-raised: #faf5eb;
-	--bg-hover: #eae1cf;
-	--bg-active: #e3d9c6;
-
-	/* Ink, and ink mixed into the paper at 88, 78 and 68 percent. The faint
-	   step holds 4.8:1 on the page. */
-	--text-strong: #2e241a;
-	--text-default: #453b30;
-	--text-muted: #594f43;
-	--text-faint: #6c6256;
-
-	--border-hairline: #d8cfbe;
-	--border-strong: #c0b6a6;
+	/*
+	 * The grounds, the text tones, the edges, `--positive` and `--danger` are
+	 * a theme file, `server/themes/paper.json`, as Liquid's are. The text is
+	 * ink, and ink mixed into the paper at 88, 78 and 68 percent; the faint
+	 * step holds 4.8:1 on the page.
+	 */
 
 	/*
 	 * The artwork's hue at the lightness Sleek worked out for white type (31%
@@ -399,8 +378,6 @@
 	--accent-quiet: color-mix(in oklab, hsl(var(--art-h) min(calc(var(--art-s) + 16%), 60%) 76%) 65%, #e8d4b0);
 	--accent-contrast: #fbf6ec;
 
-	--positive: #4f6b3a;
-	--danger: #9c2b1b;
 	--highres: var(--accent-strong);
 
 	/* Shadows in a brown of the ink, as paper shades, not black or grey. */
@@ -420,8 +397,6 @@
 	--field-face-focus: color-mix(in srgb, var(--bg-raised) 90%, transparent);
 	--field-blur: blur(14px) sepia(0.2);
 	--field-edge: var(--text-faint-through);
-	--text-muted-through: #4f463b;
-	--text-faint-through: #62584c;
 
 	/* On paper there is no light to add, so hover takes the accent. */
 	--text-shade: 0 1px 0 rgb(255 250 238 / 0.55);

@@ -5,7 +5,7 @@
 import { config } from './config';
 import { now, store } from './db';
 import { FEATURE_IDS, type FeatureId } from './features';
-import { customSchemes } from './schemes';
+import { OWN_GROUND, customSchemes } from './schemes';
 import type { AlbumSort } from '#lib/types.ts';
 
 /**
@@ -173,14 +173,15 @@ export interface UserSettings {
 }
 
 /**
- * Each theme's ground, `--bg-base` in app.css, for what is painted before the
- * stylesheet loads: `theme-color` in the served page and the manifest's
- * colours.
+ * Each theme's ground, `--bg-base`, for what is painted before the stylesheet
+ * loads: `theme-color` in the served page and the manifest's colours. Liquid's
+ * and Paper's are read from their files (`schemes.ts`); the other two repeat
+ * `terminal.css` and `phosphor.css`.
  */
 export const THEME_GROUND: Record<ThemeName, string> = {
 	terminal: '#08090a',
-	dark: '#0b0c0f',
-	light: '#f0e7d5',
+	dark: OWN_GROUND.dark,
+	light: OWN_GROUND.light,
 	phosphor: '#0a0b0c'
 };
 

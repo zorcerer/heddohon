@@ -30,6 +30,13 @@
  * from the file (`paletteScheme`). Paper takes a light ground and the others a
  * dark one.
  *
+ * Such a file may state any colour that is otherwise made from those:
+ * `surface`, `sunken`, `hover`, `active`, the `muted` and `faint` tones, the
+ * two read on a translucent face (`through`, with `muted` and `faint`), and
+ * the two edges, `hairline` and `border`. Liquid's and Paper's own colours
+ * are two such files, `themes/liquid.json` and `themes/paper.json` beside this
+ * module, read by what reads a file from the data directory (`OWN`).
+ *
  * The format, version 1 (any key but the first four may be left out):
  *
  * ```json
@@ -51,6 +58,8 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { config } from './config';
 import { log, reason } from './log';
+import liquid from './themes/liquid.json';
+import paper from './themes/paper.json';
 
 export const SCHEME_VERSION = 1;
 /** Version 2 names the theme a file colours (`base`); version 1 is a Terminal scheme. */
@@ -170,8 +179,26 @@ function colourAt(raw: Record<string, unknown>, key: string, fallback?: string):
 	return value.toLowerCase();
 }
 
-/** The scheme a file describes, or the reason it cannot be one. Exported for the tests' sake as much as the loader's. */
-export function readScheme(id: string, input: unknown): CustomScheme {
+/**
+ * A tone the file states in place of the one made for it. Held to 4.5:1 on the
+ * ground, where the themes' own are measured: Liquid's faint tone holds 4.55:1
+ * there and 4.33:1 on its surface.
+ */
+function toneAt(raw: Record<string, unknown>, key: string, ground: string, made: () => string, label = key): string {
+	if (raw[key] === undefined) return made();
+	const tone = colourAt(raw, key);
+	if (contrast(tone, ground) < 4.5) {
+		throw new Refused(`"${label}" holds ${contrast(tone, ground).toFixed(1)}:1 on the ground, under 4.5:1`);
+	}
+	return tone;
+}
+
+/**
+ * The scheme a file describes, or the reason it cannot be one. Exported for
+ * the tests' sake as much as the loader's. `own` is for a theme's own file
+ * (`OWN`): its colours go under the theme's root and not under a scheme's name.
+ */
+export function readScheme(id: string, input: unknown, own = false): CustomScheme {
 	if (!ID.test(id)) throw new Refused('the file name is not lower-case letters, digits and hyphens, up to 40');
 	if (RESERVED.has(id)) throw new Refused('a built-in scheme has that name');
 	if (typeof input !== 'object' || input === null || Array.isArray(input)) throw new Refused('it is not a JSON object');
@@ -186,7 +213,7 @@ export function readScheme(id: string, input: unknown): CustomScheme {
 		if (typeof raw.base !== 'string' || !Object.prototype.hasOwnProperty.call(BASES, raw.base)) {
 			throw new Refused(`"base" is not one of ${Object.keys(BASES).join(', ')}`);
 		}
-		if (base !== 'terminal') return paletteScheme(id, name, base, raw);
+		if (base !== 'terminal') return paletteScheme(id, name, base, raw, own);
 	}
 
 	const ground = colourAt(raw, 'ground');
@@ -264,22 +291,38 @@ ${accents.join('\n')}`;
  * does now, or a colour, taken toward the text until it holds 4.5:1 on the
  * surface, with its label in whichever of the ground and the text reads
  * better on it, at 4.5:1 or more.
+ *
+ * A theme's own file (`own`) goes under the selector its colours had in
+ * `app.css`. Liquid's is the root's in every theme, which Terminal and
+ * Phosphor then replace, and neither names a scheme, so a file from the data
+ * directory wins over both.
  */
-function paletteScheme(id: string, name: string, base: Exclude<SchemeBase, 'terminal'>, raw: Record<string, unknown>): CustomScheme {
+function paletteScheme(
+	id: string,
+	name: string,
+	base: Exclude<SchemeBase, 'terminal'>,
+	raw: Record<string, unknown>,
+	own: boolean
+): CustomScheme {
 	const light = base === 'light';
 	const ground = colourAt(raw, 'ground');
 	if (light && luminance(ground) < 0.6) throw new Refused('"ground" is too dark: Paper is drawn dark on light');
 	if (!light && luminance(ground) > 0.06) throw new Refused(`"ground" is too light: ${base === 'dark' ? 'Liquid' : 'Phosphor'} is drawn light on dark`);
 	const raised = colourAt(raw, 'raised');
 	const foreground = colourAt(raw, 'foreground');
-	const surface = mix(ground, raised, 0.5);
+	const surface = colourAt(raw, 'surface', mix(ground, raised, 0.5));
 	if (contrast(foreground, surface) < 7) {
 		throw new Refused(`"foreground" holds ${contrast(foreground, surface).toFixed(1)}:1 on the surface, under 7:1`);
 	}
 	const text = colourAt(raw, 'text', fadeUntil(foreground, surface, surface, Math.max(7, contrast(foreground, surface) * 0.85)));
 	if (contrast(text, surface) < 4.6) throw new Refused(`"text" holds ${contrast(text, surface).toFixed(1)}:1 on the surface, under 4.6:1`);
-	const muted = fadeUntil(text, surface, surface, Math.max(5.3, 4.6 + 0.3 * (contrast(text, surface) - 4.6)));
-	const faint = fadeUntil(text, surface, surface, 4.6);
+	const muted = toneAt(raw, 'muted', ground, () =>
+		fadeUntil(text, surface, surface, Math.max(5.3, 4.6 + 0.3 * (contrast(text, surface) - 4.6)))
+	);
+	const faint = toneAt(raw, 'faint', ground, () => fadeUntil(text, surface, surface, 4.6));
+	const through = (typeof raw.through === 'object' && raw.through !== null ? raw.through : {}) as Record<string, unknown>;
+	const mutedThrough = toneAt(through, 'muted', ground, () => mix(muted, foreground, 0.35), 'through.muted');
+	const faintThrough = toneAt(through, 'faint', ground, () => mix(faint, foreground, 0.35), 'through.faint');
 	const toward = light ? '#000000' : '#ffffff';
 	const fixed = (colour: string) => shiftUntil(colour, light ? '#000000' : '#ffffff', surface, 4.5);
 	const positive = fixed(colourAt(raw, 'positive', light ? '#2f7d4f' : '#7fc8a9'));
@@ -302,27 +345,42 @@ function paletteScheme(id: string, name: string, base: Exclude<SchemeBase, 'term
 	--art-l: 52% !important;`;
 	}
 
+	const selector = !own
+		? `:root[data-theme='${base}'][data-scheme='${id}']`
+		: base === 'dark'
+			? `:root,\n[data-theme='dark']`
+			: `[data-theme='${base}']`;
 	const css = `/* ${id}.json */
-:root[data-theme='${base}'][data-scheme='${id}'] {
+${selector} {
 	--bg-base: ${ground};
-	--bg-sunken: ${mix(ground, '#000000', light ? 0.04 : 0.16)};
+	--bg-sunken: ${colourAt(raw, 'sunken', mix(ground, '#000000', light ? 0.04 : 0.16))};
 	--bg-surface: ${surface};
 	--bg-raised: ${raised};
-	--bg-hover: ${mix(raised, foreground, 0.07)};
-	--bg-active: ${mix(raised, foreground, 0.12)};
+	--bg-hover: ${colourAt(raw, 'hover', mix(raised, foreground, 0.07))};
+	--bg-active: ${colourAt(raw, 'active', mix(raised, foreground, 0.12))};
 	--text-strong: ${foreground};
 	--text-default: ${text};
 	--text-muted: ${muted};
 	--text-faint: ${faint};
-	--text-muted-through: ${mix(muted, foreground, 0.35)};
-	--text-faint-through: ${mix(faint, foreground, 0.35)};
-	--border-hairline: ${mix(ground, foreground, 0.08)};
-	--border-strong: ${mix(ground, foreground, 0.18)};
+	--text-muted-through: ${mutedThrough};
+	--text-faint-through: ${faintThrough};
+	--border-hairline: ${colourAt(raw, 'hairline', mix(ground, foreground, 0.08))};
+	--border-strong: ${colourAt(raw, 'border', mix(ground, foreground, 0.18))};
 	--positive: ${positive};
 	--danger: ${danger};${accent}
 }`;
 	return { id, name, base, ground, css };
 }
+
+/**
+ * Liquid's and Paper's own colours (#182): the app draws itself by the path
+ * it offers. Read as the module loads, so a file that is refused stops the
+ * build and not a page.
+ */
+const OWN = { dark: readScheme('liquid', liquid, true), light: readScheme('paper', paper, true) };
+
+/** Each one's ground, for `theme-color` (`THEME_GROUND` in `settings.ts`). */
+export const OWN_GROUND = { dark: OWN.dark.ground, light: OWN.light.ground };
 
 let loaded: CustomScheme[] | null = null;
 
@@ -357,7 +415,15 @@ export function customSchemes(): CustomScheme[] {
 }
 
 /** The custom schemes' stylesheet for the page's head, or nothing when there are none. */
-export function customSchemeStyle(): string {
+function customSchemeStyle(): string {
 	const schemes = customSchemes();
 	return schemes.length ? `<style id="hh-schemes">\n${schemes.map((scheme) => scheme.css).join('\n')}\n</style>` : '';
+}
+
+/**
+ * What the page's head takes: Liquid's and Paper's own colours, Liquid's
+ * first as they stood in `app.css`, then the schemes from the data directory.
+ */
+export function colourStyle(): string {
+	return `<style id="hh-themes">\n${OWN.dark.css}\n${OWN.light.css}\n</style>${customSchemeStyle()}`;
 }

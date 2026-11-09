@@ -59,6 +59,9 @@ describe('a deployment that is not set up', () => {
 			assert.match(html, /Set up Heddohon/);
 			assert.match(response.headers.get('cache-control'), /no-store/);
 			assert.ok(response.headers.get('content-security-policy'), 'the setup page has no policy');
+			// Drawn in Terminal, over the root's colours every page carries (#182).
+			assert.match(html, /data-theme="terminal"/);
+			assert.match(html, /<style id="hh-themes">\n\/\* liquid\.json \*\/\n:root,\n\[data-theme='dark'\] \{\n\t--bg-base: #0b0c0f;/);
 			// The page says nothing of what is missing, and the code is not in it.
 			assert.ok(!html.includes(code) && !html.includes(code.replace(/-/g, '')));
 			assert.ok(!/"secret":|"upstream":/.test(html), 'the page tells what is missing before the code');

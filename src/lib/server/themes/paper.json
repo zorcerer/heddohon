@@ -1,0 +1,21 @@
+{
+	"heddohon": 2,
+	"name": "Paper",
+	"base": "paper",
+	"ground": "#f0e7d5",
+	"sunken": "#e6ddcc",
+	"surface": "#f5eee1",
+	"raised": "#faf5eb",
+	"hover": "#eae1cf",
+	"active": "#e3d9c6",
+	"foreground": "#2e241a",
+	"text": "#453b30",
+	"muted": "#594f43",
+	"faint": "#6c6256",
+	"through": { "muted": "#4f463b", "faint": "#62584c" },
+	"hairline": "#d8cfbe",
+	"border": "#c0b6a6",
+	"accent": "artwork",
+	"positive": "#4f6b3a",
+	"danger": "#9c2b1b"
+}
