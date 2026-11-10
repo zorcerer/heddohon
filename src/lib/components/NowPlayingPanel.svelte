@@ -19,6 +19,7 @@
 	import { handOff } from '#lib/client/handoff.ts';
 	import { artworkColor } from '#lib/client/artwork.ts';
 	import { contextMenu } from '#lib/client/context-menu.svelte.ts';
+	import { playContainer } from '#lib/client/actions.ts';
 	import { SelectableList } from '#lib/client/selection.svelte.ts';
 	import { formatBytes, formatDuration } from '#lib/client/format.ts';
 	import { lyricsWindow } from '#lib/client/lyrics.svelte.ts';
@@ -525,6 +526,11 @@
 					</p>
 				{:else}
 					<h2 class="title">Nothing playing</h2>
+					<!-- An empty queue: a way to start something from the panel itself. -->
+					<button class="hh-button start" onclick={() => playContainer('random')}>
+						<Icon name="shuffle" size={16} />
+						Shuffle library
+					</button>
 				{/if}
 				<!-- While this browser hosts listening together: who is with it, and
 				     the way back to the link. -->
@@ -1414,6 +1420,10 @@
 	}
 
 	/* ── Listening together ──────────────────────────────────────────── */
+
+	.start {
+		margin-top: var(--space-3);
+	}
 
 	.live {
 		display: inline-flex;

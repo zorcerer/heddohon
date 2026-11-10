@@ -78,6 +78,18 @@ async function pickLabel(combobox, label) {
 	await option.click();
 	await option.waitFor({ state: 'detached' });
 }
+/**
+ * Appearance and Playback save as they change (since 2026-11-10): runs
+ * `change`, waits for the save it sets off, then for any save a change made
+ * meanwhile sets off after it.
+ */
+async function autosaved(page, change) {
+	const saved = page.waitForResponse((response) => response.url().includes('?/save') && response.request().method() === 'POST');
+	await change();
+	await saved;
+	await page.waitForTimeout(500);
+	await page.locator('form[action="?/save"]:not([aria-busy="true"])').waitFor({ state: 'attached' });
+}
 /** The options as `[value, label]`, read with the menu open and closed again. */
 async function optionsOf(combobox) {
 	await combobox.click();
@@ -1414,7 +1426,9 @@ describe('a stream that fails', () => {
 			await page.waitForFunction(sounding, null, { timeout: 15_000 });
 			await failure.waitFor({ state: 'detached' });
 
-			await page.getByRole('button', { name: 'Add to queue', exact: true }).first().click();
+			// On a phone the album's Queue button is in its More menu.
+			await page.getByRole('button', { name: 'More', exact: true }).click();
+			await page.getByRole('menuitem', { name: 'Add to queue' }).click();
 			// The player's notices rise from the foot of the window, over the dock.
 			await page.locator('.hh-toast [role="status"]', { hasText: /Queued \d+ tracks/ }).waitFor();
 		} finally {
@@ -6372,7 +6386,7 @@ describe('the settings tabs', () => {
 					fetched++;
 				}
 			});
-			await tabs.getByRole('link', { name: 'Cover cache' }).click();
+			await tabs.getByRole('link', { name: 'Server' }).click();
 			await heading('Cover cache').waitFor();
 			assert.equal(await heading('Appearance').isVisible(), false);
 			assert.match(page.url(), /\/settings\?tab=storage$/);
@@ -6380,8 +6394,7 @@ describe('the settings tabs', () => {
 
 			// Saving from Appearance keeps what the Playback tab holds.
 			await tabs.getByRole('link', { name: 'Appearance' }).click();
-			await pick(select(page, 'theme'), 'light');
-			await page.getByRole('button', { name: 'Save settings' }).click();
+			await autosaved(page, () => pick(select(page, 'theme'), 'light'));
 			await page.getByText('Settings saved.').waitFor();
 			const saved = await (await context.request.get(`${app.url}/api/settings`)).json();
 			assert.equal(saved.theme, 'light');
@@ -6391,7 +6404,7 @@ describe('the settings tabs', () => {
 			// A link to a tab opens on it.
 			await page.goto(app.url + '/settings?tab=account', { waitUntil: 'networkidle' });
 			assert.ok(await heading('Session & security').isVisible());
-			assert.equal(await page.getByRole('button', { name: 'Save settings' }).isVisible(), false);
+			assert.equal(await page.locator('form[action="?/save"]').isVisible(), false);
 		} finally {
 			await context.request.patch(`${app.url}/api/settings`, {
 				headers: { origin: app.url },
@@ -6545,8 +6558,7 @@ describe("the themes' own colours", () => {
 			assert.deepEqual(await drawn(), LIQUID, 'signed in');
 
 			// Paper chosen and saved: the page in front of the reader takes it.
-			await pick(select(page, 'theme'), 'light');
-			await page.getByRole('button', { name: 'Save settings' }).click();
+			await autosaved(page, () => pick(select(page, 'theme'), 'light'));
 			await page.waitForFunction(() => document.documentElement.dataset.theme === 'light');
 			assert.deepEqual(await drawn(), PAPER, 'changed without a new page');
 			await page.reload({ waitUntil: 'networkidle' });
@@ -6674,10 +6686,11 @@ describe('Terminal, the default theme', () => {
 
 			// Changed in Settings, it is on the page at once, without a load.
 			await page.goto(app.url + '/settings', { waitUntil: 'networkidle' });
-			await pick(select(page, 'dots'), 'strong');
-			await pick(select(page, 'accent'), 'amber');
-			await page.getByRole('button', { name: 'Save settings' }).click();
-			await page.getByText('Settings saved.').waitFor();
+			await autosaved(page, async () => {
+				await pick(select(page, 'dots'), 'strong');
+				await pick(select(page, 'accent'), 'amber');
+			});
+			await page.waitForFunction(() => document.documentElement.dataset.accent === 'amber');
 			await page.waitForFunction(() => document.documentElement.dataset.dots === 'strong');
 			const strong = await dots();
 			assert.ok(strong > 0.18 && strong < 0.22, `strong is 20 percent: ${strong}`);
@@ -6835,12 +6848,8 @@ describe('Terminal, the default theme', () => {
 			await page.locator('nav.rail a[href="/settings"]').click();
 			await page.waitForURL(app.url + '/settings');
 			const choose = async (value) => {
-				await pick(select(page, 'playerArt'), value);
-				await page.getByRole('button', { name: 'Save settings' }).click();
+				await autosaved(page, () => pick(select(page, 'playerArt'), value));
 				await page.waitForFunction((value) => document.documentElement.dataset.art === value, value);
-				// The form reads the settings once more after that, and a choice made
-				// before it answers is put back to the one just saved.
-				await page.getByRole('button', { name: 'Save settings' }).waitFor();
 				return drawn();
 			};
 			assert.deepEqual(await choose('plain'), { layer: 'none', fill: 'rgba(0, 0, 0, 0)', blend: 'normal', masked: true, picture: 'none' });
@@ -6915,16 +6924,17 @@ describe('Terminal, the default theme', () => {
 			assert.equal(await page.locator('input[name=\"theme\"]').inputValue(), 'terminal');
 			assert.equal(new Map(await optionsOf(select(page, 'theme'))).get('terminal'), 'Terminal');
 			assert.deepEqual(await rows(), { scheme: 1, accent: 1, dots: 1, art: 1, aurora: 0, face: 'JetBrains Mono' });
-			// Before it is saved: the rows follow the theme picked.
-			await pick(select(page, 'theme'), 'dark');
+			// The rows follow the theme picked, and it saves as it is picked.
+			await autosaved(page, () => pick(select(page, 'theme'), 'dark'));
 			assert.deepEqual(await rows(), { scheme: 0, accent: 0, dots: 0, art: 0, aurora: 1, face: 'Manrope' });
-			// Saved without them on the form, the two keep their stored values.
+			// Saved without them on the form, the two keep their stored values:
+			// set behind the page's back, they survive the next save.
 			await settings({ accent: 'cyan', dots: 'medium' });
-			await page.getByRole('button', { name: 'Save settings' }).click();
-			await page.getByText('Settings saved.').waitFor();
+			await autosaved(page, () => pick(select(page, 'gridSize'), 'compact'));
 			const saved = await (await context.request.get(`${app.url}/api/settings`)).json();
 			assert.deepEqual([saved.theme, saved.accent, saved.dots], ['dark', 'cyan', 'medium']);
 		} finally {
+			await settings({ gridSize: 'comfortable' });
 			await liquid();
 			await page.close();
 		}
@@ -6949,14 +6959,16 @@ describe('Terminal, the default theme', () => {
 				};
 				const fav = document.querySelector('.badge-row .fav');
 				const share = document.querySelector('.badge-row .share');
+				// The ones drawn: More is there on a phone only.
+				const shown = [...actions.children].filter((el) => el.getClientRects().length > 0);
 				return {
-					brackets: [...actions.children, fav, share].filter((el) => !el.classList.contains('hh-button--primary')).map((el) => edge(el) - Math.round(el.getBoundingClientRect().left)),
+					brackets: [...shown, fav, share].filter((el) => !el.classList.contains('hh-button--primary')).map((el) => edge(el) - Math.round(el.getBoundingClientRect().left)),
 					heart: [getComputedStyle(fav, '::before').content, getComputedStyle(fav, '::after').content].join(' '),
 					word: fav.querySelector('.label') ? getComputedStyle(fav.querySelector('.label')).display : 'absent',
 					// PulseHeart names itself by a visually hidden span.
 					name: fav.querySelector('.sr-only')?.textContent,
-					lefts: [...actions.children].map((el) => Math.round(el.getBoundingClientRect().left)),
-					tops: [...actions.children].map((el) => Math.round(el.getBoundingClientRect().top + el.getBoundingClientRect().height / 2))
+					lefts: shown.map((el) => Math.round(el.getBoundingClientRect().left)),
+					tops: shown.map((el) => Math.round(el.getBoundingClientRect().top + el.getBoundingClientRect().height / 2))
 				};
 			});
 		try {
@@ -7051,8 +7063,7 @@ describe('Terminal, the default theme', () => {
 
 			// Chosen and saved, it is on the root and the bar a phone draws is its ground.
 			await page.reload({ waitUntil: 'networkidle' });
-			await pick(select(page, 'scheme'), 'nord');
-			await page.getByRole('button', { name: 'Save settings' }).click();
+			await autosaved(page, () => pick(select(page, 'scheme'), 'nord'));
 			await page.waitForFunction(() => document.documentElement.dataset.scheme === 'nord');
 			assert.deepEqual((await computed(page, 'var(--bg-base)')).slice(0, 3), [0x2e, 0x34, 0x40]);
 			await page.reload({ waitUntil: 'networkidle' });
@@ -7359,8 +7370,7 @@ describe('Phosphor', () => {
 				face: new Map(await optionsOf(select(page, 'font'))).get('manrope')
 			};
 			assert.deepEqual(rows, { scheme: 0, accent: 1, dots: 0, art: 0, aurora: 0, face: 'Barlow' });
-			await pick(select(page, 'accent'), 'amber');
-			await page.getByRole('button', { name: 'Save settings' }).click();
+			await autosaved(page, () => pick(select(page, 'accent'), 'amber'));
 			await page.waitForFunction(() => document.documentElement.dataset.accent === 'amber');
 		} finally {
 			await liquid();
@@ -7868,26 +7878,36 @@ describe('features that are off', () => {
 	const ALL = ['newReleases', 'lrclib', 'autoeq', 'discord', 'listenbrainz', 'mcp', 'profiles'];
 	const seen = (featuresSeen) => context.request.patch(`${app.url}/api/settings`, { data: { featuresSeen }, headers: { origin: app.url } });
 
-	test('an administrator is told on the home page once, and the Features tab switches them', async () => {
+	test('an administrator sees a dot on Settings until the Server tab is opened, and the tab switches them', async () => {
 		const { page, problems } = await watchedPage();
 		try {
 			await seen(['lrclib', 'autoeq', 'discord', 'listenbrainz', 'mcp']);
 			await page.goto(app.url + '/', { waitUntil: 'networkidle' });
-			const notice = page.getByRole('complementary', { name: 'Features that are off' });
-			await notice.waitFor();
-			assert.match(await notice.textContent(), /New releases from MusicBrainz/);
-			assert.doesNotMatch(await notice.textContent(), /LRCLIB/);
-			const saved = page.waitForResponse((r) => r.url().endsWith('/api/settings') && r.request().method() === 'PATCH');
-			await notice.getByRole('button', { name: 'Dismiss' }).click();
-			await saved;
-			assert.equal(await notice.count(), 0);
-			await page.reload({ waitUntil: 'networkidle' });
-			assert.equal(await notice.count(), 0, 'the notice came back after it was dismissed');
+			// Not on the home page: a dot on the rail's link to Settings.
+			assert.equal(await page.getByRole('complementary', { name: 'Features that are off' }).count(), 0);
+			const link = page.locator('nav.rail a[href="/settings"]');
+			await link.locator('.dot').waitFor();
+			assert.match(await link.textContent(), /features to look at/);
 
-			await page.goto(app.url + '/settings?tab=features', { waitUntil: 'networkidle' });
+			await page.goto(app.url + '/settings', { waitUntil: 'networkidle' });
+			const tab = page.getByRole('navigation', { name: 'Settings' }).getByRole('link', { name: /^Server/ });
+			assert.equal(await tab.locator('.dot').count(), 1);
+			const saved = page.waitForResponse((r) => r.url().endsWith('/api/settings') && r.request().method() === 'PATCH');
+			await tab.click();
+			const body = JSON.parse((await saved).request().postData());
+			assert.ok(body.featuresSeen.includes('newReleases') && body.featuresSeen.includes('lrclib'), JSON.stringify(body));
+			assert.equal(await tab.locator('.dot').count(), 0);
 			const section = page.locator('section#features');
 			assert.equal(await section.getByRole('switch').count(), ALL.length);
 			assert.equal(await section.getByRole('switch', { name: /New releases from MusicBrainz/ }).isChecked(), false);
+
+			// Seen, the dot does not come back.
+			await page.goto(app.url + '/', { waitUntil: 'networkidle' });
+			await page.waitForTimeout(500);
+			assert.equal(await link.locator('.dot').count(), 0, 'the dot came back after the tab was opened');
+			// The old link to the Features tab opens the Server tab.
+			await page.goto(app.url + '/settings?tab=features', { waitUntil: 'networkidle' });
+			assert.ok(await section.isVisible());
 		} finally {
 			await seen(ALL);
 			await page.close();
@@ -7941,8 +7961,7 @@ describe('a colour scheme from a file', () => {
 					return { ground: root.getPropertyValue('--bg-base').trim(), accent: root.getPropertyValue('--accent').trim() };
 				});
 			await page.goto(`${own.url}/settings`, { waitUntil: 'networkidle' });
-			await pick(select(page, 'scheme'), 'rose-pine');
-			await page.getByRole('button', { name: 'Save settings' }).click();
+			await autosaved(page, () => pick(select(page, 'scheme'), 'rose-pine'));
 			await page.waitForFunction(() => document.documentElement.dataset.scheme === 'rose-pine');
 			assert.deepEqual(await tokens(), { ground: '#191724', accent: '#f6c177' });
 			await page.reload({ waitUntil: 'networkidle' });
@@ -7991,5 +8010,122 @@ describe('a colour scheme from a file', () => {
 			await view.close();
 			await own.stop();
 		}
+	});
+});
+
+/*
+ * 2026-11-10: the empty player panel starts something itself, and on a phone
+ * the album page keeps Play and Shuffle and puts the rest under More.
+ */
+describe('starting something', () => {
+	const emptyQueue = () =>
+		context.request.put(`${app.url}/api/play-state`, {
+			headers: { origin: app.url, 'content-type': 'application/json' },
+			data: { songIds: [], index: 0, position: 0, repeat: 'off', shuffle: false }
+		});
+
+	test('with nothing queued, the player panel shuffles the library', async () => {
+		await emptyQueue();
+		const { page, problems } = await watchedPage();
+		try {
+			await page.goto(app.url + '/', { waitUntil: 'networkidle' });
+			const panel = page.locator('.chrome .head');
+			await panel.getByRole('heading', { name: 'Nothing playing' }).waitFor();
+			const asked = page.waitForRequest((request) => request.url().endsWith('/api/tracks') && JSON.parse(request.postData() ?? '{}').source === 'random');
+			await panel.getByRole('button', { name: 'Shuffle library' }).click();
+			await asked;
+			await page.waitForFunction(() => document.querySelector('.chrome .head h2')?.textContent?.trim() !== 'Nothing playing');
+			assert.equal(await panel.getByRole('button', { name: 'Shuffle library' }).count(), 0);
+		} finally {
+			await page.evaluate(() => [...document.querySelectorAll('audio')].forEach((a) => a.pause())).catch(() => undefined);
+			await emptyQueue();
+			await page.close();
+		}
+		assert.deepEqual(problems.filter((problem) => !/cannot play|Failed to load resource/.test(problem)), []);
+	});
+
+	test('on a phone the album page shows Play, Shuffle and More, and More holds the rest', async () => {
+		const phone = await browser.newContext({ viewport: { width: 393, height: 852 }, isMobile: true, hasTouch: true });
+		await phone.request.post(`${app.url}/login`, {
+			form: { username: 'testuser', password: 'testpass', backend: 'subsonic', next: '/' },
+			headers: { origin: app.url, accept: 'text/html' },
+			maxRedirects: 0
+		});
+		const page = await phone.newPage();
+		try {
+			await page.goto(app.url + '/albums/al1', { waitUntil: 'networkidle' });
+			const actions = page.locator('.actions');
+			for (const name of ['Play', 'Shuffle', 'More']) {
+				assert.ok(await actions.getByRole('button', { name, exact: true }).isVisible(), `${name} is not shown`);
+			}
+			for (const name of ['Add to queue', 'Add to playlist']) {
+				assert.equal(await actions.getByRole('button', { name, exact: true }).isVisible(), false, `${name} is still shown`);
+			}
+			assert.equal(await actions.locator('.mix').isVisible(), false, 'the instant mix is still shown');
+
+			await actions.getByRole('button', { name: 'More', exact: true }).tap();
+			const items = (await page.getByRole('menuitem').allTextContents()).map((text) => text.trim());
+			for (const name of ['Add to queue', 'Add to playlist…', 'Start instant mix', 'Play next']) {
+				assert.ok(items.includes(name), `${name} is not in the menu: ${items.join(', ')}`);
+			}
+			await page.keyboard.press('Escape');
+			await page.getByRole('menu').waitFor({ state: 'detached' });
+		} finally {
+			await page.close();
+			await phone.close();
+		}
+	});
+
+	test('on a wide screen the album page keeps its buttons, and no More', async () => {
+		const { page } = await watchedPage();
+		try {
+			await page.goto(app.url + '/albums/al1', { waitUntil: 'networkidle' });
+			const actions = page.locator('.actions');
+			assert.ok(await actions.getByRole('button', { name: 'Add to queue', exact: true }).isVisible());
+			assert.equal(await actions.getByRole('button', { name: 'More', exact: true }).isVisible(), false);
+		} finally {
+			await page.close();
+		}
+	});
+});
+
+describe('settings saved as they change', () => {
+	const settings = (patch) => context.request.patch(`${app.url}/api/settings`, { data: patch, headers: { origin: app.url } });
+
+	test('a switch saves without a button, and a change made while a save is on its way is kept', async () => {
+		await settings({ showQualityBadge: true, preloadNext: true });
+		const { page, problems } = await watchedPage();
+		try {
+			await page.goto(app.url + '/settings', { waitUntil: 'networkidle' });
+			assert.equal(await page.getByRole('button', { name: 'Save settings' }).count(), 0);
+
+			// The first save is held until the second change has been made.
+			let release;
+			const released = new Promise((done) => (release = done));
+			let held = 0;
+			await page.route('**/settings?/save', async (route) => {
+				if (held++ === 0) await released;
+				await route.continue();
+			});
+			const first = page.waitForRequest((request) => request.url().includes('?/save'));
+			await page.locator('#switch-showQualityBadge').click();
+			await first;
+			await page.getByRole('navigation', { name: 'Settings' }).getByRole('link', { name: 'Playback' }).click();
+			await page.locator('#switch-preloadNext').click();
+			await page.waitForTimeout(600);
+			release();
+			// The held save's answer does not put the second switch back, and it is saved after.
+			await page.waitForFunction(() => document.querySelector('form[action="?/save"]')?.getAttribute('aria-busy') === 'false');
+			await page.waitForTimeout(800);
+			await page.waitForFunction(() => document.querySelector('form[action="?/save"]')?.getAttribute('aria-busy') === 'false');
+			assert.equal(await page.locator('#switch-preloadNext').getAttribute('aria-checked'), 'false');
+			const saved = await (await context.request.get(`${app.url}/api/settings`)).json();
+			assert.deepEqual([saved.showQualityBadge, saved.preloadNext], [false, false]);
+		} finally {
+			await page.unroute('**/settings?/save').catch(() => undefined);
+			await settings({ showQualityBadge: true, preloadNext: true });
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
 	});
 });

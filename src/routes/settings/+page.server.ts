@@ -186,7 +186,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 						admin: isAdmin === true ? { fromEnvironment: decidedByEnvironment().mcp } : null
 					}
 				: null,
-		// The Features tab: each optional feature's switch, for an administrator of the music server.
+		// The Server tab's Features: each optional feature's switch, for an administrator of the music server.
 		features: isAdmin === true ? featureStates() : null,
 		// Settings, Security: the switch that requires a second factor of every account, for an administrator.
 		twoFactorAdmin:

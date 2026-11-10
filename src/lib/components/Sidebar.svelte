@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { notices } from '#lib/client/notices.svelte.ts';
 	import { navigating, page } from '$app/state';
 	import { untrack } from 'svelte';
 	import Icon from './Icon.svelte';
@@ -144,7 +145,8 @@
 					aria-current={isActive('/settings', false) ? 'page' : undefined}
 				>
 					<Icon name="settings" size={19} />
-					<span class="hh-visually-hidden">Settings</span>
+					<span class="hh-visually-hidden">Settings{notices.features.length > 0 ? ', features to look at' : ''}</span>
+					{#if notices.features.length > 0}<span class="dot" aria-hidden="true"></span>{/if}
 				</a>
 			</Tip>
 
@@ -248,6 +250,17 @@
 		transition:
 			text-shadow var(--transition),
 			color var(--transition);
+	}
+
+	/* Features off and not yet seen, for an administrator; see notices.svelte.ts. */
+	.dot {
+		position: absolute;
+		top: 22%;
+		right: 22%;
+		width: 0.45rem;
+		height: 0.45rem;
+		border-radius: 50%;
+		background: var(--accent);
 	}
 
 	.link:hover {

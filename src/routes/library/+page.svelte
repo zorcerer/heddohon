@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { notices } from '#lib/client/notices.svelte.ts';
 	import Icon from '#lib/components/Icon.svelte';
 	import MediaCard from '#lib/components/MediaCard.svelte';
 	import MediaShelf from '#lib/components/MediaShelf.svelte';
@@ -68,7 +69,7 @@
 
 	<a class="settings hh-glass" href="/settings">
 		<Icon name="settings" size={19} />
-		<span>Settings</span>
+		<span>Settings{#if notices.features.length > 0}<span class="dot" role="img" aria-label=", features to look at"></span>{/if}</span>
 		<Icon name="chevron-right" size={16} />
 	</a>
 
@@ -199,6 +200,17 @@
 		border-radius: var(--r-lg);
 		color: var(--text-muted);
 		font-weight: 600;
+	}
+
+	/* Features off and not yet seen, for an administrator; see notices.svelte.ts. */
+	.settings .dot {
+		display: inline-block;
+		margin-left: 0.5rem;
+		vertical-align: 0.15em;
+		width: 0.5rem;
+		height: 0.5rem;
+		border-radius: 50%;
+		background: var(--accent);
 	}
 
 	.settings span:first-of-type {

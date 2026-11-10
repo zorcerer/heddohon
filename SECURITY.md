@@ -49,7 +49,7 @@ radio](#internet-radio).
 
 The five third-party switches and the MCP endpoint are saved by the first-run
 setup, and an account the music server lists as an administrator (asked of
-the music server on each save) turns them on and off under Settings, Features
+the music server on each save) turns them on and off under Settings, Server, Features
 (`?/saveFeatures`). Each is saved to `setup.json`, taken with the next
 request, and logged as `features-switched` at `warn`. A variable set in the
 environment takes precedence, and the switch is shown locked. The addresses
@@ -206,7 +206,7 @@ No account name, credential or upstream detail is sent.
 
 With `HEDDOHON_NEW_RELEASES=true`, or the box ticked in the first-run setup
 (which saves it to `setup.json`), an account can turn on a "New releases"
-shelf for its home page under Settings, Listening history; it is off for every
+shelf for its home page under Settings, History; it is off for every
 account until it does. For an account that has, the server reads the ten
 artists it played most in the last year from its history, and asks
 `HEDDOHON_MUSICBRAINZ_URL` (by default `musicbrainz.org`) for the albums and
@@ -418,7 +418,7 @@ request from Navidrome to Heddohon. Heddohon makes no request to the plugin.
   session. The songs are read then, under that session's credential, and a
   scrobble of a song not among them is skipped. A page for any other user is
   ignored. An import with no page for 2 minutes is closed.
-- **An account can turn it off** under Settings, Listening history ("Plays from
+- **An account can turn it off** under Settings, History ("Plays from
   other apps"). Its own plays are noted as before.
 - **What an app is playing now is held in memory, for the account's own
   browsers.** Navidrome reports each client's track, whether it plays or is
@@ -1178,7 +1178,7 @@ each on, the albums it played lately and its most played artists of the last
   link; every session ending (`destroyAllSessions`) withdraws the link; a new
   Jellyfin user under the name removes the page.
 - **Switched off** (`HEDDOHON_PROFILES=false`, or an administrator under
-  Settings, Features), every route of it answers 404 as for a page that does
+  Settings, Server, Features), every route of it answers 404 as for a page that does
   not exist, public links included, People leaves the rail and the home page
   loses the picture that leads to it. What was saved stays, and comes back
   with the switch.
