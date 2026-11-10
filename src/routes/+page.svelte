@@ -8,7 +8,7 @@
 	import OnThisDayShelf from '#lib/components/OnThisDayShelf.svelte';
 	import RediscoverShelf from '#lib/components/RediscoverShelf.svelte';
 	import NewReleasesShelf from '#lib/components/NewReleasesShelf.svelte';
-	import FeatureNotice from '#lib/components/FeatureNotice.svelte';
+	import { notices } from '#lib/client/notices.svelte.ts';
 	import SectionHeader from '#lib/components/SectionHeader.svelte';
 	import TrackList from '#lib/components/TrackList.svelte';
 	import Icon from '#lib/components/Icon.svelte';
@@ -58,6 +58,18 @@
 		return () => controller.abort();
 	});
 
+	// Streamed, for an administrator: the features that are off and not yet
+	// seen mark the links to Settings; see notices.svelte.ts and features.ts.
+	$effect(() => {
+		let current = true;
+		data.featureNotice.then((features) => {
+			if (current) notices.features = features.map((feature) => feature.id);
+		});
+		return () => {
+			current = false;
+		};
+	});
+
 	const rediscovering = $derived(data.rediscover.length > 0);
 	const remembering = $derived((onThisDay?.albums.length ?? 0) > 0);
 
@@ -87,12 +99,6 @@
 		{/if}
 	</header>
 
-	<!-- Streamed, for an administrator; see features.ts. -->
-	{#await data.featureNotice then features}
-		{#if features.length > 0}
-			<FeatureNotice {features} seen={data.settings?.featuresSeen ?? []} />
-		{/if}
-	{/await}
 
 	<!--
 		The front page: the newest release as the lead, and what was played last

@@ -93,6 +93,23 @@ class ContextMenu {
 		this.subject = subject;
 	}
 
+	/**
+	 * Opens the menu from a button, under it, by any pointer: a tap included,
+	 * which `open` leaves to the browser. The album page's More button on a
+	 * phone, where the menu holds what the page's buttons hold on a wider
+	 * screen.
+	 */
+	openFrom(target: HTMLElement, subject: MenuSubject, keyboard = false) {
+		this.#opener?.removeAttribute(MARK);
+		this.#opener = target;
+		target.setAttribute(MARK, '');
+		const box = target.getBoundingClientRect();
+		this.x = box.left;
+		this.y = box.bottom + 4;
+		this.keyboard = keyboard;
+		this.subject = subject;
+	}
+
 	/** Whether what the menu was opened on is inside `node`: a scroll of anything else leaves it where it is. */
 	isIn(node: Node): boolean {
 		return this.#opener !== null && node.contains(this.#opener);

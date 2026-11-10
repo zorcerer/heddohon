@@ -3,7 +3,7 @@
  * artists an account plays most, from MusicBrainz, that the library does not
  * have.
  *
- * Off unless `HEDDOHON_NEW_RELEASES` is on (Settings, Features, or the
+ * Off unless `HEDDOHON_NEW_RELEASES` is on (Settings, Server, Features, or the
  * environment), and then only for an account that turns it on under Settings
  * (`newReleases`). On, the names of that account's 25 most played artists of
  * the last year, or the MusicBrainz ids its music server knows for them, are

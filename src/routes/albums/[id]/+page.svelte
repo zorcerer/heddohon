@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { player } from '#lib/client/player.svelte.ts';
+	import { contextMenu } from '#lib/client/context-menu.svelte.ts';
 	import HeroTitle from '#lib/components/HeroTitle.svelte';
 	import Sleeve from '#lib/components/Sleeve.svelte';
 	import FavouriteButton from '#lib/components/FavouriteButton.svelte';
@@ -179,6 +180,7 @@
 					class="hh-button"
 					onclick={() => player.addToQueue(album.songs)}
 					disabled={album.songs.length === 0}
+					data-wide
 					aria-label="Add to queue"
 					title="Add to queue"
 				>
@@ -189,6 +191,7 @@
 					class="hh-button"
 					onclick={() => addSongsToPlaylist(album.songs, album.name)}
 					disabled={album.songs.length === 0}
+					data-wide
 					aria-label="Add to playlist"
 					title="Add to playlist"
 				>
@@ -196,6 +199,20 @@
 					<span class="label">Add to playlist</span>
 				</button>
 				<MixButton of="album" id={album.id} />
+				<!-- On a phone, in place of the three before it: the album's menu. -->
+				<button
+					class="hh-button more"
+					onclick={(event) =>
+						contextMenu.openFrom(event.currentTarget, {
+							kind: 'album',
+							album: { id: album.id, name: album.name, artist: album.artist ?? null, artistId: album.artistId ?? null, coverArt: album.coverArt ?? null }
+						}, event.detail === 0)}
+					aria-label="More"
+					aria-haspopup="menu"
+					title="More"
+				>
+					<Icon name="more" size={16} />
+				</button>
 			</div>
 		</div>
 	</header>
@@ -527,9 +544,28 @@
 	 * button still show under it on arrival. At 13rem it filled half the width
 	 * of an iPhone.
 	 */
+	/* The album's menu, on a phone only; see below. */
+	.actions .more {
+		display: none;
+	}
+
 	@media (max-width: 36rem) {
 		.art {
 			width: min(100%, 17rem);
+		}
+
+		/*
+		 * Play, Shuffle and More. Queue, Add to playlist and the instant mix
+		 * are in the menu More opens, with Play next and Share: five unlabelled
+		 * squares in a row were hard to tell apart (2026-11-10).
+		 */
+		.actions [data-wide],
+		.actions > :global(.mix) {
+			display: none;
+		}
+
+		.actions .more {
+			display: inline-flex;
 		}
 
 		.actions .label {

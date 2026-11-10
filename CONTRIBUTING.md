@@ -153,7 +153,7 @@ behaviour decision, not a refactor: raise it in the issue first.
   the pull request for the wiki's Configuration page.
 - **A feature that sends anything to a third party:** off by default, and
   listed in `FEATURES` in `src/lib/server/features.ts`, which puts its switch
-  under Settings, Features and in the first-run setup; a section in
+  under Settings, Server, Features and in the first-run setup; a section in
   SECURITY.md saying what is sent where.
 - **A database change:** prefer a new table to a new column. A new column on
   an existing table goes in `ADDED_COLUMNS` in `db.ts`, or existing installs

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { notices } from '#lib/client/notices.svelte.ts';
 	import { enhance, type SubmitFunction } from '$app/forms';
 	import { refreshAll, goto } from '$app/navigation';
 	import { page } from '$app/state';
@@ -347,32 +348,35 @@
 	 * Sections on other tabs are hidden, not left out. The save form spans
 	 * Appearance and Playback, and the server reads every field on each save,
 	 * so a field missing from the post would be saved as its default.
+	 *
+	 * `storage` is the server's tab: the cover cache, and for an administrator
+	 * the backup, the library report, this server and the features. Until
+	 * 2026-11-10 the features had a tab of their own, and nine tabs wrapped to
+	 * a second line beside the player; `?tab=features` still opens it.
 	 */
 	const TABS = [
 		{ id: 'appearance', label: 'Appearance' },
 		{ id: 'playback', label: 'Playback' },
-		{ id: 'history', label: 'Listening history' },
+		{ id: 'history', label: 'History' },
 		{ id: 'account', label: 'Account' },
 		{ id: 'security', label: 'Security' },
 		{ id: 'ai', label: 'AI' },
 		{ id: 'sharing', label: 'Shared links' },
-		{ id: 'storage', label: 'Cover cache' },
-		{ id: 'features', label: 'Features' }
+		{ id: 'storage', label: 'Server' }
 	] as const;
 	type Tab = (typeof TABS)[number]['id'];
 
 	const sharingShown = $derived(data.sharing || data.shares.length > 0);
 	const tabs = $derived(
-		TABS.filter(
-			(entry) =>
-				(entry.id !== 'sharing' || sharingShown) &&
-				(entry.id !== 'ai' || data.mcp !== null) &&
-				(entry.id !== 'features' || data.features !== null)
+		TABS.filter((entry) => (entry.id !== 'sharing' || sharingShown) && (entry.id !== 'ai' || data.mcp !== null)).map((entry) =>
+			// Without the administrator's sections the tab holds the cover cache alone.
+			entry.id === 'storage' && data.features === null ? { ...entry, label: 'Cover cache' } : entry
 		)
 	);
 
 	function tabFrom(url: { readonly searchParams: { has(name: string): boolean; get(name: string): string | null } }): Tab {
 		const requested = url.searchParams.get('tab');
+		if (requested === 'features') return 'storage';
 		if (TABS.some((entry) => entry.id === requested)) return requested as Tab;
 		// The way back from last.fm lands on the section that started it.
 		return url.searchParams.has('lastfm') ? 'account' : 'appearance';
@@ -381,10 +385,33 @@
 	let tab = $state<Tab>(untrack(() => tabFrom(page.url)));
 	// A link to a tab that is not offered: sharing off with no links left, or AI with nothing to show.
 	const shown = $derived<Tab>(
-		(tab === 'sharing' && !sharingShown) || (tab === 'ai' && data.mcp === null) || (tab === 'features' && data.features === null)
+		(tab === 'sharing' && !sharingShown) || (tab === 'ai' && data.mcp === null)
 			? 'appearance'
 			: tab
 	);
+
+	/*
+	 * The features that are off and that this administrator has not been told
+	 * of (`features.ts`): a dot on the Server tab, as on the rail's link here
+	 * (`notices.svelte.ts`), until the tab is opened, which marks them seen.
+	 */
+	let markedSeen = $state(false);
+	const unseenFeatures = $derived(
+		markedSeen || !data.features
+			? []
+			: data.features.filter((feature) => !feature.on && !data.settings.featuresSeen.includes(feature.id)).map((feature) => feature.id)
+	);
+	$effect(() => {
+		if (shown !== 'storage' || unseenFeatures.length === 0) return;
+		const seen = [...new Set([...data.settings.featuresSeen, ...unseenFeatures])];
+		markedSeen = true;
+		notices.features = [];
+		void fetch('/api/settings', {
+			method: 'PATCH',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ featuresSeen: seen })
+		}).catch(() => undefined);
+	});
 
 	// On a phone the row scrolls sideways; the chosen tab is brought into it.
 	let tabRow = $state<HTMLElement | null>(null);
@@ -415,7 +442,7 @@
 	/*
 	 * Caching every cover: started here, done by the server (`coverfill.ts`).
 	 * The loader gives where it stands when the page opens, and while it runs
-	 * the page asks again every 1.5 seconds, with the Cover cache tab showing.
+	 * the page asks again every 1.5 seconds, with the Server tab showing.
 	 */
 	let fill = $state(untrack(() => data.coverFill));
 	let fillError = $state('');
@@ -519,8 +546,36 @@
 		return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 	}
 
+	/*
+	 * Appearance and Playback save as they change; there is no button. A change
+	 * posts the whole form (`?/save`) 400ms after the last one, so a slider
+	 * dragged or a run of clicks is one save. Until 2026-11-10 they waited for
+	 * a Save button, beside switches that looked as if they had taken effect.
+	 *
+	 * `sent` is the form as last posted or as the server last sent it. The
+	 * server's values re-seed the local copy only while nothing newer is
+	 * waiting: a change made while a save is on its way survives that save's
+	 * answer, and is posted after it.
+	 */
+	let saveForm = $state<HTMLFormElement | null>(null);
+	let sent = untrack(() => JSON.stringify(data.settings));
+
 	$effect(() => {
-		settings = { ...data.settings };
+		const fresh = data.settings;
+		const local = untrack(() => JSON.stringify(settings));
+		if (local !== sent) return;
+		settings = { ...fresh };
+		sent = JSON.stringify(fresh);
+	});
+
+	$effect(() => {
+		const now = JSON.stringify(settings);
+		if (now === sent || saving) return;
+		const timer = setTimeout(() => {
+			sent = now;
+			saveForm?.requestSubmit();
+		}, 400);
+		return () => clearTimeout(timer);
 	});
 
 	const expiry = $derived(
@@ -629,6 +684,7 @@
 				onclickcapture={(event) => selectTab(event, entry.id)}
 			>
 				{entry.label}
+				{#if entry.id === 'storage' && unseenFeatures.length > 0}<span class="dot" role="img" aria-label=", features to look at"></span>{/if}
 			</a>
 		{/each}
 	</nav>
@@ -642,6 +698,8 @@
 	<form
 		method="POST"
 		action="?/save"
+		bind:this={saveForm}
+		aria-busy={saving}
 		hidden={shown !== 'appearance' && shown !== 'playback'}
 		use:enhance={() => {
 			saving = true;
@@ -842,17 +900,11 @@
 			</label>
 		</section>
 
-		<div class="submit-row">
-			<button class="hh-button hh-button--primary" type="submit" disabled={saving}>
-				{saving ? 'Saving…' : 'Save settings'}
-			</button>
-		</div>
 	</form>
 
 	<!--
 		Kept in this browser, for the headphones or speakers it plays through, and
-		applied as they are changed. Below the save button, outside its form, so
-		where it stands says it is not saved with the rest. Its inputs have no
+		applied as they are changed. Outside the save form; its inputs have no
 		names either way.
 	-->
 	<section class="hh-card hh-glass group" id="this-browser" hidden={shown !== 'playback'}>
@@ -1955,7 +2007,7 @@
 	{/if}
 
 	{#if data.features}
-		<section class="hh-card hh-glass group" id="features" hidden={shown !== 'features'}>
+		<section class="hh-card hh-glass group" id="features" hidden={shown !== 'storage'}>
 			<div class="group-head">
 				<h2>Features</h2>
 			</div>
@@ -2167,6 +2219,17 @@
 		}
 	}
 
+	/* Features off and not yet seen, for an administrator. */
+	.tab .dot {
+		display: inline-block;
+		margin-left: 0.4rem;
+		vertical-align: 0.1em;
+		width: 0.45rem;
+		height: 0.45rem;
+		border-radius: 50%;
+		background: var(--accent);
+	}
+
 	.tab {
 		padding: 0.35rem 0.8rem;
 		border-radius: var(--r-pill);
@@ -2237,6 +2300,12 @@
 
 	.row.switch {
 		grid-template-columns: minmax(0, 1fr) auto;
+	}
+
+	/* A menu's value ends at the card's right edge, where a switch ends. It
+	   sat at the left of its 16rem column, a column away from the switches. */
+	.row > :global(.hh-select) {
+		justify-self: end;
 	}
 
 	.label {
@@ -2380,16 +2449,6 @@
 
 	.band .gain {
 		color: var(--text-strong);
-	}
-
-	.submit-row {
-		display: flex;
-		justify-content: flex-end;
-	}
-
-	.submit-row .hh-button {
-		padding: 0.6rem 1.3rem;
-		border-radius: var(--r-md);
 	}
 
 	.facts {

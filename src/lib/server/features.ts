@@ -10,8 +10,8 @@
  * and the like) name another host and stay environment-only.
  *
  * A new feature that is off by default goes in `FEATURES`: Settings lists it,
- * and every administrator is told of it once on the home page
- * (`featuresSeen` in settings) while it is off. Profile pages are the one
+ * and every administrator sees a dot on Settings until opening its Server
+ * tab (`featuresSeen` in settings) while it is off. Profile pages are the one
  * that is on until switched off (`defaultOn`): a page is shown beyond its own
  * account, to the others here or through a public link, only once that
  * account chooses to.
@@ -113,7 +113,7 @@ export function featureStates(): FeatureState[] {
 	}));
 }
 
-/** The features that are off and that `seen` does not hold, for the notice on an administrator's home page. */
+/** The features that are off and that `seen` does not hold: a dot on an administrator's links to Settings (`notices.svelte.ts`). */
 export function unseenFeatures(seen: readonly string[]): FeatureState[] {
 	return featureStates().filter((feature) => !feature.on && !seen.includes(feature.id));
 }
