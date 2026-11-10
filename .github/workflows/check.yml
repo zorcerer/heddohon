@@ -1,7 +1,10 @@
 # `check` runs on every pull request and on every push to `dev` and `main`:
 # `npm run check`, which is `svelte-kit sync` followed by
 # `svelte-check --fail-on-warnings`, so a warning fails the job as well as an
-# error. It takes about 25 seconds.
+# error. It also runs `npm audit` on the server's runtime dependencies, and a
+# known vulnerability of high or critical severity in one of them fails the
+# job; the tooling (`devDependencies`) is not audited, since none of it is in
+# the image. It takes about 30 seconds. CodeQL is in `codeql.yml`.
 #
 # `test` builds the app and runs it against the mock music servers in
 # `tests/`: the HTTP suite (`test:e2e`), the curl suite (`tests/e2e/run.sh`,
@@ -49,6 +52,10 @@ jobs:
       - run: npm ci --no-audit --no-fund
 
       - run: npm run check
+
+      # The packages the image ships with. A finding of moderate or low
+      # severity is printed and does not fail the job.
+      - run: npm audit --omit=dev --audit-level=high
 
   test:
     # On a merge, a release and a run started by hand. Not for a pull request.
