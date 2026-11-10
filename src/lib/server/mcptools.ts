@@ -13,11 +13,12 @@
  * body. An argument that is wrong comes back as a failed call the assistant
  * reads, which is how the protocol asks for it.
  */
-import type { Album, AlbumDetail, AlbumSort, Artist, ArtistDetail, Playlist, PlaylistDetail, Song, StarKind } from '$lib/types';
+import type { Album, AlbumDetail, AlbumSort, Artist, ArtistDetail, Playlist, PlaylistDetail, Song, StarKind } from '#lib/types.ts';
 import type { LibraryContext } from './library';
 import { albumDetail, artistDetail, forgetDetails } from './details';
 import { forgetListings, remembered } from './listings';
 import { forgetSharedItems } from './shares';
+import { heldSmartIds } from './smartplaylists';
 import { dailyMixes } from './mixes';
 import { listeningStats, periodStart, recentPlays, STATS_PERIODS, type StatsPeriod } from './history';
 
@@ -165,6 +166,13 @@ function album(item: Album): Record<string, unknown> {
 
 const artist = (item: Artist) =>
 	lean({ id: item.id, name: item.name, albums: item.albumCount, favourite: item.starred });
+
+/** As `/api/playlists/[id]/tracks` refuses it: the next evaluation would undo the edit. */
+async function refuseHeldSmart(accountId: string, playlistId: string): Promise<void> {
+	if ((await heldSmartIds(accountId)).has(playlistId)) {
+		throw new ToolInputError('That is a smart playlist, filled from its rules; its songs cannot be changed by hand');
+	}
+}
 
 function playlist(item: Playlist): Record<string, unknown> {
 	return lean({
@@ -343,8 +351,9 @@ export const TOOLS: Tool[] = [
 		description: 'Your playlists, and the public ones of other accounts. Those marked readOnly take no songs added or removed: another account\'s, and a smart playlist, which the music server fills from its rules.',
 		inputSchema: object({}),
 		writes: false,
-		async run({ backend, credential }) {
-			return { playlists: (await backend.getPlaylists(credential)).map(playlist) };
+		async run({ backend, credential, accountId }) {
+			const [playlists, held] = await Promise.all([backend.getPlaylists(credential), heldSmartIds(accountId)]);
+			return { playlists: playlists.map((item) => playlist(held.has(item.id) ? { ...item, tracksEditable: false } : item)) };
 		}
 	},
 	{
@@ -353,7 +362,10 @@ export const TOOLS: Tool[] = [
 		description: 'A playlist with its entries in order. Each entry has its position, counted from 0.',
 		inputSchema: object({ id: ID }, ['id']),
 		writes: false,
-		run: async ({ backend, credential }, args) => playlistWithSongs(await backend.getPlaylist(credential, id(args)))
+		async run({ backend, credential, accountId }, args) {
+			const [item, held] = await Promise.all([backend.getPlaylist(credential, id(args)), heldSmartIds(accountId)]);
+			return playlistWithSongs(held.has(item.id) ? { ...item, tracksEditable: false } : item);
+		}
 	},
 	{
 		name: 'get_daily_mixes',
@@ -436,6 +448,7 @@ export const TOOLS: Tool[] = [
 		async run({ backend, credential, accountId }, args) {
 			const playlistId = id(args);
 			const ids = songIds(args, 'songIds', true);
+			await refuseHeldSmart(accountId, playlistId);
 			await backend.addToPlaylist(credential, playlistId, ids);
 			// A link to this playlist serves the edit on its next request.
 			forgetSharedItems(accountId);
@@ -460,6 +473,7 @@ export const TOOLS: Tool[] = [
 			// Deduplicated and bounded as `/api/playlists/[id]/tracks` does.
 			const positions = [...new Set(raw as number[])];
 			if (positions.length === 0 || positions.length > MAX_SONGS) throw new ToolInputError(`positions must hold 1 to ${MAX_SONGS} positions`);
+			await refuseHeldSmart(accountId, playlistId);
 			await backend.removeFromPlaylist(credential, playlistId, positions);
 			forgetSharedItems(accountId);
 			return { id: playlistId, removed: positions.length };

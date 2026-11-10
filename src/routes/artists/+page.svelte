@@ -2,9 +2,9 @@
 	import { goto } from '$app/navigation';
 	import { page as pageState } from '$app/state';
 	import { untrack } from 'svelte';
-	import MediaCard from '$lib/components/MediaCard.svelte';
-	import MediaGrid from '$lib/components/MediaGrid.svelte';
-	import Pager from '$lib/components/Pager.svelte';
+	import MediaCard from '#lib/components/MediaCard.svelte';
+	import MediaGrid from '#lib/components/MediaGrid.svelte';
+	import Pager from '#lib/components/Pager.svelte';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -26,15 +26,14 @@
 			const params = new URLSearchParams();
 			if (next.trim()) params.set('q', next.trim());
 			void goto(params.size ? `/artists?${params}` : '/artists', {
-				keepFocus: true,
-				replaceState: true,
-				noScroll: true
+				reset: false,
+				replace: true
 			});
 		}, 280);
 	}
 
 	function pageHref(target: number): string {
-		const params = new URLSearchParams(pageState.url.searchParams);
+		const params = new URLSearchParams(pageState.url.search);
 		params.set('page', String(target));
 		return `/artists?${params}`;
 	}

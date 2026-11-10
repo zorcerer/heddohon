@@ -1,5 +1,5 @@
-import type { Account, AuthenticatedSession } from '$lib/server/auth';
-import type { UserSettings } from '$lib/server/settings';
+import type { Account, AuthenticatedSession } from '#lib/server/auth.ts';
+import type { UserSettings } from '#lib/server/settings.ts';
 
 declare global {
 	namespace App {
@@ -20,8 +20,8 @@ declare global {
 			settings?: UserSettings;
 			sharing?: boolean;
 			downloads?: boolean;
-			/** Terminal's colour schemes from files (`schemes.ts`). */
-			customSchemes?: { id: string; name: string }[];
+			/** Colour schemes from files (`schemes.ts`), by the theme each colours. */
+			customSchemes?: { id: string; name: string; base: 'terminal' | 'dark' | 'light' | 'phosphor' }[];
 		}
 	}
 }

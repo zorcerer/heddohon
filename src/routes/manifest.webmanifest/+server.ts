@@ -1,6 +1,6 @@
 import type { RequestHandler } from './$types';
-import { config } from '$lib/server/config';
-import { THEME_GROUND } from '$lib/server/settings';
+import { config } from '#lib/server/config.ts';
+import { THEME_GROUND } from '#lib/server/settings.ts';
 
 /**
  * The web app manifest, which lets a browser install Heddohon as an app: its

@@ -1,9 +1,9 @@
 <script lang="ts">
-	import Icon from '$lib/components/Icon.svelte';
-	import MediaCard from '$lib/components/MediaCard.svelte';
-	import MediaGrid from '$lib/components/MediaGrid.svelte';
-	import Pager from '$lib/components/Pager.svelte';
-	import { playContainer, queueContainer } from '$lib/client/actions';
+	import Icon from '#lib/components/Icon.svelte';
+	import MediaCard from '#lib/components/MediaCard.svelte';
+	import MediaGrid from '#lib/components/MediaGrid.svelte';
+	import Pager from '#lib/components/Pager.svelte';
+	import { playContainer, queueContainer } from '#lib/client/actions.ts';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();

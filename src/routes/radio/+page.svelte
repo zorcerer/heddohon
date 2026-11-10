@@ -4,11 +4,12 @@
 	 * a queue of one live item (`client/radio.ts`), through this server
 	 * (`server/radio.ts`).
 	 */
-	import Icon from '$lib/components/Icon.svelte';
-	import { player } from '$lib/client/player.svelte';
-	import { radioSongId, stationSong } from '$lib/client/radio';
-	import type { RadioStation } from '$lib/types';
+	import Icon from '#lib/components/Icon.svelte';
+	import { player } from '#lib/client/player.svelte.ts';
+	import { radioSongId, stationSong } from '#lib/client/radio.ts';
+	import type { RadioStation } from '#lib/types.ts';
 	import type { PageData } from './$types';
+	import Rise from '#lib/components/Rise.svelte';
 
 	let { data }: { data: PageData } = $props();
 
@@ -39,29 +40,31 @@
 	{#if data.stations.length === 0}
 		<p class="hh-muted empty">No radio stations.</p>
 	{:else}
-		<ul class="stations hh-stagger">
-			{#each data.stations as station (station.id)}
-				{@const current = isCurrent(station)}
-				<li class="station" class:current>
-					<button
-						class="tune"
-						onclick={() => tune(station)}
-						aria-label="{current && player.engaged ? 'Pause' : 'Play'} {station.name}"
-					>
-						<span class="glyph">
-							<Icon name={current && player.engaged ? 'pause' : 'play'} size={16} />
-						</span>
-						<span class="name hh-truncate">{station.name}</span>
-					</button>
-					{#if station.homePage}
-						<!-- Another site: a new tab, told nothing about this one. -->
-						<a class="home hh-muted hh-truncate" href={station.homePage} target="_blank" rel="noopener noreferrer">
-							{hostOf(station.homePage)}
-						</a>
-					{/if}
-				</li>
-			{/each}
-		</ul>
+		<Rise>
+			<ul class="stations">
+				{#each data.stations as station (station.id)}
+					{@const current = isCurrent(station)}
+					<li class="station" class:current>
+						<button
+							class="tune"
+							onclick={() => tune(station)}
+							aria-label="{current && player.engaged ? 'Pause' : 'Play'} {station.name}"
+						>
+							<span class="glyph">
+								<Icon name={current && player.engaged ? 'pause' : 'play'} size={16} />
+							</span>
+							<span class="name hh-truncate">{station.name}</span>
+						</button>
+						{#if station.homePage}
+							<!-- Another site: a new tab, told nothing about this one. -->
+							<a class="home hh-muted hh-truncate" href={station.homePage} target="_blank" rel="noopener noreferrer">
+								{hostOf(station.homePage)}
+							</a>
+						{/if}
+					</li>
+				{/each}
+			</ul>
+		</Rise>
 	{/if}
 </div>
 

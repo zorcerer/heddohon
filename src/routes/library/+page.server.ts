@@ -1,5 +1,5 @@
 import type { PageServerLoad } from './$types';
-import { libraryContext, librarySettled } from '$lib/server/library';
+import { libraryContext, librarySettled } from '#lib/server/library.ts';
 
 /** Playlists on the shelf under the list: the ones most recently changed. */
 const PLAYLISTS_SHOWN = 12;

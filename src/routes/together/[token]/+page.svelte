@@ -14,12 +14,13 @@
 	 * added it, and a member can take back a track of their own.
 	 */
 	import { onMount, untrack } from 'svelte';
-	import { colorOfImage, DEFAULT_ARTWORK_COLOR, holdArtworkColor } from '$lib/client/artwork';
-	import { formatDuration } from '$lib/client/format';
-	import Reactions from '$lib/components/Reactions.svelte';
-	import type { FloatingReaction } from '$lib/client/together.svelte';
-	import type { MemberView, PartyState, QueueRow } from '$lib/server/together';
-	import type { Song } from '$lib/types';
+	import { colorOfImage, DEFAULT_ARTWORK_COLOR, holdArtworkColor } from '#lib/client/artwork.ts';
+	import { formatDuration } from '#lib/client/format.ts';
+	import Reactions from '#lib/components/Reactions.svelte';
+	import type { FloatingReaction } from '#lib/client/together.svelte.ts';
+	import type { MemberView, PartyState, QueueRow } from '#lib/server/together.ts';
+	import ElasticSlider from '#lib/components/bits/ElasticSlider.svelte';
+	import type { Song } from '#lib/types.ts';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -236,7 +237,7 @@
 	});
 
 	$effect(() => {
-		if (audio) audio.volume = volume;
+		if (audio) audio.volume = volume * data.volumeLimit;
 	});
 
 	/*
@@ -301,10 +302,9 @@
 				{#if !joined}
 					<button class="hh-button hh-button--primary join" onclick={join}>Join{mayAdd ? ` as ${data.viewer?.name}` : ''}</button>
 				{:else}
-					<label class="volume">
-						<span class="hh-visually-hidden">Volume</span>
-						<input type="range" min="0" max="1" step="0.05" bind:value={volume} />
-					</label>
+					<span class="volume">
+						<ElasticSlider swell={false} bind:value={volume} startingValue={0} maxValue={1} isStepped stepSize={0.05} label="Volume" />
+					</span>
 				{/if}
 			</div>
 
@@ -464,9 +464,9 @@
 		font-size: 1rem;
 	}
 
-	.volume input {
+	.volume {
+		display: block;
 		width: min(100%, 14rem);
-		accent-color: var(--glow-color);
 	}
 
 	.reacts {

@@ -1,12 +1,12 @@
 <script lang="ts">
-	import Icon from '$lib/components/Icon.svelte';
-	import MediaCard from '$lib/components/MediaCard.svelte';
-	import MediaGrid from '$lib/components/MediaGrid.svelte';
-	import Pager from '$lib/components/Pager.svelte';
-	import SortChips from '$lib/components/SortChips.svelte';
-	import { playContainer } from '$lib/client/actions';
+	import Icon from '#lib/components/Icon.svelte';
+	import MediaCard from '#lib/components/MediaCard.svelte';
+	import MediaGrid from '#lib/components/MediaGrid.svelte';
+	import Pager from '#lib/components/Pager.svelte';
+	import SortChips from '#lib/components/SortChips.svelte';
+	import { playContainer } from '#lib/client/actions.ts';
 	import { page as pageState } from '$app/state';
-	import type { AlbumSort } from '$lib/types';
+	import type { AlbumSort } from '#lib/types.ts';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -23,7 +23,7 @@
 	};
 
 	function sortHref(sort: AlbumSort): string {
-		const params = new URLSearchParams(pageState.url.searchParams);
+		const params = new URLSearchParams(pageState.url.search);
 		params.set('sort', sort);
 		// A new ordering starts at the top: the old page number is a place in a
 		// different list.
@@ -32,7 +32,7 @@
 	}
 
 	function pageHref(target: number): string {
-		const params = new URLSearchParams(pageState.url.searchParams);
+		const params = new URLSearchParams(pageState.url.search);
 		params.set('page', String(target));
 		params.set('sort', data.sort);
 		return `/albums?${params}`;

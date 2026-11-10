@@ -1,13 +1,13 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { backendFor, UpstreamError } from '$lib/server/backends';
-import { getSettings } from '$lib/server/settings';
-import { recordPlay } from '$lib/server/history';
-import { deviceLabel } from '$lib/server/device';
-import { coverBytes } from '$lib/server/coverfill';
-import { announcePlay, announceStart, DISCORD_COVER_SIZE } from '$lib/server/integrations';
-import { log, reason } from '$lib/server/log';
-import { refusedCredential } from '$lib/server/library';
+import { backendFor, UpstreamError } from '#lib/server/backends/index.ts';
+import { getSettings } from '#lib/server/settings.ts';
+import { recordPlay } from '#lib/server/history.ts';
+import { deviceLabel } from '#lib/server/device.ts';
+import { coverBytes } from '#lib/server/coverfill.ts';
+import { announcePlay, announceStart, DISCORD_COVER_SIZE } from '#lib/server/integrations.ts';
+import { log, reason } from '#lib/server/log.ts';
+import { refusedCredential } from '#lib/server/library.ts';
 
 /**
  * Now-playing and scrobble reporting. The client does not wait on it: a music

@@ -1,6 +1,6 @@
 import { fail, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
-import { config } from '$lib/server/config';
+import { config } from '#lib/server/config.ts';
 import {
 	accountOfSignIn,
 	checkSignIn,
@@ -9,12 +9,12 @@ import {
 	rememberDevice,
 	storeAccount,
 	type UpstreamSignIn
-} from '$lib/server/auth';
+} from '#lib/server/auth.ts';
 
 const MAX_USERNAME = 256;
 const MAX_PASSWORD = 1024;
-import { backendFor, isBackendKind, UpstreamError } from '$lib/server/backends';
-import { safeNext } from '$lib/server/next';
+import { backendFor, isBackendKind, UpstreamError } from '#lib/server/backends/index.ts';
+import { safeNext } from '#lib/server/next.ts';
 import {
 	clearLoginFailures,
 	loginKeys,
@@ -22,9 +22,9 @@ import {
 	refundLoginAttempt,
 	reserveLoginAttempt,
 	visitorAddress
-} from '$lib/server/ratelimit';
-import { log, reason } from '$lib/server/log';
-import { beginStep, currentStep, dropStep, finishStepWithCode, passkeysOffered, stepMethods } from '$lib/server/twofactor';
+} from '#lib/server/ratelimit.ts';
+import { log, reason } from '#lib/server/log.ts';
+import { beginStep, currentStep, dropStep, finishStepWithCode, passkeysOffered, stepMethods } from '#lib/server/twofactor.ts';
 
 export const load: PageServerLoad = async (event) => {
 	const cfg = config();

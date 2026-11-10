@@ -1,6 +1,6 @@
 import { error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { EXPORT_FORMATS, exportHistory, type ExportFormat } from '$lib/server/historyexport';
+import { EXPORT_FORMATS, exportHistory, type ExportFormat } from '#lib/server/historyexport.ts';
 
 /** The latest time a JavaScript date holds, in epoch millis. */
 const LATEST = 8.64e15;

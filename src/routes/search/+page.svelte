@@ -1,13 +1,15 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { untrack } from 'svelte';
-	import Icon from '$lib/components/Icon.svelte';
-	import MediaCard from '$lib/components/MediaCard.svelte';
-	import MediaGrid from '$lib/components/MediaGrid.svelte';
-	import SectionHeader from '$lib/components/SectionHeader.svelte';
-	import TrackList from '$lib/components/TrackList.svelte';
-	import { playContainer } from '$lib/client/actions';
+	import Icon from '#lib/components/Icon.svelte';
+	import Busy from '#lib/components/Busy.svelte';
+	import MediaCard from '#lib/components/MediaCard.svelte';
+	import MediaGrid from '#lib/components/MediaGrid.svelte';
+	import SectionHeader from '#lib/components/SectionHeader.svelte';
+	import TrackList from '#lib/components/TrackList.svelte';
+	import { playContainer } from '#lib/client/actions.ts';
 	import type { PageData } from './$types';
+	import Rise from '#lib/components/Rise.svelte';
 
 	let { data }: { data: PageData } = $props();
 
@@ -39,7 +41,7 @@
 		timer = setTimeout(() => {
 			sent = next.trim();
 			const target = sent ? `/search?q=${encodeURIComponent(sent)}` : '/search';
-			void goto(target, { keepFocus: true, replaceState: true, noScroll: true });
+			void goto(target, { reset: false, replace: true });
 		}, 1000);
 	}
 
@@ -67,7 +69,7 @@
 			spellcheck="false"
 		/>
 		{#if searching}
-			<span class="spinner" role="status" aria-label="Searching"></span>
+			<span class="spinner" role="status" aria-label="Searching"><Busy /></span>
 		{/if}
 	</div>
 
@@ -77,16 +79,18 @@
 			{#if genres.length > 0}
 				<section>
 					<SectionHeader title="Browse by genre" href="/genres" />
-					<div class="genres hh-stagger">
-						{#each genres as genre (genre.id)}
-							<a class="genre hh-glass" href="/genres/{encodeURIComponent(genre.id)}">
-								<span class="genre-name">{genre.name}</span>
-								<span class="genre-count hh-numeric hh-muted">
-									{genre.albumCount} {genre.albumCount === 1 ? 'album' : 'albums'}
-								</span>
-							</a>
-						{/each}
-					</div>
+					<Rise>
+						<div class="genres">
+							{#each genres as genre (genre.id)}
+								<a class="genre hh-glass" href="/genres/{encodeURIComponent(genre.id)}">
+									<span class="genre-name">{genre.name}</span>
+									<span class="genre-count hh-numeric hh-muted">
+										{genre.albumCount} {genre.albumCount === 1 ? 'album' : 'albums'}
+									</span>
+								</a>
+							{/each}
+						</div>
+					</Rise>
 				</section>
 			{/if}
 		{/await}
@@ -187,25 +191,12 @@
 
 	/* The same ring the play button turns while a track buffers. */
 	.spinner {
-		flex: none;
-		width: 1.1rem;
-		height: 1.1rem;
-		border-radius: 50%;
-		border: 2px solid color-mix(in srgb, var(--accent) 30%, transparent);
-		border-top-color: var(--accent);
-		animation: spin 0.7s linear infinite;
+		display: grid;
+		place-items: center;
 	}
 
-	@keyframes spin {
-		to {
-			transform: rotate(360deg);
-		}
-	}
 
 	@media (prefers-reduced-motion: reduce) {
-		.spinner {
-			animation-duration: 2.4s;
-		}
 	}
 
 	/*

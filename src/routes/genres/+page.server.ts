@@ -1,6 +1,6 @@
 import type { PageServerLoad } from './$types';
-import { library } from '$lib/server/library';
-import { remembered } from '$lib/server/listings';
+import { library } from '#lib/server/library.ts';
+import { remembered } from '#lib/server/listings.ts';
 
 export const load: PageServerLoad = async (event) => ({
 	// The same listing each genre page reads for its name; see `listings.ts`.

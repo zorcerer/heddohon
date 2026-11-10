@@ -17,12 +17,13 @@
 	 */
 	import { afterNavigate } from '$app/navigation';
 	import { navigating, page } from '$app/state';
-	import { player } from '$lib/client/player.svelte';
-	import { handOff } from '$lib/client/handoff';
-	import { DUR, EASE_OUT_CSS, popGlyph, skipGlyph } from '$lib/client/motion';
-	import { prefersReducedMotion } from '$lib/client/sleeve-transition.svelte';
+	import { player } from '#lib/client/player.svelte.ts';
+	import { handOff } from '#lib/client/handoff.ts';
+	import { DUR, EASE_OUT_CSS, popGlyph, skipGlyph } from '#lib/client/motion.ts';
+	import { prefersReducedMotion } from '#lib/client/sleeve-transition.svelte.ts';
 	import Cover from './Cover.svelte';
 	import Icon from './Icon.svelte';
+	import Busy from './Busy.svelte';
 
 	const TABS = [
 		{ href: '/', label: 'Home', icon: 'home' as const, pattern: /^\/$/ },
@@ -78,7 +79,10 @@
 		return () => removeEventListener('scroll', onScroll);
 	});
 
-	afterNavigate(() => {
+	afterNavigate(({ shallow, type }) => {
+		// SvelteKit 3 runs this for the sheet's own entry too (a shallow
+		// `goto`), which SvelteKit 2's `pushState` did not.
+		if (shallow && type === 'goto') return;
 		folded = false;
 	});
 
@@ -199,8 +203,6 @@
 					<!-- The sheet is closed, so this line is where a phone hears of a failure. -->
 					{#if player.error}
 						<span class="artist failed hh-truncate" role="alert">{player.error}</span>
-					{:else if player.notice}
-						<span class="artist hh-truncate" role="status">{player.notice}</span>
 					{:else}
 						<span class="artist hh-truncate">{song.artist ?? 'Unknown artist'}</span>
 					{/if}
@@ -218,7 +220,7 @@
 				aria-busy={player.buffering}
 			>
 				{#if player.buffering}
-					<span class="spinner" aria-hidden="true"></span>
+					<span class="spinner"><Busy /></span>
 				{:else}
 					<Icon name={player.running ? 'pause' : 'play'} size={24} strokeWidth={2.6} />
 				{/if}
@@ -412,18 +414,8 @@
 		}
 
 		.spinner {
-			width: 1.25rem;
-			height: 1.25rem;
-			border: 2px solid currentColor;
-			border-right-color: transparent;
-			border-radius: 50%;
-			animation: spin 0.8s linear infinite;
-		}
-
-		@keyframes spin {
-			to {
-				rotate: 1turn;
-			}
+			display: grid;
+			place-items: center;
 		}
 
 		/*

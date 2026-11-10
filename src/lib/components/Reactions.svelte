@@ -4,7 +4,7 @@
 	 * foot of the screen. Decoration for those watching; the reaction itself is
 	 * announced once, politely, for a screen reader.
 	 */
-	import type { FloatingReaction } from '$lib/client/together.svelte';
+	import type { FloatingReaction } from '#lib/client/together.svelte.ts';
 
 	let { reactions }: { reactions: FloatingReaction[] } = $props();
 

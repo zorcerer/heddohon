@@ -1,9 +1,9 @@
 import { error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { accountById } from '$lib/server/auth';
-import { backendFor } from '$lib/server/backends';
-import { accountOfProfileLink, coverOfSlot } from '$lib/server/profilepage';
-import { nearestCoverSize, proxySharedMedia, streamRequestFrom } from '$lib/server/proxy';
+import { accountById } from '#lib/server/auth.ts';
+import { backendFor } from '#lib/server/backends/index.ts';
+import { accountOfProfileLink, coverOfSlot } from '#lib/server/profilepage.ts';
+import { nearestCoverSize, proxySharedMedia, streamRequestFrom } from '#lib/server/proxy.ts';
 
 /**
  * A cover on a profile page reached by its public link, without a sign-in.

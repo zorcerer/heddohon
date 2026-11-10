@@ -327,7 +327,10 @@ let pendingTimer: ReturnType<typeof setTimeout> | null = null;
  */
 function requestMorph(to: ArtworkColor): void {
 	const now = Date.now();
-	if (fading && now >= fading.until) fading = null;
+	// The clock alone said a fade was over while the transition still ran: it
+	// starts a frame or more after this call, and later on a busy machine, so a
+	// colour written at the clock's end landed on a layer still on screen (#262).
+	if (fading && now >= fading.until && tintTransitions().length === 0) fading = null;
 
 	if (!fading) {
 		pending = null;
@@ -346,7 +349,7 @@ function requestMorph(to: ArtworkColor): void {
 		pending = null;
 		reverseTintLayers();
 		// A reversed transition runs for as long as the forward one had run.
-		const ran = TINT_FADE_MS - (fading.until - now);
+		const ran = Math.min(TINT_FADE_MS, TINT_FADE_MS - (fading.until - now));
 		fading = { from: shown, until: now + ran };
 		shown = to;
 		return;
@@ -354,12 +357,34 @@ function requestMorph(to: ArtworkColor): void {
 	pending = to;
 	if (pendingTimer === null) {
 		pendingTimer = setTimeout(() => {
-			pendingTimer = null;
-			const next = pending;
-			pending = null;
-			if (next) requestMorph(next);
-		}, fading.until - now + 20);
+			// The fade's own end, where the transitions are still running at the
+			// clock's. A reversed or replaced one settles as cancelled.
+			void Promise.allSettled(tintTransitions().map((transition) => transition.finished)).then(() => {
+				pendingTimer = null;
+				const next = pending;
+				pending = null;
+				if (next) requestMorph(next);
+			});
+		}, Math.max(0, fading.until - now + 20));
 	}
+}
+
+/**
+ * The `--tint-mix` transitions not yet over, on every surface: running, or held
+ * (a paused one leaves both layers on screen just the same). None with
+ * reduced motion, which leaves the clock.
+ */
+function tintTransitions(): Animation[] {
+	return [...document.querySelectorAll<HTMLElement>('.hh-tint-morph')].flatMap((surface) =>
+		surface
+			.getAnimations()
+			.filter(
+				(animation) =>
+					animation instanceof CSSTransition &&
+					animation.transitionProperty === '--tint-mix' &&
+					(animation.playState === 'running' || animation.playState === 'paused')
+			)
+	);
 }
 
 /** Sends every surface back towards the layer it was fading away from. */

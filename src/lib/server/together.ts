@@ -25,7 +25,7 @@ import type { AuthenticatedSession } from './auth';
 import { config } from './config';
 import { log } from './log';
 import { addressBucket, perVisitorAddress } from './ratelimit';
-import type { Song } from '$lib/types';
+import type { Song } from '#lib/types.ts';
 
 /** The longest a party lasts. It also ends with the host's session. */
 const PARTY_TTL_MS = 12 * 60 * 60 * 1000;

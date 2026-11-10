@@ -23,7 +23,7 @@
  * made with the row, and never by its account id.
  */
 import { randomBytes } from 'node:crypto';
-import type { BackendKind } from '$lib/types';
+import type { BackendKind } from '#lib/types.ts';
 import type { Account } from './auth';
 import { now, store } from './db';
 import { hasApps, playingInApps, playingOn, present, tell, tellEveryone, watch } from './remote';

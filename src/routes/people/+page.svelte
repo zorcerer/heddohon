@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { avatarUrl } from '$lib/client/listeners.svelte';
-	import ProfileCover from '$lib/components/ProfileCover.svelte';
+	import { avatarUrl } from '#lib/client/listeners.svelte.ts';
+	import ProfileCover from '#lib/components/ProfileCover.svelte';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();

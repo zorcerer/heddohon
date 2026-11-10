@@ -58,7 +58,7 @@ import type {
 	SearchResults,
 	Song,
 	StarKind
-} from '$lib/types';
+} from '#lib/types.ts';
 import { randomUUID } from 'node:crypto';
 import { APP_VERSION } from '../version';
 
@@ -276,6 +276,8 @@ function coverHandle(item: JellyfinItem): string | null {
 
 function toSong(item: JellyfinItem): Song {
 	const artist = item.ArtistItems?.[0] ?? item.AlbumArtists?.[0];
+	const created = item.DateCreated ? Date.parse(item.DateCreated) : NaN;
+	const played = item.UserData?.LastPlayedDate ? Date.parse(item.UserData.LastPlayedDate) : NaN;
 	return {
 		id: item.Id,
 		title: item.Name ?? 'Unknown title',
@@ -296,6 +298,8 @@ function toSong(item: JellyfinItem): Song {
 		starredAt: null,
 		playCount: item.UserData?.PlayCount ?? null,
 		rating: null,
+		createdAt: Number.isFinite(created) ? created : null,
+		lastPlayedAt: Number.isFinite(played) ? played : null,
 		quality: quality(item),
 		// Jellyfin 10.9 and later report one correction per track against its own
 		// loudness target, and no peak.
@@ -468,6 +472,9 @@ const PLAYED_SONGS_READ = 2000;
 
 /** Songs a page of `getPlayedSongs` reads. */
 const PLAYED_PAGE = 1000;
+
+/** Ids in one playlist write, added or removed: the ids go in the query string. */
+const PLAYLIST_WRITE_CHUNK = 100;
 
 /**
  * Album ids in order of the latest play of any of their songs, or of the plays
@@ -1222,6 +1229,34 @@ export const jellyfinBackend: MediaBackend = {
 			throw new UpstreamError('The playlist changed since it was loaded', 409, 'conflict');
 		}
 		await post(cred, `/Playlists/${seg(id)}/Items/${seg(entry.PlaylistItemId)}/Move/${to}`);
+	},
+
+	async replacePlaylistSongs(cred, id, songIds) {
+		const { userId } = creds(cred);
+		const items = await call<ItemsResponse>(cred, `/Playlists/${seg(id)}/Items`, { userId });
+		const entryIds = (items.Items ?? [])
+			.map((item) => item.PlaylistItemId)
+			.filter((entryId): entryId is string => typeof entryId === 'string');
+		// Added first: a failure part-way leaves the old entries beside some
+		// new ones, where removing first would leave an empty playlist. Each
+		// attempt reads the entry ids again, so a retried rewrite converges.
+		// Both calls take their ids in the query string; a Jellyfin id is 32
+		// hex characters, so 100 of them are about 3.3 KB of address.
+		for (let at = 0; at < songIds.length; at += PLAYLIST_WRITE_CHUNK) {
+			await post(cred, `/Playlists/${seg(id)}/Items`, undefined, {
+				ids: songIds.slice(at, at + PLAYLIST_WRITE_CHUNK).join(','),
+				userId
+			});
+		}
+		for (let at = 0; at < entryIds.length; at += PLAYLIST_WRITE_CHUNK) {
+			await post(
+				cred,
+				`/Playlists/${seg(id)}/Items`,
+				undefined,
+				{ entryIds: entryIds.slice(at, at + PLAYLIST_WRITE_CHUNK).join(',') },
+				'DELETE'
+			);
+		}
 	},
 
 	async removeFromPlaylist(cred, id, indices) {

@@ -6,8 +6,8 @@
  * holds open, once when the stream opens and again whenever it changes. A
  * track's position is worked out here from the time of its report.
  */
-import type { Listener, ListenersEvent } from '$lib/server/listening';
-import type { Song } from '$lib/types';
+import type { Listener, ListenersEvent } from '#lib/server/listening.ts';
+import type { Song } from '#lib/types.ts';
 import { player } from './player.svelte';
 
 /** The side of the square picture sent to the server, in pixels. Shown at 28 to 72 CSS pixels. */

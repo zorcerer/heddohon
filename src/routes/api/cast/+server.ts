@@ -1,6 +1,6 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { castPath } from '$lib/server/cast';
+import { castPath } from '#lib/server/cast.ts';
 
 /** The saved queue's cap; see `/api/play-state`. */
 const MAX_IDS = 1000;

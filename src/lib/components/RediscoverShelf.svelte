@@ -1,8 +1,8 @@
 <script lang="ts">
 	import MediaCard from './MediaCard.svelte';
 	import MediaShelf from './MediaShelf.svelte';
-	import { playContainer } from '$lib/client/actions';
-	import type { ForgottenAlbum } from '$lib/server/history';
+	import { playContainer } from '#lib/client/actions.ts';
+	import type { ForgottenAlbum } from '#lib/server/history.ts';
 
 	/**
 	 * The home page's "Rediscover", set as the stacks of a library: covers

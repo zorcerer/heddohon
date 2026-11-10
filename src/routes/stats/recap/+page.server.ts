@@ -1,5 +1,5 @@
 import type { PageServerLoad } from './$types';
-import { historySpan, listeningStats } from '$lib/server/history';
+import { historySpan, listeningStats } from '#lib/server/history.ts';
 
 /**
  * A recap of a calendar year (`?year=2025`) or a month of one

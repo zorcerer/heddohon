@@ -5,11 +5,13 @@
 	 * and saved on the music server once the listener has seen it.
 	 */
 	import { goto } from '$app/navigation';
-	import Icon from '$lib/components/Icon.svelte';
-	import { decode, readPlaylistFile, type FilePlaylist, type FileTrack } from '$lib/client/playlistfile';
-	import { createPlaylist } from '$lib/client/playlists.svelte';
-	import { formatDuration } from '$lib/client/format';
-	import type { Song } from '$lib/types';
+	import Icon from '#lib/components/Icon.svelte';
+	import Check from '#lib/components/Check.svelte';
+	import Select from '#lib/components/Select.svelte';
+	import { decode, readPlaylistFile, type FilePlaylist, type FileTrack } from '#lib/client/playlistfile.ts';
+	import { createPlaylist } from '#lib/client/playlists.svelte.ts';
+	import { formatDuration } from '#lib/client/format.ts';
+	import type { Song } from '#lib/types.ts';
 
 	/** What one request asks for and one playlist holds; see `MAX_IMPORT_TRACKS`. */
 	const MAX_TRACKS = 1000;
@@ -128,11 +130,11 @@
 			{#if playlists.length > 1}
 				<label class="field">
 					<span>Playlist in the file</span>
-					<select class="hh-input" value={String(chosen)} onchange={(event) => choose(Number(event.currentTarget.value))}>
-						{#each playlists as playlist, index (index)}
-							<option value={String(index)}>{playlist.name} ({playlist.tracks.length})</option>
-						{/each}
-					</select>
+					<Select label="Playlist in the file"
+						value={String(chosen)}
+						onchange={(index) => choose(Number(index))}
+						options={playlists.map((playlist, index) => ({ value: String(index), label: `${playlist.name} (${playlist.tracks.length})` }))}
+					/>
 				</label>
 			{/if}
 			<label class="field">
@@ -166,7 +168,7 @@
 						{#each list as row, index (index)}
 							<li class:none={!row.song}>
 								{#if row.song}
-									<input type="checkbox" bind:checked={row.keep} aria-label="Keep {row.song.title}" />
+									<Check bind:checked={row.keep} ariaLabel="Keep {row.song.title}" />
 								{/if}
 								<span class="wanted">
 									<span class="title hh-truncate">{row.wanted.title}</span>
@@ -286,10 +288,6 @@
 
 	li.none {
 		grid-template-columns: minmax(0, 1fr);
-	}
-
-	li input {
-		accent-color: var(--accent);
 	}
 
 	.wanted,

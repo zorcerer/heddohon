@@ -1,6 +1,6 @@
 import { error } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
-import { accountOfProfileLink, pageOf } from '$lib/server/profilepage';
+import { accountOfProfileLink, pageOf } from '#lib/server/profilepage.ts';
 
 /** A profile page by its public link, for anyone holding it; see `profilepage.ts`. */
 export const load: PageServerLoad = async ({ params }) => {

@@ -1,7 +1,7 @@
 import { error } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
-import { library } from '$lib/server/library';
-import { radioEnabled, radioStations } from '$lib/server/radio';
+import { library } from '#lib/server/library.ts';
+import { radioEnabled, radioStations } from '#lib/server/radio.ts';
 
 /** The music server's internet radio stations. Not there for a server without them, or with `HEDDOHON_RADIO=false`. */
 export const load: PageServerLoad = async (event) => {

@@ -1,9 +1,9 @@
 <script lang="ts">
-	import type { Album } from '$lib/types';
+	import type { Album } from '#lib/types.ts';
 	import Cover from './Cover.svelte';
-	import { ambience } from '$lib/client/ambience.svelte';
-	import { warmAlbumCover } from '$lib/client/format';
-	import { contextMenu } from '$lib/client/context-menu.svelte';
+	import { ambience } from '#lib/client/ambience.svelte.ts';
+	import { warmAlbumCover } from '#lib/client/format.ts';
+	import { contextMenu } from '#lib/client/context-menu.svelte.ts';
 
 	/**
 	 * An album at list size: a small cover beside its title and artist, for a

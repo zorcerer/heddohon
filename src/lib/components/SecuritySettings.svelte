@@ -1,9 +1,10 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
-	import { replaceState } from '$app/navigation';
+	import { goto } from '$app/navigation';
 	import QrCode from './QrCode.svelte';
-	import { createPasskey, passkeyFailure, passkeysAvailable, usePasskey } from '$lib/client/webauthn';
+	import Switch from './Switch.svelte';
+	import { createPasskey, passkeyFailure, passkeysAvailable, usePasskey } from '#lib/client/webauthn.ts';
 
 	/**
 	 * Settings, Security: the account's second factors (issue #225). Every
@@ -125,9 +126,9 @@
 		else if (result === 'expired') problem = 'That link took too long, or was finished in another browser. Try again.';
 		else if (result === 'unreachable') problem = `${provider} could not be reached. Try again shortly.`;
 		else problem = `${provider} did not complete the link. Try again.`;
-		const url = new URL(page.url);
+		const url = new URL(page.url.href);
 		url.searchParams.delete('oidc');
-		replaceState(url, page.state);
+		goto(url, { shallow: true, replace: true, state: page.state });
 	}
 
 	/** Runs `work` with the buttons held, and reports what it threw. */
@@ -529,7 +530,7 @@
 				}}
 			>
 				<label class="switch">
-					<input type="checkbox" bind:checked={requireOn} disabled={admin.fromEnvironment} />
+					<Switch bind:checked={requireOn} disabled={admin.fromEnvironment} />
 					<span>
 						Require a second factor
 						{#if admin.fromEnvironment}

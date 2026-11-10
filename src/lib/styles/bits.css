@@ -1,0 +1,12 @@
+/*
+ * Tailwind's utilities, for the Svelte Bits components in
+ * `lib/components/bits/` and nothing else: they are styled with them, and
+ * kept as they came so a newer version can be taken in. No preflight, so the
+ * app's own element styles are untouched, and the classes are read from that
+ * folder alone. Both are in layers, so the app's own unlayered styles win
+ * where a class of the app's has the same name (`block`, `grid`).
+ */
+@layer theme, utilities;
+@import 'tailwindcss/theme.css' layer(theme);
+@import 'tailwindcss/utilities.css' layer(utilities) source(none);
+@source '../components/bits';

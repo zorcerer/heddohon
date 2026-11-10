@@ -19,7 +19,7 @@
  * recorded.
  */
 import { store } from './db';
-import type { Song } from '$lib/types';
+import type { Song } from '#lib/types.ts';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 

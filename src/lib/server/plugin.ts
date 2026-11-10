@@ -44,7 +44,7 @@ import { log } from './log';
 import { foldName } from './names';
 import { reportApp } from './remote';
 import { getSettings } from './settings';
-import type { BackendKind, Song } from '$lib/types';
+import type { BackendKind, Song } from '#lib/types.ts';
 
 /** Plays in one message as they happen. The plugin sends one. */
 export const MAX_PLAYS = 100;

@@ -1,20 +1,101 @@
 <script lang="ts">
-	import { enhance } from '$app/forms';
-	import { invalidateAll, replaceState } from '$app/navigation';
+	import { enhance, type SubmitFunction } from '$app/forms';
+	import { refreshAll, goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import type { SubmitFunction } from '@sveltejs/kit';
 	import { untrack } from 'svelte';
-	import Cover from '$lib/components/Cover.svelte';
-	import Avatar from '$lib/components/Avatar.svelte';
-	import Icon from '$lib/components/Icon.svelte';
-	import SecuritySettings from '$lib/components/SecuritySettings.svelte';
-	import { avatarUrl, listeners } from '$lib/client/listeners.svelte';
-	import { player } from '$lib/client/player.svelte';
-	import { EQ_FREQUENCIES, EQ_RANGE_DB } from '$lib/client/audiochain';
-	import { EQ_PRESETS, processing } from '$lib/client/processing.svelte';
-	import { APP_KINDS, APP_RELEASES, installer, INSTALL_STEPS } from '$lib/client/install.svelte';
-	import { formatBytes, formatLongDuration } from '$lib/client/format';
-	import type { ReportStatus } from '$lib/server/libraryreport';
+	import Cover from '#lib/components/Cover.svelte';
+	import Avatar from '#lib/components/Avatar.svelte';
+	import Icon from '#lib/components/Icon.svelte';
+	import SecuritySettings from '#lib/components/SecuritySettings.svelte';
+	import Switch from '#lib/components/Switch.svelte';
+	import Select from '#lib/components/Select.svelte';
+	import ElasticSlider from '#lib/components/bits/ElasticSlider.svelte';
+	import FadeContent from '#lib/components/bits/FadeContent.svelte';
+	import { avatarUrl, listeners } from '#lib/client/listeners.svelte.ts';
+	import { player } from '#lib/client/player.svelte.ts';
+	import { EQ_FREQUENCIES, EQ_RANGE_DB } from '#lib/client/audiochain.ts';
+	import { EQ_PRESETS, processing } from '#lib/client/processing.svelte.ts';
+	import { APP_KINDS, APP_RELEASES, installer, INSTALL_STEPS } from '#lib/client/install.svelte.ts';
+	import { formatBytes, formatLongDuration } from '#lib/client/format.ts';
+	import type { ReportStatus } from '#lib/server/libraryreport.ts';
+
+	// The choices of the selects below, as each names them.
+	const THEMES = [
+		{ value: 'terminal', label: 'Terminal' },
+		{ value: 'dark', label: 'Liquid' },
+		{ value: 'light', label: 'Paper' },
+		{ value: 'phosphor', label: 'Phosphor' }
+	] as const;
+	const TERMINAL_SCHEME_OPTIONS = [
+		{ value: 'heddohon', label: 'Heddohon' },
+		{ value: 'nord', label: 'Nord' },
+		{ value: 'dracula', label: 'Dracula' },
+		{ value: 'gruvbox', label: 'Gruvbox' },
+		{ value: 'catppuccin', label: 'Catppuccin' },
+		{ value: 'tokyo-night', label: 'Tokyo Night' },
+		{ value: 'solarized', label: 'Solarized' },
+		{ value: 'one-dark', label: 'One Dark' },
+		{ value: 'monokai', label: 'Monokai' },
+		{ value: 'everforest', label: 'Everforest' }
+	];
+	const ACCENTS = [
+		{ value: 'artwork', label: 'From the artwork' },
+		{ value: 'green', label: 'Green' },
+		{ value: 'amber', label: 'Amber' },
+		{ value: 'cyan', label: 'Cyan' },
+		{ value: 'violet', label: 'Violet' },
+		{ value: 'rose', label: 'Rose' },
+		{ value: 'white', label: 'White' }
+	] as const;
+	const DOTS = [
+		{ value: 'off', label: 'Off' },
+		{ value: 'faint', label: 'Faint' },
+		{ value: 'medium', label: 'Medium' },
+		{ value: 'strong', label: 'Strong' }
+	] as const;
+	const PLAYER_ART = [
+		{ value: 'dither', label: 'Dots' },
+		{ value: 'plain', label: 'Plain' },
+		{ value: 'scanlines', label: 'Scanlines' },
+		{ value: 'duotone', label: 'Duotone' }
+	] as const;
+	const SCALES = (['100', '110', '125', '150', '175'] as const).map((value) => ({ value, label: `${value}%` }));
+	const FONTS = [
+		{ value: 'inter', label: 'Inter' },
+		{ value: 'geist', label: 'Geist' },
+		{ value: 'plex', label: 'IBM Plex Sans' },
+		{ value: 'atkinson', label: 'Atkinson Hyperlegible' },
+		{ value: 'system', label: 'System' }
+	] as const;
+	const GRID_SIZES = [
+		{ value: 'compact', label: 'Compact' },
+		{ value: 'comfortable', label: 'Comfortable' },
+		{ value: 'roomy', label: 'Roomy' }
+	] as const;
+	const ALBUM_SORTS = [
+		{ value: 'recentlyAdded', label: 'Recently added' },
+		{ value: 'alphabetical', label: 'A–Z' },
+		{ value: 'byArtist', label: 'By artist' },
+		{ value: 'byYear', label: 'By year' },
+		{ value: 'mostPlayed', label: 'Most played' }
+	] as const;
+	const AURORAS = [
+		{ value: 'moving', label: 'Moving' },
+		{ value: 'still', label: 'Still' },
+		{ value: 'off', label: 'Off' }
+	] as const;
+	const TRANSITIONS = [
+		{ value: 'off', label: 'Hard cut' },
+		{ value: 'gapless', label: 'Tight handoff' },
+		{ value: 'crossfade', label: 'Crossfade' }
+	] as const;
+	const CODECS = [
+		{ value: 'mp3', label: 'MP3' },
+		{ value: 'opus', label: 'Opus' },
+		{ value: 'aac', label: 'AAC' }
+	] as const;
+	const BITRATES = [96, 128, 192, 256, 320].map((kbps) => ({ value: String(kbps), label: `${kbps} kbps` }));
+
 
 	/** One of Heddohon's own apps for this system, where there is one; see `install.svelte.ts`. */
 	const appKind = $derived(
@@ -94,6 +175,22 @@
 
 	// A local editable copy; re-seeded whenever the server sends new values.
 	let settings = $state(untrack(() => ({ ...data.settings })));
+	/** The colour schemes from files for the chosen theme, other than Terminal (`schemes.ts`). */
+	const themeSchemes = $derived(data.customSchemes.filter((scheme) => scheme.base === settings.theme));
+	/** Terminal's own schemes, written into `terminal-schemes.css`. */
+	const TERMINAL_SCHEMES = ['heddohon', 'nord', 'dracula', 'gruvbox', 'catppuccin', 'tokyo-night', 'solarized', 'one-dark', 'monokai', 'everforest'];
+	/**
+	 * A scheme colours one theme. A theme changed to one it does not colour goes
+	 * back to that theme's own colours, so the scheme menu never shows a value it
+	 * does not list.
+	 */
+	function keepScheme() {
+		const offered =
+			settings.theme === 'terminal'
+				? TERMINAL_SCHEMES.includes(settings.scheme) || data.customSchemes.some((scheme) => scheme.id === settings.scheme && scheme.base === 'terminal')
+				: settings.scheme === 'heddohon' || themeSchemes.some((scheme) => scheme.id === settings.scheme);
+		if (!offered) settings.scheme = 'heddohon';
+	}
 	let saving = $state(false);
 	let clearing = $state(false);
 	let clearingHistory = $state(false);
@@ -274,7 +371,7 @@
 		)
 	);
 
-	function tabFrom(url: URL): Tab {
+	function tabFrom(url: { readonly searchParams: { has(name: string): boolean; get(name: string): string | null } }): Tab {
 		const requested = url.searchParams.get('tab');
 		if (TABS.some((entry) => entry.id === requested)) return requested as Tab;
 		// The way back from last.fm lands on the section that started it.
@@ -301,7 +398,7 @@
 		if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
 		event.preventDefault();
 		tab = next;
-		replaceState(`?tab=${next}`, page.state);
+		goto(`?tab=${next}`, { shallow: true, replace: true, state: page.state });
 	}
 
 	// A browser signs out only sessions that began before it did.
@@ -342,7 +439,7 @@
 		const was = filling;
 		fill = await response.json();
 		// The loader reports the held size, which the fill has changed.
-		if (was && !filling) await invalidateAll();
+		if (was && !filling) await refreshAll();
 	}
 
 	$effect(() => {
@@ -457,7 +554,7 @@
 			linking = service;
 			return async ({ update }) => {
 				await update({ reset: false });
-				await invalidateAll();
+				await refreshAll();
 				linking = null;
 			};
 		};
@@ -472,7 +569,7 @@
 			mcpBusy = busy;
 			return async ({ update }) => {
 				await update({ reset: true });
-				await invalidateAll();
+				await refreshAll();
 				mcpBusy = null;
 			};
 		};
@@ -487,7 +584,7 @@
 			return async ({ update }) => {
 				// Reset, so a webhook address or a token does not stay in the field.
 				await update({ reset: true });
-				await invalidateAll();
+				await refreshAll();
 				integrating = null;
 			};
 		};
@@ -527,8 +624,8 @@
 				class:active={entry.id === shown}
 				href="?tab={entry.id}"
 				aria-current={entry.id === shown ? 'page' : undefined}
-				data-sveltekit-noscroll
-				data-sveltekit-preload-data="off"
+				data-sveltekit-reset="false"
+				data-sveltekit-preload-data="false"
 				onclickcapture={(event) => selectTab(event, entry.id)}
 			>
 				{entry.label}
@@ -537,7 +634,9 @@
 	</nav>
 
 	{#if form?.saved}
-		<p class="saved" role="status">Settings saved.</p>
+		<FadeContent duration={300} threshold={0}>
+			<p class="saved" role="status">Settings saved.</p>
+		</FadeContent>
 	{/if}
 
 	<form
@@ -551,7 +650,7 @@
 				// The action returns only this page's data. Settings also drive the
 				// layout (theme, grid density, player behaviour), so the layout load
 				// re-runs.
-				await invalidateAll();
+				await refreshAll();
 				saving = false;
 			};
 		}}
@@ -563,12 +662,7 @@
 
 			<label class="row">
 				<span class="label">Theme</span>
-				<select class="hh-input control" name="theme" bind:value={settings.theme}>
-					<option value="terminal">Terminal</option>
-					<option value="dark">Liquid</option>
-					<option value="light">Paper</option>
-					<option value="phosphor">Phosphor</option>
-				</select>
+				<Select label="Theme" name="theme" bind:value={settings.theme} onchange={keepScheme} options={THEMES} />
 			</label>
 
 			<!-- Terminal's own four, of which Phosphor has the accent. Liquid and
@@ -577,125 +671,85 @@
 			{#if settings.theme === 'terminal'}
 				<label class="row">
 					<span class="label">Colour scheme</span>
-					<select class="hh-input control" name="scheme" bind:value={settings.scheme}>
-						<option value="heddohon">Heddohon</option>
-						<option value="nord">Nord</option>
-						<option value="dracula">Dracula</option>
-						<option value="gruvbox">Gruvbox</option>
-						<option value="catppuccin">Catppuccin</option>
-						<option value="tokyo-night">Tokyo Night</option>
-						<option value="solarized">Solarized</option>
-						<option value="one-dark">One Dark</option>
-						<option value="monokai">Monokai</option>
-						<option value="everforest">Everforest</option>
-						{#each data.customSchemes as scheme (scheme.id)}
-							<option value={scheme.id}>{scheme.name}</option>
-						{/each}
-					</select>
+					<Select label="Colour scheme"
+						name="scheme"
+						bind:value={settings.scheme}
+						options={[
+							...TERMINAL_SCHEME_OPTIONS,
+							...data.customSchemes.filter((scheme) => scheme.base === 'terminal').map((scheme) => ({ value: scheme.id, label: scheme.name }))
+						]}
+					/>
+				</label>
+			{:else if themeSchemes.length}
+				<!-- Liquid, Paper and Phosphor have no schemes of their own: one from a
+				     file (`schemes.ts`) is offered under the theme it colours. -->
+				<label class="row">
+					<span class="label">Colour scheme</span>
+					<Select label="Colour scheme"
+						name="scheme"
+						bind:value={settings.scheme}
+						options={[{ value: 'heddohon', label: 'Heddohon' }, ...themeSchemes.map((scheme) => ({ value: scheme.id, label: scheme.name }))]}
+					/>
 				</label>
 			{/if}
 
 			{#if settings.theme === 'terminal' || settings.theme === 'phosphor'}
 				<label class="row">
 					<span class="label">Accent</span>
-					<select class="hh-input control" name="accent" bind:value={settings.accent}>
-						<option value="artwork">From the artwork</option>
-						<option value="green">Green</option>
-						<option value="amber">Amber</option>
-						<option value="cyan">Cyan</option>
-						<option value="violet">Violet</option>
-						<option value="rose">Rose</option>
-						<option value="white">White</option>
-					</select>
+					<Select label="Accent" name="accent" bind:value={settings.accent} options={ACCENTS} />
 				</label>
 			{/if}
 
 			{#if settings.theme === 'terminal'}
 				<label class="row">
 					<span class="label">Background dots</span>
-					<select class="hh-input control" name="dots" bind:value={settings.dots}>
-						<option value="off">Off</option>
-						<option value="faint">Faint</option>
-						<option value="medium">Medium</option>
-						<option value="strong">Strong</option>
-					</select>
+					<Select label="Background dots" name="dots" bind:value={settings.dots} options={DOTS} />
 				</label>
 
 				<label class="row">
 					<span class="label">Player artwork</span>
-					<select class="hh-input control" name="playerArt" bind:value={settings.playerArt}>
-						<option value="dither">Dots</option>
-						<option value="plain">Plain</option>
-						<option value="scanlines">Scanlines</option>
-						<option value="duotone">Duotone</option>
-					</select>
+					<Select label="Player artwork" name="playerArt" bind:value={settings.playerArt} options={PLAYER_ART} />
 				</label>
 			{/if}
 
 			<label class="row">
 				<span class="label">Interface scale</span>
-				<select class="hh-input control" name="uiScale" bind:value={settings.uiScale}>
-					<option value="100">100%</option>
-					<option value="110">110%</option>
-					<option value="125">125%</option>
-					<option value="150">150%</option>
-					<option value="175">175%</option>
-				</select>
+				<Select label="Interface scale" name="uiScale" bind:value={settings.uiScale} options={SCALES} />
 			</label>
 
 			<label class="row">
 				<span class="label">Font</span>
 				<!-- In the face chosen, before it is saved; see `[data-font]` in app.css. -->
-				<select class="hh-input control font" name="font" data-font={settings.font} bind:value={settings.font}>
-					<option value="manrope">
-						{settings.theme === 'terminal' ? 'JetBrains Mono' : settings.theme === 'phosphor' ? 'Barlow' : 'Manrope'}
-					</option>
-					<option value="inter">Inter</option>
-					<option value="geist">Geist</option>
-					<option value="plex">IBM Plex Sans</option>
-					<option value="atkinson">Atkinson Hyperlegible</option>
-					<option value="system">System</option>
-				</select>
+				<Select label="Font"
+					name="font"
+					bind:value={settings.font}
+					options={[
+						{ value: 'manrope', label: settings.theme === 'terminal' ? 'JetBrains Mono' : settings.theme === 'phosphor' ? 'Barlow' : 'Manrope' },
+						...FONTS
+					]}
+				/>
 			</label>
 
 			<label class="row">
 				<span class="label">Grid density</span>
-				<select class="hh-input control" name="gridSize" bind:value={settings.gridSize}>
-					<option value="compact">Compact</option>
-					<option value="comfortable">Comfortable</option>
-					<option value="roomy">Roomy</option>
-				</select>
+				<Select label="Grid density" name="gridSize" bind:value={settings.gridSize} options={GRID_SIZES} />
 			</label>
 
 			<label class="row">
 				<span class="label">Default album sort</span>
-				<select
-					class="hh-input control"
-					name="defaultAlbumSort"
-					bind:value={settings.defaultAlbumSort}
-				>
-					<option value="recentlyAdded">Recently added</option>
-					<option value="alphabetical">A–Z</option>
-					<option value="byArtist">By artist</option>
-					<option value="byYear">By year</option>
-					<option value="mostPlayed">Most played</option>
-				</select>
+				<Select label="Default album sort" name="defaultAlbumSort" bind:value={settings.defaultAlbumSort} options={ALBUM_SORTS} />
 			</label>
 
 			<label class="row switch">
 				<span class="label">Show quality badge</span>
-				<input type="checkbox" name="showQualityBadge" bind:checked={settings.showQualityBadge} />
+				<Switch name="showQualityBadge" bind:checked={settings.showQualityBadge} />
 			</label>
 
 			<!-- Terminal and Phosphor have no glass and no room behind it for a glow. -->
 			{#if settings.theme !== 'terminal' && settings.theme !== 'phosphor'}
 				<label class="row">
 					<span class="label">Aurora</span>
-					<select class="hh-input control" name="aurora" bind:value={settings.aurora}>
-						<option value="moving">Moving</option>
-						<option value="still">Still</option>
-						<option value="off">Off</option>
-					</select>
+					<Select label="Aurora" name="aurora" bind:value={settings.aurora} options={AURORAS} />
 				</label>
 			{/if}
 		</section>
@@ -707,11 +761,7 @@
 
 			<label class="row">
 				<span class="label">Track transitions</span>
-				<select class="hh-input control" name="transition" bind:value={settings.transition}>
-					<option value="off">Hard cut</option>
-					<option value="gapless">Tight handoff</option>
-					<option value="crossfade">Crossfade</option>
-				</select>
+				<Select label="Track transitions" name="transition" bind:value={settings.transition} options={TRANSITIONS} />
 			</label>
 
 			{#if settings.transition === 'crossfade'}
@@ -723,21 +773,23 @@
 						{/if}
 					</span>
 					<span class="control range">
-						<input
-							type="range"
-							name="crossfadeSeconds"
-							min="1"
-							max="12"
-							step="1"
+						<ElasticSlider
+							swell={false}
 							bind:value={settings.crossfadeSeconds}
+							startingValue={1}
+							maxValue={12}
+							isStepped
+							stepSize={1}
+							valueText="{settings.crossfadeSeconds} seconds"
 						/>
+						<input type="hidden" name="crossfadeSeconds" value={settings.crossfadeSeconds} />
 						<span class="hh-numeric">{settings.crossfadeSeconds}s</span>
 					</span>
 				</label>
 
 				<label class="row switch">
 					<span class="label">Crossfade within an album</span>
-					<input type="checkbox" name="crossfadeWithinAlbum" bind:checked={settings.crossfadeWithinAlbum} />
+					<Switch name="crossfadeWithinAlbum" bind:checked={settings.crossfadeWithinAlbum} />
 				</label>
 			{:else}
 				<input type="hidden" name="crossfadeSeconds" value={settings.crossfadeSeconds} />
@@ -748,19 +800,19 @@
 
 			<label class="row switch">
 				<span class="label">Preload the next track</span>
-				<input type="checkbox" name="preloadNext" bind:checked={settings.preloadNext} />
+				<Switch name="preloadNext" bind:checked={settings.preloadNext} />
 			</label>
 
 			<label class="row switch">
 				<span class="label">Volume normalisation</span>
-				<input type="checkbox" name="normalizeVolume" bind:checked={settings.normalizeVolume} />
+				<Switch name="normalizeVolume" bind:checked={settings.normalizeVolume} />
 			</label>
 
 			<label class="row switch">
 				<span class="label">
 					Report playback to {data.serverLabel}
 				</span>
-				<input type="checkbox" name="reportPlayback" bind:checked={settings.reportPlayback} />
+				<Switch name="reportPlayback" bind:checked={settings.reportPlayback} />
 			</label>
 		</section>
 
@@ -771,31 +823,22 @@
 
 			<label class="row switch">
 				<span class="label">Transcode audio</span>
-				<input type="checkbox" name="transcode" bind:checked={settings.transcode} />
+				<Switch name="transcode" bind:checked={settings.transcode} />
 			</label>
 
 			<label class="row">
 				<span class="label">Codec</span>
-				<select class="hh-input control" name="transcodeCodec" bind:value={settings.transcodeCodec}>
-					<option value="mp3">MP3</option>
-					<option value="opus">Opus</option>
-					<option value="aac">AAC</option>
-				</select>
+				<Select label="Codec" name="transcodeCodec" bind:value={settings.transcodeCodec} options={CODECS} />
 			</label>
 
 			<label class="row">
 				<span class="label">Bitrate</span>
-				<select
-					class="hh-input control"
+				<Select label="Bitrate"
 					name="transcodeBitrateKbps"
-					bind:value={settings.transcodeBitrateKbps}
-				>
-					<option value={96}>96 kbps</option>
-					<option value={128}>128 kbps</option>
-					<option value={192}>192 kbps</option>
-					<option value={256}>256 kbps</option>
-					<option value={320}>320 kbps</option>
-				</select>
+					value={String(settings.transcodeBitrateKbps)}
+					onchange={(kbps) => (settings.transcodeBitrateKbps = Number(kbps))}
+					options={BITRATES}
+				/>
 			</label>
 		</section>
 
@@ -824,56 +867,47 @@
 					<span class="hint hh-muted">Switched off; this page keeps processing until it is loaded again.</span>
 				{/if}
 			</span>
-			<input
-				type="checkbox"
-				checked={processing.enabled}
-				onchange={(event) => processing.setEnabled(event.currentTarget.checked)}
-			/>
+			<Switch checked={processing.enabled} onchange={(on) => processing.setEnabled(on)} />
 		</label>
 
 		{#if processing.enabled}
 			<label class="row switch">
 				<span class="label">Visualiser</span>
-				<input
-					type="checkbox"
-					checked={processing.visualiser}
-					onchange={(event) => processing.setVisualiser(event.currentTarget.checked)}
-				/>
+				<Switch checked={processing.visualiser} onchange={(on) => processing.setVisualiser(on)} />
 			</label>
 
 			<label class="row" class:set-aside={processing.bandsOff}>
 				<span class="label">Equaliser</span>
-				<select
-					class="hh-input control"
+				<Select label="Equaliser"
 					disabled={processing.bandsOff}
 					value={processing.preset ?? ''}
-					onchange={(event) => processing.applyPreset(event.currentTarget.value)}
-				>
-					{#if processing.preset === null}
-						<option value="">Custom</option>
-					{/if}
-					{#each Object.entries(EQ_PRESETS) as [key, preset] (key)}
-						<option value={key}>{preset.label}</option>
-					{/each}
-				</select>
+					onchange={(key) => processing.applyPreset(key)}
+					options={[
+						...(processing.preset === null ? [{ value: '', label: 'Custom' }] : []),
+						...Object.entries(EQ_PRESETS).map(([key, preset]) => ({ value: key, label: preset.label }))
+					]}
+				/>
 			</label>
 
 			<div class="eq" class:set-aside={processing.bandsOff} role="group" aria-label="Equaliser bands">
 				{#each EQ_FREQUENCIES as frequency, band (frequency)}
-					<label class="band">
-						<span class="gain hh-numeric">{processing.gains[band] > 0 ? '+' : ''}{processing.gains[band]}</span>
-						<input
-							type="range"
-							min={-EQ_RANGE_DB}
-							max={EQ_RANGE_DB}
-							step="1"
-							value={processing.gains[band]}
-							aria-label="{bandLabel(frequency)}Hz, in dB"
-							disabled={processing.bandsOff}
-							oninput={(event) => processing.setGain(band, Number(event.currentTarget.value))}
-						/>
+					<div class="band">
 						<span class="hz hh-numeric">{bandLabel(frequency)}</span>
-					</label>
+						<span class="band-slider">
+							<ElasticSlider
+								swell={false}
+								value={processing.gains[band]}
+								startingValue={-EQ_RANGE_DB}
+								maxValue={EQ_RANGE_DB}
+								isStepped
+								stepSize={1}
+								label="{bandLabel(frequency)}Hz, in dB"
+								disabled={processing.bandsOff}
+								onchange={(gain) => processing.setGain(band, gain)}
+							/>
+						</span>
+						<span class="gain hh-numeric">{processing.gains[band] > 0 ? '+' : ''}{processing.gains[band]}</span>
+					</div>
 				{/each}
 			</div>
 
@@ -1033,7 +1067,7 @@
 								ending = entry.handle;
 								return async ({ update }) => {
 									await update({ reset: false });
-									await invalidateAll();
+									await refreshAll();
 									ending = null;
 								};
 							}}
@@ -1068,7 +1102,7 @@
 						ending = 'others';
 						return async ({ update }) => {
 							await update({ reset: false });
-							await invalidateAll();
+							await refreshAll();
 							ending = null;
 						};
 					}}
@@ -1107,14 +1141,10 @@
 
 			<label class="row switch">
 				<span class="label">Show others what I play</span>
-				<input
-					type="checkbox"
+				<Switch
 					checked={profile.shown}
 					disabled={profileBusy}
-					onchange={(event) => {
-						const shown = event.currentTarget.checked;
-						void saveProfile(() => listeners.save({ shown }));
-					}}
+					onchange={(shown) => void saveProfile(() => listeners.save({ shown }))}
 				/>
 			</label>
 
@@ -1122,11 +1152,7 @@
 			{#if data.plugin}
 				<label class="row switch">
 					<span class="label">Include what I play in other apps</span>
-					<input
-						type="checkbox"
-						checked={listeningOtherApps}
-						onchange={(event) => void showOtherApps(event.currentTarget.checked)}
-					/>
+					<Switch checked={listeningOtherApps} onchange={(on) => void showOtherApps(on)} />
 				</label>
 			{/if}
 
@@ -1413,7 +1439,7 @@
 						mcpBusy = 'switch';
 						return async ({ update }) => {
 							await update({ reset: false });
-							await invalidateAll();
+							await refreshAll();
 							mcpBusy = null;
 						};
 					}}
@@ -1425,7 +1451,7 @@
 								<span class="hint hh-muted">Set by HEDDOHON_MCP in the environment.</span>
 							{/if}
 						</span>
-						<input type="checkbox" name="mcp" checked={mcp.on} disabled={mcp.admin.fromEnvironment} />
+						<Switch name="mcp" checked={mcp.on} disabled={mcp.admin.fromEnvironment} />
 					</label>
 					{#if form && 'mcpSwitchError' in form && form.mcpSwitchError}
 						<p class="hh-muted note-inline" role="alert">{form.mcpSwitchError}</p>
@@ -1503,7 +1529,7 @@
 						</div>
 						<label class="row switch">
 							<span class="label">May change the library</span>
-							<input type="checkbox" name="writes" checked />
+							<Switch name="writes" checked />
 						</label>
 					</form>
 				{/if}
@@ -1584,7 +1610,7 @@
 								withdrawing = share.id;
 								return async ({ update }) => {
 									await update({ reset: false });
-									await invalidateAll();
+									await refreshAll();
 									withdrawing = null;
 								};
 							}}
@@ -1612,7 +1638,7 @@
 					withdrawing = 'all';
 					return async ({ update }) => {
 						await update({ reset: false });
-						await invalidateAll();
+						await refreshAll();
 						withdrawing = null;
 					};
 				}}
@@ -1671,7 +1697,7 @@
 						await update({ reset: false });
 						// The loader reports the held size, so the figures above only
 						// follow the clear once it has re-run.
-						await invalidateAll();
+						await refreshAll();
 						clearing = false;
 					};
 				}}
@@ -1692,7 +1718,7 @@
 			<h3 class="subhead">Cache every cover</h3>
 			<label class="row switch">
 				<span class="label">Keep it filled</span>
-				<input type="checkbox" bind:checked={daily} onchange={saveDaily} />
+				<Switch bind:checked={daily} onchange={saveDaily} />
 			</label>
 			{#if filling}
 				<div class="fill">
@@ -1940,7 +1966,7 @@
 					featuresBusy = true;
 					return async ({ update }) => {
 						await update({ reset: false });
-						await invalidateAll();
+						await refreshAll();
 						featuresBusy = false;
 					};
 				}}
@@ -1953,7 +1979,7 @@
 								<span class="hint hh-muted">Set by {feature.variable} in the environment.</span>
 							{/if}
 						</span>
-						<input type="checkbox" name={feature.id} checked={feature.on} disabled={feature.fromEnvironment} />
+						<Switch name={feature.id} checked={feature.on} disabled={feature.fromEnvironment} />
 					</label>
 				{/each}
 				{#if form && 'featuresError' in form && form.featuresError}
@@ -1973,15 +1999,15 @@
 
 		<label class="row">
 			<span class="label">Keep</span>
-			<select
-				class="hh-input"
+			<Select label="Keep"
 				value={String(historyDays)}
-				onchange={(event) => void keepHistory(Number(event.currentTarget.value))}
-			>
-				<option value="0">Forever</option>
-				<option value="90">90 days, up to 5,000 plays</option>
-				<option value="365">A year, up to 50,000 plays</option>
-			</select>
+				onchange={(days) => void keepHistory(Number(days))}
+				options={[
+					{ value: '0', label: 'Forever' },
+					{ value: '90', label: '90 days, up to 5,000 plays' },
+					{ value: '365', label: 'A year, up to 50,000 plays' }
+				]}
+			/>
 		</label>
 
 		{#if data.plugin}
@@ -1992,18 +2018,14 @@
 						<span class="hint hh-muted">Its Heddohon plugin has not been heard from in the last minute.</span>
 					{/if}
 				</span>
-				<input
-					type="checkbox"
-					checked={historyOtherApps}
-					onchange={(event) => void keepOtherApps(event.currentTarget.checked)}
-				/>
+				<Switch checked={historyOtherApps} onchange={(on) => void keepOtherApps(on)} />
 			</label>
 		{/if}
 
 		{#if data.newReleasesOffered}
 			<label class="row switch">
 				<span class="label">New releases on the home page</span>
-				<input type="checkbox" checked={newReleases} onchange={(event) => void showNewReleases(event.currentTarget.checked)} />
+				<Switch checked={newReleases} onchange={(on) => void showNewReleases(on)} />
 			</label>
 		{/if}
 
@@ -2018,10 +2040,13 @@
 		<h3 class="subhead">Export</h3>
 		<label class="row">
 			<span class="label">Format</span>
-			<select class="hh-input control" bind:value={exportFormat}>
-				<option value="csv">CSV</option>
-				<option value="json">JSON (ListenBrainz)</option>
-			</select>
+			<Select label="Format"
+				bind:value={exportFormat}
+				options={[
+					{ value: 'csv', label: 'CSV' },
+					{ value: 'json', label: 'JSON (ListenBrainz)' }
+				]}
+			/>
 		</label>
 		<label class="row">
 			<span class="label">From</span>
@@ -2052,7 +2077,7 @@
 				importingHistory = true;
 				return async ({ update }) => {
 					await update({ reset: false });
-					await invalidateAll();
+					await refreshAll();
 					importingHistory = false;
 				};
 			}}
@@ -2089,7 +2114,7 @@
 				clearingHistory = true;
 				return async ({ update }) => {
 					await update({ reset: false });
-					await invalidateAll();
+					await refreshAll();
 					clearingHistory = false;
 				};
 			}}
@@ -2173,15 +2198,8 @@
 
 	/* Fades in. Opacity only, on the notice itself: it is a pane of glass, and
 	   transforms are kept off glass (see the design notes in the wiki). */
-	@keyframes saved-in {
-		from {
-			opacity: 0;
-		}
-	}
-
 	.saved {
 		margin: 0;
-		animation: saved-in var(--dur-state) var(--ease-out);
 		padding: var(--space-3) var(--space-4);
 		background: color-mix(in srgb, var(--positive) 16%, var(--field-face));
 		-webkit-backdrop-filter: var(--control-blur);
@@ -2235,16 +2253,8 @@
 		max-width: 48ch;
 	}
 
-	.font {
-		font-family: var(--font-ui);
-	}
-
 	.control {
 		width: 100%;
-	}
-
-	select.hh-input {
-		cursor: pointer;
 	}
 
 	.range {
@@ -2253,15 +2263,12 @@
 		gap: var(--space-3);
 	}
 
-	.range input[type='range'] {
+	.range > :global(.slider-container) {
 		flex: 1;
-		accent-color: var(--accent);
 	}
 
-	/* Ten upright sliders, the way an equaliser is read: low bands on the left. */
 	.eq {
 		display: grid;
-		grid-template-columns: repeat(10, minmax(0, 1fr));
 		gap: var(--space-1);
 	}
 
@@ -2351,36 +2358,28 @@
 	}
 
 	/* Greyed while a headphone correction is in use; the controls are disabled as well. */
-	.eq.set-aside,
-	.row.set-aside select {
+	.eq.set-aside {
 		opacity: 0.4;
 	}
 
+	/* A band a row, the lowest at the top: the frequency, the slider, the gain.
+	   ElasticSlider reads the pointer across, so the bands are not upright. */
 	.band {
 		display: grid;
-		justify-items: center;
-		gap: var(--space-1);
+		grid-template-columns: 3rem minmax(0, 1fr) 2.5rem;
+		align-items: center;
+		gap: var(--space-3);
 		font-size: 0.75rem;
 		color: var(--text-muted);
+		--bits-slider-pad: 0.25rem 0;
 	}
 
-	.band input[type='range'] {
-		writing-mode: vertical-lr;
-		direction: rtl;
-		height: 8rem;
-		width: 1.5rem;
-		accent-color: var(--accent);
+	.band .gain {
+		text-align: right;
 	}
 
 	.band .gain {
 		color: var(--text-strong);
-	}
-
-	input[type='checkbox'] {
-		width: 1.15rem;
-		height: 1.15rem;
-		accent-color: var(--accent);
-		cursor: pointer;
 	}
 
 	.submit-row {

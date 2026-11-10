@@ -1,12 +1,13 @@
-import { isRedirect, redirect, type Handle, type HandleServerError, type RequestEvent, type ServerInit } from '@sveltejs/kit';
-import { building, version } from '$app/environment';
-import { resolveSession } from '$lib/server/auth';
-import { hasSecondFactor } from '$lib/server/twofactor';
-import { getSettings, defaultSettings, groundOf } from '$lib/server/settings';
-import { customSchemeStyle } from '$lib/server/schemes';
-import { ConfigError, SetupRequired, config } from '$lib/server/config';
-import { announceSetup, forgetPending } from '$lib/server/setup';
-import { FALLBACK_HTML_CSP, SECURITY_HEADERS } from '$lib/headers';
+import { isRedirect, redirect, type RequestEvent } from '@sveltejs/kit';
+import type { Handle, HandleServerError, ServerInit } from '@sveltejs/kit/hooks';
+import { building, version } from '$app/env';
+import { resolveSession } from '#lib/server/auth.ts';
+import { hasSecondFactor } from '#lib/server/twofactor.ts';
+import { getSettings, defaultSettings, groundOf } from '#lib/server/settings.ts';
+import { colourStyle } from '#lib/server/schemes.ts';
+import { ConfigError, SetupRequired, config } from '#lib/server/config.ts';
+import { announceSetup, forgetPending } from '#lib/server/setup.ts';
+import { FALLBACK_HTML_CSP, SECURITY_HEADERS } from '#lib/headers.ts';
 import {
 	isEnabled,
 	log,
@@ -16,10 +17,10 @@ import {
 	reason,
 	redact,
 	withRequest
-} from '$lib/server/log';
-import { logKeepDays } from '$lib/server/logfile';
-import { keepCoversFilled } from '$lib/server/coverfill';
-import { closeStore, store } from '$lib/server/db';
+} from '#lib/server/log.ts';
+import { logKeepDays } from '#lib/server/logfile.ts';
+import { keepCoversFilled } from '#lib/server/coverfill.ts';
+import { closeStore, store } from '#lib/server/db.ts';
 
 /**
  * Routes reachable without a session.
@@ -230,6 +231,8 @@ async function setupRequest(event: RequestEvent, resolve: Parameters<Handle>[0][
 					// The manifest is made from the configuration, which is what is
 					// missing. The setup page is not one to install.
 					.replace('<link rel="manifest" href="/manifest.webmanifest" />', '')
+					// The root's colours under Terminal's, as on every other page.
+					.replace('</head>', `${colourStyle()}</head>`)
 		});
 		harden(response.headers);
 		return response;
@@ -522,8 +525,9 @@ const handleRequest: Handle = async ({ event, resolve }) => {
 				// would resize the page in front of the reader.
 				.replace('data-scale="100"', `data-scale="${shown.uiScale}"`)
 				.replace('data-font="manrope"', `data-font="${shown.font}"`)
-				// Colour schemes from files, from checked colours alone (`schemes.ts`).
-				.replace('</head>', `${customSchemeStyle()}</head>`)
+				// Liquid's and Paper's colours and the colour schemes from files, from
+				// checked colours alone (`schemes.ts`).
+				.replace('</head>', `${colourStyle()}</head>`)
 	});
 
 	harden(response.headers);
@@ -538,7 +542,12 @@ const handleRequest: Handle = async ({ event, resolve }) => {
 	return response;
 };
 
-export const handleError: HandleServerError = ({ error, status, event }) => {
+export const handleError: HandleServerError = ({ kind, error, event }) => {
+	// An `error(...)` of the app's own keeps its status and message: each was
+	// written for the person reading it. SvelteKit 2 never passed these here,
+	// and the message below would replace every one of them.
+	if (kind === 'app') return;
+	const status = kind === 'unknown' ? 500 : error.status;
 	// The stack behind a 5xx. A 400 for a malformed escape or a 405 for a POST
 	// to a page is the client's doing, and `/share` gives those to anyone, so
 	// at error level an anonymous visitor could write stack traces into the log

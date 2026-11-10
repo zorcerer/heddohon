@@ -1,11 +1,12 @@
 <script lang="ts">
-	import Cover from '$lib/components/Cover.svelte';
-	import Icon from '$lib/components/Icon.svelte';
-	import Pager from '$lib/components/Pager.svelte';
-	import TrackList from '$lib/components/TrackList.svelte';
-	import { fetchTracks } from '$lib/client/actions';
-	import { player } from '$lib/client/player.svelte';
+	import Cover from '#lib/components/Cover.svelte';
+	import Icon from '#lib/components/Icon.svelte';
+	import Pager from '#lib/components/Pager.svelte';
+	import TrackList from '#lib/components/TrackList.svelte';
+	import { fetchTracks } from '#lib/client/actions.ts';
+	import { player } from '#lib/client/player.svelte.ts';
 	import type { PageData } from './$types';
+	import Rise from '#lib/components/Rise.svelte';
 
 	let { data }: { data: PageData } = $props();
 
@@ -85,23 +86,25 @@
 	</header>
 
 	{#if data.folders.length > 0}
-		<ul class="folders hh-stagger" aria-label="Folders">
-			{#each data.folders as entry (entry.id)}
-				<li>
-					<a class="folder" href={href(entry.id)}>
-						<span class="glyph">
-							{#if entry.coverArt}
-								<Cover coverArt={entry.coverArt} size={96} alt="" radius="var(--r-sm)" fill />
-							{:else}
-								<Icon name="folder" size={20} />
-							{/if}
-						</span>
-						<span class="name hh-truncate">{entry.name}</span>
-						<Icon name="chevron-right" size={16} />
-					</a>
-				</li>
-			{/each}
-		</ul>
+		<Rise>
+			<ul class="folders" aria-label="Folders">
+				{#each data.folders as entry (entry.id)}
+					<li>
+						<a class="folder" href={href(entry.id)}>
+							<span class="glyph">
+								{#if entry.coverArt}
+									<Cover coverArt={entry.coverArt} size={96} alt="" radius="var(--r-sm)" fill />
+								{:else}
+									<Icon name="folder" size={20} />
+								{/if}
+							</span>
+							<span class="name hh-truncate">{entry.name}</span>
+							<Icon name="chevron-right" size={16} />
+						</a>
+					</li>
+				{/each}
+			</ul>
+		</Rise>
 	{/if}
 
 	{#if data.songs.length > 0}

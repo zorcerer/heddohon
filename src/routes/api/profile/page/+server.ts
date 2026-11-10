@@ -1,7 +1,7 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { UpstreamError } from '$lib/server/backends';
-import { refusedCredential } from '$lib/server/library';
+import { UpstreamError } from '#lib/server/backends/index.ts';
+import { refusedCredential } from '#lib/server/library.ts';
 import {
 	cleanBio,
 	FAVOURITE_SLOTS,
@@ -12,7 +12,7 @@ import {
 	profilesOn,
 	savePage,
 	withdrawProfileLink
-} from '$lib/server/profilepage';
+} from '#lib/server/profilepage.ts';
 
 /** This account's profile page and what it has chosen about it; see `profilepage.ts`. */
 export const GET: RequestHandler = async ({ locals }) => {

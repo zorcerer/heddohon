@@ -142,6 +142,33 @@ describe('how long a sign-in lasts', () => {
 	});
 });
 
+describe('the volume limit', () => {
+	/** The factor the layout hands every page, read from the data in the sign-in page. */
+	async function served(env) {
+		const set = await startApp({ subsonicUrl: subsonic.url, jellyfinUrl: jellyfin.url, env, healthy: false });
+		try {
+			const response = await fetch(`${set.url}/login`);
+			return { status: response.status, factor: Number(/volumeLimit:([\d.]+)/.exec(await response.text())?.[1]) };
+		} finally {
+			await set.stop();
+		}
+	}
+
+	test('a full slider plays at full level unless set', async () => {
+		assert.deepEqual(await served({}), { status: 200, factor: 1 });
+	});
+
+	test('HEDDOHON_VOLUME_LIMIT is a percentage, held between 1 and 100', async () => {
+		for (const [percent, factor] of [['50', 0.5], ['7', 0.07], ['0', 0.01], ['250', 1]]) {
+			assert.deepEqual(await served({ HEDDOHON_VOLUME_LIMIT: percent }), { status: 200, factor }, `set to ${percent}`);
+		}
+	});
+
+	test('a value that is not a number is a configuration the server refuses', async () => {
+		assert.equal((await served({ HEDDOHON_VOLUME_LIMIT: 'loud' })).status, 500);
+	});
+});
+
 describe('the gate', () => {
 	test('/healthz answers without a session and names no upstream URL', async () => {
 		const response = await fetch(`${app.url}/healthz`);
@@ -462,7 +489,8 @@ describe('settings', () => {
 			assert.match(style, /\[data-scheme='rose-pine'\] \{\n\t--bg-base: #191724;/);
 			assert.match(style, /\[data-scheme='rose-pine'\]\[data-accent='amber'\]/);
 			assert.doesNotMatch(style, /too-light|sneaky|url\(/);
-			assert.match((await client.page('/settings')).html, /<option value="rose-pine"[^>]*>Rosé Pine<\/option>/);
+			// The select draws its options when opened; the page carries them as data.
+			assert.match((await client.page('/settings')).html, /"rose-pine"[\s\S]{0,200}?Rosé Pine/);
 			await app.stop({ keepData: true });
 
 			// The file taken away: back on Terminal's own, and nothing in the head.
@@ -471,6 +499,178 @@ describe('settings', () => {
 			client.base = app.url;
 			assert.equal((await (await client.json('/api/settings', 'GET')).json()).scheme, 'heddohon');
 			assert.doesNotMatch((await client.page('/')).html, /hh-schemes/);
+		} finally {
+			await app.stop();
+		}
+	});
+
+	/*
+	 * #182, version 2: a file names the theme it colours. Liquid, Paper and
+	 * Phosphor keep their layout, glass and glow, and take the file's colours,
+	 * checked for contrast on the surface; a ground the wrong way round for
+	 * its theme is refused, and a fixed accent is held to 4.5:1 under its label.
+	 */
+	test('a theme file colours Liquid, Paper or Phosphor, checked like a Terminal scheme', async () => {
+		const dataDir = mkdtempSync(join(tmpdir(), 'heddohon-e2e-themefiles-'));
+		mkdirSync(join(dataDir, 'themes'));
+		const write = (id, body) => writeFileSync(join(dataDir, 'themes', `${id}.json`), JSON.stringify({ heddohon: 2, ...body }));
+		write('harbour', { name: 'Harbour', base: 'liquid', ground: '#0d1117', raised: '#1c2128', foreground: '#f0f3f6', accent: '#58a6ff' });
+		write('linen', { name: 'Linen', base: 'paper', ground: '#f6f1e7', raised: '#fffdf8', foreground: '#1f1a14' });
+		write('amber-crt', { name: 'Amber CRT', base: 'phosphor', ground: '#0c0a06', raised: '#1a160d', foreground: '#ffd28a' });
+		write('dark-paper', { name: 'Dark paper', base: 'paper', ground: '#101010', raised: '#202020', foreground: '#f0f0f0' });
+		write('no-base', { name: 'No base', ground: '#0d1117', raised: '#1c2128', foreground: '#f0f3f6' });
+		write('faint-text', { name: 'Faint', base: 'liquid', ground: '#0d1117', raised: '#1c2128', foreground: '#3a3f46' });
+		const app = await startApp({ subsonicUrl: subsonic.url, jellyfinUrl: jellyfin.url, dataDir, env: { HEDDOHON_DEFAULT_THEME: 'liquid' } });
+		const client = new Client(app.url);
+		try {
+			await client.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' });
+			// The files are read at the first page drawn.
+			await client.page('/');
+			const output = app.output();
+			assert.match(output, /scheme-refused.*dark-paper\.json.*too dark: Paper/);
+			assert.match(output, /scheme-refused.*no-base\.json.*is not one of liquid, paper, terminal, phosphor/);
+			assert.match(output, /scheme-refused.*faint-text\.json.*foreground/);
+
+			assert.equal((await (await client.json('/api/settings', 'PATCH', { theme: 'dark', scheme: 'harbour' })).json()).scheme, 'harbour');
+			const { html } = await client.page('/');
+			assert.match(html, /data-theme="dark"/);
+			assert.match(html, /data-scheme="harbour"/);
+			assert.match(html, /name="theme-color" content="#0d1117"/);
+			const style = html.match(/<style id="hh-schemes">([\s\S]*?)<\/style>/)?.[1] ?? '';
+			assert.match(style, /:root\[data-theme='dark'\]\[data-scheme='harbour'\] \{\n\t--bg-base: #0d1117;/);
+			assert.match(style, /:root\[data-theme='light'\]\[data-scheme='linen'\]/);
+			assert.match(style, /:root\[data-theme='phosphor'\]\[data-scheme='amber-crt'\]/);
+			// A fixed accent sets the accent, and the cover's hue under it; one left
+			// out leaves the theme's accent, which follows the cover.
+			const harbour = style.match(/\[data-scheme='harbour'\] \{([^}]*)\}/)?.[1] ?? '';
+			assert.match(harbour, /--accent: #[0-9a-f]{6};/);
+			assert.match(harbour, /--accent-contrast: #[0-9a-f]{6};/);
+			assert.doesNotMatch(style.match(/\[data-scheme='linen'\] \{([^}]*)\}/)?.[1] ?? '', /--accent:/);
+			assert.doesNotMatch(style, /dark-paper|no-base|faint-text/);
+
+			// Each theme's own menu lists its files; Terminal's lists none of them.
+			const settings = (await client.page('/settings')).html;
+			assert.match(settings, /"harbour"[\s\S]{0,200}?Harbour/);
+			// A scheme for another theme draws nothing in this one, and the ground
+			// is the theme's own.
+			await client.json('/api/settings', 'PATCH', { theme: 'terminal' });
+			assert.match((await client.page('/')).html, /name="theme-color" content="#08090a"/);
+		} finally {
+			await app.stop();
+		}
+	});
+
+	/*
+	 * #182, step 3: Liquid's and Paper's own colours are two files of that
+	 * format, read by what reads a file from the data directory and written
+	 * into the head of every page. The values are the ones `app.css` held
+	 * until then, Liquid's under the root's own selector, so Terminal and
+	 * Phosphor still stand on them for what they do not set.
+	 */
+	test("Liquid's and Paper's own colours are theme files, written into the head of every page", async () => {
+		const LIQUID = `:root,
+[data-theme='dark'] {
+	--bg-base: #0b0c0f;
+	--bg-sunken: #07080a;
+	--bg-surface: #111317;
+	--bg-raised: #181a1f;
+	--bg-hover: #202329;
+	--bg-active: #292c33;
+	--text-strong: #f7f8fa;
+	--text-default: #e1e3e7;
+	--text-muted: #a2a6ae;
+	--text-faint: #767a84;
+	--text-muted-through: #b7b9bd;
+	--text-faint-through: #95979b;
+	--border-hairline: #1f2227;
+	--border-strong: #30343c;
+	--positive: #7fc8a9;
+	--danger: #e0777f;
+}`;
+		const PAPER = `[data-theme='light'] {
+	--bg-base: #f0e7d5;
+	--bg-sunken: #e6ddcc;
+	--bg-surface: #f5eee1;
+	--bg-raised: #faf5eb;
+	--bg-hover: #eae1cf;
+	--bg-active: #e3d9c6;
+	--text-strong: #2e241a;
+	--text-default: #453b30;
+	--text-muted: #594f43;
+	--text-faint: #6c6256;
+	--text-muted-through: #4f463b;
+	--text-faint-through: #62584c;
+	--border-hairline: #d8cfbe;
+	--border-strong: #c0b6a6;
+	--positive: #4f6b3a;
+	--danger: #9c2b1b;
+}`;
+		const own = (html) => html.match(/<style id="hh-themes">\n([\s\S]*?)\n<\/style>/)?.[1] ?? '';
+		const dataDir = mkdtempSync(join(tmpdir(), 'heddohon-e2e-ownthemes-'));
+		mkdirSync(join(dataDir, 'themes'));
+		const write = (id, body) =>
+			writeFileSync(
+				join(dataDir, 'themes', `${id}.json`),
+				JSON.stringify({ heddohon: 2, base: 'liquid', ground: '#0d1117', raised: '#1c2128', foreground: '#f0f3f6', ...body })
+			);
+		write('harbour', { name: 'Harbour' });
+		// Every colour a file may state in place of the one made for it.
+		write('stated', {
+			name: 'Stated',
+			surface: '#131820',
+			sunken: '#090c11',
+			hover: '#252b33',
+			active: '#2f363f',
+			muted: '#a9b1ba',
+			faint: '#7d8590',
+			through: { muted: '#bcc3cb', faint: '#9aa2ac' },
+			hairline: '#21262d',
+			border: '#30363d'
+		});
+		write('dim', { name: 'Dim', faint: '#5a5e66' });
+		write('dim-through', { name: 'Dim through', through: { faint: '#5a5e66' } });
+		write('odd-edge', { name: 'Odd edge', hairline: 'thin' });
+		const app = await startApp({ subsonicUrl: subsonic.url, jellyfinUrl: jellyfin.url, dataDir, env: { HEDDOHON_DEFAULT_THEME: 'liquid' } });
+		const client = new Client(app.url);
+		try {
+			// Without an account, and the two in the order `app.css` had them.
+			const login = (await client.page('/login')).html;
+			assert.equal(own(login), `/* liquid.json */\n${LIQUID}\n/* paper.json */\n${PAPER}`);
+			assert.ok(login.indexOf('id="hh-themes"') < login.indexOf('</head>'), 'the colours are not in the head');
+			assert.match(login, /name="theme-color" content="#0b0c0f"/);
+
+			await client.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' });
+			for (const theme of ['dark', 'light', 'terminal', 'phosphor']) {
+				await client.json('/api/settings', 'PATCH', { theme });
+				const { html } = await client.page('/');
+				assert.match(html, new RegExp(`data-theme="${theme}"`));
+				assert.equal(own(html), own(login), `${theme} is served other colours`);
+				// A scheme from the data directory comes after, and names its scheme.
+				assert.ok(html.indexOf('id="hh-themes"') < html.indexOf('id="hh-schemes"'), 'a file would not win over the theme');
+			}
+			await client.json('/api/settings', 'PATCH', { theme: 'light' });
+			assert.match((await client.page('/')).html, /name="theme-color" content="#f0e7d5"/);
+			for (const [theme, ground] of [['dark', '#0b0c0f'], ['light', '#f0e7d5']]) {
+				const manifest = await (await fetch(`${app.url}/manifest.webmanifest?theme=${theme}`)).json();
+				assert.equal(manifest.background_color, ground);
+			}
+
+			// What a file states is drawn as stated; what it leaves out is made.
+			const style = (await client.page('/')).html.match(/<style id="hh-schemes">([\s\S]*?)<\/style>/)?.[1] ?? '';
+			assert.match(
+				style,
+				/\[data-scheme='stated'\] \{\n\t--bg-base: #0d1117;\n\t--bg-sunken: #090c11;\n\t--bg-surface: #131820;\n\t--bg-raised: #1c2128;\n\t--bg-hover: #252b33;\n\t--bg-active: #2f363f;\n\t--text-strong: #f0f3f6;\n\t--text-default: #[0-9a-f]{6};\n\t--text-muted: #a9b1ba;\n\t--text-faint: #7d8590;\n\t--text-muted-through: #bcc3cb;\n\t--text-faint-through: #9aa2ac;\n\t--border-hairline: #21262d;\n\t--border-strong: #30363d;\n/
+			);
+			const harbour = style.match(/\[data-scheme='harbour'\] \{([^}]*)\}/)?.[1] ?? '';
+			assert.match(harbour, /--bg-surface: #151920;/);
+			assert.match(harbour, /--bg-sunken: #0b0e13;/);
+			assert.doesNotMatch(harbour, /#131820|#a9b1ba|#21262d/);
+			// A stated tone is held to 4.5:1 on the ground.
+			const output = app.output();
+			assert.match(output, /scheme-refused.*file=dim\.json.*\\"faint\\" holds 2\.\d:1 on the ground, under 4\.5:1/);
+			assert.match(output, /scheme-refused.*dim-through\.json.*\\"through\.faint\\" holds 2\.\d:1 on the ground/);
+			assert.match(output, /scheme-refused.*odd-edge\.json.*\\"hairline\\" is not a colour written #rrggbb/);
+			assert.doesNotMatch(style, /dim|odd-edge/);
 		} finally {
 			await app.stop();
 		}
@@ -1945,8 +2145,9 @@ describe('listening history', () => {
 	});
 
 	test('Recently played, Your listening and Recap are tabs of each other, under History on the rail', async () => {
-		const current = (html) => /<nav class="tabs[^"]*" aria-label="Listening history">[\s\S]*?aria-current="page"[^>]*>([^<]+)</.exec(html)?.[1];
-		const rail = (html) => /title="([^"]+)" aria-current="page"/.exec(html)?.[1];
+		// The tab open is the segment's checked radio.
+		const current = (html) => /aria-label="Listening history"[\s\S]*?aria-checked="true"[^>]*>(?:<!--[^>]*-->|\s)*([^<]+?)\s*(?:<!--|<)/.exec(html)?.[1];
+		const rail = (html) => /class="link[^"]*" href="[^"]*" aria-current="page"[^>]*>[\s\S]*?hh-visually-hidden">([^<]+)</.exec(html)?.[1];
 		for (const [path, tab] of [['/history', 'Recently played'], ['/stats', 'Your listening'], ['/stats/recap', 'Recap']]) {
 			const { html } = await user.page(path);
 			assert.equal(current(html), tab, `${path} does not mark its tab`);
@@ -2213,7 +2414,7 @@ describe('Jellyfin favourites', () => {
 		const client = new Client(app.url);
 		await client.signIn({ username: 'jfuser', password: 'jfpass', backend: 'jellyfin' });
 		const pressed = (html, title) =>
-			new RegExp(`${title}[\\s\\S]*?aria-pressed="(true|false)"[^>]*aria-label="(?:Add to|Remove from) favourites`).exec(html)?.[1];
+			new RegExp(`${title}[\\s\\S]*?aria-pressed="(true|false)"[^>]*title="(?:Add to|Remove from) favourites`).exec(html)?.[1];
 		try {
 			assert.equal(pressed((await client.page('/albums/b2')).html, 'Track 1'), 'false');
 			const starred = await client.json('/api/star', 'POST', { id: 't1', kind: 'song', starred: true });
@@ -2304,7 +2505,8 @@ describe('your listening', () => {
 		await asFreshAccount('elsewhere', async (client) => {
 			const { html } = await client.page('/stats?period=decade');
 			assert.match(html, /Nothing played since/);
-			assert.match(html, /aria-current="page"[^>]*href="\/stats\?period=month"/);
+			// The period chosen is the segment's checked radio.
+			assert.match(html, /aria-label="Period"[^>]*>(?:(?!<\/button>)[\s\S])*?aria-checked="true"[^>]*>(?:(?!<\/button>)[\s\S])*?Last 30 days/);
 		});
 	});
 
@@ -2648,7 +2850,13 @@ describe('playing things', () => {
 
 		test('is streamed as it arrives on the first request: no length, no ranges, not kept', async () => {
 			subsonic.calls.reset();
-			const response = await user.request('/api/stream/s2a?mode=mp3-192', { headers: { range: 'bytes=0-' } });
+			// Still arriving when the answer starts, as a transcode is. SvelteKit 3
+			// measures a body that has all arrived within one tick, and sends that
+			// length, which is then true.
+			subsonic.state.streamSlowMs = 50;
+			const response = await user.request('/api/stream/s2a?mode=mp3-192', { headers: { range: 'bytes=0-' } }).finally(() => {
+				subsonic.state.streamSlowMs = 0;
+			});
 			assert.equal(response.status, 200);
 			assert.equal(response.headers.get('accept-ranges'), null);
 			assert.equal(response.headers.get('content-length'), null);
@@ -3090,7 +3298,7 @@ describe('covers', () => {
 
 	test('a changed password switches off Keep it filled, and the account it runs as can switch it off without being an administrator', async () => {
 		const dailyOn = async (client) =>
-			/Keep it filled[\s\S]{0,900}?<input type="checkbox"[^>]*\schecked/.test((await client.page('/settings?tab=storage')).html);
+			/Keep it filled[\s\S]{0,1500}?role="switch"[^>]*aria-checked="true"/.test((await client.page('/settings?tab=storage')).html);
 		await asFreshAccount('keeper', async (client) => {
 			// Nobody has it on, so there is nothing of this account's to switch off.
 			subsonic.state.admin = false;
@@ -4855,9 +5063,9 @@ describe('optional features', () => {
 		const html = (await client.page('/settings?tab=features')).html;
 		const section = html.split('id="features"')[1]?.split('</section>')[0] ?? '';
 		return Object.fromEntries(
-			[...section.matchAll(/<input type="checkbox" name="([a-zA-Z]+)"([^>]*)>/g)].map(([, name, rest]) => [
+			[...section.matchAll(/<button\b(?=[^>]*\bid="switch-([a-zA-Z]+)")([^>]*)>/g)].map(([, name, rest]) => [
 				name,
-				`${/checked/.test(rest) ? 'on' : 'off'}${/disabled/.test(rest) ? ', locked' : ''}`
+				`${/aria-checked="true"/.test(rest) ? 'on' : 'off'}${/aria-disabled="true"/.test(rest) ? ', locked' : ''}`
 			])
 		);
 	};
@@ -6265,7 +6473,7 @@ describe('an AI assistant, through the MCP endpoint', () => {
 		const page = (await user.page('/settings?tab=ai')).html;
 		assert.ok(!page.includes('?/makeMcpToken'), 'Settings offers tokens on a server without the endpoint');
 		// An administrator is shown the switch, off.
-		assert.match(page, /Allow AI assistants[\s\S]*?<input type="checkbox" name="mcp"(?![^>]*checked)/);
+		assert.match(page, /Allow AI assistants[\s\S]*?<button\b(?=[^>]*\bid="switch-mcp")(?=[^>]*aria-checked="false")/);
 
 		client = new Client(on.url);
 		assert.equal((await client.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' })).status, 303);
@@ -6351,7 +6559,10 @@ describe('an AI assistant, through the MCP endpoint', () => {
 	test('keeps to the transport: one message a request, and no stream', async () => {
 		const auth = { authorization: `Bearer ${token}` };
 		assert.equal((await fetch(`${on.url}/api/mcp`, { headers: auth })).status, 405);
-		assert.equal((await fetch(`${on.url}/api/mcp`, { method: 'DELETE', headers: auth })).status, 405);
+		assert.equal((await fetch(`${on.url}/api/mcp`, { method: 'DELETE', headers: { ...auth, origin: on.url } })).status, 405);
+		// SvelteKit 3 refuses a write with no Content-Type and no Origin of the
+		// app's as a form could send it, ahead of the route.
+		assert.equal((await fetch(`${on.url}/api/mcp`, { method: 'DELETE', headers: auth })).status, 403);
 		// Without the token, those are refused as everything else is.
 		assert.equal((await fetch(`${on.url}/api/mcp`)).status, 401);
 		assert.equal((await post(token, { jsonrpc: '2.0', method: 'notifications/initialized' })).status, 202);
@@ -6753,7 +6964,7 @@ describe('smart playlists', () => {
 		assert.equal(subsonic.state.smart.has('sm-own'), false);
 	});
 
-	test('a Subsonic server that is not Navidrome, and a Jellyfin account, offer none', async () => {
+	test('a Subsonic server that is not Navidrome offers none, and Jellyfin offers the ones Heddohon keeps', async () => {
 		const navidrome = subsonic.state.navidrome;
 		subsonic.state.navidrome = null;
 		try {
@@ -6768,14 +6979,94 @@ describe('smart playlists', () => {
 		}
 		const client = new Client(app.url);
 		assert.equal((await client.signIn({ username: 'jfuser', password: 'jfpass', backend: 'jellyfin' })).status, 303);
-		assert.doesNotMatch((await client.page('/playlists')).html, /New smart playlist/);
-		assert.equal((await make(client, 'Nope', valid())).status, 404);
+		// Jellyfin has none of its own; Heddohon keeps them (`smart playlists on
+		// Jellyfin` below). A playlist made by hand still has no rules to change.
+		assert.match((await client.page('/playlists')).html, /New smart playlist/);
 		assert.equal((await setRules(client, 'jpl', valid())).status, 404);
 		// The picker still lists the playlists songs can be added to.
 		assert.deepEqual((await listed(client)).map(({ id, tracksEditable }) => ({ id, tracksEditable })), [
 			{ id: 'jpl', tracksEditable: true },
 			{ id: 'jother', tracksEditable: false }
 		]);
+	});
+});
+
+describe('smart playlists on Jellyfin', () => {
+	// Jellyfin has none of its own (#237): Heddohon keeps the rules, works the
+	// songs out from the library read with the account's credential, and writes
+	// them into a real Jellyfin playlist.
+	const client = new Client('');
+	const album = (name) => ({ match: 'all', rules: [{ field: 'album', op: 'is', value: name }], sort: 'title', order: 'asc', limit: null });
+	const entries = (id) => jellyfin.state.made.get(id)?.entries.map((entry) => entry.songId);
+	before(async () => {
+		client.base = app.url;
+		assert.equal((await client.signIn({ username: 'jfuser', password: 'jfpass', backend: 'jellyfin' })).status, 303);
+	});
+	afterEach(() => {
+		jellyfin.state.played = [];
+	});
+	after(() => {
+		// Later checks list this user's Jellyfin playlists.
+		jellyfin.state.made.clear();
+	});
+
+	test('a new one is a Jellyfin playlist holding the songs its rules match, in their order', async () => {
+		const made = await client.json('/api/playlists/smart', 'POST', { name: 'Second album', rules: album('Second') });
+		assert.equal(made.status, 201);
+		const { id } = await made.json();
+		assert.match(id, /^jsm\d+$/, 'no playlist was made on Jellyfin');
+		assert.deepEqual(entries(id), ['t1', 't2', 't3']);
+
+		// Listed as smart, and its page shows the rules and takes no edits by hand.
+		assert.match((await client.page('/playlists')).html, /smart/);
+		const { response, html } = await client.page(`/playlists/${id}`);
+		assert.equal(response.status, 200);
+		assert.match(html, /Album is “Second”/);
+		const edit = await client.json(`/api/playlists/${id}/tracks`, 'POST', { songIds: ['jt1'] });
+		assert.equal(edit.status, 409, 'a hand edit would be undone by the next evaluation');
+		assert.deepEqual(entries(id), ['t1', 't2', 't3']);
+	});
+
+	test('new rules rewrite its songs, and a rule on a field Jellyfin lacks is refused', async () => {
+		const { id } = await (await client.json('/api/playlists/smart', 'POST', { name: 'To change', rules: album('Second') })).json();
+		const changed = await client.json(`/api/playlists/${id}/rules`, 'PUT', { rules: album('First') });
+		assert.equal(changed.status, 200);
+		assert.deepEqual(entries(id), ['jt1', 'jt2', 'jt3']);
+
+		// Jellyfin keeps no ratings, so a rating rule would match nothing.
+		const rated = await client.json(`/api/playlists/${id}/rules`, 'PUT', {
+			rules: { match: 'all', rules: [{ field: 'rating', op: 'gt', value: 3 }], sort: 'title', order: 'asc', limit: null }
+		});
+		assert.equal(rated.status, 400);
+		assert.deepEqual(entries(id), ['jt1', 'jt2', 'jt3']);
+	});
+
+	test('its songs are worked out again when its page opens past the refresh time', async () => {
+		const played = { match: 'all', rules: [{ field: 'playcount', op: 'gt', value: 0 }], sort: 'playcount', order: 'desc', limit: null };
+		const { id } = await (await client.json('/api/playlists/smart', 'POST', { name: 'Played', rules: played })).json();
+		assert.deepEqual(entries(id), []);
+
+		jellyfin.state.played = [{ Id: 't2', AlbumId: 'b2', PlayCount: 4, LastPlayedDate: '2026-11-01T10:00:00Z' }];
+		// Within the refresh time the page shows what was written.
+		await client.page(`/playlists/${id}`);
+		assert.deepEqual(entries(id), []);
+
+		const { default: Database } = await import('better-sqlite3');
+		const database = new Database(join(app.dataDir, 'heddohon.db'));
+		try {
+			assert.equal(database.prepare('UPDATE smart_playlists SET evaluated_at = 0 WHERE playlist_id = ?').run(id).changes, 1);
+		} finally {
+			database.close();
+		}
+		await client.page(`/playlists/${id}`);
+		assert.deepEqual(entries(id), ['t2']);
+	});
+
+	test('a deleted one takes its rules with it', async () => {
+		const { id } = await (await client.json('/api/playlists/smart', 'POST', { name: 'Gone', rules: album('Second') })).json();
+		assert.equal((await client.request(`/api/playlists/${id}`, { method: 'DELETE' })).status, 200);
+		assert.equal(jellyfin.state.made.has(id), false);
+		assert.equal((await client.json(`/api/playlists/${id}/rules`, 'PUT', { rules: album('First') })).status, 404);
 	});
 });
 

@@ -10,8 +10,8 @@ import {
 	probe,
 	setupPending,
 	type SetupInput
-} from '$lib/server/setup';
-import { closeStore } from '$lib/server/db';
+} from '#lib/server/setup.ts';
+import { closeStore } from '#lib/server/db.ts';
 
 /** The body is a code, an address or two and a few choices. */
 const MAX_BODY = 16 * 1024;

@@ -8,7 +8,7 @@
  */
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import type { Cookies } from '@sveltejs/kit';
-import type { BackendKind } from '$lib/types';
+import type { BackendKind } from '#lib/types.ts';
 import { config } from './config';
 import { isLocalHost } from './origin';
 import {

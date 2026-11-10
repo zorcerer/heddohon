@@ -13,7 +13,7 @@
  * The side gains carry each track's ReplayGain and the crossfade. The level
  * carries the volume, mute and the sleep timer's fade. The duck goes to
  * silence and back around a pause, a skip and a seek. The correction is the
- * headphone's own filters (`$lib/autoeq`), and while one is chosen the bands
+ * headphone's own filters (`#lib/autoeq.ts`), and while one is chosen the bands
  * are held flat (`processing.svelte.ts`). The analyser is the visualiser's
  * (`Visualiser.svelte`), made the first time one asks. It reads the sound
  * after the bands and before the volume, so the bars do not shrink with the
@@ -32,7 +32,7 @@
  *  - `AudioContext.setSinkId` exists in Chromium only. Firefox sends the graph
  *    to a chosen output through a stream played by an element of its own.
  */
-import type { Correction } from '$lib/autoeq';
+import type { Correction } from '#lib/autoeq.ts';
 
 /** Band centres in Hz, the ISO octaves from 31 Hz to 16 kHz. */
 export const EQ_FREQUENCIES = [31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000] as const;

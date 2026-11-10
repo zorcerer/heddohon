@@ -8,9 +8,9 @@
  * reported when the track, the play state or the volume changes, and every 5
  * seconds while it plays, so a controlling browser shows a moving position.
  */
-import type { RemoteApp, RemoteCommand, RemotePeer, RemoteState } from '$lib/server/remote';
-import type { ListenersEvent } from '$lib/server/listening';
-import type { Song } from '$lib/types';
+import type { RemoteApp, RemoteCommand, RemotePeer, RemoteState } from '#lib/server/remote.ts';
+import type { ListenersEvent } from '#lib/server/listening.ts';
+import type { Song } from '#lib/types.ts';
 import { listeners } from './listeners.svelte';
 import { player } from './player.svelte';
 

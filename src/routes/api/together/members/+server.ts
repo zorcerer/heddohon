@@ -1,6 +1,6 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { removeMember, togetherEnabled } from '$lib/server/together';
+import { removeMember, togetherEnabled } from '#lib/server/together.ts';
 
 /** The host removes a member from the party this browser hosts, for the rest of it. */
 export const DELETE: RequestHandler = async ({ locals, request }) => {

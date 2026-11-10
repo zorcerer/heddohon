@@ -15,8 +15,8 @@
  * a graph at once. Turning it off applies at the next page load, since an
  * element cannot leave a graph (`audiochain.ts`).
  */
-import { browser } from '$app/environment';
-import { MAX_CORRECTION_BYTES, parseParametricEq, sanitizeCorrection, type CorrectionProfile } from '$lib/autoeq';
+import { browser } from '$app/env';
+import { MAX_CORRECTION_BYTES, parseParametricEq, sanitizeCorrection, type CorrectionProfile } from '#lib/autoeq.ts';
 import { EQ_FREQUENCIES, EQ_RANGE_DB } from './audiochain';
 import { player } from './player.svelte';
 

@@ -4,11 +4,12 @@
 	 * page renders hundreds of track rows, and a picker per row would make
 	 * hundreds of requests for the same list.
 	 */
-	import { playlistPicker } from '$lib/client/playlists.svelte';
-	import { formatLongDuration } from '$lib/client/format';
+	import { playlistPicker } from '#lib/client/playlists.svelte.ts';
+	import { formatLongDuration } from '#lib/client/format.ts';
 	import Icon from './Icon.svelte';
 	import { slide } from 'svelte/transition';
-	import { DUR, easeOut, motion } from '$lib/client/motion';
+	import { DUR, easeOut, motion } from '#lib/client/motion.ts';
+	import Rise from './Rise.svelte';
 
 	let dialog = $state<HTMLDialogElement | null>(null);
 	let newName = $state('');
@@ -55,30 +56,32 @@
 			</p>
 		{/if}
 
-		<div class="list hh-stagger">
-			{#if playlistPicker.loading}
-				<p class="hh-muted empty">Loading your playlists…</p>
-			{:else if playlistPicker.playlists.length === 0}
-				<p class="hh-muted empty">No playlists yet — make one below.</p>
-			{:else}
-				{#each playlistPicker.playlists as playlist (playlist.id)}
-					<button
-						class="row"
-						class:added={playlistPicker.done === playlist.name}
-						disabled={playlistPicker.busy}
-						onclick={() => playlistPicker.addTo(playlist)}
-					>
-						<span class="name">
-							<span class="check" aria-hidden="true"><Icon name="check" size={14} /></span>
-							<span class="hh-truncate">{playlist.name}</span>
-						</span>
-						<span class="hh-numeric hh-muted meta">
-							{playlist.songCount ?? 0} · {formatLongDuration(playlist.duration) || '—'}
-						</span>
-					</button>
-				{/each}
-			{/if}
-		</div>
+		<Rise always>
+			<div class="list">
+				{#if playlistPicker.loading}
+					<p class="hh-muted empty">Loading your playlists…</p>
+				{:else if playlistPicker.playlists.length === 0}
+					<p class="hh-muted empty">No playlists yet — make one below.</p>
+				{:else}
+					{#each playlistPicker.playlists as playlist (playlist.id)}
+						<button
+							class="row"
+							class:added={playlistPicker.done === playlist.name}
+							disabled={playlistPicker.busy}
+							onclick={() => playlistPicker.addTo(playlist)}
+						>
+							<span class="name">
+								<span class="check" aria-hidden="true"><Icon name="check" size={14} /></span>
+								<span class="hh-truncate">{playlist.name}</span>
+							</span>
+							<span class="hh-numeric hh-muted meta">
+								{playlist.songCount ?? 0} · {formatLongDuration(playlist.duration) || '—'}
+							</span>
+						</button>
+					{/each}
+				{/if}
+			</div>
+		</Rise>
 
 		<form class="create" onsubmit={submitNew}>
 			<label class="hh-visually-hidden" for="new-playlist-name">New playlist name</label>
@@ -180,11 +183,10 @@
 	}
 
 	/*
-	 * The rows come in one after another as the list appears, 24ms apart
-	 * (`--stagger` from `.hh-stagger` in app.css), and hover like a track row:
-	 * an accent wash fades in behind and the name steps right. They are buttons
-	 * without glass inside the dialog's glass, so opacity and movement on them
-	 * leave its blur alone.
+	 * The list rises in as it appears (`Rise`), and the rows hover like a track
+	 * row: an accent wash fades in behind and the name steps right. They are
+	 * buttons without glass inside the dialog's glass, so opacity and movement
+	 * on them leave its blur alone.
 	 */
 	.row {
 		position: relative;
@@ -197,8 +199,6 @@
 		padding: 0.5rem var(--space-3);
 		border-radius: var(--r-sm);
 		text-align: left;
-		animation: list-rise var(--dur-state) var(--ease-out) both;
-		animation-delay: calc(var(--stagger, 12) * 24ms);
 		transition:
 			text-shadow var(--transition),
 			color var(--transition);

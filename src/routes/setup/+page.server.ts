@@ -1,7 +1,7 @@
 import { redirect } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
-import { setupPending } from '$lib/server/setup';
-import { FEATURES } from '$lib/server/features';
+import { setupPending } from '#lib/server/setup.ts';
+import { FEATURES } from '#lib/server/features.ts';
 
 /**
  * The first-run setup page. It exists while the deployment is missing its

@@ -12,7 +12,7 @@
  * database yields no working link. A link is therefore shown once, when made.
  */
 import { randomUUID } from 'node:crypto';
-import type { BackendKind, Playlist, Song } from '$lib/types';
+import type { BackendKind, Playlist, Song } from '#lib/types.ts';
 import type { Account, AuthenticatedSession } from './auth';
 import { backendFor, UpstreamError, type StoredCredential } from './backends';
 import { config } from './config';

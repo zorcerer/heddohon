@@ -19,7 +19,7 @@
  * (`processing.svelte.ts`): an output id is minted per browser and per site,
  * so on another computer it names nothing.
  */
-import { browser } from '$app/environment';
+import { browser } from '$app/env';
 import { player } from './player.svelte';
 
 export interface Output {

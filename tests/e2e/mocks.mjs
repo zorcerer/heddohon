@@ -916,7 +916,29 @@ export async function startJellyfin({ quickConnect = false } = {}) {
 	 * whether the one request it holds (secret `qc-secret`, code `123456`) has
 	 * been approved by a signed-in user.
 	 */
-	const state = { audio: null, played: [], favourites: new Set(), playlistPublic: true, quickConnect, quickConnectApproved: false };
+	/**
+	 * `made`: playlists made through `POST /Playlists`, by id (`jsm1`, ...):
+	 * `{ name, entries: [{ id, songId }] }`, owned by this user, as a smart
+	 * playlist Heddohon fills (`smartplaylists.ts`) is.
+	 */
+	const state = { audio: null, played: [], favourites: new Set(), playlistPublic: true, quickConnect, quickConnectApproved: false, made: new Map() };
+	let madeCount = 0;
+	let entryCount = 0;
+	/**
+	 * The whole library as `/Items` lists it a page at a time (`forEachSong`):
+	 * the first album's three tracks and the second's, each added on a date of
+	 * its own, with the play count and last play `state.played` holds.
+	 */
+	const libraryTracks = () =>
+		[trackItem(1), trackItem(2), trackItem(3), ...tracks].map((track, i) => {
+			const played = state.played.find((entry) => entry.Id === track.Id);
+			return {
+				...track,
+				DateCreated: new Date(Date.UTC(2026, 0, 1 + i)).toISOString(),
+				UserData: played ? { PlayCount: played.PlayCount, LastPlayedDate: played.LastPlayedDate, Played: true } : { PlayCount: 0, Played: false }
+			};
+		});
+	const madeEntry = (entry) => ({ ...libraryTracks().find((track) => track.Id === entry.songId), PlaylistItemId: entry.id });
 
 	/** An item as Jellyfin answers with it for this user: with its favourite state. */
 	const withUserData = (item) =>
@@ -1025,7 +1047,52 @@ export async function startJellyfin({ quickConnect = false } = {}) {
 		// Jellyfin 12.1.0 says whose a playlist is only by answering its owner
 		// on `/Playlists/{id}/Users` and anyone else with 403.
 		if (url.pathname === '/Items' && types === 'Playlist') {
-			return send({ Items: [{ Id: 'jpl', Name: 'Jellyfin Playlist', Type: 'Playlist' }, { Id: 'jother', Name: 'Their Playlist', Type: 'Playlist' }] });
+			const made = [...state.made].map(([Id, list]) => ({ Id, Name: list.name, Type: 'Playlist', ChildCount: list.entries.length }));
+			return send({ Items: [{ Id: 'jpl', Name: 'Jellyfin Playlist', Type: 'Playlist' }, { Id: 'jother', Name: 'Their Playlist', Type: 'Playlist' }, ...made] });
+		}
+		if (req.method === 'POST' && url.pathname === '/Playlists') {
+			let raw = '';
+			req.on('data', (chunk) => (raw += chunk));
+			req.on('end', () => {
+				const sent = JSON.parse(raw || '{}');
+				const Id = `jsm${++madeCount}`;
+				state.made.set(Id, { name: sent.Name, entries: (sent.Ids ?? []).map((songId) => ({ id: `m${++entryCount}`, songId })) });
+				send({ Id });
+			});
+			return;
+		}
+		const madeAt = /^\/(?:Playlists|Items)\/(jsm\d+)(\/.*)?$/.exec(url.pathname);
+		if (madeAt) {
+			const list = state.made.get(madeAt[1]);
+			const rest = madeAt[2] ?? '';
+			if (!list) return send({}, 404);
+			if (req.method === 'DELETE' && url.pathname.startsWith('/Items/') && !rest) {
+				state.made.delete(madeAt[1]);
+				res.statusCode = 204;
+				return res.end();
+			}
+			if (url.pathname.startsWith('/Items/') && !rest) return send({ Id: madeAt[1], Name: list.name, Type: 'Playlist', ChildCount: list.entries.length });
+			if (req.method === 'GET' && rest === '/Users') return send([]);
+			if (req.method === 'GET' && !rest) return send({ OpenAccess: false, Shares: [] });
+			if (rest === '/Items' && req.method === 'GET') return send({ Items: list.entries.map(madeEntry) });
+			if (rest === '/Items' && req.method === 'POST') {
+				for (const songId of (url.searchParams.get('ids') ?? '').split(',').filter(Boolean)) list.entries.push({ id: `m${++entryCount}`, songId });
+				res.statusCode = 204;
+				return res.end();
+			}
+			if (rest === '/Items' && req.method === 'DELETE') {
+				const gone = new Set((url.searchParams.get('entryIds') ?? '').split(','));
+				list.entries = list.entries.filter((entry) => !gone.has(entry.id));
+				res.statusCode = 204;
+				return res.end();
+			}
+			return send({}, 404);
+		}
+		// The whole library, a page at a time, as `forEachSong` reads it.
+		if (url.pathname === '/Items' && types === 'Audio' && url.searchParams.get('Recursive') === 'true' && url.searchParams.has('StartIndex') && url.searchParams.get('SortBy') === 'SortName') {
+			const start = Number(url.searchParams.get('StartIndex'));
+			const limit = Number(url.searchParams.get('Limit') ?? 1000);
+			return send({ Items: libraryTracks().slice(start, start + limit) });
 		}
 		if (url.pathname === '/Items/jother') return send({ Id: 'jother', Name: 'Their Playlist', Type: 'Playlist' });
 		if (req.method === 'GET' && url.pathname === '/Playlists/jpl/Users') return send([]);

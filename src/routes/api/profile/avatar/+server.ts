@@ -1,6 +1,6 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { jpegSize, MAX_AVATAR_BYTES, MAX_AVATAR_SIDE, setAvatar, stripJpeg } from '$lib/server/listening';
+import { jpegSize, MAX_AVATAR_BYTES, MAX_AVATAR_SIDE, setAvatar, stripJpeg } from '#lib/server/listening.ts';
 
 /**
  * Sets this account's picture from the request's body: a JPEG of at most

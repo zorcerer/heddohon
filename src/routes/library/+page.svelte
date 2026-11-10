@@ -1,9 +1,10 @@
 <script lang="ts">
-	import Icon from '$lib/components/Icon.svelte';
-	import MediaCard from '$lib/components/MediaCard.svelte';
-	import MediaShelf from '$lib/components/MediaShelf.svelte';
-	import { playContainer } from '$lib/client/actions';
+	import Icon from '#lib/components/Icon.svelte';
+	import MediaCard from '#lib/components/MediaCard.svelte';
+	import MediaShelf from '#lib/components/MediaShelf.svelte';
+	import { playContainer } from '#lib/client/actions.ts';
 	import type { PageData } from './$types';
+	import Rise from '#lib/components/Rise.svelte';
 
 	let { data }: { data: PageData } = $props();
 
@@ -33,15 +34,17 @@
 		<h1>Library</h1>
 	</header>
 
-	<nav class="ways hh-stagger" aria-label="Library">
-		{#each WAYS as way (way.href)}
-			<a class="way hh-glass" href={way.href}>
-				<span class="glyph"><Icon name={way.icon} size={22} /></span>
-				<span class="name">{way.label}</span>
-				<Icon name="chevron-right" size={16} />
-			</a>
-		{/each}
-	</nav>
+	<Rise>
+		<nav class="ways" aria-label="Library">
+			{#each WAYS as way (way.href)}
+				<a class="way hh-glass" href={way.href}>
+					<span class="glyph"><Icon name={way.icon} size={22} /></span>
+					<span class="name">{way.label}</span>
+					<Icon name="chevron-right" size={16} />
+				</a>
+			{/each}
+		</nav>
+	</Rise>
 
 	{#if data.profiles}
 		<a class="settings hh-glass" href="/people">

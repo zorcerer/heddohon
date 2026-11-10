@@ -8,7 +8,7 @@
  * nothing about it is reported to the music server, and it is left out of the
  * saved queue.
  */
-import type { RadioStation, Song } from '$lib/types';
+import type { RadioStation, Song } from '#lib/types.ts';
 
 const PREFIX = 'radio:';
 
@@ -41,6 +41,8 @@ export function stationSong(station: RadioStation): Song {
 		starredAt: null,
 		playCount: null,
 		rating: null,
+		createdAt: null,
+		lastPlayedAt: null,
 		quality: {
 			format: null,
 			bitrateKbps: null,

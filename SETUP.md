@@ -1,6 +1,6 @@
 # Setting up Heddohon
 
-What you need: Docker (or Node 22 or later), and a Navidrome, Subsonic or
+What you need: Docker (or Node 22.17 or later), and a Navidrome, Subsonic or
 Jellyfin server that Heddohon can reach. Every setting is described in
 [Configuration](https://github.com/zorcerer/heddohon/wiki/Configuration); this
 page is the order to do things in.

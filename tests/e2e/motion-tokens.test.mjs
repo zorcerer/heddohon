@@ -21,6 +21,12 @@ const SRC = join(ROOT, 'src');
 const DEFINITIONS = new Set(['src/lib/styles/app.css', 'src/lib/client/motion.ts']);
 
 /**
+ * The Svelte Bits components, kept as they came so a newer version can be
+ * taken in: each carries its own curves.
+ */
+const VENDORED = 'src/lib/components/bits/';
+
+/**
  * Loops rather than transitions between states: the spinners, the loading
  * sweep and the now-playing bars run for as long as the state lasts, on
  * whatever curve a loop needs.
@@ -48,6 +54,7 @@ test('no easing curve is written outside the motion tokens', () => {
 	for (const path of files(SRC)) {
 		const name = relative(ROOT, path);
 		if (DEFINITIONS.has(name)) continue;
+		if (name.startsWith(VENDORED)) continue;
 		withoutComments(readFileSync(path, 'utf8'))
 			.split('\n')
 			.forEach((line, index) => {

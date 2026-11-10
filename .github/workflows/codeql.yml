@@ -1,0 +1,55 @@
+# CodeQL on the server and pages (JavaScript and TypeScript), the Android app
+# (Java and Kotlin) and these workflows (actions): on every pull request into
+# `dev` or `main`, on a push to either, and once a week. Findings are under
+# Security, Code scanning, and a new one on a pull request is a failed check.
+#
+# Until 2026-11-10 this was GitHub's default setup, which scans only `main` and
+# pull requests into it. Pull requests are merged into `dev`, so a contribution
+# was first scanned when it reached `main` in a release. The default setup has
+# to stay off: GitHub refuses this workflow's results while it is on.
+#
+# Nothing is built: `build-mode: none` reads the Java and Kotlin sources as
+# they are, so the Android app needs no Gradle or SDK here.
+name: codeql
+
+on:
+  push:
+    branches: [dev, main]
+  pull_request:
+    branches: [dev, main]
+  schedule:
+    # Mondays 05:41 UTC, off the hour and clear of the dev image at 04:17.
+    - cron: '41 5 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codeql-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+      # To read the workflow run, for the results' upload.
+      actions: read
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [javascript-typescript, java-kotlin, actions]
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: github/codeql-action/init@v4
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: none
+
+      - uses: github/codeql-action/analyze@v4
+        with:
+          category: /language:${{ matrix.language }}

@@ -1,8 +1,8 @@
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { backendFor } from '$lib/server/backends';
-import { config } from '$lib/server/config';
-import { filledBy, fillStatus, keepFilled, startFill, stopFill } from '$lib/server/coverfill';
+import { backendFor } from '#lib/server/backends/index.ts';
+import { config } from '#lib/server/config.ts';
+import { filledBy, fillStatus, keepFilled, startFill, stopFill } from '#lib/server/coverfill.ts';
 
 /** Where the account's fill stands. The settings page asks while one runs. */
 export const GET: RequestHandler = ({ locals }) => {

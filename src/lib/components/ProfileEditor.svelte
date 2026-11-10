@@ -1,9 +1,10 @@
 <script lang="ts">
-	import { invalidateAll } from '$app/navigation';
-	import type { PageSettings, ProfileView } from '$lib/server/profilepage';
-	import { listeners } from '$lib/client/listeners.svelte';
+	import { refreshAll } from '$app/navigation';
+	import type { PageSettings, ProfileView } from '#lib/server/profilepage.ts';
+	import { listeners } from '#lib/client/listeners.svelte.ts';
 	import Cover from './Cover.svelte';
 	import Icon from './Icon.svelte';
+	import Check from './Check.svelte';
 
 	/**
 	 * The owner's controls for their profile page: the name and picture (the
@@ -134,7 +135,7 @@
 			body: JSON.stringify({ bio: bio.trim() || null, albums: slots.map((slot) => slot?.id ?? null), listed, recent, top })
 		});
 		if (saved) {
-			await invalidateAll();
+			await refreshAll();
 			open = false;
 		}
 		busy = false;
@@ -145,14 +146,14 @@
 		input.value = '';
 		if (!file) return;
 		busy = true;
-		if (await listeners.setPicture(file)) await invalidateAll();
+		if (await listeners.setPicture(file)) await refreshAll();
 		else problem = listeners.error;
 		busy = false;
 	}
 
 	async function removePicture() {
 		busy = true;
-		if (await listeners.removePicture()) await invalidateAll();
+		if (await listeners.removePicture()) await refreshAll();
 		busy = false;
 	}
 
@@ -162,7 +163,7 @@
 		const made = await send('/api/profile/page', { method: 'POST' });
 		if (made) {
 			link = made.url;
-			await invalidateAll();
+			await refreshAll();
 		}
 		busy = false;
 	}
@@ -173,7 +174,7 @@
 		if (await send('/api/profile/page', { method: 'DELETE' })) {
 			link = null;
 			message = 'The public link no longer works.';
-			await invalidateAll();
+			await refreshAll();
 		}
 		busy = false;
 	}
@@ -279,9 +280,9 @@
 
 		<fieldset class="field">
 			<legend class="hh-eyebrow">Who sees it</legend>
-			<label class="check"><input type="checkbox" bind:checked={listed} /> The other accounts on this server, under People</label>
-			<label class="check"><input type="checkbox" bind:checked={recent} /> Show the albums I listened to lately</label>
-			<label class="check"><input type="checkbox" bind:checked={top} /> Show my most played artists of the last 30 days</label>
+			<Check bind:checked={listed} label="The other accounts on this server, under People" />
+			<Check bind:checked={recent} label="Show the albums I listened to lately" />
+			<Check bind:checked={top} label="Show my most played artists of the last 30 days" />
 		</fieldset>
 
 		{#if problem}
@@ -453,12 +454,6 @@
 
 	.thumb {
 		width: 2.5rem;
-	}
-
-	.check {
-		display: flex;
-		gap: var(--space-2);
-		align-items: center;
 	}
 
 	.small {

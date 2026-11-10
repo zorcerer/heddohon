@@ -1,6 +1,6 @@
 import { error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { readAvatar } from '$lib/server/listening';
+import { readAvatar } from '#lib/server/listening.ts';
 
 /** A handle as `listening.ts` makes one: 12 random bytes in hex. */
 const HANDLE = /^[0-9a-f]{24}$/;

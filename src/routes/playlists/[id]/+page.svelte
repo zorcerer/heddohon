@@ -1,14 +1,14 @@
 <script lang="ts">
-	import { goto, invalidateAll } from '$app/navigation';
-	import Icon from '$lib/components/Icon.svelte';
+	import { goto, refreshAll } from '$app/navigation';
+	import Icon from '#lib/components/Icon.svelte';
 	import { page } from '$app/state';
-	import { shareComposer } from '$lib/client/share.svelte';
-	import HeroTitle from '$lib/components/HeroTitle.svelte';
-	import Sleeve from '$lib/components/Sleeve.svelte';
-	import SmartPlaylistEditor from '$lib/components/SmartPlaylistEditor.svelte';
-	import TrackList from '$lib/components/TrackList.svelte';
-	import { formatLongDuration } from '$lib/client/format';
-	import { player } from '$lib/client/player.svelte';
+	import { shareComposer } from '#lib/client/share.svelte.ts';
+	import HeroTitle from '#lib/components/HeroTitle.svelte';
+	import Sleeve from '#lib/components/Sleeve.svelte';
+	import SmartPlaylistEditor from '#lib/components/SmartPlaylistEditor.svelte';
+	import TrackList from '#lib/components/TrackList.svelte';
+	import { formatLongDuration } from '#lib/client/format.ts';
+	import { player } from '#lib/client/player.svelte.ts';
 	import {
 		addSongsToPlaylist,
 		deletePlaylist,
@@ -17,10 +17,10 @@
 		renamePlaylist,
 		setPlaylistPublic,
 		setPlaylistRules
-	} from '$lib/client/playlists.svelte';
-	import { describeRules, type SmartRules } from '$lib/smartrules';
-	import { heroSweep } from '$lib/client/motion';
-	import type { Song } from '$lib/types';
+	} from '#lib/client/playlists.svelte.ts';
+	import { describeRules, type SmartRules } from '#lib/smartrules.ts';
+	import { heroSweep } from '#lib/client/motion.ts';
+	import type { Song } from '#lib/types.ts';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -64,7 +64,7 @@
 		try {
 			await renamePlaylist(playlist.id, next);
 			renaming = false;
-			await invalidateAll();
+			await refreshAll();
 		} catch (err) {
 			error = err instanceof Error ? err.message : 'Could not rename this playlist';
 		} finally {
@@ -86,9 +86,9 @@
 			for (let at = 0; at < highestFirst.length; at += 1000) {
 				await removeTracks(playlist.id, highestFirst.slice(at, at + 1000));
 			}
-			await invalidateAll();
+			await refreshAll();
 		} catch (err) {
-			await invalidateAll();
+			await refreshAll();
 			error = err instanceof Error ? err.message : indexes.length === 1 ? 'Could not remove that track' : 'Could not remove those tracks';
 		} finally {
 			busy = false;
@@ -123,7 +123,7 @@
 						? err.message
 						: 'Could not move that track';
 		} finally {
-			await invalidateAll();
+			await refreshAll();
 			reordered = null;
 			busy = false;
 		}
@@ -152,7 +152,7 @@
 		error = null;
 		try {
 			await setPlaylistRules(playlist.id, rules);
-			await invalidateAll();
+			await refreshAll();
 			editingRules = false;
 		} catch (err) {
 			error = err instanceof Error ? err.message : 'Could not save these rules';
@@ -167,7 +167,7 @@
 		error = null;
 		try {
 			await setPlaylistPublic(playlist.id, !playlist.isPublic);
-			await invalidateAll();
+			await refreshAll();
 		} catch (err) {
 			error = err instanceof Error ? err.message : 'Could not change who can see this playlist';
 		} finally {
@@ -379,6 +379,8 @@
 	{#if editingRules && smart?.rules}
 		<SmartPlaylistEditor
 			initial={smart.rules}
+			fields={data.smartFields}
+			sorts={data.smartSorts}
 			{busy}
 			onsave={saveRules}
 			oncancel={() => (editingRules = false)}

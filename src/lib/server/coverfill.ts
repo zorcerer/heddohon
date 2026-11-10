@@ -23,7 +23,7 @@ import { cacheStats, collectCover, coverScope, holdsCover, readCover, writeCover
 import { openJson } from './crypto';
 import { store } from './db';
 import { log, reason } from './log';
-import type { BackendKind } from '$lib/types';
+import type { BackendKind } from '#lib/types.ts';
 
 type Kind = 'album' | 'artist' | 'playlist';
 

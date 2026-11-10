@@ -1,6 +1,6 @@
 import { error } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
-import { accountOfNowPlaying, nowPlaying } from '$lib/server/nowplaying';
+import { accountOfNowPlaying, nowPlaying } from '#lib/server/nowplaying.ts';
 
 /** The now-playing overlay, for an OBS browser source; see `nowplaying.ts`. */
 export const load: PageServerLoad = async ({ params }) => {

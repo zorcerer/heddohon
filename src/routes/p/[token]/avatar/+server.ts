@@ -1,7 +1,7 @@
 import { error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { readAvatar } from '$lib/server/listening';
-import { accountOfProfileLink, pageOf } from '$lib/server/profilepage';
+import { readAvatar } from '#lib/server/listening.ts';
+import { accountOfProfileLink, pageOf } from '#lib/server/profilepage.ts';
 
 /**
  * The picture on a profile page reached by its public link. Served as

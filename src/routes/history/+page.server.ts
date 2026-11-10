@@ -1,9 +1,9 @@
 import type { PageServerLoad } from './$types';
-import { library } from '$lib/server/library';
-import { recentPlays } from '$lib/server/history';
-import { getSettings } from '$lib/server/settings';
-import { PAGE_SIZE, readPageNumber } from '$lib/server/paging';
-import type { Song } from '$lib/types';
+import { library } from '#lib/server/library.ts';
+import { recentPlays } from '#lib/server/history.ts';
+import { getSettings } from '#lib/server/settings.ts';
+import { PAGE_SIZE, readPageNumber } from '#lib/server/paging.ts';
+import type { Song } from '#lib/types.ts';
 
 export const load: PageServerLoad = async (event) => {
 	const accountId = event.locals.session!.account.id;

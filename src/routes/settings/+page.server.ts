@@ -1,12 +1,12 @@
 import { fail } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
-import { config, fromEnvironment, parseOrigins, saveSetup } from '$lib/server/config';
-import { decidedByEnvironment, MAX_COVER_CACHE_MB, serverValues } from '$lib/server/setup';
-import { addressesWithoutSecure } from '$lib/server/origin';
-import { destroyAllSessions, endSessions, listSessions } from '$lib/server/auth';
-import { getSettings, saveSettings } from '$lib/server/settings';
-import { cacheStats, clearCache } from '$lib/server/covercache';
-import { filledBy, fillStatus } from '$lib/server/coverfill';
+import { config, fromEnvironment, parseOrigins, saveSetup } from '#lib/server/config.ts';
+import { decidedByEnvironment, MAX_COVER_CACHE_MB, serverValues } from '#lib/server/setup.ts';
+import { addressesWithoutSecure } from '#lib/server/origin.ts';
+import { destroyAllSessions, endSessions, listSessions } from '#lib/server/auth.ts';
+import { getSettings, saveSettings } from '#lib/server/settings.ts';
+import { cacheStats, clearCache } from '#lib/server/covercache.ts';
+import { filledBy, fillStatus } from '#lib/server/coverfill.ts';
 import {
 	linkDiscord,
 	linkedIntegrations,
@@ -14,18 +14,18 @@ import {
 	offeredIntegrations,
 	unlinkIntegration,
 	type LinkFailure
-} from '$lib/server/integrations';
-import { backendFor, UpstreamError, type ScrobblerService } from '$lib/server/backends';
-import { linkStateDigest } from '$lib/server/crypto';
-import { log, reason } from '$lib/server/log';
-import { describeShares, revokeAllShares, revokeShare } from '$lib/server/shares';
-import { clearHistory, importPlays, recentPlays } from '$lib/server/history';
-import { getProfile } from '$lib/server/listening';
-import { pluginHeard, pluginOffered, requestImport } from '$lib/server/plugin';
-import { reportStatus } from '$lib/server/libraryreport';
-import { createMcpToken, listMcpTokens, MAX_MCP_TOKEN_NAME, MAX_MCP_TOKENS, revokeMcpToken } from '$lib/server/mcp';
-import { FEATURE_IDS, FEATURES, featureStates } from '$lib/server/features';
-import { makeNowPlayingLink, nowPlayingLinkMadeAt, withdrawNowPlayingLink } from '$lib/server/nowplaying';
+} from '#lib/server/integrations.ts';
+import { backendFor, UpstreamError, type ScrobblerService } from '#lib/server/backends/index.ts';
+import { linkStateDigest } from '#lib/server/crypto.ts';
+import { log, reason } from '#lib/server/log.ts';
+import { describeShares, revokeAllShares, revokeShare } from '#lib/server/shares.ts';
+import { clearHistory, importPlays, recentPlays } from '#lib/server/history.ts';
+import { getProfile } from '#lib/server/listening.ts';
+import { pluginHeard, pluginOffered, requestImport } from '#lib/server/plugin.ts';
+import { reportStatus } from '#lib/server/libraryreport.ts';
+import { createMcpToken, listMcpTokens, MAX_MCP_TOKEN_NAME, MAX_MCP_TOKENS, revokeMcpToken } from '#lib/server/mcp.ts';
+import { FEATURE_IDS, FEATURES, featureStates } from '#lib/server/features.ts';
+import { makeNowPlayingLink, nowPlayingLinkMadeAt, withdrawNowPlayingLink } from '#lib/server/nowplaying.ts';
 
 /**
  * How long the import action waits for the Navidrome plugin to send the whole

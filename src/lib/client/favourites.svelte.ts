@@ -17,7 +17,7 @@
  * write.
  */
 import { SvelteMap, SvelteSet } from 'svelte/reactivity';
-import type { StarKind } from '$lib/types';
+import type { StarKind } from '#lib/types.ts';
 import { player } from './player.svelte';
 
 const changed = new SvelteMap<string, boolean>();

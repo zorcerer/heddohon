@@ -1,7 +1,7 @@
 import { error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { nearestCoverSize, proxyMedia, streamRequestFrom } from '$lib/server/proxy';
-import { collectCover, coverScope, readCover, writeCover } from '$lib/server/covercache';
+import { nearestCoverSize, proxyMedia, streamRequestFrom } from '#lib/server/proxy.ts';
+import { collectCover, coverScope, readCover, writeCover } from '#lib/server/covercache.ts';
 
 
 /**

@@ -4,8 +4,8 @@
 	 * a shared link is, with the covers and the picture from this link's own
 	 * routes. Nothing on it leads into the library.
 	 */
-	import Logo from '$lib/components/Logo.svelte';
-	import ProfileView from '$lib/components/ProfileView.svelte';
+	import Logo from '#lib/components/Logo.svelte';
+	import ProfileView from '#lib/components/ProfileView.svelte';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();

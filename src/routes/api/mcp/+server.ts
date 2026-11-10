@@ -1,13 +1,13 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { destroyAllSessions } from '$lib/server/auth';
-import { backendFor, UpstreamError } from '$lib/server/backends';
-import { config } from '$lib/server/config';
-import type { LibraryContext } from '$lib/server/library';
-import { log, reason } from '$lib/server/log';
-import { mcpAccess, type McpAccess } from '$lib/server/mcp';
-import { describe, ToolInputError, toolsFor } from '$lib/server/mcptools';
-import { APP_VERSION } from '$lib/server/version';
+import { destroyAllSessions } from '#lib/server/auth.ts';
+import { backendFor, UpstreamError } from '#lib/server/backends/index.ts';
+import { config } from '#lib/server/config.ts';
+import type { LibraryContext } from '#lib/server/library.ts';
+import { log, reason } from '#lib/server/log.ts';
+import { mcpAccess, type McpAccess } from '#lib/server/mcp.ts';
+import { describe, ToolInputError, toolsFor } from '#lib/server/mcptools.ts';
+import { APP_VERSION } from '#lib/server/version.ts';
 
 /**
  * The versions of the protocol this endpoint answers, newest first. A client

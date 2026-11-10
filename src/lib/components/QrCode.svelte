@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { qrModules } from '$lib/client/qr';
+	import { qrModules } from '#lib/client/qr.ts';
 
 	/**
 	 * A QR code as one SVG path, dark on white whatever the theme: a scanner

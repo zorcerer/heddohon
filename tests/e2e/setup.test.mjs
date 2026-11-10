@@ -59,6 +59,9 @@ describe('a deployment that is not set up', () => {
 			assert.match(html, /Set up Heddohon/);
 			assert.match(response.headers.get('cache-control'), /no-store/);
 			assert.ok(response.headers.get('content-security-policy'), 'the setup page has no policy');
+			// Drawn in Terminal, over the root's colours every page carries (#182).
+			assert.match(html, /data-theme="terminal"/);
+			assert.match(html, /<style id="hh-themes">\n\/\* liquid\.json \*\/\n:root,\n\[data-theme='dark'\] \{\n\t--bg-base: #0b0c0f;/);
 			// The page says nothing of what is missing, and the code is not in it.
 			assert.ok(!html.includes(code) && !html.includes(code.replace(/-/g, '')));
 			assert.ok(!/"secret":|"upstream":/.test(html), 'the page tells what is missing before the code');
@@ -658,6 +661,35 @@ describe('the addresses a deployment is opened at', () => {
 			const data = await (await client.request('/settings/__data.json')).text();
 			assert.ok(data.includes(String(16 * 1024 * 1024)));
 			assert.equal((await client.json('/api/settings', 'PATCH', {}, { origin: 'https://elsewhere.example' })).status, 403);
+		} finally {
+			await app.stop();
+		}
+	});
+
+	/*
+	 * adapter-node 5 read `ORIGIN` and built every request on it, whatever its
+	 * `Host`; adapter-node 6 does not read it, and left alone took the address
+	 * from `Host` with https assumed. A page whose name resolves to the server
+	 * (DNS rebinding) sends its own name in both, and was let through.
+	 */
+	test('ORIGIN in the environment is the address of every request, whatever its Host', async () => {
+		const app = await startApp({ subsonicUrl: subsonic.url });
+		try {
+			const here = app.url; // ORIGIN, from the harness
+			const other = 'rebound.example';
+			const theirs = await signIn(here, { host: other, origin: `https://${other}` });
+			assert.equal(theirs.status, 403, theirs.text);
+			const ours = await signIn(here, { host: other, origin: here });
+			assert.equal(ours.status, 303, ours.text);
+		} finally {
+			await app.stop();
+		}
+	});
+
+	test('an ORIGIN that is not an address answers every request with a 400', async () => {
+		const app = await startApp({ subsonicUrl: subsonic.url, env: { ORIGIN: 'not an address' }, healthy: false });
+		try {
+			assert.equal((await raw(app.url, '/login')).status, 400);
 		} finally {
 			await app.stop();
 		}

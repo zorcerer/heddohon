@@ -1,8 +1,9 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { backendFor, UpstreamError } from '$lib/server/backends';
-import { forgetSharedItems } from '$lib/server/shares';
-import { refusedCredential } from '$lib/server/library';
+import { backendFor, UpstreamError } from '#lib/server/backends/index.ts';
+import { forgetSharedItems } from '#lib/server/shares.ts';
+import { refusedCredential } from '#lib/server/library.ts';
+import { smartFor } from '#lib/server/smartplaylists.ts';
 
 const MAX_NAME = 200;
 
@@ -37,6 +38,8 @@ export const DELETE: RequestHandler = async ({ locals, params }) => {
 	if (!session) error(401, 'Not signed in');
 	try {
 		await backendFor(session.account.backend).deletePlaylist(session.credential, params.id);
+		// Rules Heddohon kept for it would otherwise point at nothing.
+		await smartFor(session)?.forget(params.id);
 		forgetSharedItems(session.account.id);
 		return json({ id: params.id, deleted: true });
 	} catch (err) {

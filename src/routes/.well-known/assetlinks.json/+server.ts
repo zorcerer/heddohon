@@ -1,5 +1,5 @@
 import type { RequestHandler } from './$types';
-import { config } from '$lib/server/config';
+import { config } from '#lib/server/config.ts';
 
 /** The Android app in `android/`, as its `applicationId`. */
 const PACKAGE = 'app.heddohon.android';

@@ -55,7 +55,7 @@ import type {
 	ReplayGain,
 	Song,
 	StarKind
-} from '$lib/types';
+} from '#lib/types.ts';
 
 const API_VERSION = '1.16.1';
 /** The `c` parameter: what the music server knows this client as. `plugin.ts` knows its own plays by it. */
@@ -260,6 +260,8 @@ function ratingOf(value: unknown): number {
 }
 
 function toSong(raw: Record<string, any>): Song {
+	const created = typeof raw.created === 'string' ? Date.parse(raw.created) : NaN;
+	const played = typeof raw.played === 'string' ? Date.parse(raw.played) : NaN;
 	return {
 		id: String(raw.id),
 		title: raw.title ?? raw.name ?? 'Unknown title',
@@ -278,6 +280,9 @@ function toSong(raw: Record<string, any>): Song {
 		starredAt: starredAt(raw.starred),
 		playCount: numberOrNull(raw.playCount),
 		rating: ratingOf(raw.userRating),
+		createdAt: Number.isFinite(created) ? created : null,
+		// `played` is OpenSubsonic's last-play time, which Navidrome sends.
+		lastPlayedAt: Number.isFinite(played) ? played : null,
 		quality: quality(raw),
 		replayGain: replayGainOf(raw.replayGain)
 	};
@@ -344,6 +349,9 @@ function fromNative(raw: Record<string, unknown>): Song {
 		starredAt: starredAt(raw.starredAt),
 		playCount: numberOrNull(raw.playCount),
 		rating: ratingOf(raw.rating),
+		createdAt: starredAt(raw.createdAt),
+		// The native answer carries no last-play time; the Subsonic one does.
+		lastPlayedAt: null,
 		quality: quality({
 			suffix: raw.suffix,
 			bitRate: raw.bitRate,

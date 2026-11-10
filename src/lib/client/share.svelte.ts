@@ -7,7 +7,7 @@
  * A link is shown once. The server keeps only a digest of its token, so the
  * link held here is the only copy, and closing the dialog drops it.
  */
-import type { Song } from '$lib/types';
+import type { Song } from '#lib/types.ts';
 
 export const SHARE_LIFETIMES = [
 	{ days: 1, label: '1 day' },

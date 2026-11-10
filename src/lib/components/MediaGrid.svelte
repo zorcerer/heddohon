@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
+	import Rise from './Rise.svelte';
 
 	let {
 		density = 'comfortable',
@@ -55,16 +56,18 @@
 </script>
 
 <!-- `data-glide`: the cards are carried to their new places when the player panel changes the width; see `client/glide.ts`. -->
-<div
-	data-glide
-	class="grid hh-stagger"
-	class:roomy={density === 'roomy'}
-	class:whole={wholeRows}
-	style:--min-width={MIN_WIDTH[density]}
-	{@attach (grid) => (wholeRows ? trim(grid) : undefined)}
->
-	{@render children()}
-</div>
+<Rise>
+	<div
+		data-glide
+		class="grid"
+		class:roomy={density === 'roomy'}
+		class:whole={wholeRows}
+		style:--min-width={MIN_WIDTH[density]}
+		{@attach (grid) => (wholeRows ? trim(grid) : undefined)}
+	>
+		{@render children()}
+	</div>
+</Rise>
 
 <style>
 	.grid {

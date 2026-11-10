@@ -12,13 +12,14 @@
 	 * Mounted once in the root layout. `client/listeners.svelte.ts` holds the
 	 * state, and the name and the picture are set under Settings, Account.
 	 */
-	import { avatarUrl, listeners } from '$lib/client/listeners.svelte';
-	import { player } from '$lib/client/player.svelte';
-	import type { Listener } from '$lib/server/listening';
-	import type { BackendKind } from '$lib/types';
+	import { avatarUrl, listeners } from '#lib/client/listeners.svelte.ts';
+	import { player } from '#lib/client/player.svelte.ts';
+	import type { Listener } from '#lib/server/listening.ts';
+	import type { BackendKind } from '#lib/types.ts';
 	import Avatar from './Avatar.svelte';
 	import Cover from './Cover.svelte';
 	import Icon from './Icon.svelte';
+	import Switch from './Switch.svelte';
 
 	let { backend, username }: { backend: BackendKind; username: string } = $props();
 
@@ -201,12 +202,7 @@
 				</a>
 				<label class="mine">
 					<span class="label">Show others what I play</span>
-					<input
-						type="checkbox"
-						checked={you.shown}
-						disabled={saving}
-						onchange={(event) => setShown(event.currentTarget.checked)}
-					/>
+					<Switch checked={you.shown} disabled={saving} onchange={(on) => setShown(on)} />
 				</label>
 			</footer>
 		{/if}
@@ -543,13 +539,6 @@
 		font-size: 0.875rem;
 		font-weight: 500;
 		color: var(--text-strong);
-	}
-
-	input[type='checkbox'] {
-		width: 1.15rem;
-		height: 1.15rem;
-		accent-color: var(--accent);
-		cursor: pointer;
 	}
 
 	@media (prefers-reduced-motion: reduce) {

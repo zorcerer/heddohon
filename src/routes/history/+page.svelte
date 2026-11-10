@@ -1,8 +1,8 @@
 <script lang="ts">
-	import ListeningTabs from '$lib/components/ListeningTabs.svelte';
-	import Pager from '$lib/components/Pager.svelte';
-	import TrackList from '$lib/components/TrackList.svelte';
-	import type { Song } from '$lib/types';
+	import ListeningTabs from '#lib/components/ListeningTabs.svelte';
+	import Pager from '#lib/components/Pager.svelte';
+	import TrackList from '#lib/components/TrackList.svelte';
+	import type { Song } from '#lib/types.ts';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();

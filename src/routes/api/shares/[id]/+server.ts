@@ -1,7 +1,7 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { revokeShare } from '$lib/server/shares';
-import { log } from '$lib/server/log';
+import { revokeShare } from '#lib/server/shares.ts';
+import { log } from '#lib/server/log.ts';
 
 /** Withdraws one of the caller's own links. Somebody else's id answers as an unknown one does. */
 export const DELETE: RequestHandler = async ({ locals, params }) => {

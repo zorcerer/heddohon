@@ -238,21 +238,12 @@
 	 * Taken a step darker on 2026-09-25 (ground #101114 to #0b0c0f, panes
 	 * #17191d to #111317), with the text a step brighter: the ground and the
 	 * panes were close enough to the text that the screen sat in a middle band.
+	 *
+	 * The grounds, the text tones, the edges, `--positive` and `--danger` are
+	 * not written here: they are a theme file, `server/themes/liquid.json`,
+	 * which `schemes.ts` reads and the server writes into the head of every
+	 * page under this rule's selector (#182).
 	 */
-	--bg-base: #0b0c0f;
-	--bg-sunken: #07080a;
-	--bg-surface: #111317;
-	--bg-raised: #181a1f;
-	--bg-hover: #202329;
-	--bg-active: #292c33;
-
-	--text-strong: #f7f8fa;
-	--text-default: #e1e3e7;
-	--text-muted: #a2a6ae;
-	--text-faint: #767a84;
-
-	--border-hairline: #1f2227;
-	--border-strong: #30343c;
 
 	/*
 	 * The accent is the artwork's hue, brighter and a little more saturated
@@ -269,8 +260,6 @@
 	--accent-quiet: hsl(var(--art-h) min(calc(var(--art-s) + 6%), 44%) 30%);
 	--accent-contrast: #0b0c0e;
 
-	--positive: #7fc8a9;
-	--danger: #e0777f;
 	/* The hi-res badge: one step brighter than the lossless badge's accent,
 	   with a fill and a heavier weight. `--accent-strong` holds the same
 	   worst-hue contrast. */
@@ -311,10 +300,10 @@
 	/*
 	 * Secondary tones for anything translucent. A muted grey depends on sitting
 	 * close to its own surface, and on a see-through face the thing behind
-	 * decides its contrast; see the note by `.hh-glass`.
+	 * decides its contrast; see the note by `.hh-glass`. They are
+	 * `--text-muted-through` and `--text-faint-through`, `through` in the
+	 * theme file.
 	 */
-	--text-muted-through: #b7b9bd;
-	--text-faint-through: #95979b;
 
 	/*
 	 * Hover and selection light the text instead of laying a plate under it.
@@ -357,22 +346,12 @@
  * 2026-09-29.
  */
 [data-theme='light'] {
-	--bg-base: #f0e7d5;
-	--bg-sunken: #e6ddcc;
-	--bg-surface: #f5eee1;
-	--bg-raised: #faf5eb;
-	--bg-hover: #eae1cf;
-	--bg-active: #e3d9c6;
-
-	/* Ink, and ink mixed into the paper at 88, 78 and 68 percent. The faint
-	   step holds 4.8:1 on the page. */
-	--text-strong: #2e241a;
-	--text-default: #453b30;
-	--text-muted: #594f43;
-	--text-faint: #6c6256;
-
-	--border-hairline: #d8cfbe;
-	--border-strong: #c0b6a6;
+	/*
+	 * The grounds, the text tones, the edges, `--positive` and `--danger` are
+	 * a theme file, `server/themes/paper.json`, as Liquid's are. The text is
+	 * ink, and ink mixed into the paper at 88, 78 and 68 percent; the faint
+	 * step holds 4.8:1 on the page.
+	 */
 
 	/*
 	 * The artwork's hue at the lightness Sleek worked out for white type (31%
@@ -399,8 +378,6 @@
 	--accent-quiet: color-mix(in oklab, hsl(var(--art-h) min(calc(var(--art-s) + 16%), 60%) 76%) 65%, #e8d4b0);
 	--accent-contrast: #fbf6ec;
 
-	--positive: #4f6b3a;
-	--danger: #9c2b1b;
 	--highres: var(--accent-strong);
 
 	/* Shadows in a brown of the ink, as paper shades, not black or grey. */
@@ -420,8 +397,6 @@
 	--field-face-focus: color-mix(in srgb, var(--bg-raised) 90%, transparent);
 	--field-blur: blur(14px) sepia(0.2);
 	--field-edge: var(--text-faint-through);
-	--text-muted-through: #4f463b;
-	--text-faint-through: #62584c;
 
 	/* On paper there is no light to add, so hover takes the accent. */
 	--text-shade: 0 1px 0 rgb(255 250 238 / 0.55);
@@ -865,19 +840,10 @@ html {
  * glow reaching them showed as a band of another colour. Every hue comes from
  * the artwork. The original's fixed blues and violets would compete with it.
  *
- * It moves by `transform` alone, on a layer blurred once, so the compositor
- * slides a finished picture. What redraws is every glass surface over it,
- * whose backdrop changes each time it moves. So it moves in steps, three a
- * second (210 over 70 seconds, about 1.2px each at 1440px wide, which the 48px
- * blur hides). In headless Chromium at 1440x900, which blurs in software: a
- * full core at every frame, 63 percent at six steps a second, 33 at three, and
- * 1 percent held still. A GPU blurs the glass in a few milliseconds. It moves
- * by default (since 2026-10-07; before, it was off until turned on). Settings
- * holds it still (`.aurora.still`) or turns it off, and off it is not in the
- * page. The drift is 70 seconds each way.
- *
- * The element fills the room and clips. The bands are its `::before`, larger
- * than the room, so the drift never shows an edge.
+ * Drawn by `Aurora` (`lib/components/Aurora.svelte`), Svelte Bits' SoftAurora
+ * in WebGL, three frames a second; the reason is there. It moves by default
+ * (since 2026-10-07; before, it was off until turned on). Settings holds it
+ * still or turns it off, and off it is not in the page.
  *
  * Reduced motion holds it still, and reduced transparency hides it with the
  * room.
@@ -890,41 +856,8 @@ html {
 	pointer-events: none;
 }
 
-.aurora::before {
-	content: '';
-	position: absolute;
-	inset: -25% -15%;
-	background-image: repeating-linear-gradient(
-		100deg,
-		transparent 0%,
-		hsl(calc(var(--art-h) + 40) calc(var(--art-s) + 14%) calc(var(--art-l) + 6%) / 0.7) 9%,
-		hsl(var(--art-h) calc(var(--art-s) + 18%) var(--art-l) / 0.5) 16%,
-		hsl(calc(var(--art-h) - 35) calc(var(--art-s) + 14%) calc(var(--art-l) + 4%) / 0.65) 23%,
-		transparent 32%
-	);
-	background-size: 180% 100%;
-	filter: blur(48px);
-	-webkit-mask-image: radial-gradient(ellipse 70% 36% at 62% 50%, #000 10%, transparent 72%);
-	mask-image: radial-gradient(ellipse 70% 36% at 62% 50%, #000 10%, transparent 72%);
-	animation: aurora 70s steps(210) infinite alternate;
-	will-change: transform;
-}
-
 :root[data-theme='light'] .aurora {
 	--aurora-strength: 0.18;
-}
-
-.aurora.still::before {
-	animation-play-state: paused;
-}
-
-@keyframes aurora {
-	from {
-		transform: translate3d(-9%, 2%, 0) rotate(-2deg);
-	}
-	to {
-		transform: translate3d(9%, -3%, 0) rotate(2deg);
-	}
 }
 
 /* Without backdrop-filter the translucency would show a muddle of what is
@@ -1545,36 +1478,10 @@ html {
 /* ── Lists arriving ──────────────────────────────────────────────────────── */
 
 /*
- * On a navigation, the items of a card grid or a track list come in one after
- * another as the page rises (`.content.rising`, in the layout): 24ms apart for
- * the first twelve, and the rest with the twelfth, so a list of 500 takes no
- * longer than a list of 12. Opacity and a short rise on the items, which hold
- * no glass. A server-rendered page does not do this.
+ * On a navigation a card grid or a track list rises in as it comes into view:
+ * `Rise` (`lib/components/Rise.svelte`), Svelte Bits' AnimatedContent. A
+ * server-rendered page does not do this.
  */
-.content.rising .hh-stagger > * {
-	animation: list-rise var(--dur-state) var(--ease-out) both;
-	animation-delay: calc(var(--stagger, 12) * 24ms);
-}
-
-.hh-stagger > :nth-child(1) { --stagger: 0; }
-.hh-stagger > :nth-child(2) { --stagger: 1; }
-.hh-stagger > :nth-child(3) { --stagger: 2; }
-.hh-stagger > :nth-child(4) { --stagger: 3; }
-.hh-stagger > :nth-child(5) { --stagger: 4; }
-.hh-stagger > :nth-child(6) { --stagger: 5; }
-.hh-stagger > :nth-child(7) { --stagger: 6; }
-.hh-stagger > :nth-child(8) { --stagger: 7; }
-.hh-stagger > :nth-child(9) { --stagger: 8; }
-.hh-stagger > :nth-child(10) { --stagger: 9; }
-.hh-stagger > :nth-child(11) { --stagger: 10; }
-.hh-stagger > :nth-child(12) { --stagger: 11; }
-
-@keyframes list-rise {
-	from {
-		opacity: 0;
-		translate: 0 0.5rem;
-	}
-}
 
 /* ── Dialogs ─────────────────────────────────────────────────────────────── */
 

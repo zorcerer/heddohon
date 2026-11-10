@@ -129,6 +129,22 @@ CREATE TABLE IF NOT EXISTS plays (
 );
 CREATE INDEX IF NOT EXISTS plays_account_idx ON plays(account_id, played_at);
 
+-- Smart playlists Heddohon evaluates itself, for a music server that has none
+-- (Jellyfin); see smartplaylists.ts. rules is the editor's model as JSON after
+-- checkRules, written the song ids last written upstream, null until the first
+-- evaluation. Keyed by account and playlist: a rule set written through one
+-- credential is never served under another.
+CREATE TABLE IF NOT EXISTS smart_playlists (
+  account_id   TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  playlist_id  TEXT NOT NULL,
+  rules        TEXT NOT NULL,
+  written      TEXT,
+  evaluated_at INTEGER,
+  created_at   INTEGER NOT NULL,
+  updated_at   INTEGER NOT NULL,
+  PRIMARY KEY (account_id, playlist_id)
+);
+
 -- The account's daily mixes, made at its first visit of the day and kept
 -- until the next; see mixes.ts. data is the mixes as JSON, songs included.
 CREATE TABLE IF NOT EXISTS daily_mixes (
@@ -379,6 +395,7 @@ const COPIED_TABLES = {
 	play_state: ['account_id', 'data', 'updated_at'],
 	shares: ['id', 'token_digest', 'account_id', 'backend', 'song_id', 'created_at', 'expires_at', 'kind'],
 	plays: ['account_id', 'song_id', 'played_at', 'title', 'artist', 'artist_id', 'album', 'album_id', 'cover_art', 'duration', 'source', 'device'],
+	smart_playlists: ['account_id', 'playlist_id', 'rules', 'written', 'evaluated_at', 'created_at', 'updated_at'],
 	integrations: ['account_id', 'kind', 'secret', 'created_at'],
 	profiles: ['account_id', 'handle', 'name', 'shown', 'avatar', 'avatar_at', 'updated_at'],
 	totp: ['account_id', 'secret', 'confirmed', 'last_step', 'created_at'],

@@ -1,8 +1,8 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { backendFor, UpstreamError } from '$lib/server/backends';
-import { lrclibLyrics } from '$lib/server/lrclib';
-import { refusedCredential } from '$lib/server/library';
+import { backendFor, UpstreamError } from '#lib/server/backends/index.ts';
+import { lrclibLyrics } from '#lib/server/lrclib.ts';
+import { refusedCredential } from '#lib/server/library.ts';
 
 export const GET: RequestHandler = async ({ locals, params }) => {
 	const session = locals.session;

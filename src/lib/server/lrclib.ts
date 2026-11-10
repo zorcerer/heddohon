@@ -9,7 +9,7 @@
  * The answer is third-party text: rendered only as text, capped in size, and
  * fetched with redirects refused.
  */
-import type { LyricLine, Lyrics, Song } from '$lib/types';
+import type { LyricLine, Lyrics, Song } from '#lib/types.ts';
 import { config } from './config';
 import { log, reason } from './log';
 import { APP_VERSION } from './version';

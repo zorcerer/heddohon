@@ -1,17 +1,18 @@
 <script lang="ts">
-	import type { Song } from '$lib/types';
-	import { player } from '$lib/client/player.svelte';
-	import { formatDuration } from '$lib/client/format';
-	import { contextMenu } from '$lib/client/context-menu.svelte';
-	import { SelectableList } from '$lib/client/selection.svelte';
-	import { addSongsToPlaylist } from '$lib/client/playlists.svelte';
-	import { shareComposer } from '$lib/client/share.svelte';
-	import { together } from '$lib/client/together.svelte';
+	import type { Song } from '#lib/types.ts';
+	import { player } from '#lib/client/player.svelte.ts';
+	import { formatDuration } from '#lib/client/format.ts';
+	import { contextMenu } from '#lib/client/context-menu.svelte.ts';
+	import { SelectableList } from '#lib/client/selection.svelte.ts';
+	import { addSongsToPlaylist } from '#lib/client/playlists.svelte.ts';
+	import { shareComposer } from '#lib/client/share.svelte.ts';
+	import { together } from '#lib/client/together.svelte.ts';
 	import { page } from '$app/state';
 	import Cover from './Cover.svelte';
 	import FavouriteButton from './FavouriteButton.svelte';
 	import Icon from './Icon.svelte';
 	import QualityBadge from './QualityBadge.svelte';
+	import Rise from './Rise.svelte';
 
 	let {
 		songs,
@@ -207,224 +208,226 @@
 </script>
 
 {#snippet list()}
-<ol
-	bind:this={listEl}
-	class="tracks hh-stagger"
-	class:artwork={variant === 'artwork'}
-	class:columns
-	class:reorderable={onmove !== null}
-	class:dragging={drag !== null}
-	style:--rows={columns ? Math.ceil(songs.length / 2) : null}
->
-	{#each songs as song, index (song.id + ':' + index)}
-		{@const isCurrent = song.id === currentId}
-		{@const isSelected = selectable.has(index)}
-		{#if discs && (index === 0 || (songs[index - 1].disc ?? 1) !== (song.disc ?? 1))}
-			<li class="disc-header hh-eyebrow" aria-hidden="true">Disc {song.disc ?? 1}</li>
-		{/if}
-		<li
-			class:column-start={columns && index === Math.ceil(songs.length / 2)}
-			class:dragged={drag?.from === index}
-			style:translate={rowShift(index)}
-		>
-			<div
-				class="track"
-				class:current={isCurrent}
-				class:selected={isSelected}
-				role="button"
-				tabindex="0"
-				onclickcapture={(event) => selectable.click(event, index)}
-				onmousedown={(event) => selectable.mousedown(event)}
-				onpointerdown={(event) => selectable.pointerdown(event, index)}
-				onpointermove={(event) => selectable.pointermove(event)}
-				onpointerup={() => selectable.pointerend()}
-				onpointercancel={() => selectable.pointerend()}
-				ondblclick={(event) => {
-					// A double press on a control in the row is that control's.
-					// `stopPropagation` on its clicks does not stop the `dblclick` that
-					// follows, which started the row's song. Two clicks that pick
-					// rows, or two taps while picking, are not a double press either.
-					if ((event.target as Element).closest('button, a')) return;
-					if (event.shiftKey || event.ctrlKey || event.metaKey || selectable.active) return;
-					activate(index);
-				}}
-				onkeydown={(event) => onKey(event, index)}
-				oncontextmenu={(event) => {
-					if (selectable.contextmenu(event, index)) return;
-					// On a picked row the menu is for every picked row.
-					if (isSelected) {
-						contextMenu.open(event, { kind: 'selection' });
-						return;
-					}
-					contextMenu.open(event, {
-						kind: 'song',
-						song,
-						play: () => activate(index),
-						remove: onremove ? { label: 'Remove from this playlist', run: () => onremove?.([index]) } : null
-					});
-				}}
-				aria-current={isCurrent ? 'true' : undefined}
+<Rise>
+	<ol
+		bind:this={listEl}
+		class="tracks"
+		class:artwork={variant === 'artwork'}
+		class:columns
+		class:reorderable={onmove !== null}
+		class:dragging={drag !== null}
+		style:--rows={columns ? Math.ceil(songs.length / 2) : null}
+	>
+		{#each songs as song, index (song.id + ':' + index)}
+			{@const isCurrent = song.id === currentId}
+			{@const isSelected = selectable.has(index)}
+			{#if discs && (index === 0 || (songs[index - 1].disc ?? 1) !== (song.disc ?? 1))}
+				<li class="disc-header hh-eyebrow" aria-hidden="true">Disc {song.disc ?? 1}</li>
+			{/if}
+			<li
+				class:column-start={columns && index === Math.ceil(songs.length / 2)}
+				class:dragged={drag?.from === index}
+				style:translate={rowShift(index)}
 			>
-				{#if onmove}
-					<!-- Dragged by pointer or finger, or moved one place at a time with
-					     the arrow keys while it has focus. -->
-					<button
-						class="grip"
-						data-select-skip
-						type="button"
-						aria-label="Move {song.title}, number {index + 1} of {songs.length}. Use the up and down arrow keys."
-						title="Drag to reorder"
-						onpointerdown={(event) => startDrag(event, index)}
-						onpointermove={moveDrag}
-						onpointerup={endDrag}
-						onpointercancel={cancelDrag}
-						onkeydown={(event) => nudge(event, index)}
-						onclick={(event) => event.stopPropagation()}
-					>
-						<Icon name="grip" size={14} />
-					</button>
-				{/if}
-				<div class="lead">
-					{#if variant === 'artwork'}
-						<div class="thumb">
-							<Cover coverArt={song.coverArt} size={96} alt="" radius="var(--r-sm)" />
-							{#if isSelected}
-								<span class="picked" aria-hidden="true"><Icon name="check" size={18} /></span>
-							{/if}
-						</div>
-					{:else}
-						<!--
-							The number is the play control. On hover it glows in the accent
-							and swells a little: a play glyph there was a second picture in
-							a column of numbers. The label says what a press does.
-						-->
+				<div
+					class="track"
+					class:current={isCurrent}
+					class:selected={isSelected}
+					role="button"
+					tabindex="0"
+					onclickcapture={(event) => selectable.click(event, index)}
+					onmousedown={(event) => selectable.mousedown(event)}
+					onpointerdown={(event) => selectable.pointerdown(event, index)}
+					onpointermove={(event) => selectable.pointermove(event)}
+					onpointerup={() => selectable.pointerend()}
+					onpointercancel={() => selectable.pointerend()}
+					ondblclick={(event) => {
+						// A double press on a control in the row is that control's.
+						// `stopPropagation` on its clicks does not stop the `dblclick` that
+						// follows, which started the row's song. Two clicks that pick
+						// rows, or two taps while picking, are not a double press either.
+						if ((event.target as Element).closest('button, a')) return;
+						if (event.shiftKey || event.ctrlKey || event.metaKey || selectable.active) return;
+						activate(index);
+					}}
+					onkeydown={(event) => onKey(event, index)}
+					oncontextmenu={(event) => {
+						if (selectable.contextmenu(event, index)) return;
+						// On a picked row the menu is for every picked row.
+						if (isSelected) {
+							contextMenu.open(event, { kind: 'selection' });
+							return;
+						}
+						contextMenu.open(event, {
+							kind: 'song',
+							song,
+							play: () => activate(index),
+							remove: onremove ? { label: 'Remove from this playlist', run: () => onremove?.([index]) } : null
+						});
+					}}
+					aria-current={isCurrent ? 'true' : undefined}
+				>
+					{#if onmove}
+						<!-- Dragged by pointer or finger, or moved one place at a time with
+						     the arrow keys while it has focus. -->
 						<button
-							class="index hh-numeric"
-							onclick={() => activate(index)}
-							aria-label={isCurrent && player.running ? `Pause ${song.title}` : `Play ${song.title}`}
+							class="grip"
+							data-select-skip
+							type="button"
+							aria-label="Move {song.title}, number {index + 1} of {songs.length}. Use the up and down arrow keys."
+							title="Drag to reorder"
+							onpointerdown={(event) => startDrag(event, index)}
+							onpointermove={moveDrag}
+							onpointerup={endDrag}
+							onpointercancel={cancelDrag}
+							onkeydown={(event) => nudge(event, index)}
+							onclick={(event) => event.stopPropagation()}
 						>
-							<span class="resting">
-								{#if isCurrent && player.running}
-									<!-- Still while the sound is held up: they keep time with the music. -->
-									<span class="bars" class:held={player.buffering} aria-hidden="true">
-										<i></i><i></i><i></i><i></i>
-									</span>
-								{:else if isSelected}
-									<Icon name="check" size={14} />
-								{:else}
-									{song.track ?? index + 1}
+							<Icon name="grip" size={14} />
+						</button>
+					{/if}
+					<div class="lead">
+						{#if variant === 'artwork'}
+							<div class="thumb">
+								<Cover coverArt={song.coverArt} size={96} alt="" radius="var(--r-sm)" />
+								{#if isSelected}
+									<span class="picked" aria-hidden="true"><Icon name="check" size={18} /></span>
+								{/if}
+							</div>
+						{:else}
+							<!--
+								The number is the play control. On hover it glows in the accent
+								and swells a little: a play glyph there was a second picture in
+								a column of numbers. The label says what a press does.
+							-->
+							<button
+								class="index hh-numeric"
+								onclick={() => activate(index)}
+								aria-label={isCurrent && player.running ? `Pause ${song.title}` : `Play ${song.title}`}
+							>
+								<span class="resting">
+									{#if isCurrent && player.running}
+										<!-- Still while the sound is held up: they keep time with the music. -->
+										<span class="bars" class:held={player.buffering} aria-hidden="true">
+											<i></i><i></i><i></i><i></i>
+										</span>
+									{:else if isSelected}
+										<Icon name="check" size={14} />
+									{:else}
+										{song.track ?? index + 1}
+									{/if}
+								</span>
+							</button>
+						{/if}
+						{#if variant === 'artwork'}
+							<!-- The cover is the play control here, and lifts and glows on
+							     hover as the number does in a numbered list. -->
+							<button
+								class="play-overlay"
+								onclick={() => activate(index)}
+								aria-label={isCurrent && player.running ? `Pause ${song.title}` : `Play ${song.title}`}
+							></button>
+						{/if}
+					</div>
+
+					<div class="meta">
+						<span class="title hh-truncate">{song.title}</span>
+						{#if isSelected}<span class="hh-visually-hidden">Selected</span>{/if}
+						{#if credited(song) || (showAlbum && song.album)}
+							<span class="sub hh-truncate hh-muted">
+								{#if credited(song)}
+									<a href={song.artistId ? `/artists/${song.artistId}` : '#'}>
+										{song.artist}
+									</a>
+								{/if}
+								{#if showAlbum && song.album}
+									{#if credited(song)}<span class="sep" aria-hidden="true">·</span>{/if}
+									<a href={song.albumId ? `/albums/${song.albumId}` : '#'}>
+										{song.album}
+									</a>
 								{/if}
 							</span>
-						</button>
-					{/if}
-					{#if variant === 'artwork'}
-						<!-- The cover is the play control here, and lifts and glows on
-						     hover as the number does in a numbered list. -->
-						<button
-							class="play-overlay"
-							onclick={() => activate(index)}
-							aria-label={isCurrent && player.running ? `Pause ${song.title}` : `Play ${song.title}`}
-						></button>
-					{/if}
-				</div>
-
-				<div class="meta">
-					<span class="title hh-truncate">{song.title}</span>
-					{#if isSelected}<span class="hh-visually-hidden">Selected</span>{/if}
-					{#if credited(song) || (showAlbum && song.album)}
-						<span class="sub hh-truncate hh-muted">
-							{#if credited(song)}
-								<a href={song.artistId ? `/artists/${song.artistId}` : '#'}>
-									{song.artist}
-								</a>
-							{/if}
-							{#if showAlbum && song.album}
-								{#if credited(song)}<span class="sep" aria-hidden="true">·</span>{/if}
-								<a href={song.albumId ? `/albums/${song.albumId}` : '#'}>
-									{song.album}
-								</a>
-							{/if}
-						</span>
-					{/if}
-				</div>
-
-				{#if showQuality}
-					<div class="quality">
-						<QualityBadge quality={song.quality} compact />
+						{/if}
 					</div>
-				{/if}
 
-				<div class="actions">
-					<FavouriteButton id={song.id} kind="song" starred={song.starred} />
-					<button
-						class="row-action"
-						onclick={(event) => {
-							event.stopPropagation();
-							player.addToQueue([song]);
-						}}
-						aria-label="Add {song.title} to the queue"
-						title="Add to queue"
-					>
-						<Icon name="queue" size={16} />
-					</button>
-					<button
-						class="row-action"
-						onclick={(event) => {
-							event.stopPropagation();
-							addSongsToPlaylist([song], song.title);
-						}}
-						aria-label="Add {song.title} to a playlist"
-						title="Add to playlist"
-					>
-						<Icon name="plus" size={16} />
-					</button>
-					<!-- While the account is a member of someone's listen-together session. -->
-					{#if together.joined && !song.live}
+					{#if showQuality}
+						<div class="quality">
+							<QualityBadge quality={song.quality} compact />
+						</div>
+					{/if}
+
+					<div class="actions">
+						<FavouriteButton id={song.id} kind="song" starred={song.starred} />
 						<button
 							class="row-action"
 							onclick={(event) => {
 								event.stopPropagation();
-								void together.add(song);
+								player.addToQueue([song]);
 							}}
-							aria-label="Add {song.title} to listen together"
-							title="Add to listen together"
+							aria-label="Add {song.title} to the queue"
+							title="Add to queue"
 						>
-							<Icon name="radio" size={15} />
+							<Icon name="queue" size={16} />
 						</button>
-					{/if}
-					{#if page.data.sharing}
 						<button
 							class="row-action"
 							onclick={(event) => {
 								event.stopPropagation();
-								shareComposer.open(song);
+								addSongsToPlaylist([song], song.title);
 							}}
-							aria-label="Share a link to {song.title}"
-							title="Share"
+							aria-label="Add {song.title} to a playlist"
+							title="Add to playlist"
 						>
-							<Icon name="share" size={15} />
+							<Icon name="plus" size={16} />
 						</button>
-					{/if}
-					{#if onremove}
-						<button
-							class="row-action row-action--danger"
-							onclick={(event) => {
-								event.stopPropagation();
-								onremove?.([index]);
-							}}
-							aria-label="Remove {song.title} from this playlist"
-							title="Remove from playlist"
-						>
-							<Icon name="close" size={15} />
-						</button>
-					{/if}
+						<!-- While the account is a member of someone's listen-together session. -->
+						{#if together.joined && !song.live}
+							<button
+								class="row-action"
+								onclick={(event) => {
+									event.stopPropagation();
+									void together.add(song);
+								}}
+								aria-label="Add {song.title} to listen together"
+								title="Add to listen together"
+							>
+								<Icon name="radio" size={15} />
+							</button>
+						{/if}
+						{#if page.data.sharing}
+							<button
+								class="row-action"
+								onclick={(event) => {
+									event.stopPropagation();
+									shareComposer.open(song);
+								}}
+								aria-label="Share a link to {song.title}"
+								title="Share"
+							>
+								<Icon name="share" size={15} />
+							</button>
+						{/if}
+						{#if onremove}
+							<button
+								class="row-action row-action--danger"
+								onclick={(event) => {
+									event.stopPropagation();
+									onremove?.([index]);
+								}}
+								aria-label="Remove {song.title} from this playlist"
+								title="Remove from playlist"
+							>
+								<Icon name="close" size={15} />
+							</button>
+						{/if}
+					</div>
+
+					<span class="duration hh-numeric hh-muted">{formatDuration(song.duration)}</span>
 				</div>
-
-				<span class="duration hh-numeric hh-muted">{formatDuration(song.duration)}</span>
-			</div>
-		</li>
-	{/each}
-</ol>
+			</li>
+		{/each}
+	</ol>
+</Rise>
 {/snippet}
 
 <!-- The columns follow the width the list has, not the window's, so the list

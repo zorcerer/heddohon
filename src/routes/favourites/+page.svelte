@@ -1,14 +1,15 @@
 <script lang="ts">
 	import { page as pageState } from '$app/state';
-	import Icon from '$lib/components/Icon.svelte';
-	import MediaCard from '$lib/components/MediaCard.svelte';
-	import MediaGrid from '$lib/components/MediaGrid.svelte';
-	import Pager from '$lib/components/Pager.svelte';
-	import SectionHeader from '$lib/components/SectionHeader.svelte';
-	import SortChips from '$lib/components/SortChips.svelte';
-	import TrackList from '$lib/components/TrackList.svelte';
-	import { playContainer } from '$lib/client/actions';
-	import { player } from '$lib/client/player.svelte';
+	import Icon from '#lib/components/Icon.svelte';
+	import MediaCard from '#lib/components/MediaCard.svelte';
+	import MediaGrid from '#lib/components/MediaGrid.svelte';
+	import Pager from '#lib/components/Pager.svelte';
+	import SectionHeader from '#lib/components/SectionHeader.svelte';
+	import SortChips from '#lib/components/SortChips.svelte';
+	import Segment from '#lib/components/Segment.svelte';
+	import TrackList from '#lib/components/TrackList.svelte';
+	import { playContainer } from '#lib/client/actions.ts';
+	import { player } from '#lib/client/player.svelte.ts';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -39,7 +40,7 @@
 	}
 
 	function sortHref(sort: Sort): string {
-		const params = new URLSearchParams(pageState.url.searchParams);
+		const params = new URLSearchParams(pageState.url.search);
 		params.set('tab', data.tab);
 		params.set('sort', sort);
 		if (sort === 'random') params.set('seed', String(data.reshuffleSeed));
@@ -50,7 +51,7 @@
 	}
 
 	function pageHref(target: number): string {
-		const params = new URLSearchParams(pageState.url.searchParams);
+		const params = new URLSearchParams(pageState.url.search);
 		params.set('tab', data.tab);
 		params.set('page', String(target));
 		params.set('sort', data.sort);
@@ -86,22 +87,13 @@
 		</div>
 	{:else}
 		<div class="bar">
-			<nav class="tabs" aria-label="Favourite type">
-				{#each data.tabs as tab (tab)}
-					{#if data.counts[tab] > 0}
-						<a
-							class="tab"
-							class:active={tab === data.tab}
-							href={tabHref(tab)}
-							aria-current={tab === data.tab ? 'page' : undefined}
-							data-sveltekit-noscroll
-						>
-							{LABELS[tab]}
-							<span class="hh-numeric count">{data.counts[tab].toLocaleString()}</span>
-						</a>
-					{/if}
-				{/each}
-			</nav>
+			<Segment
+				items={data.tabs
+					.filter((tab) => data.counts[tab] > 0)
+					.map((tab) => ({ value: tab, label: `${LABELS[tab]} ${data.counts[tab].toLocaleString()}`, href: tabHref(tab) }))}
+				value={data.tab}
+				label="Favourite type"
+			/>
 			{#if data.counts[data.tab] > 1}
 				<SortChips
 					sorts={data.sorts}
@@ -165,36 +157,6 @@
 		padding-bottom: var(--space-2);
 	}
 
-	.tabs {
-		display: flex;
-		gap: var(--space-1);
-	}
-
-	.tab {
-		display: inline-flex;
-		align-items: center;
-		gap: var(--space-2);
-		padding: 0.35rem 0.8rem;
-		border-radius: var(--r-pill);
-		color: var(--text-muted);
-		font-size: 0.875rem;
-		font-weight: 500;
-		transition:
-			background var(--transition),
-			color var(--transition);
-	}
-
-	.tab:hover,
-	.tab.active {
-		color: var(--glow-color);
-		text-shadow: var(--glow-text);
-	}
-
-	.count {
-		font-size: 0.6875rem;
-		color: var(--text-faint);
-	}
-
 	.empty {
 		padding: var(--space-7);
 		display: grid;
@@ -204,15 +166,5 @@
 		color: var(--text-faint);
 		border: 1px solid var(--border-hairline);
 		border-radius: var(--r-lg);
-	}
-
-	/* ── Terminal ────────────────────────────────────────────────────────────── */
-
-	/* The tab that is open: the accent, on a rule of it. The other themes light
-	   the label, and this one has no glow to do it with. */
-	:global([data-theme='terminal']) .tab.active {
-		border-radius: 0;
-		color: var(--accent);
-		box-shadow: inset 0 -2px 0 var(--accent);
 	}
 </style>

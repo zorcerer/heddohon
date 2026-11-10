@@ -4,10 +4,11 @@
 	import Cover from './Cover.svelte';
 	import Icon from './Icon.svelte';
 	import Sleeve from './Sleeve.svelte';
-	import { LAUNCH_MS, sleeveToken, sleeveTransition } from '$lib/client/sleeve-transition.svelte';
-	import { ambience } from '$lib/client/ambience.svelte';
-	import { warmAlbumCover } from '$lib/client/format';
-	import { contextMenu, type MenuAlbum } from '$lib/client/context-menu.svelte';
+	import { LAUNCH_MS, sleeveToken, sleeveTransition } from '#lib/client/sleeve-transition.svelte.ts';
+	import { ambience } from '#lib/client/ambience.svelte.ts';
+	import { warmAlbumCover } from '#lib/client/format.ts';
+	import { contextMenu, type MenuAlbum } from '#lib/client/context-menu.svelte.ts';
+	import Busy from './Busy.svelte';
 
 	let {
 		href,
@@ -147,7 +148,7 @@
 				aria-busy={pending}
 			>
 				<span class="glyph"><Icon name="play" size={16} /></span>
-				{#if pending}<span class="spinner" aria-hidden="true"></span>{/if}
+				{#if pending}<span class="spinner"><Busy cell={3} /></span>{/if}
 			</button>
 		{/if}
 	</div>
@@ -345,17 +346,13 @@
 		animation: pending-hide 0s 150ms forwards;
 	}
 
+	/* Shown after 150ms, so a play that starts at once never shows it. */
 	.spinner {
-		width: 1rem;
-		height: 1rem;
+		display: grid;
+		place-items: center;
 		margin-left: -2px;
-		border-radius: 50%;
-		border: 2px solid color-mix(in srgb, currentColor 30%, transparent);
-		border-top-color: currentColor;
 		opacity: 0;
-		animation:
-			pending-show 0s 150ms forwards,
-			pending-spin 0.7s linear 150ms infinite;
+		animation: pending-show 0s 150ms forwards;
 	}
 
 	@keyframes pending-hide {
@@ -367,18 +364,6 @@
 	@keyframes pending-show {
 		to {
 			opacity: 1;
-		}
-	}
-
-	@keyframes pending-spin {
-		to {
-			transform: rotate(360deg);
-		}
-	}
-
-	@media (prefers-reduced-motion: reduce) {
-		.spinner {
-			animation-duration: 0s, 2.4s;
 		}
 	}
 

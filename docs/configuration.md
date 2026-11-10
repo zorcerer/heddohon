@@ -27,6 +27,8 @@ still lands on it. Each one opens that section in the wiki.
 
 ## [Colour schemes from files](https://github.com/zorcerer/heddohon/wiki/Configuration#colour-schemes-from-files)
 
+### [Colouring Liquid, Paper or Phosphor](https://github.com/zorcerer/heddohon/wiki/Configuration#colouring-liquid-paper-or-phosphor)
+
 ## [Discord and ListenBrainz](https://github.com/zorcerer/heddohon/wiki/Configuration#discord-and-listenbrainz)
 
 ### [A Discord channel](https://github.com/zorcerer/heddohon/wiki/Configuration#a-discord-channel)

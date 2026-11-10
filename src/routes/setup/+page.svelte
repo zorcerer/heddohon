@@ -6,8 +6,10 @@
 	 * Everything is sent to `/api/setup` as JSON with the code, which this page
 	 * holds in memory for as long as it is open and nowhere else.
 	 */
-	import Icon from '$lib/components/Icon.svelte';
-	import Logo from '$lib/components/Logo.svelte';
+	import Icon from '#lib/components/Icon.svelte';
+	import Logo from '#lib/components/Logo.svelte';
+	import Switch from '#lib/components/Switch.svelte';
+	import Select from '#lib/components/Select.svelte';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -371,11 +373,16 @@
 							</label>
 							<label class="field">
 								<span class="label">Encryption</span>
-								<select class="hh-input" bind:value={database.ssl} onchange={reset} name="database-ssl">
-									<option value="off">Off, on the same host or a trusted network</option>
-									<option value="require">Required, certificate not checked</option>
-									<option value="verify-full">Required, certificate checked</option>
-								</select>
+								<Select label="Encryption"
+									bind:value={database.ssl}
+									onchange={reset}
+									name="database-ssl"
+									options={[
+										{ value: 'off', label: 'Off, on the same host or a trusted network' },
+										{ value: 'require', label: 'Required, certificate not checked' },
+										{ value: 'verify-full', label: 'Required, certificate checked' }
+									]}
+								/>
 							</label>
 							<div class="probe">
 								<button
@@ -403,12 +410,16 @@
 					<legend>Choices</legend>
 					<label class="field">
 						<span class="label">Theme an account starts in</span>
-						<select class="hh-input" bind:value={theme} name="theme">
-							<option value="terminal">Terminal</option>
-							<option value="liquid">Liquid</option>
-							<option value="paper">Paper</option>
-							<option value="phosphor">Phosphor</option>
-						</select>
+						<Select label="Theme an account starts in"
+							bind:value={theme}
+							name="theme"
+							options={[
+								{ value: 'terminal', label: 'Terminal' },
+								{ value: 'liquid', label: 'Liquid' },
+								{ value: 'paper', label: 'Paper' },
+								{ value: 'phosphor', label: 'Phosphor' }
+							]}
+						/>
 					</label>
 					{#if !decided.coverCache}
 						<label class="field">
@@ -417,17 +428,17 @@
 						</label>
 					{/if}
 					<label class="check">
-						<input type="checkbox" bind:checked={sharing} name="sharing" />
+						<Switch bind:checked={sharing} name="sharing" />
 						<span>Shared links and listening together</span>
 					</label>
 					<label class="check">
-						<input type="checkbox" bind:checked={downloads} name="downloads" />
+						<Switch bind:checked={downloads} name="downloads" />
 						<span>Downloads</span>
 					</label>
 					<!-- The optional features, off until ticked; an administrator changes them later under Settings, Features. -->
 					{#each data.features as feature (feature.id)}
 						<label class="check">
-							<input type="checkbox" bind:checked={features[feature.id]} name={feature.id} />
+							<Switch bind:checked={features[feature.id]} name={feature.id} />
 							<span>{feature.title}</span>
 						</label>
 					{/each}
@@ -669,14 +680,9 @@
 		display: grid;
 		grid-template-columns: auto minmax(0, 1fr);
 		gap: var(--space-3);
-		align-items: start;
+		align-items: center;
 		font-size: 0.9375rem;
 		color: var(--text-strong);
-	}
-
-	.check input {
-		margin-top: 0.25rem;
-		accent-color: var(--accent);
 	}
 
 	.alert {

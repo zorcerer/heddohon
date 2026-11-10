@@ -5,8 +5,8 @@
 import { config } from './config';
 import { now, store } from './db';
 import { FEATURE_IDS, type FeatureId } from './features';
-import { customSchemes } from './schemes';
-import type { AlbumSort } from '$lib/types';
+import { OWN_GROUND, customSchemes } from './schemes';
+import type { AlbumSort } from '#lib/types.ts';
 
 /**
  * A value of `data-theme`. Settings shows `dark` as Liquid and `light` as
@@ -173,14 +173,15 @@ export interface UserSettings {
 }
 
 /**
- * Each theme's ground, `--bg-base` in app.css, for what is painted before the
- * stylesheet loads: `theme-color` in the served page and the manifest's
- * colours.
+ * Each theme's ground, `--bg-base`, for what is painted before the stylesheet
+ * loads: `theme-color` in the served page and the manifest's colours. Liquid's
+ * and Paper's are read from their files (`schemes.ts`); the other two repeat
+ * `terminal.css` and `phosphor.css`.
  */
 export const THEME_GROUND: Record<ThemeName, string> = {
 	terminal: '#08090a',
-	dark: '#0b0c0f',
-	light: '#f0e7d5',
+	dark: OWN_GROUND.dark,
+	light: OWN_GROUND.light,
 	phosphor: '#0a0b0c'
 };
 
@@ -198,13 +199,15 @@ const SCHEME_GROUND: Record<(typeof SCHEMES)[number], string> = {
 	everforest: '#2d353b'
 };
 
-/** The ground the page is drawn on, for `theme-color`: the scheme's in Terminal, the theme's otherwise. */
+/** The ground the page is drawn on, for `theme-color`: the colour scheme's, from a file or Terminal's own, else the theme's. */
 export function groundOf(settings: Pick<UserSettings, 'theme' | 'scheme'>): string {
+	const custom = customSchemes().find((scheme) => scheme.id === settings.scheme && scheme.base === settings.theme);
+	if (custom) return custom.ground;
 	if (settings.theme !== 'terminal') return THEME_GROUND[settings.theme];
 	if (Object.prototype.hasOwnProperty.call(SCHEME_GROUND, settings.scheme)) {
 		return SCHEME_GROUND[settings.scheme as keyof typeof SCHEME_GROUND];
 	}
-	return customSchemes().find((scheme) => scheme.id === settings.scheme)?.ground ?? THEME_GROUND.terminal;
+	return THEME_GROUND.terminal;
 }
 
 const DEFAULT_SETTINGS: UserSettings = {

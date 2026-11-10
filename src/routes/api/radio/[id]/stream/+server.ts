@@ -1,8 +1,8 @@
 import { error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { tiedToSession } from '$lib/server/auth';
-import { UpstreamError } from '$lib/server/backends';
-import { openStation, RadioError, radioEnabled } from '$lib/server/radio';
+import { tiedToSession } from '#lib/server/auth.ts';
+import { UpstreamError } from '#lib/server/backends/index.ts';
+import { openStation, RadioError, radioEnabled } from '#lib/server/radio.ts';
 
 /**
  * A station's stream, fetched by this server and passed on; see `radio.ts`.

@@ -39,7 +39,7 @@ command line: `play` and the name of an album, an artist or a song starts the
 best match. Queueing, mixes,
 seeking and the volume work the same way.
 
-**Four themes, coloured by the artwork.** Terminal, Liquid, Paper and Phosphor.
+**Four themes, coloured by the artwork.** Terminal, Liquid, Paper and Phosphor, and colour schemes for any of them from files an administrator adds ([Configuration](https://github.com/zorcerer/heddohon/wiki/Configuration#colour-schemes-from-files)).
 
 ## Also
 
@@ -96,6 +96,11 @@ reviewed by me and by multiple AI-assisted audits, documented in [SECURITY.md](S
 ([CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)) and J.S. Bach's The
 Art of the Fugue played by Kimiko Ishizaka
 ([CC0](https://creativecommons.org/publicdomain/zero/1.0/)).
+
+The animated controls in `src/lib/components/bits/` are from
+[Svelte Bits](https://sveltebits.xyz) by David Haz, under the MIT licence with
+the Commons Clause ([its text](src/lib/components/bits/LICENSE.md)): they come
+with Heddohon, and may not be sold or passed on by themselves.
 
 <p align="center">
   <a href="https://ko-fi.com/zorcerer"><img src="https://ko-fi.com/img/githubbutton_sm.svg" alt="Support Heddohon on Ko-fi"></a>

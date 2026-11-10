@@ -1,6 +1,6 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { join, togetherEnabled } from '$lib/server/together';
+import { join, togetherEnabled } from '#lib/server/together.ts';
 
 /**
  * Joins the party as a member, from a page whose event stream is open: the

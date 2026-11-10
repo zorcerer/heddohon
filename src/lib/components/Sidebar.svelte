@@ -3,6 +3,7 @@
 	import { untrack } from 'svelte';
 	import Icon from './Icon.svelte';
 	import Logo from './Logo.svelte';
+	import Tip from './Tip.svelte';
 
 	let { appName }: { appName: string } = $props();
 
@@ -62,7 +63,10 @@
 			marker = null;
 			return;
 		}
-		marker = { y: anchor.offsetTop + anchor.offsetHeight / 2 };
+		// From the list, and not `offsetTop`: each link is inside its tooltip's
+		// positioned box, which would be the offset parent.
+		const top = anchor.getBoundingClientRect().top - (list?.getBoundingClientRect().top ?? 0);
+		marker = { y: top + anchor.offsetHeight / 2 };
 		if (!measured) {
 			measured = true;
 			// Travel only from the second position on.
@@ -91,63 +95,71 @@
 	unnamed links. `title` gives a pointer the same word on hover.
 -->
 <nav class="rail hh-glass hh-tint-morph hh-float" class:measured aria-label="Primary">
-	<a class="brand" href="/" title={appName}>
-		<span class="mark" aria-hidden="true"><Logo size={19} /></span>
-		<span class="wordmark hh-visually-hidden">{appName}</span>
-	</a>
+	<Tip group>
+		<a class="brand" href="/" title={appName}>
+			<span class="mark" aria-hidden="true"><Logo size={19} /></span>
+			<span class="wordmark hh-visually-hidden">{appName}</span>
+		</a>
 
-	<ul class="links" bind:this={list}>
-		<li
-			class="marker"
-			class:settled
-			class:gone={marker === null}
-			aria-hidden="true"
-			style:--marker-y="{marker?.y ?? 0}px"
-		></li>
-		{#each LINKS as link, index (link.href)}
-			{@const active = isActive(link.href, link.exact, link.also)}
-			<li>
+		<ul class="links" bind:this={list}>
+			<li
+				class="marker"
+				class:settled
+				class:gone={marker === null}
+				aria-hidden="true"
+				style:--marker-y="{marker?.y ?? 0}px"
+			></li>
+			{#each LINKS as link, index (link.href)}
+				{@const active = isActive(link.href, link.exact, link.also)}
+				<li>
+					<Tip label={link.label} side="right">
+						<a
+							class="link"
+							class:active
+							bind:this={anchors[index]}
+							href={link.href}
+							aria-current={active ? 'page' : undefined}
+						>
+							<Icon name={link.icon} size={19} />
+							<span class="hh-visually-hidden">{link.label}</span>
+						</a>
+					</Tip>
+				</li>
+			{/each}
+		</ul>
+
+		<div class="foot">
+			<Tip label="Living-room screen" side="right">
+				<a class="link" href="/screen">
+					<Icon name="screen" size={19} />
+					<span class="hh-visually-hidden">Living-room screen</span>
+				</a>
+			</Tip>
+
+			<Tip label="Settings" side="right">
 				<a
 					class="link"
-					class:active
-					bind:this={anchors[index]}
-					href={link.href}
-					title={link.label}
-					aria-current={active ? 'page' : undefined}
+					class:active={isActive('/settings', false)}
+					href="/settings"
+					aria-current={isActive('/settings', false) ? 'page' : undefined}
 				>
-					<Icon name={link.icon} size={19} />
-					<span class="hh-visually-hidden">{link.label}</span>
+					<Icon name="settings" size={19} />
+					<span class="hh-visually-hidden">Settings</span>
 				</a>
-			</li>
-		{/each}
-	</ul>
+			</Tip>
 
-	<div class="foot">
-		<a class="link" href="/screen" title="Living-room screen">
-			<Icon name="screen" size={19} />
-			<span class="hh-visually-hidden">Living-room screen</span>
-		</a>
-
-		<a
-			class="link"
-			class:active={isActive('/settings', false)}
-			href="/settings"
-			title="Settings"
-			aria-current={isActive('/settings', false) ? 'page' : undefined}
-		>
-			<Icon name="settings" size={19} />
-			<span class="hh-visually-hidden">Settings</span>
-		</a>
-
-		<!-- Styled as one of the rail's links: it is in the same column, and gets
-		     their collapse-to-icon behaviour at narrow widths. -->
-		<form method="POST" action="/logout">
-			<button class="link signout" type="submit" title="Sign out">
-				<Icon name="logout" size={19} />
-				<span class="hh-visually-hidden">Sign out</span>
-			</button>
-		</form>
-	</div>
+			<!-- Styled as one of the rail's links: it is in the same column, and gets
+			     their collapse-to-icon behaviour at narrow widths. -->
+			<form method="POST" action="/logout">
+				<Tip label="Sign out" side="right">
+					<button class="link signout" type="submit">
+						<Icon name="logout" size={19} />
+						<span class="hh-visually-hidden">Sign out</span>
+					</button>
+				</Tip>
+			</form>
+		</div>
+	</Tip>
 </nav>
 
 <style>
@@ -215,6 +227,12 @@
 
 	/* A square target with the glyph centred in it, so a column of icons does
 	   not read as left-aligned text without its words. */
+	/* Each link's tooltip box fills its row, as the link did. */
+	.rail :global(.hh-tip) {
+		display: grid;
+		width: 100%;
+	}
+
 	.link {
 		position: relative;
 		/* Over the marker, which is earlier in the list. */

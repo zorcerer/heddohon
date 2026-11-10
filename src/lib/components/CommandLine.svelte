@@ -12,8 +12,8 @@
 		run,
 		scoped,
 		type Found
-	} from '$lib/client/commands';
-	import type { SearchResults } from '$lib/types';
+	} from '#lib/client/commands.ts';
+	import type { SearchResults } from '#lib/types.ts';
 
 	/*
 	 * Terminal's command line, in the path strip: `:`, `;` (the same key
@@ -23,8 +23,12 @@
 	 */
 	let { open = $bindable(false) }: { open?: boolean } = $props();
 
-	// The built-in colour schemes and those from files.
-	const schemes = $derived([...SCHEMES, ...(page.data.customSchemes ?? []).map((scheme) => scheme.id)]);
+	// The built-in colour schemes and those from files for Terminal, whose
+	// command line this is: a file for another theme colours nothing here.
+	const schemes = $derived([
+		...SCHEMES,
+		...(page.data.customSchemes ?? []).filter((scheme) => scheme.base === 'terminal').map((scheme) => scheme.id)
+	]);
 
 	/*
 	 * The button names the line and its shortcut, so it is found without the

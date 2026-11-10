@@ -1,6 +1,6 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { getPlayState, savePlayState } from '$lib/server/settings';
+import { getPlayState, savePlayState } from '#lib/server/settings.ts';
 
 export const GET: RequestHandler = async ({ locals }) => {
 	if (!locals.session) error(401, 'Not signed in');

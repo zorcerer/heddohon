@@ -2,6 +2,7 @@
 	import type { Snippet } from 'svelte';
 	import Icon from './Icon.svelte';
 	import SectionHeader from './SectionHeader.svelte';
+	import Rise from './Rise.svelte';
 
 	/**
 	 * A section whose cards run in one line and scroll sideways, under the same
@@ -77,16 +78,18 @@
 		{/snippet}
 	</SectionHeader>
 
-	<div
-		class="track hh-stagger"
-		class:compact={density === 'compact'}
-		class:more-before={!atStart}
-		class:more-after={!atEnd}
-		bind:this={track}
-		onscroll={measure}
-	>
-		{@render children()}
-	</div>
+	<Rise>
+		<div
+			class="track"
+			class:compact={density === 'compact'}
+			class:more-before={!atStart}
+			class:more-after={!atEnd}
+			bind:this={track}
+			onscroll={measure}
+		>
+			{@render children()}
+		</div>
+	</Rise>
 </section>
 
 <style>

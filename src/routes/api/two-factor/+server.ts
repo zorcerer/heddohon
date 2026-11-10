@@ -1,10 +1,10 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { config, saveSetup } from '$lib/server/config';
-import { decidedByEnvironment } from '$lib/server/setup';
-import { accountIdByName, destroyAllSessions } from '$lib/server/auth';
-import { backendFor } from '$lib/server/backends';
-import { log } from '$lib/server/log';
+import { config, saveSetup } from '#lib/server/config.ts';
+import { decidedByEnvironment } from '#lib/server/setup.ts';
+import { accountIdByName, destroyAllSessions } from '#lib/server/auth.ts';
+import { backendFor } from '#lib/server/backends/index.ts';
+import { log } from '#lib/server/log.ts';
 import {
 	addPasskey,
 	afterFactorChange,
@@ -25,7 +25,7 @@ import {
 	renamePasskey,
 	startTotp,
 	type Proof
-} from '$lib/server/twofactor';
+} from '#lib/server/twofactor.ts';
 
 /** A passkey's id as the table holds it: base64url of at most 1023 bytes. */
 const PASSKEY_ID = /^[A-Za-z0-9_-]{1,1364}$/;

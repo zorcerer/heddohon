@@ -1,10 +1,10 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { backendFor, UpstreamError } from '$lib/server/backends';
-import { forgetListings } from '$lib/server/listings';
-import { forgetDetails } from '$lib/server/details';
-import type { StarKind } from '$lib/types';
-import { refusedCredential } from '$lib/server/library';
+import { backendFor, UpstreamError } from '#lib/server/backends/index.ts';
+import { forgetListings } from '#lib/server/listings.ts';
+import { forgetDetails } from '#lib/server/details.ts';
+import type { StarKind } from '#lib/types.ts';
+import { refusedCredential } from '#lib/server/library.ts';
 
 const KINDS: StarKind[] = ['song', 'album', 'artist'];
 

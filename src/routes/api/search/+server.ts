@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { library } from '$lib/server/library';
+import { library } from '#lib/server/library.ts';
 
 const LIMIT = 24;
 /** Past any title; the music server is not sent more. */

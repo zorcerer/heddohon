@@ -1,5 +1,5 @@
 import { player } from './player.svelte';
-import type { MixSeed, Song } from '$lib/types';
+import type { MixSeed, Song } from '#lib/types.ts';
 
 type Source = 'album' | 'playlist' | 'artist' | 'genre' | 'folder' | 'starred' | 'random' | 'daily';
 

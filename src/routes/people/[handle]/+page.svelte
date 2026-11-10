@@ -1,7 +1,7 @@
 <script lang="ts">
-	import { avatarUrl } from '$lib/client/listeners.svelte';
-	import ProfileEditor from '$lib/components/ProfileEditor.svelte';
-	import ProfileView from '$lib/components/ProfileView.svelte';
+	import { avatarUrl } from '#lib/client/listeners.svelte.ts';
+	import ProfileEditor from '#lib/components/ProfileEditor.svelte';
+	import ProfileView from '#lib/components/ProfileView.svelte';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();

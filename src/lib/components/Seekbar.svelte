@@ -1,10 +1,11 @@
 <script lang="ts">
 	/**
-	 * A pointer-driven scrub bar. Not an <input range>: the buffered-ahead band
-	 * and the oversized hit area are hard to express there, and keyboard support
-	 * is added by hand.
+	 * A scrub bar: Svelte Bits' ElasticSlider, which stretches like a band when
+	 * dragged past an end, and does not swell under the pointer. It reports a
+	 * position when it is let go, or at once from the keys, and draws the
+	 * buffered-ahead band.
 	 */
-	import { DUR } from '$lib/client/motion';
+	import ElasticSlider from './bits/ElasticSlider.svelte';
 
 	let {
 		value,
@@ -30,10 +31,6 @@
 		unit?: number;
 	} = $props();
 
-	let track = $state<HTMLDivElement | null>(null);
-	let dragging = $state(false);
-	let dragValue = $state(0);
-
 	let width = $state(0);
 
 	/*
@@ -50,184 +47,32 @@
 	 */
 	const step = $derived(width > 0 && max > 0 ? Math.max(unit, max / width) : unit);
 	const ticked = $derived(step > 0 ? Math.floor(value / step) * step : value);
-
-	// While dragging, the thumb follows the pointer and not the element's clock,
-	// so it does not jump back on every timeupdate.
-	const shown = $derived(dragging ? dragValue : ticked);
-	const percent = $derived(max > 0 ? Math.min(100, Math.max(0, (shown / max) * 100)) : 0);
-	// The same for the buffered band, which `progress` moves while the file loads.
-	const bufferedPercent = $derived(
-		max > 0 ? Math.min(100, ((step > 0 ? Math.floor(buffered / step) * step : buffered) / max) * 100) : 0
-	);
-
-	/*
-	 * The fill and the thumb glide to a new position when it jumps (a click, a
-	 * key, a new track going back to 0, the volume muted and back), over the
-	 * state length. The whole-second ticks of playback do not glide: a
-	 * transition on each would repaint the player panel and its blur for a
-	 * third of every second. A drag follows the pointer exactly.
-	 */
-	let gliding = $state(false);
-	let glideTimer: ReturnType<typeof setTimeout> | undefined;
-	let lastShown: number | null = null;
-	let downX = 0;
-
-	function glide() {
-		gliding = true;
-		clearTimeout(glideTimer);
-		glideTimer = setTimeout(() => (gliding = false), DUR.state + 40);
-	}
-
-	$effect(() => {
-		const now = shown;
-		if (lastShown !== null && !dragging && Math.abs(now - lastShown) > Math.max(step, 0) * 1.5) glide();
-		lastShown = now;
-	});
-
-	function valueFromEvent(event: PointerEvent): number {
-		if (!track || max <= 0) return 0;
-		const rect = track.getBoundingClientRect();
-		const ratio = (event.clientX - rect.left) / rect.width;
-		return Math.min(max, Math.max(0, ratio * max));
-	}
-
-	function onPointerDown(event: PointerEvent) {
-		if (max <= 0) return;
-		// A press glides to where it landed; moving from there is a drag.
-		glide();
-		downX = event.clientX;
-		dragging = true;
-		dragValue = valueFromEvent(event);
-		track?.setPointerCapture(event.pointerId);
-	}
-
-	function onPointerMove(event: PointerEvent) {
-		if (!dragging) return;
-		if (gliding && Math.abs(event.clientX - downX) > 3) gliding = false;
-		dragValue = valueFromEvent(event);
-	}
-
-	function onPointerUp(event: PointerEvent) {
-		if (!dragging) return;
-		dragging = false;
-		track?.releasePointerCapture(event.pointerId);
-		onseek(valueFromEvent(event));
-	}
-
-	/* The system took the touch (a swipe from the edge, a call): the drag ends
-	   where it began, and the track does not jump to where the finger was. */
-	function onPointerCancel() {
-		dragging = false;
-	}
-
-	function onKeyDown(event: KeyboardEvent) {
-		if (max <= 0) return;
-		const step = event.shiftKey ? 30 : 5;
-		if (event.key === 'ArrowRight') onseek(Math.min(max, value + step));
-		else if (event.key === 'ArrowLeft') onseek(Math.max(0, value - step));
-		else if (event.key === 'Home') onseek(0);
-		else if (event.key === 'End') onseek(max);
-		else return;
-		event.preventDefault();
-	}
+	const bufferedTicked = $derived(step > 0 ? Math.floor(buffered / step) * step : buffered);
 </script>
 
-<div
-	class="seek"
-	class:dragging
-	class:gliding
-	bind:this={track}
-	bind:clientWidth={width}
-	role="slider"
-	tabindex="0"
-	aria-label={ariaLabel}
-	aria-valuemin="0"
-	aria-valuemax={Math.round(max)}
-	aria-valuenow={Math.round(shown)}
-	aria-valuetext={formatValue(shown)}
-	onpointerdown={onPointerDown}
-	onpointermove={onPointerMove}
-	onpointerup={onPointerUp}
-	onpointercancel={onPointerCancel}
-	onkeydown={onKeyDown}
->
-	<div class="rail">
-		<div class="buffered" style:width="{bufferedPercent}%"></div>
-		<div class="played" style:width="{percent}%"></div>
-	</div>
-	<div class="thumb" style:left="{percent}%"></div>
+<div class="seek" bind:clientWidth={width}>
+	<ElasticSlider
+		value={Math.min(ticked, max)}
+		maxValue={Math.max(max, 0)}
+		buffered={Math.min(bufferedTicked, max)}
+		live={false}
+		swell={false}
+		keyStep={5}
+		shiftKeyStep={30}
+		oncommit={(seconds) => onseek(seconds)}
+		label={ariaLabel}
+		valueText={formatValue(ticked)}
+		disabled={max <= 0}
+	/>
 </div>
 
 <style>
 	.seek {
-		position: relative;
-		/* Generous hit area, thin visual rail. */
-		height: 1.25rem;
-		display: flex;
-		align-items: center;
-		cursor: pointer;
-		touch-action: none;
-	}
-
-	.rail {
-		position: relative;
-		width: 100%;
-		height: 4px;
-		border-radius: var(--r-pill);
-		background: var(--bg-active);
-		overflow: hidden;
-		transition: height var(--transition);
-	}
-
-	.seek:hover .rail,
-	.seek.dragging .rail,
-	.seek:focus-visible .rail {
-		height: 6px;
-	}
-
-	.buffered,
-	.played {
-		position: absolute;
-		inset: 0 auto 0 0;
-		border-radius: var(--r-pill);
-	}
-
-	.buffered {
-		background: var(--border-strong);
-	}
-
-	.played {
-		background: var(--accent);
-	}
-
-	.gliding .played {
-		transition: width var(--dur-state) var(--ease-out);
-	}
-
-	.thumb {
-		position: absolute;
-		top: 50%;
-		width: 0.75rem;
-		height: 0.75rem;
-		margin-left: -0.375rem;
-		border-radius: 50%;
-		background: var(--text-strong);
-		border: 2px solid var(--bg-surface);
-		transform: translateY(-50%) scale(0);
-		transition: transform var(--transition);
-		pointer-events: none;
-	}
-
-	.gliding .thumb {
-		transition:
-			transform var(--transition),
-			left var(--dur-state) var(--ease-out);
-	}
-
-	.seek:hover .thumb,
-	.seek.dragging .thumb,
-	.seek:focus-visible .thumb {
-		transform: translateY(-50%) scale(1);
+		--bits-slider-pad: 0.375rem 0;
+		--bits-slider-gap: 0;
+		--bits-slider-track: var(--bg-active);
+		--bits-slider-buffered: var(--border-strong);
+		--bits-slider-range: var(--accent);
 	}
 
 	/* ── Terminal ────────────────────────────────────────────────────────────── */
@@ -235,35 +80,31 @@
 	/*
 	 * A row of segments, 6px with 2px between, at one height: the played ones in
 	 * the accent over the buffered ones over the rest. The three share an origin,
-	 * so their segments coincide. The thumb is not drawn; the last lit segment
-	 * marks the place.
+	 * so their segments coincide. The swell keeps the height.
 	 */
-	:global([data-theme='terminal']) .rail,
-	:global([data-theme='terminal']) .seek:hover .rail,
-	:global([data-theme='terminal']) .seek.dragging .rail,
-	:global([data-theme='terminal']) .seek:focus-visible .rail {
-		height: 0.5rem;
+	:global([data-theme='terminal'] .seek .slider-track-wrapper) {
+		height: 0.5rem !important;
+		margin: 0 !important;
+	}
+
+	:global([data-theme='terminal'] .seek .slider-track) {
 		border-radius: 0;
 		background: repeating-linear-gradient(to right, var(--bg-active) 0 6px, transparent 6px 8px);
 	}
 
-	:global([data-theme='terminal']) .buffered,
-	:global([data-theme='terminal']) .played {
+	:global([data-theme='terminal'] .seek .slider-buffered),
+	:global([data-theme='terminal'] .seek .slider-range) {
 		border-radius: 0;
 		background: none;
 		background-size: 100vw 100%;
 	}
 
-	:global([data-theme='terminal']) .buffered {
+	:global([data-theme='terminal'] .seek .slider-buffered) {
 		background-image: repeating-linear-gradient(to right, var(--border-strong) 0 6px, transparent 6px 8px);
 	}
 
-	:global([data-theme='terminal']) .played {
+	:global([data-theme='terminal'] .seek .slider-range) {
 		background-image: repeating-linear-gradient(to right, var(--accent) 0 6px, transparent 6px 8px);
-	}
-
-	:global([data-theme='terminal']) .thumb {
-		display: none;
 	}
 
 	/* ── Phosphor ────────────────────────────────────────────────────────────── */
@@ -271,36 +112,33 @@
 	/*
 	 * A row of phosphor segments, 4px with 2px between and 3px high: the played
 	 * ones lit in the accent and glowing, the rest unlit and just visible, as
-	 * the segments of a display are. The rail is not clipped, so the glow
-	 * reaches past it. The thumb is not drawn.
+	 * the segments of a display are. The track is not clipped, so the glow
+	 * reaches past it.
 	 */
-	:global([data-theme='phosphor']) .rail,
-	:global([data-theme='phosphor']) .seek:hover .rail,
-	:global([data-theme='phosphor']) .seek.dragging .rail,
-	:global([data-theme='phosphor']) .seek:focus-visible .rail {
-		height: 3px;
+	:global([data-theme='phosphor'] .seek .slider-track-wrapper) {
+		height: 3px !important;
+		margin: 0 !important;
+	}
+
+	:global([data-theme='phosphor'] .seek .slider-track) {
 		border-radius: 0;
 		overflow: visible;
 		background: repeating-linear-gradient(to right, rgb(170 215 210 / 0.1) 0 4px, transparent 4px 6px);
 	}
 
-	:global([data-theme='phosphor']) .buffered,
-	:global([data-theme='phosphor']) .played {
+	:global([data-theme='phosphor'] .seek .slider-buffered),
+	:global([data-theme='phosphor'] .seek .slider-range) {
 		border-radius: 0;
 		background: none;
 		background-size: 100vw 100%;
 	}
 
-	:global([data-theme='phosphor']) .buffered {
+	:global([data-theme='phosphor'] .seek .slider-buffered) {
 		background-image: repeating-linear-gradient(to right, rgb(170 215 210 / 0.12) 0 4px, transparent 4px 6px);
 	}
 
-	:global([data-theme='phosphor']) .played {
+	:global([data-theme='phosphor'] .seek .slider-range) {
 		background-image: repeating-linear-gradient(to right, var(--accent) 0 4px, transparent 4px 6px);
 		filter: drop-shadow(0 0 3px color-mix(in srgb, var(--accent) 70%, transparent));
-	}
-
-	:global([data-theme='phosphor']) .thumb {
-		display: none;
 	}
 </style>

@@ -19,7 +19,7 @@
  *
  * Both follow "Report playback": with it off, nothing leaves.
  */
-import type { Song } from '$lib/types';
+import type { Song } from '#lib/types.ts';
 import { config } from './config';
 import { openJson, sealJson } from './crypto';
 import { store } from './db';

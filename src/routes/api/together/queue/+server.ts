@@ -1,6 +1,6 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { MAX_UPCOMING, QUEUE_SHOWN, reportQueue, togetherEnabled, type UpcomingReport } from '$lib/server/together';
+import { MAX_UPCOMING, QUEUE_SHOWN, reportQueue, togetherEnabled, type UpcomingReport } from '#lib/server/together.ts';
 
 /** As in `state`: shown, not stored. */
 const MAX_TEXT = 300;

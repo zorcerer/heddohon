@@ -1,6 +1,6 @@
 import { error } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
-import { partyFor, REACTIONS, removedFrom, togetherEnabled } from '$lib/server/together';
+import { partyFor, REACTIONS, removedFrom, togetherEnabled } from '#lib/server/together.ts';
 
 /**
  * A listen-together link, for anyone who has it. A visitor signed in on the

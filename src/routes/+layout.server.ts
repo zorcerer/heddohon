@@ -1,10 +1,10 @@
 import type { LayoutServerLoad } from './$types';
-import { backendFor } from '$lib/server/backends';
-import { SetupRequired, config } from '$lib/server/config';
-import { radioEnabled } from '$lib/server/radio';
-import { defaultSettings, shippedSettings } from '$lib/server/settings';
-import { customSchemes } from '$lib/server/schemes';
-import { APP_VERSION } from '$lib/server/version';
+import { backendFor } from '#lib/server/backends/index.ts';
+import { SetupRequired, config } from '#lib/server/config.ts';
+import { radioEnabled } from '#lib/server/radio.ts';
+import { defaultSettings, shippedSettings } from '#lib/server/settings.ts';
+import { customSchemes } from '#lib/server/schemes.ts';
+import { APP_VERSION } from '#lib/server/version.ts';
 
 export const load: LayoutServerLoad = async ({ locals, url }) => {
 	let cfg;
@@ -19,6 +19,7 @@ export const load: LayoutServerLoad = async ({ locals, url }) => {
 			appVersion: APP_VERSION,
 			sharing: false,
 			downloads: false,
+			volumeLimit: 1,
 			remoteControl: false,
 			together: false,
 			listeners: false,
@@ -46,6 +47,8 @@ export const load: LayoutServerLoad = async ({ locals, url }) => {
 		// server will refuse.
 		sharing: cfg.sharing,
 		downloads: cfg.downloads,
+		// Scales every player's volume; see `HEDDOHON_VOLUME_LIMIT`.
+		volumeLimit: cfg.volumeLimit,
 		remoteControl: cfg.remoteControl,
 		// Listening together needs both; see `together.ts`.
 		together: cfg.sharing && cfg.remoteControl,
@@ -67,8 +70,8 @@ export const load: LayoutServerLoad = async ({ locals, url }) => {
 		serverLabel:
 			cfg.upstreams.find((upstream) => upstream.kind === session?.account.backend)?.label ?? '',
 		settings: locals.settings ?? defaultSettings(),
-		// Terminal's colour schemes from files, offered beside the built-in ones.
-		customSchemes: customSchemes().map(({ id, name }) => ({ id, name })),
+		// Colour schemes from files, each offered under the theme it colours.
+		customSchemes: customSchemes().map(({ id, name, base }) => ({ id, name, base })),
 		sessionExpiresAt: session?.expiresAt ?? null,
 		isLoginPage: url.pathname === '/login',
 		// A shared link, a listen-together link, a now-playing link and a public

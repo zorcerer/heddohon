@@ -1,6 +1,6 @@
 import { error } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
-import { accountOfHandle, MAX_BIO, pageOf, pageSettings } from '$lib/server/profilepage';
+import { accountOfHandle, MAX_BIO, pageOf, pageSettings } from '#lib/server/profilepage.ts';
 
 /** A profile page: the account's own, which it edits here, or another one listed here. */
 export const load: PageServerLoad = async ({ locals, params }) => {

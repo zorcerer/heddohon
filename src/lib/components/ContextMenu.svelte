@@ -12,15 +12,15 @@
 	import type { ComponentProps } from 'svelte';
 	import { beforeNavigate } from '$app/navigation';
 	import { page } from '$app/state';
-	import { fetchTracks, playContainer, playInstantMix, queueContainer } from '$lib/client/actions';
-	import { contextMenu } from '$lib/client/context-menu.svelte';
-	import { isStarred, setStarred } from '$lib/client/favourites.svelte';
-	import { ratingOf, setRating } from '$lib/client/ratings.svelte';
-	import { player } from '$lib/client/player.svelte';
-	import { addSongsToPlaylist } from '$lib/client/playlists.svelte';
-	import { selection, selectionActions } from '$lib/client/selection.svelte';
-	import { shareComposer } from '$lib/client/share.svelte';
-	import { together } from '$lib/client/together.svelte';
+	import { fetchTracks, playContainer, playInstantMix, queueContainer } from '#lib/client/actions.ts';
+	import { contextMenu } from '#lib/client/context-menu.svelte.ts';
+	import { isStarred, setStarred } from '#lib/client/favourites.svelte.ts';
+	import { ratingOf, setRating } from '#lib/client/ratings.svelte.ts';
+	import { player } from '#lib/client/player.svelte.ts';
+	import { addSongsToPlaylist } from '#lib/client/playlists.svelte.ts';
+	import { selection, selectionActions } from '#lib/client/selection.svelte.ts';
+	import { shareComposer } from '#lib/client/share.svelte.ts';
+	import { together } from '#lib/client/together.svelte.ts';
 	import Icon from './Icon.svelte';
 
 	type IconName = ComponentProps<typeof Icon>['name'];
@@ -324,7 +324,35 @@
 		if (subject?.kind === 'selection' && selection.count === 0) contextMenu.close();
 	});
 
-	beforeNavigate(() => contextMenu.close());
+	/*
+	 * One highlight that glides from item to item under the pointer and the
+	 * arrow keys, as Svelte Bits' GlideSelect moves its own; it appears where
+	 * it is first wanted, without travelling there. Measured from each item,
+	 * since a rule between them makes the rows uneven. A translate inside the
+	 * glass, which leaves its blur alone.
+	 */
+	let glide = $state<HTMLSpanElement | null>(null);
+
+	function glideTo(item: Element | null) {
+		const pill = glide;
+		if (!pill) return;
+		if (!(item instanceof HTMLElement)) {
+			pill.style.opacity = '0';
+			return;
+		}
+		if (pill.style.opacity !== '1') pill.dataset.jump = '';
+		else delete pill.dataset.jump;
+		pill.style.height = `${item.offsetHeight}px`;
+		pill.style.transform = `translateY(${item.offsetTop}px)`;
+		pill.style.opacity = '1';
+	}
+
+	const itemOf = (target: EventTarget | null) => (target instanceof Element ? target.closest('.item') : null);
+
+	// Not for the sheet's own entry, a shallow `goto` in SvelteKit 3.
+	beforeNavigate(({ shallow, type }) => {
+		if (!(shallow && type === 'goto')) contextMenu.close();
+	});
 </script>
 
 {#if subject && heading}
@@ -339,7 +367,11 @@
 		style:top="{top}px"
 		onkeydown={step}
 		oncontextmenu={(event) => event.preventDefault()}
+		onpointerover={(event) => glideTo(itemOf(event.target))}
+		onfocusin={(event) => glideTo(itemOf(event.target))}
+		onpointerleave={() => glideTo(itemOf(document.activeElement))}
 	>
+		<span class="glide" bind:this={glide} aria-hidden="true"></span>
 		<div class="head">
 			<span class="name hh-truncate" aria-hidden="true">{heading.name}</span>
 			{#if heading.by}<span class="by hh-truncate" aria-hidden="true">{heading.by}</span>{/if}
@@ -369,7 +401,7 @@
 			{#if item.kind === 'rule'}
 				<div class="rule" role="separator"></div>
 			{:else if item.kind === 'link'}
-				<a class="item" role="menuitem" tabindex="-1" href={item.href} onclick={() => contextMenu.close()}>
+				<a class="item" role="menuitem" tabindex="-1" href={item.href} style:--i={index} onclick={() => contextMenu.close()}>
 					<Icon name={item.icon} size={16} />
 					<span class="label">{item.label}</span>
 				</a>
@@ -382,6 +414,7 @@
 					tabindex="-1"
 					type="button"
 					aria-busy={item.stays ? mix === 'busy' : undefined}
+					style:--i={index}
 					onclick={() => choose(item)}
 				>
 					<Icon name={item.icon} size={16} />
@@ -439,7 +472,40 @@
 		font-size: 0.75rem;
 	}
 
+	/* The highlight that glides between the items; see `glideTo`. */
+	.glide {
+		position: absolute;
+		top: 0;
+		left: var(--space-1);
+		right: var(--space-1);
+		border-radius: var(--r-sm);
+		background: var(--bg-hover);
+		opacity: 0;
+		pointer-events: none;
+		transition:
+			transform var(--dur-hover) var(--ease-out),
+			opacity var(--dur-press) var(--ease-out);
+	}
+
+	.glide:global([data-jump]) {
+		transition: opacity var(--dur-press) var(--ease-out);
+	}
+
+	/*
+	 * The items come in as Svelte Bits' AnimatedList brings its rows in, from
+	 * 70 percent and transparent, after 100ms, here 20ms apart down the menu.
+	 */
+	@keyframes item-in {
+		from {
+			opacity: 0;
+			scale: 0.7;
+		}
+	}
+
 	.item {
+		position: relative;
+		animation: item-in 200ms var(--ease-out) backwards;
+		animation-delay: calc(100ms + var(--i, 0) * 20ms);
 		display: flex;
 		align-items: center;
 		gap: var(--space-3);
@@ -463,7 +529,6 @@
 	   same, and the keys' own ring is not drawn over it. */
 	.item:hover,
 	.item:focus-visible {
-		background: var(--bg-hover);
 		color: var(--text-strong);
 		outline: none;
 	}
@@ -527,8 +592,13 @@
 	}
 
 	@media (prefers-reduced-motion: reduce) {
-		.menu {
+		.menu,
+		.item {
 			animation: none;
+		}
+
+		.glide {
+			transition: opacity var(--dur-press) var(--ease-out);
 		}
 	}
 
@@ -540,9 +610,13 @@
 		text-transform: lowercase;
 	}
 
+	:global([data-theme='terminal']) .glide {
+		border-radius: 0;
+		background: var(--accent);
+	}
+
 	:global([data-theme='terminal']) .item:hover,
 	:global([data-theme='terminal']) .item:focus-visible {
-		background: var(--accent);
 		color: var(--accent-contrast);
 	}
 

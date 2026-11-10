@@ -59,6 +59,48 @@ after(async () => {
 	await jellyfin?.close();
 });
 
+/**
+ * The selects are Svelte Bits' GlideSelect (`lib/components/Select.svelte`): a
+ * combobox whose options are drawn only while its menu is open, and chosen on
+ * a press. One with a form field is `[data-select="<name>"]`.
+ */
+const select = (page, name) => page.locator(`[data-select="${name}"] [role="combobox"]`);
+const menuOf = (combobox) => combobox.locator('xpath=..');
+async function pick(combobox, value) {
+	await combobox.click();
+	const option = menuOf(combobox).locator(`[role="option"][data-value="${value}"]`);
+	await option.click();
+	await option.waitFor({ state: 'detached' });
+}
+async function pickLabel(combobox, label) {
+	await combobox.click();
+	const option = menuOf(combobox).getByRole('option', { name: label, exact: true });
+	await option.click();
+	await option.waitFor({ state: 'detached' });
+}
+/** The options as `[value, label]`, read with the menu open and closed again. */
+async function optionsOf(combobox) {
+	await combobox.click();
+	const options = menuOf(combobox).getByRole('option');
+	await options.first().waitFor();
+	const read = await options.evaluateAll((all) => all.map((option) => [option.dataset.value, option.textContent.trim()]));
+	await combobox.press('Escape');
+	return read;
+}
+/** The label of the choice the closed control shows. */
+const shown = async (combobox) => (await combobox.textContent()).trim();
+
+/**
+ * Sets an ElasticSlider (`role="slider"`) by its keys: Home, then the right
+ * arrow a step at a time. Its value is `aria-valuenow`.
+ */
+async function setSlider(slider, value, { min, step = 1 }) {
+	await slider.focus();
+	await slider.press('Home');
+	for (let at = min; at < value; at += step) await slider.press('ArrowRight');
+}
+const sliderValue = (slider) => slider.getAttribute('aria-valuenow');
+
 /** A page that records every console error and uncaught exception. */
 async function watchedPage() {
 	const page = await context.newPage();
@@ -123,80 +165,102 @@ describe('the policy', () => {
 });
 
 describe('playing from a card', () => {
-	test('a slow play shows it is busy, and a second click is ignored', async () => {
+	/*
+	 * The spinner waits 150ms in the CSS (`pending-show` in MediaCard.svelte), and
+	 * these checks used to wait that out in real time: on a loaded runner the
+	 * tracks request took past 150ms and a "fast" play showed the spinner (#262).
+	 * The request is held here until the check lets it go, and the spinner's
+	 * delay is read off its animation, paused and set where the check needs it.
+	 */
+	const holdTracks = async (page) => {
+		const held = [];
+		let release;
+		const released = new Promise((done) => (release = done));
+		await page.route('**/api/tracks', async (route) => {
+			held.push(route);
+			await released;
+			await route.continue();
+		});
+		return { held, release };
+	};
+	const playButton = (page, href) => {
+		const button = page.locator(`a.card[href="${href}"]:has(button.play)`).first().locator('button.play');
+		return {
+			button,
+			state: () =>
+				button.evaluate((b) => {
+					const spinner = b.querySelector('.spinner');
+					return {
+						busy: b.getAttribute('aria-busy'),
+						spinner: spinner ? getComputedStyle(spinner).opacity : null,
+						glyph: getComputedStyle(b.querySelector('.glyph')).opacity
+					};
+				}),
+			// Pauses the spinner's and the icon's 150ms delay at `ms`.
+			at: (ms) =>
+				button.evaluate((b, ms) => {
+					const animations = b.getAnimations({ subtree: true }).filter((a) => /pending-(show|hide)$/.test(a.animationName));
+					for (const animation of animations) {
+						animation.pause();
+						animation.currentTime = ms;
+					}
+					return animations.length;
+				}, ms)
+		};
+	};
+
+	test('a slow play shows it is busy past 150ms, and a second press is ignored', async () => {
 		const { page, problems } = await watchedPage();
 		await page.goto(app.url + '/', { waitUntil: 'networkidle' });
-		// Album 3, which no test before this one opens: an album read in the last
-		// minute is held (`details.ts`), and its play would be answered at once.
-		const card = page.locator('a.card[href="/albums/al3"]:has(button.play)').first();
-		const button = card.locator('button.play');
-		const state = () =>
-			button.evaluate((b) => {
-				const spinner = b.querySelector('.spinner');
-				return {
-					busy: b.getAttribute('aria-busy'),
-					spinner: spinner ? getComputedStyle(spinner).opacity : null,
-					glyph: getComputedStyle(b.querySelector('.glyph')).opacity,
-					button: getComputedStyle(b).opacity
-				};
-			});
-
-		// Not hovered, since hovering preloads the album page. The wait stays: the
-		// timings below are measured from a settled page, and on a CI runner a
-		// page just loaded let 60ms stretch past the 150ms.
-		await page.waitForTimeout(600);
-		subsonic.state.delays.set('getAlbum', 1500);
-		subsonic.calls.reset();
+		const { held, release } = await holdTracks(page);
+		const { button, state, at } = playButton(page, '/albums/al3');
 		try {
 			// From the keyboard: the button takes no pointer clicks unless it is
 			// focused or busy, since the cover's hover no longer shows it.
 			await button.focus();
 			await page.keyboard.press('Enter');
-			await page.waitForTimeout(60);
-			// The button fades in on the press, so its own opacity is checked at the
-			// next step, once the fade is over.
-			const early = await state();
-			assert.deepEqual({ ...early, button: undefined }, { busy: 'true', spinner: '0', glyph: '1', button: undefined }, 'no spinner before 150ms');
+			await page.waitForFunction(() => document.querySelector('a.card[href="/albums/al3"] button.play .spinner'));
+			assert.equal(await at(149), 2, 'the spinner and the icon each have a delay');
+			assert.deepEqual(await state(), { busy: 'true', spinner: '0', glyph: '1' }, 'no spinner before 150ms');
+			await at(150);
+			assert.deepEqual(await state(), { busy: 'true', spinner: '1', glyph: '0' }, 'the spinner from 150ms');
 
-			await page.waitForTimeout(340);
 			await page.keyboard.press('Enter');
-			await page.mouse.move(5, 5);
-			await page.waitForTimeout(100);
-			assert.deepEqual(await state(), { busy: 'true', spinner: '1', glyph: '0', button: '1' }, 'spinner shown, button held up');
-
-			await page.waitForFunction((b) => b?.getAttribute('aria-busy') === 'false', await button.elementHandle(), {
-				timeout: 5000
-			});
+			assert.equal(held.length, 1, 'the second press must not fetch again');
+			release();
+			await page.waitForFunction((b) => b?.getAttribute('aria-busy') === 'false', await button.elementHandle(), { timeout: 5000 });
 			assert.equal((await state()).spinner, null);
-			assert.equal(subsonic.calls.get('getAlbum'), 1, 'the second click must not fetch again');
+			assert.equal(held.length, 1);
 		} finally {
-			subsonic.state.delays.clear();
+			release();
+			await page.unroute('**/api/tracks');
 		}
 		await page.close();
 		assert.deepEqual(problems, []);
 	});
 
-	test('a fast play never shows the spinner', async () => {
-		const { page } = await watchedPage();
+	test('a play answered within 150ms never shows the spinner', async () => {
+		const { page, problems } = await watchedPage();
 		await page.goto(app.url + '/', { waitUntil: 'networkidle' });
-		const card = page.locator('a.card:has(button.play)').first();
-		const button = card.locator('button.play');
-		await card.hover();
-		// Hovering preloads the album page. A click while that was loading put the
-		// tracks request behind it, past 150ms on a CI runner once, and the spinner
-		// showed.
-		await page.waitForTimeout(600);
-		await button.focus();
-		await page.keyboard.press('Enter');
-		for (let sample = 0; sample < 8; sample++) {
-			const opacity = await button.evaluate((b) => {
-				const spinner = b.querySelector('.spinner');
-				return spinner ? getComputedStyle(spinner).opacity : '0';
-			});
-			assert.equal(opacity, '0');
-			await page.waitForTimeout(20);
+		const { release } = await holdTracks(page);
+		const { button, state, at } = playButton(page, '/albums/al4');
+		try {
+			await button.focus();
+			await page.keyboard.press('Enter');
+			await page.waitForFunction(() => document.querySelector('a.card[href="/albums/al4"] button.play .spinner'));
+			// The answer arrives at 149ms on the spinner's clock, however long the
+			// runner took to get there.
+			await at(149);
+			assert.deepEqual(await state(), { busy: 'true', spinner: '0', glyph: '1' });
+			release();
+			await page.waitForFunction((b) => b?.getAttribute('aria-busy') === 'false', await button.elementHandle(), { timeout: 5000 });
+			assert.deepEqual(await state(), { busy: 'false', spinner: null, glyph: '1' }, 'the play icon throughout');
+		} finally {
+			release();
+			await page.unroute('**/api/tracks');
 		}
 		await page.close();
+		assert.deepEqual(problems, []);
 	});
 });
 
@@ -624,23 +688,23 @@ describe('the equaliser', () => {
 		const { page, problems } = await watchedPage();
 		try {
 			await page.goto(app.url + '/settings?tab=playback', { waitUntil: 'networkidle' });
-			const toggle = page.getByRole('checkbox', { name: /^Process audio/ });
+			const toggle = page.getByRole('switch', { name: /^Process audio/ });
 			assert.equal(await toggle.isChecked(), false);
 			assert.equal(await page.getByRole('group', { name: 'Equaliser bands' }).count(), 0);
 
 			await toggle.check();
-			await page.getByRole('combobox', { name: 'Equaliser' }).selectOption('bass');
+			await pick(page.getByRole('combobox', { name: 'Equaliser' }), 'bass');
 			const band = page.getByRole('slider', { name: '31Hz, in dB' });
-			assert.equal(await band.inputValue(), '6');
-			await band.fill('-4');
-			assert.equal(await page.getByRole('combobox', { name: 'Equaliser' }).inputValue(), '', 'bands set by hand read as Custom');
+			assert.equal(await sliderValue(band), '6');
+			await setSlider(band, -4, { min: -12 });
+			assert.equal(await shown(page.getByRole('combobox', { name: 'Equaliser' })), 'Custom', 'bands set by hand read as Custom');
 			const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('heddohon:audio-processing')));
 			assert.deepEqual(saved, { enabled: true, gains: [-4, 5, 4, 2, 0, 0, 0, 0, 0, 0] });
 
 			await page.reload({ waitUntil: 'networkidle' });
-			assert.equal(await page.getByRole('slider', { name: '31Hz, in dB' }).inputValue(), '-4');
+			assert.equal(await sliderValue(page.getByRole('slider', { name: '31Hz, in dB' })), '-4');
 
-			await page.getByRole('checkbox', { name: /^Process audio/ }).uncheck();
+			await page.getByRole('switch', { name: /^Process audio/ }).uncheck();
 			const off = await page.evaluate(() => JSON.parse(localStorage.getItem('heddohon:audio-processing')));
 			assert.equal(off.enabled, false);
 			assert.deepEqual(off.gains, [-4, 5, 4, 2, 0, 0, 0, 0, 0, 0], 'the bands are kept for the next time');
@@ -677,7 +741,7 @@ describe('the visualiser', () => {
 		subsonic.state.audio = { type: 'audio/wav', body: toneWav() };
 		try {
 			await page.goto(app.url + '/settings?tab=playback', { waitUntil: 'networkidle' });
-			const toggle = page.getByRole('checkbox', { name: /^Visualiser/ });
+			const toggle = page.getByRole('switch', { name: /^Visualiser/ });
 			assert.equal(await toggle.isChecked(), false, 'off by default');
 			await toggle.check();
 			assert.equal((await page.evaluate(() => JSON.parse(localStorage.getItem('heddohon:audio-processing')))).visualiser, true);
@@ -976,7 +1040,7 @@ describe('the headphone correction', () => {
 		try {
 			await countBiquads(page);
 			await page.goto(app.url + '/settings?tab=playback', { waitUntil: 'networkidle' });
-			await page.getByRole('checkbox', { name: /^Process audio/ }).check();
+			await page.getByRole('switch', { name: /^Process audio/ }).check();
 			assert.equal(await page.getByRole('searchbox', { name: 'Search headphones' }).count(), 0, 'no search where the database is off');
 			assert.equal(await page.evaluate(() => window.__biquads), 10);
 
@@ -984,7 +1048,7 @@ describe('the headphone correction', () => {
 			const band = page.getByRole('slider', { name: '31Hz, in dB' });
 			const preset = page.getByRole('combobox', { name: 'Equaliser' });
 			const inGraph = (db) => page.waitForFunction((want) => Math.abs(window.__filters[0].gain.value - want) < 0.05, db);
-			await preset.selectOption('bass');
+			await pick(preset, 'bass');
 			await inGraph(6);
 
 			const input = page.locator('.correction input[type="file"]');
@@ -1002,7 +1066,7 @@ describe('the headphone correction', () => {
 			await inGraph(0);
 			assert.equal(await band.isDisabled(), true);
 			assert.equal(await preset.isDisabled(), true);
-			assert.equal(await band.inputValue(), '6');
+			assert.equal(await sliderValue(band), '6');
 			assert.deepEqual((await stored(page)).gains, [6, 5, 4, 2, 0, 0, 0, 0, 0, 0]);
 
 			// Removed, the bands come back as they were; then the correction is put back.
@@ -1054,7 +1118,7 @@ describe('the headphone correction', () => {
 			const problems = [];
 			page.on('pageerror', (err) => problems.push(err.message));
 			await page.goto(on.url + '/settings?tab=playback', { waitUntil: 'networkidle' });
-			await page.getByRole('checkbox', { name: /^Process audio/ }).check();
+			await page.getByRole('switch', { name: /^Process audio/ }).check();
 
 			await page.getByRole('searchbox', { name: 'Search headphones' }).fill('hd 650');
 			const matches = page.getByRole('list', { name: 'Headphones found' }).getByRole('button');
@@ -1238,9 +1302,9 @@ describe('a stream that fails', () => {
 		try {
 			await page.goto(app.url + '/albums/al1', { waitUntil: 'networkidle' });
 			await page.getByRole('button', { name: 'Play Song 1a', exact: true }).click();
-			await page.locator('aside.panel .notice', { hasText: 'Reconnecting' }).waitFor();
+			await page.locator('.hh-toast [role="status"]', { hasText: 'Reconnecting' }).waitFor();
 			await page.waitForFunction(sounding, null, { timeout: 15_000 });
-			await page.locator('aside.panel .notice').waitFor({ state: 'detached' });
+			await page.locator('.hh-toast [role="status"]').waitFor({ state: 'hidden' });
 			assert.equal(await page.locator('aside.panel .error').count(), 0);
 		} finally {
 			await reset(page);
@@ -1258,7 +1322,7 @@ describe('a stream that fails', () => {
 		try {
 			await page.goto(app.url + '/albums/al1', { waitUntil: 'networkidle' });
 			await page.getByRole('button', { name: 'Play Song 1a', exact: true }).click();
-			await page.locator('aside.panel .notice', { hasText: 'skipped Song 1a' }).waitFor();
+			await page.locator('.hh-toast [role="status"]', { hasText: 'skipped Song 1a' }).waitFor();
 			await page.waitForFunction(sounding, null, { timeout: 15_000 });
 			assert.equal(await page.getByRole('button', { name: 'Pause Song 1b', exact: true }).count(), 1);
 		} finally {
@@ -1318,7 +1382,7 @@ describe('a stream that fails', () => {
 			await page.mouse.click(bar.x + bar.width * 0.478, bar.y + bar.height / 2);
 			await page.locator('aside.panel .transport .play[aria-busy=true]').waitFor({ timeout: 10_000 });
 			// The 12 seconds of `STALL_MS`.
-			await page.locator('aside.panel .notice', { hasText: 'Reconnecting' }).waitFor({ timeout: 16_000 });
+			await page.locator('.hh-toast [role="status"]', { hasText: 'Reconnecting' }).waitFor({ timeout: 16_000 });
 			await page.waitForFunction(() => [...document.querySelectorAll('audio')].some((a) => !a.paused && a.currentTime > 92), null, { timeout: 15_000 });
 			assert.equal(await page.locator('aside.panel .error').count(), 0);
 		} finally {
@@ -1351,7 +1415,8 @@ describe('a stream that fails', () => {
 			await failure.waitFor({ state: 'detached' });
 
 			await page.getByRole('button', { name: 'Add to queue', exact: true }).first().click();
-			await page.locator('.phone-dock .artist', { hasText: /^Queued \d+ tracks$/ }).waitFor();
+			// The player's notices rise from the foot of the window, over the dock.
+			await page.locator('.hh-toast [role="status"]', { hasText: /Queued \d+ tracks/ }).waitFor();
 		} finally {
 			await reset(page);
 			await phone.close();
@@ -1514,11 +1579,14 @@ describe('internet radio', () => {
 			for (const name of ['Track details', 'Lyrics']) assert.equal(await panel.getByRole('button', { name }).isDisabled(), true, name);
 
 			// A seek does nothing.
-			const before = await page.evaluate(() => [...document.querySelectorAll('audio')].find((a) => !a.paused).currentTime);
+			// Against the time that passed: under load a live stream stalls and
+			// then catches up, which moves it on by more than the 300ms waited.
+			const now = () => page.evaluate(() => ({ at: [...document.querySelectorAll('audio')].find((a) => !a.paused).currentTime, clock: performance.now() / 1000 }));
+			const before = await now();
 			await panel.getByRole('slider', { name: 'Seek within track' }).press('End');
 			await page.waitForTimeout(300);
-			const after = await page.evaluate(() => [...document.querySelectorAll('audio')].find((a) => !a.paused).currentTime);
-			assert.ok(after >= before && after < before + 2, `${before} to ${after}`);
+			const after = await now();
+			assert.ok(after.at >= before.at && after.at - before.at < after.clock - before.clock + 1, `${before.at} to ${after.at} in ${after.clock - before.clock}s`);
 
 			// The row pauses and resumes the station it is playing.
 			await page.getByRole('button', { name: 'Pause Mock FM' }).click();
@@ -1951,6 +2019,26 @@ describe('the tint through changes that come close together', () => {
 		subsonic.state.coverColors.set('al-32', [40, 60, 210]);
 		subsonic.state.coverColors.set('al-33', [40, 190, 60]);
 		const { page, problems } = await watchedPage();
+		/*
+		 * The fade to the second album is held halfway, both layers on screen,
+		 * for longer than the 900ms it is meant to take. That is a busy machine
+		 * made certain: the transition starts late and the clock runs out first.
+		 * Timed by the clock alone, the third colour was written into a visible
+		 * layer then, and this check lost about one full run in four (#262).
+		 */
+		const tint = (call) =>
+			page.evaluate((call) => {
+				const running = [...document.querySelectorAll('.hh-tint-morph')].flatMap((surface) =>
+					surface.getAnimations().filter((animation) => animation.transitionProperty === '--tint-mix')
+				);
+				for (const transition of running) {
+					if (call === 'hold') {
+						transition.pause();
+						transition.currentTime = 450;
+					} else transition.play();
+				}
+				return running.length;
+			}, call);
 		try {
 			await page.goto(app.url + '/albums/al31', { waitUntil: 'networkidle' });
 			await page.waitForTimeout(1200);
@@ -1958,12 +2046,17 @@ describe('the tint through changes that come close together', () => {
 			const stop = await sampleLayers(page);
 			await navigate(page, '/albums/al32');
 			await page.waitForURL(/\/albums\/al32$/);
+			await page.waitForFunction(() =>
+				[...document.querySelectorAll('.hh-tint-morph')].some((surface) =>
+					surface.getAnimations().some((animation) => animation.transitionProperty === '--tint-mix')
+				)
+			);
+			assert.ok((await tint('hold')) > 0, 'no fade to hold');
 			await navigate(page, '/albums/al33');
 			await page.waitForURL(/\/albums\/al33$/);
-			// Until the rail shows the last album's colour, and then the length of
-			// a fade. That is two fades of 900ms and the fetch of a cover, which a
-			// fixed 2.2s did not always cover: on a runner under load the sampling
-			// stopped on the second album's blue (CI, 2026-10-07 and 2026-10-08).
+			// Past the clock's end of the fade, with the fade still halfway.
+			await page.waitForTimeout(1500);
+			await tint('play');
 			await page
 				.waitForFunction(
 					() => {
@@ -2320,7 +2413,7 @@ describe('instant mix', () => {
 			subsonic.state.mixSize = 4;
 			await mix.click();
 			// The mix starts with the track it is made from, and the queue is the mix.
-			await page.waitForFunction(() => document.querySelector('aside.panel button[aria-label="Queue"]')?.getAttribute('title') === 'Queue (5)', null, { timeout: 5000 });
+			await page.waitForFunction(() => document.querySelector('aside.panel button[aria-label="Queue"] .count')?.textContent === '5', null, { timeout: 5000 });
 			// Not among the track's details any more.
 			await page.getByRole('button', { name: 'Track details' }).click();
 			assert.equal(await page.locator('aside.panel .facts button.mix, aside.panel .details button.mix').count(), 0);
@@ -2493,9 +2586,9 @@ describe('importing a playlist', () => {
 				]
 			};
 			await page.locator('input[type=file]').setInputFiles({ name: 'Playlist1.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(spotify)) });
-			const which = page.getByLabel('Playlist in the file');
-			assert.deepEqual(await which.locator('option').allTextContents(), ['First (1)', 'Second (2)']);
-			await which.selectOption({ label: 'Second (2)' });
+			const which = page.getByRole('combobox', { name: 'Playlist in the file' });
+			assert.deepEqual((await optionsOf(which)).map(([, label]) => label), ['First (1)', 'Second (2)']);
+			await pickLabel(which, 'Second (2)');
 			assert.equal(await page.getByLabel('Name', { exact: true }).inputValue(), 'Second');
 			await page.getByRole('button', { name: 'Look for them in your library' }).click();
 			await page.locator('.summary').waitFor();
@@ -3080,13 +3173,15 @@ describe('the aurora', () => {
 	test('drifts by default, and holds still or goes from Settings', async () => {
 		const origin = { origin: app.url, 'content-type': 'application/json' };
 		const { page, problems } = await watchedPage();
-		const state = () =>
-			page.evaluate(() => {
-				const aurora = document.querySelector('.aurora');
-				if (!aurora) return { shown: false, running: false };
-				const animation = aurora.getAnimations({ subtree: true }).find((a) => a.animationName === 'aurora');
-				return { shown: true, running: animation?.playState === 'running' };
-			});
+		// SoftAurora counts the frames it draws: still, it draws one and stops.
+		const frames = () => page.evaluate(() => Number(document.querySelector('.aurora [data-frames]')?.getAttribute('data-frames') ?? 0));
+		const state = async () => {
+			if ((await page.locator('.aurora').count()) === 0) return { shown: false, running: false };
+			await page.waitForFunction(() => document.querySelector('.aurora [data-frames]'));
+			const before = await frames();
+			await page.waitForTimeout(1500);
+			return { shown: true, running: (await frames()) > before };
+		};
 		try {
 			// An account that has never chosen: a context of its own, signed in as one.
 			const fresh = await browser.newContext({ viewport: { width: 1440, height: 900 } });
@@ -3099,7 +3194,7 @@ describe('the aurora', () => {
 				assert.equal(signIn.status(), 303);
 				const first = await fresh.newPage();
 				await first.goto(app.url + '/albums', { waitUntil: 'networkidle' });
-				assert.equal(await first.locator('.aurora:not(.still)').count(), 1, 'an account that had not chosen has no moving aurora');
+				await first.waitForFunction(() => Number(document.querySelector('.aurora [data-frames]')?.getAttribute('data-frames') ?? 0) > 2, null, { timeout: 5000 });
 			} finally {
 				await fresh.close();
 			}
@@ -3516,7 +3611,7 @@ describe('playback on another browser', () => {
 			});
 			await section.locator('input[type=file]').setInputFiles({ name: 'me.png', mimeType: 'image/png', buffer: Buffer.from(png) });
 			await section.locator('.avatar img').waitFor({ timeout: 5000 });
-			await section.getByRole('checkbox', { name: /Show others what I play/ }).check();
+			await section.getByRole('switch', { name: /Show others what I play/ }).check();
 
 			await pill.waitFor({ timeout: 5000 });
 			assert.equal(await pill.getAttribute('aria-label'), 'Listening now: Mira');
@@ -4009,9 +4104,13 @@ describe('your listening, day by day', () => {
 			// The hours against the weekdays: 7 rows of 24, with as many plays as the page counts.
 			assert.equal(await page.locator('.punch .row').count(), 7);
 			assert.equal(await page.locator('.punch .row .cell').count(), 168);
-			const total = Number((await page.locator('.figure.hero .number').textContent()).replace(/\D/g, ''));
 			const inRows = await page.locator('.punch .row').evaluateAll((rows) => rows.reduce((sum, row) => sum + Number(/: ([\d,.]+) play/.exec(row.getAttribute('aria-label'))[1].replace(/\D/g, '')), 0));
-			assert.equal(inRows, total);
+			// The figure counts up as it comes into view, and is the total once it lands.
+			await page.waitForFunction(
+				(want) => Number(document.querySelector('.figure.hero .number')?.textContent.replace(/\D/g, '')) === want,
+				inRows,
+				{ timeout: 5000 }
+			);
 
 			// The parts of the day are shares of the same plays.
 			const shares = await page.locator('.parts .count').allTextContents();
@@ -4118,7 +4217,7 @@ describe('star ratings', () => {
 			await page.goto(app.url + '/albums/al5', { waitUntil: 'networkidle' });
 			assert.equal(await hero.getAttribute('aria-label'), 'Not rated');
 			let saved = rated();
-			await hero.getByRole('button', { name: 'Rate 3 of 5' }).click();
+			await hero.getByRole('radio', { name: '3 of 5' }).click();
 			await saved;
 			assert.equal(await hero.getAttribute('aria-label'), 'Rated 3 of 5');
 			assert.equal(subsonic.state.ratings.get('al5'), 3);
@@ -4127,7 +4226,7 @@ describe('star ratings', () => {
 			await page.waitForFunction(() => document.querySelector('aside.panel h2.title')?.textContent === 'Song 5a');
 			await page.getByRole('button', { name: 'Track details' }).click();
 			saved = rated();
-			await panel.getByRole('button', { name: 'Rate 5 of 5' }).click();
+			await panel.getByRole('radio', { name: '5 of 5' }).click();
 			await saved;
 			assert.equal(subsonic.state.ratings.get('s5a'), 5);
 
@@ -4138,9 +4237,9 @@ describe('star ratings', () => {
 			await page.waitForFunction(() => document.querySelector('aside.panel h2.title')?.textContent === 'Song 5a');
 			assert.equal(await panel.getAttribute('aria-label'), 'Rated 5 of 5');
 
-			// A press on the lit star clears the rating.
+			// A press on the star that is the rating clears it.
 			saved = rated();
-			await hero.getByRole('button', { name: 'Clear the rating' }).click();
+			await hero.getByRole('radio', { name: '3 of 5', checked: true }).click();
 			await saved;
 			assert.equal(await hero.getAttribute('aria-label'), 'Not rated');
 			assert.equal(subsonic.state.ratings.has('al5'), false);
@@ -4351,27 +4450,27 @@ describe('smart playlists', () => {
 			assert.equal(await create.isDisabled(), true);
 			await page.getByLabel('Name', { exact: true }).fill('Rock of the nineties');
 
-			await field(page, 1).selectOption('genre');
-			assert.equal(await operator(page, 1).inputValue(), 'contains', 'a text field kept a date operator');
+			await pick(field(page, 1), 'genre');
+			assert.equal(await shown(operator(page, 1)), 'contains', 'a text field kept a date operator');
 			await page.getByLabel('Value of rule 1', { exact: true }).fill('rock');
 
 			await page.getByRole('button', { name: 'Add a rule' }).click();
 			// The new rule has no value yet, and Create waits for one.
 			await page.getByText('Rule 2: genre contains needs a valid value.').waitFor();
 			assert.equal(await create.isDisabled(), true);
-			await field(page, 2).selectOption('year');
-			await operator(page, 2).selectOption('inTheRange');
+			await pick(field(page, 2), 'year');
+			await pick(operator(page, 2), 'inTheRange');
 			assert.equal(await page.getByLabel('Lowest of rule 2', { exact: true }).inputValue(), '1990');
 			await page.getByLabel('Highest of rule 2', { exact: true }).fill('1985');
 			await page.getByText('Rule 2: year is between needs a valid value.').waitFor();
 			await page.getByLabel('Highest of rule 2', { exact: true }).fill('1999');
 
 			await page.getByRole('button', { name: 'Add a rule' }).click();
-			await field(page, 3).selectOption('loved');
+			await pick(field(page, 3), 'loved');
 			await page.getByRole('button', { name: 'Remove rule 3' }).click();
 			assert.equal(await page.getByLabel('Field of rule 3', { exact: true }).count(), 0);
 
-			await page.getByLabel('Sorted by').selectOption('random');
+			await pick(page.getByLabel('Sorted by'), 'random');
 			assert.equal(await page.getByLabel('Order', { exact: true }).count(), 0, 'random offered an order');
 			await page.getByLabel('At most').fill('');
 
@@ -4421,10 +4520,10 @@ describe('smart playlists', () => {
 			assert.equal(await page.getByLabel('Value of rule 1', { exact: true }).inputValue(), '10', 'a cancelled change was kept');
 
 			await page.getByLabel('Value of rule 1', { exact: true }).fill('25');
-			await page.getByLabel('Match all or any of the rules').selectOption('any');
+			await pick(page.getByLabel('Match all or any of the rules'), 'any');
 			await page.getByRole('button', { name: 'Add a rule' }).click();
-			await field(page, 2).selectOption('lastplayed');
-			await operator(page, 2).selectOption('notInTheLast');
+			await pick(field(page, 2), 'lastplayed');
+			await pick(operator(page, 2), 'notInTheLast');
 			await page.getByLabel('Days of rule 2', { exact: true }).fill('60');
 			await page.getByRole('button', { name: 'Save rules' }).click();
 			await page.locator('main form.editor').waitFor({ state: 'detached' });
@@ -4444,39 +4543,43 @@ describe('smart playlists', () => {
 });
 
 describe('sliders and the playlist picker', () => {
-	/** Width transitions running on the volume slider's fill. */
-	const fillGliding = (page) =>
-		page.evaluate(() =>
-			document
-				.querySelector('[role="slider"][aria-label="Volume"] .played')
-				.getAnimations()
-				.some((a) => a instanceof CSSTransition && a.transitionProperty === 'width')
-		);
 	const fillWidth = (page) =>
-		page.locator('[role="slider"][aria-label="Volume"] .played').evaluate((el) => parseFloat(el.style.width));
+		page.locator('[role="slider"][aria-label="Volume"] .slider-range').evaluate((el) => parseFloat(el.style.width));
+	/** The scale ElasticSlider gives the whole control under the pointer, from its transform. */
+	const swell = (page) =>
+		page
+			.locator('[role="slider"][aria-label="Volume"]')
+			.evaluate((el) => new DOMMatrix(getComputedStyle(el.closest('.slider-wrapper')).transform).a);
 
-	test('the volume glides to a new level and empties on mute', async () => {
+	test('the volume does not swell under the pointer, stretches past its end, empties on mute and sets a level where it is pressed', async () => {
 		const { page, problems } = await watchedPage();
+		const track = () =>
+			page.locator('[role="slider"][aria-label="Volume"] .slider-track-wrapper').evaluate((el) => new DOMMatrix(getComputedStyle(el).transform).a);
 		try {
 			await page.goto(app.url + '/albums', { waitUntil: 'networkidle' });
 			const before = await fillWidth(page);
 			assert.ok(before > 50);
 
 			await page.getByRole('button', { name: 'Mute', exact: true }).click();
-			await page.waitForTimeout(60);
-			assert.ok(await fillGliding(page), 'muting cut to empty instead of gliding');
-			await page.waitForTimeout(500);
-			assert.equal(await fillWidth(page), 0);
-
+			await page.waitForFunction(() => parseFloat(document.querySelector('[role="slider"][aria-label="Volume"] .slider-range').style.width) === 0);
 			await page.getByRole('button', { name: 'Unmute', exact: true }).click();
-			await page.waitForTimeout(500);
-			assert.equal(Math.round(await fillWidth(page)), Math.round(before));
+			await page.waitForFunction((want) => Math.round(parseFloat(document.querySelector('[role="slider"][aria-label="Volume"] .slider-range').style.width)) === want, Math.round(before));
 
 			const bar = page.locator('[role="slider"][aria-label="Volume"]');
 			const box = await bar.boundingBox();
+			await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+			await page.waitForTimeout(400);
+			assert.equal(await swell(page), 1, 'the slider swelled under the pointer');
+
+			// Held and pulled past the end, the track stretches like a band.
+			await page.mouse.down();
+			await page.mouse.move(box.x + box.width + 60, box.y + box.height / 2, { steps: 6 });
+			await page.waitForFunction(() => new DOMMatrix(getComputedStyle(document.querySelector('[role="slider"][aria-label="Volume"] .slider-track-wrapper')).transform).a > 1.02);
+			assert.ok((await track()) > 1.02, 'the track did not stretch past its end');
+			await page.mouse.up();
+
 			await page.mouse.click(box.x + box.width * 0.25, box.y + box.height / 2);
-			await page.waitForTimeout(60);
-			assert.ok(await fillGliding(page), 'a click cut to the level instead of gliding');
+			await page.waitForFunction(() => Math.abs(parseFloat(document.querySelector('[role="slider"][aria-label="Volume"] .slider-range').style.width) - 25) < 8);
 		} finally {
 			// Put the volume back for the tests after.
 			const bar = page.locator('[role="slider"][aria-label="Volume"]');
@@ -4495,7 +4598,8 @@ describe('sliders and the playlist picker', () => {
 			await page.locator('.page').getByRole('button', { name: 'Add to playlist', exact: true }).first().click();
 			const row = page.locator('dialog.picker .row').first();
 			await row.waitFor();
-			const rising = await row.evaluate((el) => el.getAnimations().some((a) => a.animationName === 'list-rise'));
+			// AnimatedContent (GSAP) moves the list as it opens, by an inline transform.
+			const rising = await row.evaluate((el) => el.closest('.hh-rise').style.transform !== '');
 			assert.ok(rising, 'the rows appeared without coming in');
 
 			await row.click();
@@ -4528,7 +4632,7 @@ describe('the volume slider', () => {
 		try {
 			await page.goto(app.url + '/albums', { waitUntil: 'networkidle' });
 			const drawn = await page
-				.locator('[role="slider"][aria-label="Volume"] .played')
+				.locator('[role="slider"][aria-label="Volume"] .slider-range')
 				.evaluate((el) => parseFloat(el.style.width));
 			const level = await page.locator('[role="slider"][aria-label="Volume"]').getAttribute('aria-valuetext');
 			assert.ok(drawn > 50, `the slider drew ${drawn}% for a level of ${level}`);
@@ -4537,6 +4641,94 @@ describe('the volume slider', () => {
 			await page.close();
 		}
 		assert.deepEqual(problems, []);
+	});
+});
+
+describe('a volume limit on the server', () => {
+	/*
+	 * `HEDDOHON_VOLUME_LIMIT=50`: the slider still runs from 0 to 100, and what
+	 * the elements play at is half of it, through a crossfade as well, whose
+	 * ramps are computed apart from the steady level. The two pages that play
+	 * without the player, a share link and a listen-together guest, are held
+	 * to the same limit.
+	 */
+	test('halves what a full slider plays at, in the app, on a share link and for a guest', async () => {
+		const limited = await startApp({ subsonicUrl: subsonic.url, jellyfinUrl: jellyfin.url, env: { HEDDOHON_VOLUME_LIMIT: '50' } });
+		const view = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+		const visitor = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+		subsonic.state.audio = { type: 'audio/wav', body: silentWav(6) };
+		try {
+			const signIn = await view.request.post(`${limited.url}/login`, {
+				form: { username: 'testuser', password: 'testpass', backend: 'subsonic', next: '/' },
+				headers: { origin: limited.url, accept: 'text/html' },
+				maxRedirects: 0
+			});
+			assert.equal(signIn.status(), 303);
+			const saved = await view.request.patch(`${limited.url}/api/settings`, {
+				data: { volume: 1, transition: 'crossfade', crossfadeSeconds: 3, crossfadeWithinAlbum: true, installCardDismissed: true, aurora: 'off' },
+				headers: { origin: limited.url }
+			});
+			assert.equal(saved.status(), 200);
+
+			// The remote control's event stream stays open, so the page never
+			// reaches `networkidle`: the play button is waited for instead.
+			const page = await view.newPage();
+			const problems = [];
+			page.on('pageerror', (err) => problems.push(err.message));
+			await page.goto(limited.url + '/albums/al1');
+			const play = page.getByRole('button', { name: 'Play Song 1a', exact: true });
+			await play.waitFor();
+			await page.evaluate(() => {
+				window.__together = 0;
+				window.__loudest = 0;
+				setInterval(() => {
+					const playing = [...document.querySelectorAll('audio')].filter(
+						(a) => !a.paused && a.currentTime > 0 && a.currentSrc.includes('/api/stream/')
+					);
+					window.__together = Math.max(window.__together, playing.length);
+					window.__loudest = Math.max(window.__loudest, ...playing.map((a) => a.volume));
+				}, 50);
+			});
+			await play.click();
+			await page.waitForFunction(() => document.querySelector('aside.panel h2.title')?.textContent === 'Song 1b', null, {
+				timeout: 12_000
+			});
+			// The fade has ended once one track plays, at the level it holds.
+			const settled = () => {
+				const playing = [...document.querySelectorAll('audio')].filter(
+					(a) => !a.paused && a.currentTime > 0 && a.currentSrc.includes('/api/stream/')
+				);
+				return playing.length === 1 && playing[0].volume === 0.5;
+			};
+			await page.waitForFunction(settled, null, { timeout: 8000 });
+			const heard = await page.evaluate(() => ({ together: window.__together, loudest: window.__loudest }));
+			assert.equal(heard.together, 2, 'no crossfade happened, so its ramps were not measured');
+			assert.ok(heard.loudest <= 0.5, `a track played at ${heard.loudest} under a limit of 0.5`);
+			assert.equal(await page.locator('[role="slider"][aria-label="Volume"]').getAttribute('aria-valuetext'), '100 percent');
+			assert.deepEqual(problems, []);
+			await page.close();
+
+			const made = await (
+				await view.request.post(`${limited.url}/api/shares`, { data: { kind: 'album', id: 'al19', days: 1 }, headers: { origin: limited.url } })
+			).json();
+			const shared = await visitor.newPage();
+			await shared.goto(limited.url + made.path, { waitUntil: 'networkidle' });
+			// The layout's two elements are on the page as well, unused: the page's own is the one with an address.
+			await shared.waitForFunction(() => document.querySelector('audio[src*="/stream/"]')?.volume === 0.5, null, { timeout: 5000 });
+			await shared.close();
+
+			const started = await view.request.post(`${limited.url}/api/together`, { data: {}, headers: { origin: limited.url } });
+			assert.equal(started.status(), 200);
+			const guest = await visitor.newPage();
+			await guest.goto(limited.url + (await started.json()).party.url);
+			await guest.waitForFunction(() => document.querySelector('audio.together-audio')?.volume === 0.5, null, { timeout: 5000 });
+			await guest.close();
+		} finally {
+			subsonic.state.audio = null;
+			await visitor.close();
+			await view.close();
+			await limited.stop();
+		}
 	});
 });
 
@@ -4595,26 +4787,26 @@ describe('motion', () => {
 		assert.deepEqual(problems, []);
 	});
 
-	test('a page opened from the rail rises in and its cards follow one by one', async () => {
+	test('a page opened from the rail rises in, and its list with it', async () => {
 		const { page, problems } = await watchedPage();
 		try {
 			await page.goto(app.url + '/playlists', { waitUntil: 'networkidle' });
-			const onFirstPaint = await page.evaluate(() =>
-				document.getAnimations().map((a) => a.animationName).filter((name) => /rise/.test(name ?? ''))
-			);
-			assert.deepEqual(onFirstPaint, [], 'a server-rendered page must not animate in');
+			const onFirstPaint = await page.evaluate(() => ({
+				names: document.getAnimations().map((a) => a.animationName).filter((name) => /rise/.test(name ?? '')),
+				moved: [...document.querySelectorAll('.hh-rise')].filter((el) => el.style.transform !== '').length
+			}));
+			assert.deepEqual(onFirstPaint, { names: [], moved: 0 }, 'a server-rendered page must not animate in');
 
 			await page.evaluate(() => {
 				window.__rise = null;
 				const look = () => {
-					const names = document.getAnimations().map((a) => a.animationName);
-					if (names.includes('list-rise')) {
-						const cards = [...document.querySelectorAll('.content .hh-stagger > *')].slice(0, 4);
+					// AnimatedContent (GSAP) moves the list by an inline transform.
+					const list = [...document.querySelectorAll('.content .hh-rise')].find((el) => el.style.transform !== '');
+					if (list) {
 						window.__rise = {
-							// Svelte scopes keyframes in a component: `svelte-…-page-rise`. A
-							// Web Animations or Svelte animation has no name at all.
-							page: names.some((name) => (name ?? '').endsWith('page-rise')),
-							delays: cards.map((card) => getComputedStyle(card).animationDelay)
+							// Svelte scopes keyframes in a component: `svelte-…-page-rise`.
+							page: document.getAnimations().some((a) => (a.animationName ?? '').endsWith('page-rise')),
+							list: list.style.transform
 						};
 						return;
 					}
@@ -4626,7 +4818,9 @@ describe('motion', () => {
 			await page.waitForFunction(() => window.__rise !== null, null, { timeout: 5000 });
 			const rise = await page.evaluate(() => window.__rise);
 			assert.ok(rise.page, 'the page did not rise');
-			assert.deepEqual(rise.delays, ['0s', '0.024s', '0.048s', '0.072s']);
+			assert.match(rise.list, /translate/, 'the list did not rise');
+			// Nothing is left on it once it has landed, so the glass in it blurs.
+			await page.waitForFunction(() => [...document.querySelectorAll('.content .hh-rise')].every((el) => el.style.transform === '' && el.style.opacity === ''));
 		} finally {
 			await page.close();
 		}
@@ -6186,7 +6380,7 @@ describe('the settings tabs', () => {
 
 			// Saving from Appearance keeps what the Playback tab holds.
 			await tabs.getByRole('link', { name: 'Appearance' }).click();
-			await page.locator('select[name="theme"]').selectOption('light');
+			await pick(select(page, 'theme'), 'light');
 			await page.getByRole('button', { name: 'Save settings' }).click();
 			await page.getByText('Settings saved.').waitFor();
 			const saved = await (await context.request.get(`${app.url}/api/settings`)).json();
@@ -6304,10 +6498,76 @@ describe('Paper, the light theme', () => {
 			assert.equal(ground, '#f0e7d5');
 			const [, a, b] = /oklab\(\s*[\d.]+\s+(-?[\d.]+)\s+(-?[\d.]+)/.exec(accent)?.map(Number) ?? [];
 			assert.ok(a > 0.06 && b > 0.04, `the accent is not the rust: ${accent}`);
-			assert.equal(await page.locator('select[name="theme"] option[value="light"]').textContent(), 'Paper');
+			assert.equal(new Map(await optionsOf(select(page, 'theme'))).get('light'), 'Paper');
 		} finally {
 			await paper.request.patch(`${app.url}/api/settings`, { data: { theme: 'dark' }, headers: { origin: app.url } });
 			await paper.close();
+		}
+	});
+});
+
+describe("the themes' own colours", () => {
+	/*
+	 * #182: Liquid's and Paper's colours come from two theme files through
+	 * the head of the page, and no longer from `app.css`. Read as drawn, they
+	 * are the values the stylesheet held. Terminal and Phosphor keep their own
+	 * over them, and a change of theme under Settings needs no new page.
+	 */
+	test('Liquid and Paper are drawn in the colours of their files, signed out and in, and across a change of theme', async () => {
+		const TOKENS = ['bg-base', 'bg-sunken', 'bg-surface', 'bg-raised', 'bg-hover', 'bg-active', 'text-strong', 'text-default', 'text-muted', 'text-faint', 'text-muted-through', 'text-faint-through', 'border-hairline', 'border-strong', 'positive', 'danger'];
+		const LIQUID = ['#0b0c0f', '#07080a', '#111317', '#181a1f', '#202329', '#292c33', '#f7f8fa', '#e1e3e7', '#a2a6ae', '#767a84', '#b7b9bd', '#95979b', '#1f2227', '#30343c', '#7fc8a9', '#e0777f'];
+		const PAPER = ['#f0e7d5', '#e6ddcc', '#f5eee1', '#faf5eb', '#eae1cf', '#e3d9c6', '#2e241a', '#453b30', '#594f43', '#6c6256', '#4f463b', '#62584c', '#d8cfbe', '#c0b6a6', '#4f6b3a', '#9c2b1b'];
+		const view = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+		const settings = (patch) => view.request.patch(`${app.url}/api/settings`, { data: patch, headers: { origin: app.url } });
+		try {
+			const page = await view.newPage();
+			const drawn = () =>
+				page.evaluate((tokens) => {
+					const root = getComputedStyle(document.documentElement);
+					return tokens.map((token) => root.getPropertyValue(`--${token}`).trim());
+				}, TOKENS);
+			// What is painted, and not only what is declared.
+			const ground = () => page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+
+			await page.goto(`${app.url}/login`, { waitUntil: 'networkidle' });
+			assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), 'dark');
+			assert.deepEqual(await drawn(), LIQUID, 'signed out');
+			assert.equal(await ground(), 'rgb(11, 12, 15)');
+
+			const signIn = await view.request.post(`${app.url}/login`, {
+				form: { username: 'testuser', password: 'testpass', backend: 'subsonic', next: '/' },
+				headers: { origin: app.url, accept: 'text/html' },
+				maxRedirects: 0
+			});
+			assert.equal(signIn.status(), 303);
+			await settings({ theme: 'dark', scheme: 'heddohon' });
+			await page.goto(`${app.url}/settings`, { waitUntil: 'networkidle' });
+			assert.deepEqual(await drawn(), LIQUID, 'signed in');
+
+			// Paper chosen and saved: the page in front of the reader takes it.
+			await pick(select(page, 'theme'), 'light');
+			await page.getByRole('button', { name: 'Save settings' }).click();
+			await page.waitForFunction(() => document.documentElement.dataset.theme === 'light');
+			assert.deepEqual(await drawn(), PAPER, 'changed without a new page');
+			await page.reload({ waitUntil: 'networkidle' });
+			assert.deepEqual(await drawn(), PAPER, 'on a new page');
+			assert.equal(await ground(), 'rgb(240, 231, 213)');
+
+			// The other two set every one of them, over the root's.
+			for (const [theme, base, faint] of [
+				['terminal', '#08090a', '#7c828a'],
+				['phosphor', '#0a0b0c', '#80868e']
+			]) {
+				await settings({ theme });
+				await page.reload({ waitUntil: 'networkidle' });
+				const found = await drawn();
+				assert.deepEqual([found[0], found[9]], [base, faint], theme);
+				assert.ok(found.every((value, at) => value && value !== LIQUID[at]), `${theme} shows through to Liquid: ${found}`);
+			}
+			await page.close();
+		} finally {
+			await settings({ theme: 'dark', scheme: 'heddohon' });
+			await view.close();
 		}
 	});
 });
@@ -6414,8 +6674,8 @@ describe('Terminal, the default theme', () => {
 
 			// Changed in Settings, it is on the page at once, without a load.
 			await page.goto(app.url + '/settings', { waitUntil: 'networkidle' });
-			await page.locator('select[name="dots"]').selectOption('strong');
-			await page.locator('select[name="accent"]').selectOption('amber');
+			await pick(select(page, 'dots'), 'strong');
+			await pick(select(page, 'accent'), 'amber');
 			await page.getByRole('button', { name: 'Save settings' }).click();
 			await page.getByText('Settings saved.').waitFor();
 			await page.waitForFunction(() => document.documentElement.dataset.dots === 'strong');
@@ -6575,7 +6835,7 @@ describe('Terminal, the default theme', () => {
 			await page.locator('nav.rail a[href="/settings"]').click();
 			await page.waitForURL(app.url + '/settings');
 			const choose = async (value) => {
-				await page.locator('select[name="playerArt"]').selectOption(value);
+				await pick(select(page, 'playerArt'), value);
 				await page.getByRole('button', { name: 'Save settings' }).click();
 				await page.waitForFunction((value) => document.documentElement.dataset.art === value, value);
 				// The form reads the settings once more after that, and a choice made
@@ -6607,30 +6867,20 @@ describe('Terminal, the default theme', () => {
 	});
 
 	/*
-	 * Terminal's own arrival: the rows of a list 16ms apart, and the page under
-	 * them still. Liquid's, 24ms apart under a page that rises, has its test
-	 * under "motion".
+	 * Terminal's own arrival: the list rises in, and the page under it stays
+	 * still. Liquid's, under a page that rises, has its test under "motion".
 	 */
-	test('a list prints in after a navigation, 16ms a row, and the page does not rise', async () => {
+	test('a list rises in after a navigation, and the page does not', async () => {
 		await settings({ theme: 'terminal' });
 		const { page, problems } = await watchedPage();
 		try {
 			await page.goto(app.url + '/playlists', { waitUntil: 'networkidle' });
-			const onFirstPaint = await page.evaluate(() =>
-				document.getAnimations().map((a) => a.animationName).filter((name) => /rise/.test(name ?? ''))
-			);
-			assert.deepEqual(onFirstPaint, [], 'a server-rendered page must not animate in');
-
 			await page.evaluate(() => {
 				window.__rise = null;
 				const look = () => {
-					const names = document.getAnimations().map((a) => a.animationName);
-					if (names.includes('terminal-list-rise')) {
-						const cards = [...document.querySelectorAll('.content .hh-stagger > *')].slice(0, 4);
-						window.__rise = {
-							names: names.filter((name) => /rise/.test(name ?? '')),
-							delays: cards.map((card) => getComputedStyle(card).animationDelay)
-						};
+					const list = [...document.querySelectorAll('.content .hh-rise')].find((el) => el.style.transform !== '');
+					if (list) {
+						window.__rise = { names: document.getAnimations().map((a) => a.animationName).filter((name) => /rise/.test(name ?? '')) };
 						return;
 					}
 					requestAnimationFrame(look);
@@ -6640,8 +6890,7 @@ describe('Terminal, the default theme', () => {
 			await page.locator('nav.rail').getByRole('link', { name: 'Albums', exact: true }).click();
 			await page.waitForFunction(() => window.__rise !== null, null, { timeout: 5000 });
 			const rise = await page.evaluate(() => window.__rise);
-			assert.deepEqual([...new Set(rise.names)], ['terminal-list-rise'], 'something else rose with the rows');
-			assert.deepEqual(rise.delays, ['0s', '0.016s', '0.032s', '0.048s']);
+			assert.deepEqual(rise.names, [], 'the page rose with the list');
 		} finally {
 			await liquid();
 			await page.close();
@@ -6649,24 +6898,25 @@ describe('Terminal, the default theme', () => {
 		assert.deepEqual(problems, []);
 	});
 
+
 	test('Settings offers Terminal its scheme, its accent and its dots, and the other two the aurora', async () => {
 		await settings({ theme: 'terminal' });
 		const { page, problems } = await watchedPage();
 		const rows = async () => ({
-			scheme: await page.locator('select[name="scheme"]').count(),
-			accent: await page.locator('select[name="accent"]').count(),
-			dots: await page.locator('select[name="dots"]').count(),
-			art: await page.locator('select[name="playerArt"]').count(),
-			aurora: await page.locator('select[name="aurora"]').count(),
-			face: (await page.locator('select[name="font"] option[value="manrope"]').textContent()).trim()
+			scheme: await select(page, 'scheme').count(),
+			accent: await select(page, 'accent').count(),
+			dots: await select(page, 'dots').count(),
+			art: await select(page, 'playerArt').count(),
+			aurora: await select(page, 'aurora').count(),
+			face: new Map(await optionsOf(select(page, 'font'))).get('manrope')
 		});
 		try {
 			await page.goto(app.url + '/settings', { waitUntil: 'networkidle' });
-			assert.equal(await page.locator('select[name="theme"]').inputValue(), 'terminal');
-			assert.equal(await page.locator('select[name="theme"] option[value="terminal"]').textContent(), 'Terminal');
+			assert.equal(await page.locator('input[name=\"theme\"]').inputValue(), 'terminal');
+			assert.equal(new Map(await optionsOf(select(page, 'theme'))).get('terminal'), 'Terminal');
 			assert.deepEqual(await rows(), { scheme: 1, accent: 1, dots: 1, art: 1, aurora: 0, face: 'JetBrains Mono' });
 			// Before it is saved: the rows follow the theme picked.
-			await page.locator('select[name="theme"]').selectOption('dark');
+			await pick(select(page, 'theme'), 'dark');
 			assert.deepEqual(await rows(), { scheme: 0, accent: 0, dots: 0, art: 0, aurora: 1, face: 'Manrope' });
 			// Saved without them on the form, the two keep their stored values.
 			await settings({ accent: 'cyan', dots: 'medium' });
@@ -6703,7 +6953,8 @@ describe('Terminal, the default theme', () => {
 					brackets: [...actions.children, fav, share].filter((el) => !el.classList.contains('hh-button--primary')).map((el) => edge(el) - Math.round(el.getBoundingClientRect().left)),
 					heart: [getComputedStyle(fav, '::before').content, getComputedStyle(fav, '::after').content].join(' '),
 					word: fav.querySelector('.label') ? getComputedStyle(fav.querySelector('.label')).display : 'absent',
-					name: fav.getAttribute('aria-label'),
+					// PulseHeart names itself by a visually hidden span.
+					name: fav.querySelector('.sr-only')?.textContent,
 					lefts: [...actions.children].map((el) => Math.round(el.getBoundingClientRect().left)),
 					tops: [...actions.children].map((el) => Math.round(el.getBoundingClientRect().top + el.getBoundingClientRect().height / 2))
 				};
@@ -6747,7 +6998,7 @@ describe('Terminal, the default theme', () => {
 		const { page, problems } = await watchedPage();
 		try {
 			await page.goto(app.url + '/settings', { waitUntil: 'networkidle' });
-			const schemes = await page.locator('select[name="scheme"] option').evaluateAll((all) => all.map((option) => option.value));
+			const schemes = (await optionsOf(select(page, 'scheme'))).map(([value]) => value);
 			assert.equal(schemes.length, 10);
 			assert.equal(schemes[0], 'heddohon');
 			const measured = await page.evaluate((schemes) => {
@@ -6800,7 +7051,7 @@ describe('Terminal, the default theme', () => {
 
 			// Chosen and saved, it is on the root and the bar a phone draws is its ground.
 			await page.reload({ waitUntil: 'networkidle' });
-			await page.locator('select[name="scheme"]').selectOption('nord');
+			await pick(select(page, 'scheme'), 'nord');
 			await page.getByRole('button', { name: 'Save settings' }).click();
 			await page.waitForFunction(() => document.documentElement.dataset.scheme === 'nord');
 			assert.deepEqual((await computed(page, 'var(--bg-base)')).slice(0, 3), [0x2e, 0x34, 0x40]);
@@ -7097,18 +7348,18 @@ describe('Phosphor', () => {
 		const { page, problems } = await watchedPage();
 		try {
 			await page.goto(app.url + '/settings', { waitUntil: 'networkidle' });
-			assert.equal(await page.locator('select[name="theme"]').inputValue(), 'phosphor');
-			assert.equal(await page.locator('select[name="theme"] option[value="phosphor"]').textContent(), 'Phosphor');
+			assert.equal(await page.locator('input[name=\"theme\"]').inputValue(), 'phosphor');
+			assert.equal(new Map(await optionsOf(select(page, 'theme'))).get('phosphor'), 'Phosphor');
 			const rows = {
-				scheme: await page.locator('select[name="scheme"]').count(),
-				accent: await page.locator('select[name="accent"]').count(),
-				dots: await page.locator('select[name="dots"]').count(),
-				art: await page.locator('select[name="playerArt"]').count(),
-				aurora: await page.locator('select[name="aurora"]').count(),
-				face: (await page.locator('select[name="font"] option[value="manrope"]').textContent()).trim()
+				scheme: await select(page, 'scheme').count(),
+				accent: await select(page, 'accent').count(),
+				dots: await select(page, 'dots').count(),
+				art: await select(page, 'playerArt').count(),
+				aurora: await select(page, 'aurora').count(),
+				face: new Map(await optionsOf(select(page, 'font'))).get('manrope')
 			};
 			assert.deepEqual(rows, { scheme: 0, accent: 1, dots: 0, art: 0, aurora: 0, face: 'Barlow' });
-			await page.locator('select[name="accent"]').selectOption('amber');
+			await pick(select(page, 'accent'), 'amber');
 			await page.getByRole('button', { name: 'Save settings' }).click();
 			await page.waitForFunction(() => document.documentElement.dataset.accent === 'amber');
 		} finally {
@@ -7119,11 +7370,67 @@ describe('Phosphor', () => {
 	});
 });
 
+describe('signing in on a slow device', () => {
+	/*
+	 * Svelte sets an input's `value` attribute as it hydrates, over what was
+	 * typed before. On a slow phone the name typed while the page's code ran
+	 * was gone, and the press on Sign in found the field empty. The page's
+	 * name field takes the server's answer as its default value instead.
+	 */
+	test('a name and password typed before the page has hydrated still sign in', async () => {
+		const slow = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+		try {
+			const page = await slow.newPage();
+			const cdp = await slow.newCDPSession(page);
+			await cdp.send('Emulation.setCPUThrottlingRate', { rate: 6 });
+			await page.goto(`${app.url}/login`);
+			await page.getByLabel('Username').fill('testuser');
+			await page.getByLabel('Password').fill('testpass');
+			await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+			await page.waitForURL((url) => url.pathname === '/', { timeout: 15_000 });
+		} finally {
+			await slow.close();
+		}
+	});
+});
+
 describe('the menu on a right click', () => {
 	const menu = (page) => page.getByRole('menu');
 	const item = (page, name) => menu(page).getByRole('menuitem', { name, exact: true });
 	const names = (page) => menu(page).getByRole('menuitem').allTextContents().then((all) => all.map((text) => text.trim()));
 	const playing = (page) => page.waitForFunction(() => [...document.querySelectorAll('audio')].some((a) => !a.paused && a.currentTime > 0));
+
+	/*
+	 * Svelte Bits' motion on the menu: its items come in as AnimatedList's rows
+	 * do, and one highlight glides between them as GlideSelect's does, rather
+	 * than each item lighting on its own.
+	 */
+	test('its items come in on opening, and one highlight glides from item to item', async () => {
+		const { page, problems } = await watchedPage();
+		try {
+			await page.goto(app.url + '/albums/al1', { waitUntil: 'networkidle' });
+			await page.locator('.track').first().locator('.title').click({ button: 'right' });
+			const entering = await menu(page).evaluate((el) => el.getAnimations({ subtree: true }).filter((a) => a.animationName?.endsWith('item-in')).length);
+			assert.ok(entering >= 4, `${entering} items came in`);
+
+			const glide = menu(page).locator('.glide');
+			const at = () => glide.evaluate((el) => ({ y: new DOMMatrix(getComputedStyle(el).transform).f, shown: getComputedStyle(el).opacity }));
+			const top = (name) => item(page, name).evaluate((el) => el.offsetTop);
+			// The first time, it appears where it is wanted, without travelling.
+			await item(page, 'Play').hover();
+			await page.waitForFunction(() => getComputedStyle(document.querySelector('[role="menu"] .glide')).opacity === '1');
+			assert.equal((await at()).y, await top('Play'));
+			// The next, it glides.
+			await item(page, 'Add to queue').hover();
+			const moving = await glide.evaluate((el) => el.getAnimations().some((a) => a instanceof CSSTransition && a.transitionProperty === 'transform'));
+			assert.ok(moving, 'the highlight jumped instead of gliding');
+			await page.waitForFunction((y) => new DOMMatrix(getComputedStyle(document.querySelector('[role="menu"] .glide')).transform).f === y, await top('Add to queue'));
+			await page.keyboard.press('Escape');
+		} finally {
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
 
 	test('a song row opens a menu of what can be done with it, and Play next puts it after the one playing', async () => {
 		subsonic.state.albumSongs = 4;
@@ -7328,7 +7635,7 @@ describe('picking several songs', () => {
 			await row(page, 'Song 27d').locator('.title').click({ modifiers: ['ControlOrMeta'] });
 			await bar(page).getByRole('button', { name: 'Play', exact: true }).click();
 			await page.waitForFunction(() => document.querySelector('aside.panel h2.title')?.getAttribute('data-text') === 'Song 27b');
-			assert.equal(await page.evaluate(() => document.querySelector('aside.panel button[aria-label="Queue"]')?.getAttribute('title')), 'Queue (2)');
+			assert.equal(await page.evaluate(() => document.querySelector('aside.panel button[aria-label="Queue"] .count')?.textContent), '2');
 
 			// A plain click lets go, and so does Escape.
 			await row(page, 'Song 27a').locator('.title').click({ modifiers: ['ControlOrMeta'] });
@@ -7579,8 +7886,8 @@ describe('features that are off', () => {
 
 			await page.goto(app.url + '/settings?tab=features', { waitUntil: 'networkidle' });
 			const section = page.locator('section#features');
-			assert.equal(await section.locator('input[type=checkbox]').count(), ALL.length);
-			assert.equal(await section.getByRole('checkbox', { name: /New releases from MusicBrainz/ }).isChecked(), false);
+			assert.equal(await section.getByRole('switch').count(), ALL.length);
+			assert.equal(await section.getByRole('switch', { name: /New releases from MusicBrainz/ }).isChecked(), false);
 		} finally {
 			await seen(ALL);
 			await page.close();
@@ -7634,7 +7941,7 @@ describe('a colour scheme from a file', () => {
 					return { ground: root.getPropertyValue('--bg-base').trim(), accent: root.getPropertyValue('--accent').trim() };
 				});
 			await page.goto(`${own.url}/settings`, { waitUntil: 'networkidle' });
-			await page.locator('select[name="scheme"]').selectOption('rose-pine');
+			await pick(select(page, 'scheme'), 'rose-pine');
 			await page.getByRole('button', { name: 'Save settings' }).click();
 			await page.waitForFunction(() => document.documentElement.dataset.scheme === 'rose-pine');
 			assert.deepEqual(await tokens(), { ground: '#191724', accent: '#f6c177' });
