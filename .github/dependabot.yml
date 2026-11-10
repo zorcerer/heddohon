@@ -15,7 +15,10 @@
 #
 # The server's own dependencies (the root `package.json`) are not here.
 #
-# This file is read from the default branch, `main`.
+# This file is read from the default branch, `dev` since 2026-11-10.
+# Security updates, which GitHub opens for the root `package.json`, also go
+# to the default branch and so to `dev`: they ignore `target-branch`. Until
+# then they went to `main`, and one (#278) failed its release there.
 version: 2
 
 updates:

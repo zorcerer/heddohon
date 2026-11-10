@@ -4,10 +4,15 @@
 
 <p align="center">
   <a href="https://github.com/zorcerer/heddohon/releases"><img src="https://img.shields.io/github/v/release/zorcerer/heddohon?sort=semver" alt="Release"></a>
-  <a href="https://github.com/zorcerer/heddohon/actions/workflows/release.yml"><img src="https://img.shields.io/github/actions/workflow/status/zorcerer/heddohon/release.yml?label=build" alt="Build"></a>
+  <a href="https://github.com/zorcerer/heddohon/actions/workflows/release.yml"><img src="https://img.shields.io/github/actions/workflow/status/zorcerer/heddohon/release.yml?branch=main&label=build" alt="Build"></a>
   <a href="https://hub.docker.com/r/zorcererd/heddohon"><img src="https://img.shields.io/docker/pulls/zorcererd/heddohon" alt="Docker pulls"></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/zorcerer/heddohon" alt="License"></a>
 </p>
+
+> [!NOTE]
+> The branch GitHub shows first is `dev`, where work lands before it is
+> released. What the images run is on `main` and in each
+> [release](https://github.com/zorcerer/heddohon/releases/latest).
 
 Heddohon is a web music player you host yourself, in front of the Navidrome,
 Subsonic or Jellyfin server you already run. Screenshots and a tour are on
