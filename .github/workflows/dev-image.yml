@@ -11,8 +11,8 @@
 # (there is no `:dev-<short sha>` for it yet). Either run builds only a commit
 # whose `check` on the push to `dev` succeeded, so the tag never points at a
 # commit whose suites failed. A scheduled or hand-started workflow is read
-# from the default branch, which is why this file has to be on `main` to take
-# effect while the builds are of `dev`.
+# from the default branch, `dev` since 2026-11-10, so a change to this file
+# takes effect once it is merged there.
 name: dev-image
 
 on:
