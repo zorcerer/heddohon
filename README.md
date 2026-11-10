@@ -11,8 +11,14 @@
 
 > [!NOTE]
 > The branch GitHub shows first is `dev`, where work lands before it is
-> released. What the images run is on `main` and in each
+> released. What `latest` and the version tags run is on `main` and in each
 > [release](https://github.com/zorcerer/heddohon/releases/latest).
+>
+> The `:dev` image is built from `dev` once a day, when it has changed and
+> passed the test suites. It can break, and a database it has migrated may not
+> open in the release before it, so
+> [`docker-compose.dev.yml`](docker-compose.dev.yml) keeps its data in a volume
+> of its own.
 
 Heddohon is a web music player you host yourself, in front of the Navidrome,
 Subsonic or Jellyfin server you already run. Screenshots and a tour are on
