@@ -1240,10 +1240,11 @@ describe('an album page on a phone', () => {
 							const rect = document.querySelector(selector).getBoundingClientRect();
 							return off(rect.left, rect.right);
 						};
-						// By line: a row that wrapped is centred line by line.
+						// By line: a row that wrapped is centred line by line. On a phone the
+						// heart joins the buttons' line, so both rows are measured together.
 						const row = (selector) => {
 							const lines = new Map();
-							for (const child of document.querySelector(selector).children) {
+							for (const child of document.querySelectorAll(selector)) {
 								const rect = child.getBoundingClientRect();
 								if (rect.width === 0) continue;
 								const line = lines.get(Math.round(rect.top + rect.height / 2)) ?? [];
@@ -1251,13 +1252,20 @@ describe('an album page on a phone', () => {
 							}
 							return Math.max(...[...lines.values()].map((rects) => Math.abs(off(Math.min(...rects.map((r) => r.left)), Math.max(...rects.map((r) => r.right))))));
 						};
+						const middle = (selector) => {
+							const rect = document.querySelector(selector).getBoundingClientRect();
+							return Math.round(rect.top + rect.height / 2);
+						};
 						return {
+							// On a phone the heart is in the buttons' row, not a row of its own.
+							heartWithPlay: middle('.details .favourite') === middle('.details .hh-button--primary'),
 							scrolls: document.documentElement.scrollWidth - width,
-							off: { sleeve: box('.hero .holder'), title: box('.details h1'), artist: box('.details .artist'), meta: box('.details .meta'), rating: row('.badge-row'), actions: row('.actions') }
+							off: { sleeve: box('.hero .holder'), title: box('.details h1'), artist: box('.details .artist'), meta: box('.details .meta'), controls: row('.details .badge-row > *, .details .actions > *') }
 						};
 					});
 					const at = `${theme} at ${viewport.width}px`;
 					assert.equal(seen.scrolls, 0, at);
+					assert.equal(seen.heartWithPlay, viewport.width <= 576, `${at}: the heart's row`);
 					for (const [name, off] of Object.entries(seen.off)) assert.ok(Math.abs(off) <= 2, `${at}: ${name} is ${off}px off centre`);
 				}
 			} finally {
@@ -3608,7 +3616,7 @@ describe('playback on another browser', () => {
 
 			// By the rail and the tab, so the track keeps playing across the page change.
 			await shown.locator('nav.rail a[href="/settings"]').click();
-			await shown.getByRole('link', { name: 'Account', exact: true }).click();
+			await shown.getByRole('link', { name: 'You', exact: true }).click();
 			const section = shown.locator('section#listening');
 			await section.getByLabel('Display name').fill('Mira');
 			await section.getByRole('button', { name: 'Save' }).click();
@@ -5875,7 +5883,7 @@ describe('linking scrobblers from Settings', () => {
 		});
 		try {
 			await page.goto(app.url + '/settings', { waitUntil: 'networkidle' });
-			await page.getByRole('navigation', { name: 'Settings' }).getByRole('link', { name: 'Account' }).click();
+			await page.getByRole('navigation', { name: 'Settings' }).getByRole('link', { name: 'Connections' }).click();
 			const section = page.locator('#scrobbling');
 			await section.waitFor();
 
@@ -6373,7 +6381,7 @@ describe('the settings tabs', () => {
 			await page.goto(app.url + '/settings', { waitUntil: 'networkidle' });
 			const tabs = page.getByRole('navigation', { name: 'Settings' });
 			const heading = (name) => page.getByRole('heading', { name, exact: true });
-			assert.equal(await tabs.getByRole('link', { name: 'Appearance' }).getAttribute('aria-current'), 'page');
+			assert.equal(await tabs.getByRole('link', { name: 'Look' }).getAttribute('aria-current'), 'page');
 			assert.ok(await heading('Appearance').isVisible());
 			for (const name of ['Playback', 'Transcoding', 'Session & security', 'Cover cache']) {
 				assert.equal(await heading(name).isVisible(), false, `${name} shows on the Appearance tab`);
@@ -6393,7 +6401,7 @@ describe('the settings tabs', () => {
 			assert.equal(fetched, 0, 'the tab switch asked the server for the page');
 
 			// Saving from Appearance keeps what the Playback tab holds.
-			await tabs.getByRole('link', { name: 'Appearance' }).click();
+			await tabs.getByRole('link', { name: 'Look' }).click();
 			await autosaved(page, () => pick(select(page, 'theme'), 'light'));
 			await page.getByText('Settings saved.').waitFor();
 			const saved = await (await context.request.get(`${app.url}/api/settings`)).json();

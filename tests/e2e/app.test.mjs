@@ -777,9 +777,17 @@ describe('settings', () => {
 		const history = (await user.page('/settings?tab=history')).html;
 		assert.doesNotMatch(section(history, 'Listening history'), /hidden/);
 		assert.match(section(history, 'Cover cache'), /hidden/);
+		// Five tabs; the old tab names are the sections, as chips under You.
+		const tabs = [...history.matchAll(/class="tab[^"]*"[^>]*>\s*([^<\s][^<]*?)\s*</g)].map((match) => match[1]);
+		assert.deepEqual(tabs.slice(0, 4), ['You', 'Look', 'Playback', 'Connections']);
+		assert.match(history, /class="tab[^"]*active[^"]*" href="\?tab=account"/);
+		const chips = [...history.matchAll(/class="chip[^"]*" href="\?tab=(\w+)"/g)].map((match) => match[1]);
+		assert.deepEqual(chips, ['account', 'security', 'history']);
 
 		const back = (await user.page('/settings?lastfm=linked')).html;
-		assert.doesNotMatch(section(back, 'Session &amp; security'), /hidden/, 'the way back from last.fm opens on Account');
+		// Scrobbling is under Connections, beside AI and shared links.
+		assert.match(back, /class="chip[^"]*active[^"]*" href="\?tab=connections" aria-current="page"/, 'the way back from last.fm opens on Scrobbling');
+		assert.match(section(back, 'Session &amp; security'), /hidden/);
 		assert.match(section(back, 'Appearance'), /hidden/);
 	});
 });

@@ -201,9 +201,13 @@
 	 * music server keeps ratings, as the player's stars are. See `rate`.
 	 */
 	const rating = $derived(
-		subject?.kind === 'song' && !subject.song.live && page.data.ratings
-			? { id: subject.song.id, current: ratingOf('song', subject.song.id, subject.song.rating ?? 0) }
-			: null
+		!page.data.ratings
+			? null
+			: subject?.kind === 'song' && !subject.song.live
+				? { kind: 'song' as const, id: subject.song.id, current: ratingOf('song', subject.song.id, subject.song.rating ?? 0) }
+				: subject?.kind === 'album' && subject.album.rating !== undefined
+					? { kind: 'album' as const, id: subject.album.id, current: ratingOf('album', subject.album.id, subject.album.rating ?? 0) }
+					: null
 	);
 
 	function choose(item: Extract<Item, { kind: 'action' }>) {
@@ -239,9 +243,9 @@
 	});
 
 	/** Sets a song's rating from the menu's stars, and closes it. The star that is the rating clears it, as in the player. */
-	function rate(id: string, stars: number, current: number) {
+	function rate(kind: 'song' | 'album', id: string, stars: number, current: number) {
 		contextMenu.close(true);
-		void setRating('song', id, stars === current ? 0 : stars, current);
+		void setRating(kind, id, stars === current ? 0 : stars, current);
 	}
 
 	function starKey(event: KeyboardEvent) {
@@ -376,7 +380,7 @@
 			<span class="name hh-truncate" aria-hidden="true">{heading.name}</span>
 			{#if heading.by}<span class="by hh-truncate" aria-hidden="true">{heading.by}</span>{/if}
 			{#if rating}
-				{@const { id, current } = rating}
+				{@const { kind, id, current } = rating}
 				<span class="stars" role="group" aria-label="Rating">
 					{#each [1, 2, 3, 4, 5] as stars (stars)}
 						<button
@@ -388,7 +392,7 @@
 							aria-checked={stars === current}
 							aria-label={stars === current ? `${stars} of 5, press to clear` : `Rate ${stars} of 5`}
 							data-stop={stars === Math.max(1, current) ? '' : undefined}
-							onclick={() => rate(id, stars, current)}
+							onclick={() => rate(kind, id, stars, current)}
 							onkeydown={starKey}
 						>
 							<Icon name={stars <= current ? 'star-filled' : 'star'} size={16} />

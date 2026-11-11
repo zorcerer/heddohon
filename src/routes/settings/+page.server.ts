@@ -129,6 +129,8 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		sessions,
 		shares,
 		scrobblerLinks,
+		// Whether the music server links scrobblers: the Connections tab is offered for it before the links load.
+		scrobbling: scrobblers !== null,
 		// Which of a Discord channel and ListenBrainz this account is offered, and
 		// the name of what it has linked. Never the webhook or the token.
 		integrations: {
