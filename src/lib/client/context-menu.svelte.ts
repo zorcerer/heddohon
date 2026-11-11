@@ -17,6 +17,8 @@ export interface MenuAlbum {
 	coverArt: string | null;
 	/** Absent where the list does not say, and the favourite item with it: it could only guess which way to turn. */
 	starred?: boolean;
+	/** Given by the album's own page, where the menu carries the rating on a phone; absent elsewhere, and the stars with it. */
+	rating?: number | null;
 }
 
 export type MenuSubject =

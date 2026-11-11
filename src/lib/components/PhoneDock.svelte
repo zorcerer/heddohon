@@ -19,7 +19,7 @@
 	import { navigating, page } from '$app/state';
 	import { player } from '#lib/client/player.svelte.ts';
 	import { handOff } from '#lib/client/handoff.ts';
-	import { DUR, EASE_OUT_CSS, popGlyph, skipGlyph } from '#lib/client/motion.ts';
+	import { DUR, EASE_OUT_CSS, popGlyph } from '#lib/client/motion.ts';
 	import { prefersReducedMotion } from '#lib/client/sleeve-transition.svelte.ts';
 	import Cover from './Cover.svelte';
 	import Icon from './Icon.svelte';
@@ -225,18 +225,7 @@
 					<Icon name={player.running ? 'pause' : 'play'} size={24} strokeWidth={2.6} />
 				{/if}
 			</button>
-			<button
-				class="control"
-				type="button"
-				onclick={(event) => {
-					skipGlyph(event.currentTarget, 1);
-					void player.next();
-				}}
-				disabled={!player.canNext}
-				aria-label="Next track"
-			>
-				<Icon name="skip" size={22} />
-			</button>
+			<!-- Next and previous are a swipe along this row (`up`), so Play is the one key on it. -->
 
 			<span class="progress" aria-hidden="true" style:scale="{progress} 1"></span>
 		</div>
@@ -252,8 +241,9 @@
 					href={tab.href}
 					aria-current={index === activeIndex ? 'page' : undefined}
 				>
-					<Icon name={index === activeIndex && tab.icon === 'heart' ? 'heart-filled' : tab.icon} size={21} />
-					<span class="label">{tab.label}</span>
+					<Icon name={index === activeIndex && tab.icon === 'heart' ? 'heart-filled' : tab.icon} size={23} />
+					<!-- Glyphs alone, the lens marking where you are: the four words under them were a third line of text under the song's two. -->
+					<span class="hh-visually-hidden">{tab.label}</span>
 				</a>
 			{/each}
 		</nav>
@@ -495,10 +485,6 @@
 
 		.tab :global(svg) {
 			transition: scale var(--dur-press) var(--ease-out);
-		}
-
-		.label {
-			text-shadow: var(--text-shade);
 		}
 
 		/*

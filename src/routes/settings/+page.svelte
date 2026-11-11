@@ -357,21 +357,44 @@
 	const TABS = [
 		{ id: 'appearance', label: 'Appearance' },
 		{ id: 'playback', label: 'Playback' },
-		{ id: 'history', label: 'History' },
 		{ id: 'account', label: 'Account' },
 		{ id: 'security', label: 'Security' },
+		{ id: 'history', label: 'History' },
+		{ id: 'connections', label: 'Scrobbling' },
 		{ id: 'ai', label: 'AI' },
 		{ id: 'sharing', label: 'Shared links' },
 		{ id: 'storage', label: 'Server' }
 	] as const;
 	type Tab = (typeof TABS)[number]['id'];
 
+	/*
+	 * Five tabs, each a group of the sections above. A group with more than one
+	 * section offered shows them as chips under the tabs. The URL names the
+	 * section, so a link to `?tab=security` still opens on it.
+	 */
+	const GROUPS: readonly { id: string; label: string; sections: readonly Tab[] }[] = [
+		{ id: 'you', label: 'You', sections: ['account', 'security', 'history'] },
+		{ id: 'look', label: 'Look', sections: ['appearance'] },
+		{ id: 'playback', label: 'Playback', sections: ['playback'] },
+		{ id: 'connections', label: 'Connections', sections: ['connections', 'ai', 'sharing'] },
+		{ id: 'server', label: 'Server', sections: ['storage'] }
+	];
+
 	const sharingShown = $derived(data.sharing || data.shares.length > 0);
-	const tabs = $derived(
-		TABS.filter((entry) => (entry.id !== 'sharing' || sharingShown) && (entry.id !== 'ai' || data.mcp !== null)).map((entry) =>
-			// Without the administrator's sections the tab holds the cover cache alone.
-			entry.id === 'storage' && data.features === null ? { ...entry, label: 'Cover cache' } : entry
-		)
+	const connectionsShown = $derived(data.scrobbling || data.integrations.offered.discord || data.integrations.offered.listenbrainz);
+	function offered(id: Tab): boolean {
+		if (id === 'sharing') return sharingShown;
+		if (id === 'ai') return data.mcp !== null;
+		if (id === 'connections') return connectionsShown;
+		return true;
+	}
+	const groups = $derived(
+		GROUPS.map((group) => ({
+			...group,
+			// Without the administrator's sections the Server tab holds the cover cache alone.
+			label: group.id === 'server' && data.features === null ? 'Cover cache' : group.label,
+			sections: TABS.filter((entry) => group.sections.includes(entry.id) && offered(entry.id))
+		})).filter((group) => group.sections.length > 0)
 	);
 
 	function tabFrom(url: { readonly searchParams: { has(name: string): boolean; get(name: string): string | null } }): Tab {
@@ -379,16 +402,13 @@
 		if (requested === 'features') return 'storage';
 		if (TABS.some((entry) => entry.id === requested)) return requested as Tab;
 		// The way back from last.fm lands on the section that started it.
-		return url.searchParams.has('lastfm') ? 'account' : 'appearance';
+		return url.searchParams.has('lastfm') ? 'connections' : 'appearance';
 	}
 
 	let tab = $state<Tab>(untrack(() => tabFrom(page.url)));
-	// A link to a tab that is not offered: sharing off with no links left, or AI with nothing to show.
-	const shown = $derived<Tab>(
-		(tab === 'sharing' && !sharingShown) || (tab === 'ai' && data.mcp === null)
-			? 'appearance'
-			: tab
-	);
+	// A link to a section that is not offered: sharing off with no links left, or AI with nothing to show.
+	const shown = $derived<Tab>(offered(tab) ? tab : 'appearance');
+	const group = $derived(groups.find((entry) => entry.sections.some((section) => section.id === shown)) ?? groups[0]);
 
 	/*
 	 * The features that are off and that this administrator has not been told
@@ -673,21 +693,39 @@
 	</header>
 
 	<nav class="tabs" aria-label="Settings" bind:this={tabRow}>
-		{#each tabs as entry (entry.id)}
+		{#each groups as entry (entry.id)}
 			<a
 				class="tab"
-				class:active={entry.id === shown}
-				href="?tab={entry.id}"
-				aria-current={entry.id === shown ? 'page' : undefined}
+				class:active={entry.id === group.id}
+				href="?tab={entry.sections[0].id}"
+				aria-current={entry.id === group.id ? 'page' : undefined}
 				data-sveltekit-reset="false"
 				data-sveltekit-preload-data="false"
-				onclickcapture={(event) => selectTab(event, entry.id)}
+				onclickcapture={(event) => selectTab(event, entry.sections[0].id)}
 			>
 				{entry.label}
-				{#if entry.id === 'storage' && unseenFeatures.length > 0}<span class="dot" role="img" aria-label=", features to look at"></span>{/if}
+				{#if entry.id === 'server' && unseenFeatures.length > 0}<span class="dot" role="img" aria-label=", features to look at"></span>{/if}
 			</a>
 		{/each}
 	</nav>
+
+	{#if group.sections.length > 1}
+		<nav class="chips" aria-label={group.label}>
+			{#each group.sections as entry (entry.id)}
+				<a
+					class="chip"
+					class:active={entry.id === shown}
+					href="?tab={entry.id}"
+					aria-current={entry.id === shown ? 'page' : undefined}
+					data-sveltekit-reset="false"
+					data-sveltekit-preload-data="false"
+					onclickcapture={(event) => selectTab(event, entry.id)}
+				>
+					{entry.label}
+				</a>
+			{/each}
+		</nav>
+	{/if}
 
 	{#if form?.saved}
 		<FadeContent duration={300} threshold={0}>
@@ -1267,7 +1305,7 @@
 	     with Last.fm or ListenBrainz turned on. -->
 	{#await data.scrobblerLinks then links}
 		{#if links && (links.lastfm.available || links.listenbrainz.available)}
-			<section class="hh-card hh-glass group" id="scrobbling" hidden={shown !== 'account'}>
+			<section class="hh-card hh-glass group" id="scrobbling" hidden={shown !== 'connections'}>
 				<div class="group-head">
 					<h2>Scrobbling</h2>
 				</div>
@@ -1342,7 +1380,7 @@
 
 	<!-- Only where the operator has turned one of them on; see `integrations.ts`. -->
 	{#if data.integrations.offered.discord || data.integrations.offered.listenbrainz}
-		<section class="hh-card hh-glass group" id="activity" hidden={shown !== 'account'}>
+		<section class="hh-card hh-glass group" id="activity" hidden={shown !== 'connections'}>
 			<div class="group-head">
 				<h2>Your plays, elsewhere</h2>
 			</div>
@@ -2207,16 +2245,36 @@
 		border-bottom: 1px solid var(--border-hairline);
 		padding-bottom: var(--space-2);
 		overflow-x: auto;
-		/* Five tabs are wider than a phone; the row scrolls sideways there. */
+		/* On a narrow phone the row scrolls sideways. */
 		scrollbar-width: none;
 	}
 
-	/* Eight tabs are wider than the column too: there they wrap to a second line. */
-	@media (min-width: 40rem) {
-		.tabs {
-			flex-wrap: wrap;
-			overflow-x: visible;
-		}
+	/* The sections of the chosen tab, where it has more than one. */
+	.chips {
+		display: flex;
+		flex-wrap: wrap;
+		gap: var(--space-2);
+	}
+
+	.chip {
+		padding: 0.2rem 0.7rem;
+		border: 1px solid var(--border-strong);
+		border-radius: var(--r-pill);
+		color: var(--text-muted);
+		font-size: 0.8125rem;
+		white-space: nowrap;
+		transition:
+			border-color var(--transition),
+			color var(--transition);
+	}
+
+	.chip:hover {
+		color: var(--text-strong);
+	}
+
+	.chip.active {
+		border-color: var(--accent);
+		color: var(--accent);
 	}
 
 	/* Features off and not yet seen, for an administrator. */
@@ -2773,6 +2831,14 @@
 
 	/* The tab that is open: the accent, on a rule of it. The other themes light
 	   the label, and this one has no glow to do it with. */
+	:global([data-theme='terminal']) .chip {
+		border-radius: 0;
+	}
+
+	:global([data-theme='terminal']) .chip.active {
+		background: var(--accent-quiet);
+	}
+
 	:global([data-theme='terminal']) .tab.active {
 		border-radius: 0;
 		color: var(--accent);
