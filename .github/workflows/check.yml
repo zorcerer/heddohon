@@ -76,6 +76,14 @@ jobs:
 
       - run: npm run build
 
+      # The ffmpeg sound analysis decodes with: the Dockerfile's `ffmpeg` stage
+      # built for this runner, static, decoding a FLAC and an MP3 to the
+      # samples the analysis reads. A few minutes of compiling. Before the
+      # suites, which decode with the binary it leaves.
+      - run: |
+          HEDDOHON_FFMPEG_OUT="$RUNNER_TEMP/ffmpeg" tests/docker/ffmpeg.sh
+          echo "HEDDOHON_TEST_FFMPEG=$RUNNER_TEMP/ffmpeg" >> "$GITHUB_ENV"
+
       - run: npm run test:e2e
 
       # Authentication, CSRF, media proxying, lyrics, playlists, shared links and
@@ -86,11 +94,6 @@ jobs:
       # The image's entrypoint, in the image's base: who the server ends up
       # running as, and that it can write its data directory.
       - run: tests/docker/entrypoint.sh
-
-      # The ffmpeg sound analysis decodes with: the Dockerfile's `ffmpeg` stage
-      # built for this runner, static, decoding a FLAC and an MP3 to the
-      # samples the analysis reads. A few minutes of compiling.
-      - run: tests/docker/ffmpeg.sh
 
       # The version installed is the one package-lock.json pins. Without
       # `--with-deps`: the runner image carries Chrome and the libraries it

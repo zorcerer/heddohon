@@ -131,6 +131,7 @@ page follows a request through it. Where things are:
 | `src/hooks.server.ts` | Every request first: the origin check, the session, the gate on private routes, the security headers |
 | `src/lib/server/config.ts` | Every environment variable, parsed and checked once |
 | `src/lib/server/backends/` | Navidrome and Subsonic (`subsonic.ts`) and Jellyfin (`jellyfin.ts`) behind one interface (`types.ts`) |
+| `src/lib/server/analysis/` | Sound analysis: measuring loudness, tempo, key and sound from a song's audio. Its [README](src/lib/server/analysis/README.md) is the map, and the place to start |
 | `src/lib/server/` | The rest of the server: accounts and sessions (`auth.ts`), the database (`db.ts`), settings, history, caches, media proxying |
 | `src/routes/` | Pages, each with its `+page.server.ts` loader, and the JSON API under `src/routes/api/` |
 | `src/lib/client/` | State in the browser: the player (`player.svelte.ts`), the queue, favourites, the right-click menu |
