@@ -87,11 +87,17 @@ jobs:
       # running as, and that it can write its data directory.
       - run: tests/docker/entrypoint.sh
 
-      # The version installed is the one package-lock.json pins.
-      - run: npx playwright install --with-deps chromium
+      # The version installed is the one package-lock.json pins. Without
+      # `--with-deps`: the runner image carries Chrome and the libraries it
+      # needs, and the apt step `--with-deps` adds failed the job for hours on
+      # 2026-11-11, when the runners could not resolve Ubuntu's mirrors.
+      - run: npx playwright install chromium
 
       # `zbarimg` reads the TOTP QR code back in the two-step sign-in test;
-      # without it that check is skipped.
+      # without it that check is skipped, so a failed install does not fail
+      # the job. Bounded: apt retries an unresolvable mirror for minutes.
       - run: sudo apt-get install -y --no-install-recommends zbar-tools
+        continue-on-error: true
+        timeout-minutes: 3
 
       - run: npm run test:browser
