@@ -43,7 +43,8 @@ and one browser can control another.
 **Play anything from the keyboard.** In Terminal, Cmd+K or Ctrl+K opens a
 command line: `play` and the name of an album, an artist or a song starts the
 best match. Queueing, mixes,
-seeking and the volume work the same way.
+seeking and the volume work the same way. `cd` goes to a page or a section of
+Settings (`cd settings/security`), and `eq` sets the equaliser (`eq bass`).
 
 **Four themes, coloured by the artwork.** Terminal, Liquid, Paper and Phosphor, and colour schemes for any of them from files an administrator adds ([Configuration](https://github.com/zorcerer/heddohon/wiki/Configuration#colour-schemes-from-files)).
 

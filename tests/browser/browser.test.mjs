@@ -5314,6 +5314,13 @@ describe('on a phone', () => {
 				await page.mouse.wheel(0, 800);
 				await page.waitForTimeout(300);
 				assert.equal(await page.evaluate(() => scrollY), 600, 'the page scrolled under the open sheet');
+				// The page around the open sheet is blurred, by a layer under it that is never faded.
+				const backdrop = () =>
+					page.locator('.sheet-backdrop').evaluate((node) => {
+						const style = getComputedStyle(node);
+						return { shown: style.visibility, blur: style.backdropFilter || style.webkitBackdropFilter, under: Number(style.zIndex) };
+					});
+				assert.deepEqual(await backdrop(), { shown: 'visible', blur: 'blur(6px)', under: 44 });
 
 				await tap(page, page.locator('#player-hide'));
 				await page.waitForFunction(() => !document.querySelector('.app').classList.contains('player-open'), null, {
@@ -5321,6 +5328,7 @@ describe('on a phone', () => {
 				});
 				await page.waitForTimeout(300);
 				assert.equal(await page.evaluate(() => document.activeElement?.id), 'dock-open', 'focus is not back on the dock');
+				assert.equal((await backdrop()).shown, 'hidden', 'the page stayed blurred with the sheet closed');
 				await page.mouse.wheel(0, 800);
 				await page.waitForTimeout(300);
 				assert.ok((await page.evaluate(() => scrollY)) > 600, 'the page does not scroll once the sheet is closed');
@@ -7272,6 +7280,56 @@ describe('Terminal, the default theme', () => {
 			await page.getByRole('searchbox').first().pressSequentially('a:b');
 			assert.equal(await field.count(), 0, 'a colon typed into the search field opened the command line');
 		} finally {
+			await liquid();
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+
+	test('cd goes to a section of Settings, and eq sets the equaliser', async () => {
+		await settings({ theme: 'terminal' });
+		const { page, problems } = await watchedPage();
+		const command = async (line, said) => {
+			await page.keyboard.press('Control+k');
+			const field = page.getByRole('combobox', { name: 'Command' });
+			await field.pressSequentially(line);
+			await page.keyboard.press('Enter');
+			await page.getByRole('status').filter({ hasText: said }).waitFor();
+		};
+		try {
+			await page.goto(app.url + '/', { waitUntil: 'networkidle' });
+			const field = page.getByRole('combobox', { name: 'Command' });
+
+			// A slash after settings lists its sections; before it, the places.
+			await page.keyboard.press('Control+k');
+			await field.pressSequentially('cd settings/s');
+			const options = await page.getByRole('option').allTextContents();
+			assert.deepEqual(options.map((option) => option.trim()), ['settings/security', 'settings/sharing', 'settings/storage']);
+			await page.keyboard.press('Escape');
+
+			await command('cd settings/security', '~/settings/security');
+			assert.match(page.url(), /\/settings\?tab=security$/);
+			await page.getByRole('heading', { name: 'Two-step sign-in' }).waitFor();
+
+			// From Settings itself: the open section follows the address.
+			await command('cd settings/playback', '~/settings/playback');
+			await page.getByRole('heading', { name: 'Transcoding' }).waitFor();
+			assert.equal(await page.getByRole('heading', { name: 'Two-step sign-in' }).isVisible(), false);
+
+			await page.keyboard.press('Control+k');
+			await field.pressSequentially('cd settings/nowhere');
+			await page.keyboard.press('Enter');
+			await page.getByRole('alert').filter({ hasText: 'Settings has appearance' }).waitFor();
+			await page.keyboard.press('Escape');
+
+			await command('eq bass', 'equaliser bass');
+			const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('heddohon:audio-processing')));
+			assert.equal(saved.enabled, true);
+			assert.deepEqual(saved.gains, [6, 5, 4, 2, 0, 0, 0, 0, 0, 0]);
+			await command('eq off', /^processing off/);
+			assert.equal((await page.evaluate(() => JSON.parse(localStorage.getItem('heddohon:audio-processing')))).enabled, false);
+		} finally {
+			await page.evaluate(() => localStorage.removeItem('heddohon:audio-processing')).catch(() => undefined);
 			await liquid();
 			await page.close();
 		}

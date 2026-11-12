@@ -891,6 +891,9 @@
 			44px strip on screen. That strip is a button that brings the panel
 			back. See `.dock` below.
 		-->
+		<!-- Under the open sheet on a phone: what shows of the page around it is blurred. -->
+		<div class="sheet-backdrop" aria-hidden="true"></div>
+
 		<div
 			class="player"
 			data-sveltekit-replacestate={page.state.sheet ? '' : undefined}
@@ -1263,6 +1266,11 @@
 	 * the page once when toggled. An always-open overlay would cover a strip of
 	 * the page.
 	 */
+	/* The blur under the phone sheet; see the phone layout below. */
+	.sheet-backdrop {
+		display: none;
+	}
+
 	.player {
 		grid-area: player;
 		min-height: 0;
@@ -1540,6 +1548,29 @@
 			transition:
 				translate var(--sheet-in),
 				visibility 0s linear 0s;
+		}
+
+		/*
+		 * The page around the open sheet, and under it as it is pulled down,
+		 * blurred by 6px. It is never faded: a layer changing its opacity behind
+		 * glass goes dark in Safari and Firefox (see the veil above). So it
+		 * appears once the sheet has risen or morphed open, `--dur-morph` after
+		 * `player-open`, and goes the moment the sheet starts to close.
+		 */
+		.sheet-backdrop {
+			display: block;
+			position: fixed;
+			inset: 0;
+			z-index: 44;
+			pointer-events: none;
+			-webkit-backdrop-filter: blur(6px);
+			backdrop-filter: blur(6px);
+			visibility: hidden;
+		}
+
+		.app.player-open.viewport-known .sheet-backdrop {
+			visibility: visible;
+			transition: visibility 0s linear var(--dur-morph);
 		}
 
 		.app:not(.player-open) .player {
