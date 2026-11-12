@@ -1,4 +1,6 @@
 <script lang="ts" generics="T extends string">
+	import { goto } from '$app/navigation';
+	import Select from './Select.svelte';
 	/**
 	 * The sort selector of the library listings. Links, not buttons, so a
 	 * sorted view is a URL: shareable, bookmarkable and restored by Back.
@@ -17,6 +19,20 @@
 		label?: string;
 	} = $props();
 </script>
+
+<!--
+	On a phone, one menu in place of the chips: seven of them on Albums took
+	three rows above the first cover at 390px.
+-->
+<div class="menu">
+	<span class="menu-label" aria-hidden="true">sort</span>
+	<Select
+		{label}
+		value={active}
+		options={sorts.map((sort) => ({ value: sort, label: labels[sort] ?? sort }))}
+		onchange={(sort) => void goto(href(sort), { reset: false })}
+	/>
+</div>
 
 <nav class="sorts" aria-label={label}>
 	{#each sorts as sort (sort)}
@@ -37,6 +53,27 @@
 		display: flex;
 		flex-wrap: wrap;
 		gap: var(--space-1);
+	}
+
+	.menu {
+		display: none;
+		align-items: center;
+		gap: var(--space-2);
+	}
+
+	.menu-label {
+		color: var(--text-muted);
+		font-size: 0.8125rem;
+	}
+
+	@media (max-width: 40rem) {
+		.sorts {
+			display: none;
+		}
+
+		.menu {
+			display: flex;
+		}
 	}
 
 	.chip {

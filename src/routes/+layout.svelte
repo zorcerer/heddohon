@@ -42,6 +42,7 @@
 	import SelectionBar from '#lib/components/SelectionBar.svelte';
 	import PlaylistPicker from '#lib/components/PlaylistPicker.svelte';
 	import ShareDialog from '#lib/components/ShareDialog.svelte';
+	import BackLink from '#lib/components/BackLink.svelte';
 	import PathStrip from '#lib/components/PathStrip.svelte';
 	import Sidebar from '#lib/components/Sidebar.svelte';
 	import type { LayoutData, Snapshot } from './$types';
@@ -882,6 +883,7 @@
 		<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 		<main class="content" class:rising tabindex="0" bind:this={content}>
 			<PathStrip />
+			<BackLink />
 			{@render children()}
 		</main>
 

@@ -15,8 +15,8 @@
 		title,
 		subtitle = null,
 		coverArt,
-		/** Artists are people, not records: they get a plain round portrait. */
-		rounded = false,
+		/** An artist's photo: square at the cards' corner like a cover, with no sleeve and no tilt. */
+		portrait = false,
 		transitionId = null,
 		onplay = null,
 		album = null,
@@ -28,7 +28,7 @@
 		/** Under the title and subtitle, for what a shelf of its own says of each album. */
 		detail?: Snippet;
 		coverArt: string | null | undefined;
-		rounded?: boolean;
+		portrait?: boolean;
 		/** Album id, if this card should carry its sleeve into the next page. */
 		transitionId?: string | null;
 		/** May return a promise; the button shows it is busy until it settles. */
@@ -65,7 +65,7 @@
 	 */
 	let art = $state<HTMLDivElement | null>(null);
 	function tilt(event: PointerEvent) {
-		if (!art || event.pointerType !== 'mouse' || rounded) return;
+		if (!art || event.pointerType !== 'mouse' || portrait) return;
 		const box = art.getBoundingClientRect();
 		const x = (event.clientX - box.left) / box.width - 0.5;
 		const y = (event.clientY - box.top) / box.height - 0.5;
@@ -110,7 +110,7 @@
      `warmAlbumCover`. -->
 <a
 	class="card"
-	class:portrait={rounded}
+	class:portrait
 	class:launching
 	{href}
 	onclick={open}
@@ -122,8 +122,8 @@
 	oncontextmenu={album ? (event) => contextMenu.open(event, { kind: 'album', album }) : undefined}
 >
 	<div class="art" bind:this={art}>
-		{#if rounded}
-			<Cover {coverArt} rounded size={384} alt="" />
+		{#if portrait}
+			<Cover {coverArt} size={384} alt="" radius="var(--r-md)" />
 		{:else}
 			<Sleeve
 				{coverArt}
@@ -208,7 +208,7 @@
 	}
 
 	.portrait .art::before {
-		border-radius: 50%;
+		border-radius: var(--r-md);
 	}
 
 	.card:hover .art::before {
