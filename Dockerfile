@@ -34,6 +34,53 @@ RUN npm run build
 # into the final image.
 RUN npm ci --omit=dev --no-audit --no-fund
 
+# ── ffmpeg stage ──────────────────────────────────────────────────────────────
+# The decoder sound analysis reads audio with (issue #314, part of #312): a
+# static ffmpeg with only what that needs, the audio formats a music server
+# holds decoded to raw float samples. 4.7MB on amd64, where Debian's ffmpeg
+# package adds 647MB to the runtime image; it decodes the same samples, bit
+# for bit, at the same speed (measured 2026-11-12 on FLAC and MP3).
+#
+# Built on the build machine and cross-compiled for arm64, as the builder
+# stage avoids emulation: a compile under QEMU takes many times as long.
+FROM --platform=$BUILDPLATFORM debian:bookworm-slim AS ffmpeg
+ARG TARGETARCH
+ARG FFMPEG_VERSION=7.1.5
+ARG FFMPEG_SHA256=de668509caf9e35e3cd162473441fdb29538c6d96ed080292b3cf9e6fc5d558f
+RUN apt-get update \
+	&& apt-get install -y --no-install-recommends build-essential nasm curl ca-certificates xz-utils \
+	&& if [ "$TARGETARCH" = arm64 ] && [ "$(dpkg --print-architecture)" != arm64 ]; then \
+		apt-get install -y --no-install-recommends gcc-aarch64-linux-gnu libc6-dev-arm64-cross; fi \
+	&& rm -rf /var/lib/apt/lists/*
+WORKDIR /src
+RUN curl -fsSL -o ffmpeg.tar.xz "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz" \
+	&& echo "${FFMPEG_SHA256}  ffmpeg.tar.xz" | sha256sum -c - \
+	&& tar xJf ffmpeg.tar.xz --strip-components=1 && rm ffmpeg.tar.xz
+# Everything off, then: the file and pipe protocols; the containers and
+# decoders of FLAC, MP3, AAC, ALAC, Opus, Vorbis, WavPack, APE, WMA and PCM;
+# resampling and the filters the command line needs to reach it; raw float
+# output. No network, no external library.
+RUN set -e; cross=''; \
+	if [ "$TARGETARCH" = arm64 ] && [ "$(dpkg --print-architecture)" != arm64 ]; then \
+		cross='--enable-cross-compile --arch=aarch64 --target-os=linux --cross-prefix=aarch64-linux-gnu-'; fi; \
+	./configure $cross --prefix=/opt/ffmpeg --disable-everything --disable-doc --disable-ffplay --disable-ffprobe \
+		--disable-network --disable-autodetect --disable-avdevice --disable-swscale --disable-postproc \
+		--enable-small --enable-static --disable-shared --extra-ldflags=-static --pkg-config-flags=--static \
+		--enable-protocol=file,pipe \
+		--enable-demuxer=flac,mp3,mov,ogg,wav,aac,matroska,aiff,ape,wv,asf \
+		--enable-decoder=flac,mp3,mp3float,aac,aac_latm,alac,opus,vorbis,wavpack,ape,wmav2,pcm_s16le,pcm_s24le,pcm_s32le,pcm_f32le,pcm_s16be,pcm_s24be \
+		--enable-parser=flac,mpegaudio,aac,opus,vorbis \
+		--enable-filter=abuffer,abuffersink,aresample,aformat,anull,atrim,null,buffer,buffersink \
+		--enable-muxer=pcm_f32le --enable-encoder=pcm_f32le --enable-swresample \
+	&& make -j"$(nproc)" && make install \
+	&& ${cross:+aarch64-linux-gnu-}strip /opt/ffmpeg/bin/ffmpeg
+# Built without its GPL parts, so it is under the LGPL 2.1 or later: its
+# licence, and where its exact source is, go into the image with it.
+RUN mkdir -p /opt/ffmpeg/licenses \
+	&& cp COPYING.LGPLv2.1 /opt/ffmpeg/licenses/ \
+	&& printf 'ffmpeg %s, LGPL 2.1 or later (COPYING.LGPLv2.1).\nSource: https://ffmpeg.org/releases/ffmpeg-%s.tar.xz\nSHA-256: %s\nConfigured by the ffmpeg stage of the Dockerfile at https://github.com/zorcerer/heddohon\n' \
+		"$FFMPEG_VERSION" "$FFMPEG_VERSION" "$FFMPEG_SHA256" > /opt/ffmpeg/licenses/README
+
 # ── Runtime stage ─────────────────────────────────────────────────────────────
 FROM node:22-bookworm-slim AS runtime
 
@@ -76,6 +123,8 @@ WORKDIR /app
 COPY --from=builder /app/build ./build
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package.json ./package.json
+COPY --from=ffmpeg /opt/ffmpeg/bin/ffmpeg /usr/local/bin/ffmpeg
+COPY --from=ffmpeg /opt/ffmpeg/licenses /usr/local/share/licenses/ffmpeg
 
 # The server runs unprivileged, so a compromise of its process cannot write
 # outside the mounted volume. It is the entrypoint that gets it there: started

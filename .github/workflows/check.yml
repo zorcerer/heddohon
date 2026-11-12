@@ -87,6 +87,11 @@ jobs:
       # running as, and that it can write its data directory.
       - run: tests/docker/entrypoint.sh
 
+      # The ffmpeg sound analysis decodes with: the Dockerfile's `ffmpeg` stage
+      # built for this runner, static, decoding a FLAC and an MP3 to the
+      # samples the analysis reads. A few minutes of compiling.
+      - run: tests/docker/ffmpeg.sh
+
       # The version installed is the one package-lock.json pins. Without
       # `--with-deps`: the runner image carries Chrome and the libraries it
       # needs, and the apt step `--with-deps` adds failed the job for hours on
