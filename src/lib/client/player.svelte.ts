@@ -341,6 +341,15 @@ class Player {
 	#seekHeld = false;
 	/** Whether this page plays through the graph. */
 	processing = $state(false);
+
+	/**
+	 * The rate the graph runs at while this page plays through it: the output
+	 * device's, which every track is resampled to on the way in. Null without
+	 * the graph, when the elements play what they receive.
+	 */
+	get outputRate(): number | null {
+		return this.processing ? (this.#chain?.context.sampleRate ?? null) : null;
+	}
 	/** The output last chosen, for a graph opened after the choice. */
 	#outputId = '';
 
