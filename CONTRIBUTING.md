@@ -33,6 +33,27 @@ change you have in mind. Heddohon plays what a Navidrome, Subsonic or Jellyfin
 server holds; features that need the music server to store something new
 depend on that server's API supporting it.
 
+### What stays the music server's
+
+Heddohon is a player in front of the music server, not a second music server.
+A feature that crosses one of these lines needs a decision by the maintainer
+before work starts, so say so in the request:
+
+- **It never writes to the library.** Tags, ReplayGain values, file names and
+  rescans stay the music server's.
+- **It reads music only through the music server's API**, as a player does,
+  never from the music folder.
+- **It keeps no catalogue to browse from.** What exists and what it is called
+  comes from the music server on each read. Heddohon's own stores hold state
+  keyed by the server's ids: settings, queues, play history and measurements.
+- **The music server decides who sees what.** Anything worked out once and
+  shared between accounts is looked up with the asking account's own login
+  before it is shown.
+- **The music server comes first.** Where the server or a plugin of it already
+  answers a question, Heddohon uses that, and only fills what is left empty.
+- **What it works out is disposable.** Losing a cache or a measurement costs
+  time to make it again, never data.
+
 ## Pull requests
 
 **Start with an issue for anything beyond a small fix.** A typo, a broken link
