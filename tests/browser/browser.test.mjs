@@ -6371,6 +6371,42 @@ describe('shuffle', () => {
 });
 
 describe('the settings tabs', () => {
+	test('are a list down the side on a wide page and a row across a phone', async () => {
+		for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+			const wide = viewport.width > 1000;
+			const visit = await browser.newContext({ viewport, isMobile: !wide, hasTouch: !wide });
+			const signIn = await visit.request.post(`${app.url}/login`, {
+				form: { username: 'testuser', password: 'testpass', backend: 'subsonic', next: '/' },
+				headers: { origin: app.url, accept: 'text/html' },
+				maxRedirects: 0
+			});
+			assert.equal(signIn.status(), 303);
+			const page = await visit.newPage();
+			try {
+				await page.goto(app.url + '/settings?tab=security', { waitUntil: 'networkidle' });
+				const seen = await page.evaluate(() => {
+					const tabs = [...document.querySelectorAll('nav.tabs .tab')].map((tab) => tab.getBoundingClientRect());
+					const row = document.querySelector('nav.tabs');
+					const shown = (selector) => [...document.querySelectorAll(selector)].filter((node) => node.getBoundingClientRect().width > 0).map((node) => node.textContent.trim());
+					return {
+						stacked: tabs.every((rect, index) => index === 0 || rect.top >= tabs[index - 1].bottom),
+						clipped: row.scrollWidth - row.clientWidth,
+						subs: shown('nav.tabs .sub'),
+						chips: shown('nav.chips .chip')
+					};
+				});
+				const at = `at ${viewport.width}px`;
+				assert.equal(seen.stacked, wide, `${at}: the tabs stacked`);
+				// All five across a phone, Server not scrolled off the edge.
+				assert.equal(seen.clipped, 0, `${at}: the tab row scrolls`);
+				assert.deepEqual(seen.subs, wide ? ['Account', 'Security', 'History'] : [], at);
+				assert.deepEqual(seen.chips, wide ? [] : ['Account', 'Security', 'History'], at);
+			} finally {
+				await visit.close();
+			}
+		}
+	});
+
 	test('show one group at a time, switch without reloading, and save the fields on other tabs', async () => {
 		await context.request.patch(`${app.url}/api/settings`, {
 			headers: { origin: app.url },
