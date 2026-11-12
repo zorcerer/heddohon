@@ -15,6 +15,7 @@
 	 */
 	import { untrack } from 'svelte';
 	import { SLEEP_MINUTES, player } from '#lib/client/player.svelte.ts';
+	import { processing } from '#lib/client/processing.svelte.ts';
 	import { audioOutputs } from '#lib/client/output.svelte.ts';
 	import { handOff } from '#lib/client/handoff.ts';
 	import { artworkColor } from '#lib/client/artwork.ts';
@@ -607,10 +608,11 @@
 				<span class="hh-numeric">{formatDuration(player.currentTime)}</span>
 				{#if song && !song.live && showQualityBadge}
 					<!--
-						The badge is also the switch. Pressing it asks the music server
-						to convert instead of sending the file, and pressing it again
-						goes back, without interrupting playback. The codec and the
-						bitrate are in Settings.
+						The badge says what reaches the speakers, and pressing it opens
+						the path there: the file, the music server, this browser. The
+						switch that asks the server to convert, or to send the file
+						again, is in it, and flips without interrupting playback. The
+						codec and the bitrate are in Settings.
 					-->
 					<QualityBadge
 						quality={song.quality}
@@ -619,6 +621,9 @@
 									codec: player.settings.transcodeCodec,
 									bitrateKbps: player.settings.transcodeBitrateKbps
 								}
+							: null}
+						processed={player.outputRate
+							? { rateHz: player.outputRate, by: processing.correction ? 'correction' : 'equaliser' }
 							: null}
 						ontoggle={(next) => void player.setTranscoding(next)}
 					/>

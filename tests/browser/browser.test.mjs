@@ -728,6 +728,62 @@ describe('the equaliser', () => {
 	});
 });
 
+describe('the quality badge in the player', () => {
+	test('names what changed the audio and opens the path, which holds the transcoding switch', async () => {
+		const origin = { origin: app.url };
+		await context.request.patch(`${app.url}/api/settings`, { headers: origin, data: { transcode: false, showQualityBadge: true } });
+		const visit = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+		await visit.request.post(`${app.url}/login`, {
+			form: { username: 'testuser', password: 'testpass', backend: 'subsonic', next: '/' },
+			headers: { ...origin, accept: 'text/html' },
+			maxRedirects: 0
+		});
+		const page = await visit.newPage();
+		const problems = [];
+		page.on('pageerror', (err) => problems.push(err.message));
+		const badge = page.locator('aside.panel button.badge');
+		const path = page.getByRole('dialog', { name: "What you're hearing" });
+		const changed = () => badge.evaluate((node) => node.classList.contains('changed'));
+		try {
+			await page.goto(app.url + '/albums/al1', { waitUntil: 'networkidle' });
+			await page.locator('.details .hh-button--primary').click();
+			await badge.waitFor();
+			assert.match(await badge.textContent(), /^\s*FLAC [\d.]+\/[\d.]+\s*$/);
+			assert.equal(await changed(), false, 'the original file read as changed');
+
+			await badge.click();
+			await path.waitFor();
+			assert.match(await path.textContent(), /Sends the file as it is[\s\S]*Plays it as received/);
+			await path.getByRole('button', { name: 'Transcode to save data' }).click();
+			await path.waitFor({ state: 'hidden' });
+			await page.waitForFunction(() => /FLAC\s*→/.test(document.querySelector('aside.panel button.badge')?.textContent ?? ''));
+			assert.equal(await changed(), true, 'a conversion read as the original');
+			assert.equal((await (await visit.request.get(`${app.url}/api/settings`)).json()).transcode, true);
+
+			await badge.click();
+			assert.match(await path.textContent(), /Converts to \w+ at \d+ kbps/);
+			await path.getByRole('button', { name: 'Send the original' }).click();
+			await page.waitForFunction(() => !/→/.test(document.querySelector('aside.panel button.badge')?.textContent ?? ''));
+			assert.equal((await (await visit.request.get(`${app.url}/api/settings`)).json()).transcode, false);
+
+			// Through the graph: headless Chromium's output is 44.1 kHz, the file's
+			// own rate, so the badge names the equaliser without an arrow.
+			await page.evaluate(() => localStorage.setItem('heddohon:audio-processing', JSON.stringify({ enabled: true, gains: [2, 0, 0, 0, 0, 0, 0, 0, 0, 0] })));
+			await page.reload({ waitUntil: 'networkidle' });
+			await page.locator('.details .hh-button--primary').click();
+			await page.waitForFunction(() => /· EQ\s*$/.test(document.querySelector('aside.panel button.badge')?.textContent ?? ''));
+			assert.equal(await changed(), true, 'the equaliser read as the original');
+			await badge.click();
+			assert.match(await path.textContent(), /Equaliser on/);
+			assert.equal(await path.getByRole('link', { name: 'Audio processing' }).getAttribute('href'), '/settings?tab=playback#this-browser');
+		} finally {
+			await context.request.patch(`${app.url}/api/settings`, { headers: origin, data: { transcode: false } });
+			await visit.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+});
+
 describe('the visualiser', () => {
 	/** Eight seconds of a 440 Hz tone, so the analyser has something to show. */
 	const toneWav = () => {
