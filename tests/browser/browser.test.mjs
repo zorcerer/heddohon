@@ -1223,6 +1223,100 @@ describe('the headphone correction', () => {
 	});
 });
 
+describe('finding things on a phone', () => {
+	test('a song menu on each row, Back, a sort menu, the tab named, the sheet in four, and the swipe shown once', async () => {
+		subsonic.state.audio = { type: 'audio/wav', body: silentWav(60) };
+		const phone = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+		await phone.request.post(`${app.url}/login`, {
+			form: { username: 'testuser', password: 'testpass', backend: 'subsonic', next: '/' },
+			headers: { origin: app.url, accept: 'text/html' },
+			maxRedirects: 0
+		});
+		// Every time the hint starts, across loads: with a queue saved by an earlier
+		// test, the dock has a song on the first page and plays it there.
+		await phone.addInitScript(() => {
+			new MutationObserver((records) => {
+				for (const record of records) {
+					const node = record.target;
+					if (node.classList?.contains('text') && node.classList.contains('nudge')) {
+						sessionStorage.setItem('nudges', String(Number(sessionStorage.getItem('nudges') ?? 0) + 1));
+					}
+				}
+			}).observe(document, { subtree: true, attributes: true, attributeFilter: ['class'] });
+		});
+		const page = await phone.newPage();
+		// At the middle of the box, as the other phone tests tap: Playwright's
+		// own tap waits for a stillness it did not see on the album page.
+		const tap = async (locator) => {
+			const box = await locator.boundingBox();
+			await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
+		};
+		const problems = [];
+		page.on('pageerror', (err) => problems.push(err.message));
+		try {
+			// Sorting: one menu in place of the chips.
+			await page.goto(app.url + '/albums', { waitUntil: 'networkidle' });
+			assert.equal(await page.locator('nav.sorts').isVisible(), false, 'the chips are shown on a phone');
+			await pickLabel(page.locator('.menu [role="combobox"]').first(), 'A–Z');
+			await page.waitForURL(/sort=/);
+
+			// Back from an album returns to the list it was opened from.
+			await tap(page.locator('a[href="/albums/al1"]').first());
+			await page.waitForURL(/\/albums\/al1$/);
+			// After the sleeve's view transition, which holds the page under its own layer.
+			await page.waitForFunction(() => !document.documentElement.matches(':active-view-transition'));
+			await tap(page.getByRole('link', { name: 'Back' }));
+			await page.waitForURL(/\/albums\?sort=/);
+			// Opened straight, it goes up to the section.
+			await page.goto(app.url + '/albums/al1', { waitUntil: 'networkidle' });
+			assert.equal(await page.getByRole('link', { name: 'Back' }).getAttribute('href'), '/albums');
+
+			// The dock names the tab it is on, and only that one.
+			const named = await page.locator('.phone-dock .tab .label').allTextContents();
+			assert.deepEqual(named, ['Library']);
+
+			// A row's menu, with what the row's actions never held.
+			await tap(page.getByRole('button', { name: 'More for Song 1b', exact: true }));
+			const menu = page.getByRole('menu');
+			await menu.getByRole('menuitem', { name: 'Play next' }).waitFor();
+			await page.keyboard.press('Escape');
+
+			// Playing, the dock shows the swipe once.
+			await tap(page.getByRole('button', { name: 'Play Song 1a', exact: true }));
+			const nudges = () => page.evaluate(() => Number(sessionStorage.getItem('nudges') ?? 0));
+			await page.waitForFunction(() => Number(sessionStorage.getItem('nudges') ?? 0) > 0);
+			assert.equal(await page.evaluate(() => localStorage.getItem('heddohon:dock-nudged')), '1');
+			await page.reload({ waitUntil: 'networkidle' });
+			await tap(page.getByRole('button', { name: 'Play Song 1a', exact: true }));
+			await page.waitForTimeout(2200);
+			assert.equal(await nudges(), 1, 'the hint played more than once');
+
+			// Back while a song plays leaves it playing: the way back stays in the app.
+			const playing = () => page.evaluate(() => [...document.querySelectorAll('audio')].some((audio) => !audio.paused && audio.currentTime > 0));
+			await page.waitForFunction(() => [...document.querySelectorAll('audio')].some((audio) => !audio.paused && audio.currentTime > 0));
+			await tap(page.getByRole('link', { name: 'Back' }));
+			await page.waitForURL(/\/albums(\?|$)/);
+			await page.waitForTimeout(800);
+			assert.equal(await playing(), true, 'Back stopped the music');
+			await page.goto(app.url + '/albums/al1', { waitUntil: 'networkidle' });
+
+			// The sheet's row: lyrics, More, the queue and the way down; the rest labelled in More.
+			await tap(page.locator('#dock-open'));
+			await page.waitForFunction(() => document.querySelector('.app').classList.contains('player-open'));
+			const tools = await page.locator('aside.panel .tools button').evaluateAll((buttons) => buttons.map((button) => button.getAttribute('aria-label')));
+			assert.deepEqual(tools, ['Lyrics', 'More', 'Queue', 'Hide the player']);
+			await tap(page.locator('aside.panel').getByRole('button', { name: 'More', exact: true }));
+			const more = page.locator('aside.panel').getByRole('group', { name: 'More' });
+			await tap(more.getByRole('button', { name: 'Sleep timer' }));
+			await page.locator('aside.panel').getByRole('group', { name: 'Sleep timer' }).getByRole('button', { name: '15 min' }).waitFor();
+		} finally {
+			subsonic.state.audio = null;
+			await phone.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+});
+
 describe('an artist page on a phone', () => {
 	test('fits the screen, with the name, biography and buttons centred', async () => {
 		for (const viewport of [

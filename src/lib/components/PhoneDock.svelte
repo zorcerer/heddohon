@@ -45,6 +45,26 @@
 	const activeIndex = $derived(TABS.findIndex((tab) => tab.pattern.test(path)));
 
 	const song = $derived(player.current);
+
+	/*
+	 * Next and previous are a swipe along the song, with no key for them. The
+	 * first time a song is in the dock on a phone, its title slides left twice
+	 * and settles, once per browser. Written here and not taken from Svelte
+	 * Bits, which has no such hint (the exception is in the styling notes).
+	 */
+	const NUDGED = 'heddohon:dock-nudged';
+	let nudging = $state(false);
+	$effect(() => {
+		if (!song || nudging || !matchMedia('(max-width: 60rem)').matches) return;
+		try {
+			if (localStorage.getItem(NUDGED)) return;
+			localStorage.setItem(NUDGED, '1');
+		} catch {
+			return;
+		}
+		if (prefersReducedMotion()) return;
+		nudging = true;
+	});
 	const progress = $derived(player.duration > 0 ? Math.min(1, player.currentTime / player.duration) : 0);
 
 	/*
@@ -195,6 +215,10 @@
 				</span>
 				<span
 					class="text"
+					class:nudge={nudging}
+					onanimationend={(event) => {
+						if (event.animationName.endsWith('dock-nudge')) nudging = false;
+					}}
 					style:translate={swipe?.axis === 'x' ? `${swipe.dx * 0.6}px 0` : undefined}
 					style:opacity={swipe?.axis === 'x' ? Math.max(0.2, 1 - Math.abs(swipe.dx) / 220) : undefined}
 					{@attach arrive(song.id)}
@@ -241,9 +265,13 @@
 					href={tab.href}
 					aria-current={index === activeIndex ? 'page' : undefined}
 				>
-					<Icon name={index === activeIndex && tab.icon === 'heart' ? 'heart-filled' : tab.icon} size={23} />
-					<!-- Glyphs alone, the lens marking where you are: the four words under them were a third line of text under the song's two. -->
-					<span class="hh-visually-hidden">{tab.label}</span>
+					<Icon name={index === activeIndex && tab.icon === 'heart' ? 'heart-filled' : tab.icon} size={index === activeIndex ? 21 : 23} />
+					<!--
+						The word under the tab you are on alone. Four words were a third
+						line of text under the song's two; with none, the Library glyph
+						did not say what it was.
+					-->
+					<span class={index === activeIndex ? 'label' : 'hh-visually-hidden'}>{tab.label}</span>
 				</a>
 			{/each}
 		</nav>
@@ -356,6 +384,31 @@
 
 		.swiping .text {
 			transition: none;
+		}
+
+		/* The hint, after the title's own arrival. `transform`, not `translate`,
+		   which the swipe writes inline. */
+		.text.nudge {
+			animation: dock-nudge 1100ms var(--ease-out) 700ms;
+		}
+
+		@keyframes dock-nudge {
+			0%,
+			100% {
+				transform: none;
+			}
+			20% {
+				transform: translateX(-1.25rem);
+			}
+			40% {
+				transform: none;
+			}
+			58% {
+				transform: translateX(-0.6rem);
+			}
+			76% {
+				transform: none;
+			}
 		}
 
 		.now:not(.swiping) .text {
@@ -485,6 +538,11 @@
 
 		.tab :global(svg) {
 			transition: scale var(--dur-press) var(--ease-out);
+		}
+
+		.label {
+			line-height: 1;
+			text-shadow: var(--text-shade);
 		}
 
 		/*

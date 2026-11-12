@@ -105,7 +105,7 @@
 								title={artist.name}
 								subtitle={albumCount(artist.albumCount)}
 								coverArt={artist.coverArt}
-								rounded
+								portrait
 							/>
 						{/each}
 					</MediaGrid>
