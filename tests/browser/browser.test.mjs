@@ -1317,6 +1317,91 @@ describe('finding things on a phone', () => {
 	});
 });
 
+describe('back in the iPhone home-screen app', () => {
+	test("is the app's own: no history entries, a swipe that moves the page under a still dock, the place in the list kept", async () => {
+		subsonic.state.audio = { type: 'audio/wav', body: silentWav(60) };
+		const phone = await browser.newContext({ viewport: { width: 390, height: 700 }, isMobile: true, hasTouch: true });
+		await phone.request.post(`${app.url}/login`, {
+			form: { username: 'testuser', password: 'testpass', backend: 'subsonic', next: '/' },
+			headers: { origin: app.url, accept: 'text/html' },
+			maxRedirects: 0
+		});
+		// Stands in for `navigator.standalone`, which only iOS sets.
+		await phone.addInitScript(() => localStorage.setItem('heddohon:own-back', '1'));
+		const page = await phone.newPage();
+		const problems = [];
+		page.on('pageerror', (err) => problems.push(err.message));
+		const touch = await phone.newCDPSession(page);
+		const finger = (type, x, y) => touch.send('Input.dispatchTouchEvent', { type, touchPoints: type === 'touchEnd' ? [] : [{ x, y }] });
+		const tap = async (locator) => {
+			const box = await locator.boundingBox();
+			await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
+		};
+		const playing = () => page.evaluate(() => [...document.querySelectorAll('audio')].some((audio) => !audio.paused && audio.currentTime > 0));
+		try {
+			await page.goto(app.url + '/albums', { waitUntil: 'networkidle' });
+			const entries = await page.evaluate(() => history.length);
+			await page.evaluate(() => scrollTo({ top: 300, behavior: 'instant' }));
+			await page.waitForTimeout(200);
+			// A card a few rows down, so there is a place in the list to come back to.
+			const card = page.locator('main a.card[href^="/albums/"]').nth(7);
+			const href = await card.getAttribute('href');
+			const n = href.replace('/albums/al', '');
+			await card.evaluate((node) => node.scrollIntoView({ block: 'center', behavior: 'instant' }));
+			const listTop = await page.evaluate(() => scrollY);
+			await tap(card);
+			await page.waitForURL((url) => url.pathname === href);
+			assert.equal(await page.evaluate(() => history.length), entries, 'a page was added to the history');
+
+			await page.waitForFunction(() => !document.documentElement.matches(':active-view-transition'));
+			const row = page.getByRole('button', { name: `Play Song ${n}a`, exact: true });
+			await row.evaluate((node) => node.scrollIntoView({ block: 'center', behavior: 'instant' }));
+			await tap(row);
+			await page.waitForFunction(() => [...document.querySelectorAll('audio')].some((audio) => !audio.paused && audio.currentTime > 0));
+
+			// Halfway across: the page has moved, the dock has not.
+			const dockBefore = await page.locator('.phone-dock').boundingBox();
+			await finger('touchStart', 6, 400);
+			for (let x = 20; x <= 100; x += 20) {
+				await finger('touchMove', x, 402);
+				await page.waitForTimeout(16);
+			}
+			const moved = await page.locator('main.content').evaluate((node) => getComputedStyle(node).translate);
+			assert.match(moved, /^9\d(\.\d+)?px/, `the page did not follow the finger: ${moved}`);
+			assert.deepEqual(await page.locator('.phone-dock').boundingBox(), dockBefore, 'the dock moved with the page');
+
+			// Let go short of a third: it springs back and stays.
+			await finger('touchEnd');
+			await page.waitForTimeout(400);
+			assert.equal(new URL(page.url()).pathname, href);
+
+			// Past a third: back to the list, where it was scrolled, still playing.
+			await finger('touchStart', 6, 400);
+			for (let x = 40; x <= 280; x += 40) {
+				await finger('touchMove', x, 402);
+				await page.waitForTimeout(16);
+			}
+			await finger('touchEnd');
+			await page.waitForURL(/\/albums$/);
+			await page.waitForFunction((top) => Math.abs(scrollY - top) < 4, listTop);
+			assert.equal(await playing(), true, 'the swipe back stopped the music');
+			assert.equal(await page.locator('main.content').evaluate((node) => node.style.translate), '', 'the page was left aside');
+
+			// The Back link walks the same list.
+			await tap(page.locator(`main a.card[href="${href}"]`));
+			await page.waitForURL((url) => url.pathname === href);
+			await page.waitForFunction(() => !document.documentElement.matches(':active-view-transition'));
+			await tap(page.getByRole('link', { name: 'Back' }));
+			await page.waitForURL(/\/albums$/);
+			assert.equal(await page.evaluate(() => history.length), entries, 'a page was added to the history');
+		} finally {
+			subsonic.state.audio = null;
+			await phone.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+});
+
 describe('an artist page on a phone', () => {
 	test('fits the screen, with the name, biography and buttons centred', async () => {
 		for (const viewport of [
