@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { afterNavigate, goto } from '$app/navigation';
 	import { page } from '$app/state';
+	import { ownBack } from '#lib/client/own-back.svelte.ts';
 	import Icon from './Icon.svelte';
 
 	/*
@@ -47,6 +48,11 @@
 	function back(event: MouseEvent) {
 		if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
 		event.preventDefault();
+		// In the iPhone home-screen app the pages behind are the app's own list.
+		if (ownBack.active) {
+			if (!ownBack.back()) void goto(`/${section}`);
+			return;
+		}
 		if (appBehind()) history.back();
 		else void goto(`/${section}`);
 	}

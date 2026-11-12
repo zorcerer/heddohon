@@ -8,6 +8,7 @@
 	import { afterNavigate, beforeNavigate, onNavigate, preloadCode, goto } from '$app/navigation';
 	import { navigating, page, updated } from '$app/state';
 	import { player } from '#lib/client/player.svelte.ts';
+	import { ownBack } from '#lib/client/own-back.svelte.ts';
 	import { audioOutputs } from '#lib/client/output.svelte.ts';
 	import { processing } from '#lib/client/processing.svelte.ts';
 	import { remote } from '#lib/client/remote.svelte.ts';
@@ -43,6 +44,7 @@
 	import PlaylistPicker from '#lib/components/PlaylistPicker.svelte';
 	import ShareDialog from '#lib/components/ShareDialog.svelte';
 	import BackLink from '#lib/components/BackLink.svelte';
+	import EdgeSwipe from '#lib/components/EdgeSwipe.svelte';
 	import PathStrip from '#lib/components/PathStrip.svelte';
 	import Sidebar from '#lib/components/Sidebar.svelte';
 	import type { LayoutData, Snapshot } from './$types';
@@ -724,7 +726,13 @@
 	afterNavigate(({ type, shallow }) => {
 		if (shallow && type === 'goto') return;
 		// Back to an entry the sheet was open over leaves it to the effect below.
-		if (type === 'enter' || !player.sheetLayout || !player.panelOpen || page.state.sheet) return;
+		if (type === 'enter' || !player.sheetLayout || !player.panelOpen) return;
+		// With no entry of its own, a link followed from inside the sheet takes it down.
+		if (ownBack.active) {
+			if (sheetAtNavigationStart) player.togglePanel();
+			return;
+		}
+		if (page.state.sheet) return;
 		// The router pushes the arriving page's entry once its data has loaded,
 		// so a sheet entry made during the load belonged to the page being left,
 		// and the arriving page found none and shut the sheet. Mark the arriving
@@ -751,12 +759,18 @@
 	 * the page it opened returns to the page under the sheet, with the sheet
 	 * down.
 	 */
+	// In the iPhone home-screen app the history is the app's own
+	// (`own-back.svelte.ts`) and holds no entry for the sheet: there the sheet
+	// closes by its own chevron and pull, and the swipe from the edge is the
+	// page's.
+	ownBack.init();
+
 	let leaving = false;
 	$effect(() => {
 		const open = player.panelOpen;
 		const phone = player.sheetLayout && player.viewportKnown;
 		untrack(() => {
-			if (!phone || !signedIn) return;
+			if (!phone || !signedIn || ownBack.active) return;
 			// A push during a load belongs to the page being left and is left
 			// behind when the router pushes the arriving page's own entry. The
 			// arriving page is marked in afterNavigate.
@@ -771,7 +785,7 @@
 	$effect(() => {
 		const marked = page.state.sheet === true;
 		untrack(() => {
-			if (!player.sheetLayout || !player.viewportKnown) return;
+			if (!player.sheetLayout || !player.viewportKnown || ownBack.active) return;
 			if (leaving && !marked) {
 				leaving = false;
 				if (player.panelOpen) goto('', { shallow: true, state: { ...page.state, sheet: true } });
@@ -884,6 +898,7 @@
 		<main class="content" class:rising tabindex="0" bind:this={content}>
 			<PathStrip />
 			<BackLink />
+			<EdgeSwipe target={content} />
 			{@render children()}
 		</main>
 
