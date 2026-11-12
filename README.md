@@ -99,10 +99,12 @@ reviewed by me and by multiple AI-assisted audits, documented in [SECURITY.md](S
 
 ## License
 
-[MIT](LICENSE). Music in the header image: Josh Woodward
-([CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)) and J.S. Bach's The
-Art of the Fugue played by Kimiko Ishizaka
-([CC0](https://creativecommons.org/publicdomain/zero/1.0/)).
+[MIT](LICENSE). Music and covers in the header image: Stellardrone, Light Years
+([CC BY 3.0](https://archive.org/details/Stellardrone-LightYears)); Lezet,
+Accumulation ([CC BY 3.0](https://archive.org/details/bof066)); Grove of
+Whispers, The Sheltering Sky and Vast ([CC BY 4.0](https://archive.org/details/bof060));
+and the unfound88 compilation happy in novi sad
+([CC BY 4.0](https://archive.org/details/unfound88)).
 
 The animated controls in `src/lib/components/bits/` are from
 [Svelte Bits](https://sveltebits.xyz) by David Haz, under the MIT licence with
