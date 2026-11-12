@@ -692,469 +692,524 @@
 		<h1>Settings</h1>
 	</header>
 
-	<nav class="tabs" aria-label="Settings" bind:this={tabRow}>
-		{#each groups as entry (entry.id)}
-			<a
-				class="tab"
-				class:active={entry.id === group.id}
-				href="?tab={entry.sections[0].id}"
-				aria-current={entry.id === group.id ? 'page' : undefined}
-				data-sveltekit-reset="false"
-				data-sveltekit-preload-data="false"
-				onclickcapture={(event) => selectTab(event, entry.sections[0].id)}
-			>
-				{entry.label}
-				{#if entry.id === 'server' && unseenFeatures.length > 0}<span class="dot" role="img" aria-label=", features to look at"></span>{/if}
-			</a>
-		{/each}
-	</nav>
+	<div class="layout">
+		<div class="side">
+			<nav class="tabs" aria-label="Settings" bind:this={tabRow}>
+				{#each groups as entry (entry.id)}
+					<a
+						class="tab"
+						class:active={entry.id === group.id}
+						href="?tab={entry.sections[0].id}"
+						aria-current={entry.id === group.id ? 'page' : undefined}
+						data-sveltekit-reset="false"
+						data-sveltekit-preload-data="false"
+						onclickcapture={(event) => selectTab(event, entry.sections[0].id)}
+					>
+						{entry.label}
+						{#if entry.id === 'server' && unseenFeatures.length > 0}<span class="dot" role="img" aria-label=", features to look at"></span>{/if}
+					</a>
+					<!-- The open group's sections, under it where the tabs are a list down the side; the chips below are hidden there. -->
+					{#if entry.id === group.id && entry.sections.length > 1}
+						{#each entry.sections as section (section.id)}
+							<a
+								class="sub"
+								class:active={section.id === shown}
+								href="?tab={section.id}"
+								aria-current={section.id === shown ? 'page' : undefined}
+								data-sveltekit-reset="false"
+								data-sveltekit-preload-data="false"
+								onclickcapture={(event) => selectTab(event, section.id)}
+							>
+								{section.label}
+							</a>
+						{/each}
+					{/if}
+				{/each}
+			</nav>
 
-	{#if group.sections.length > 1}
-		<nav class="chips" aria-label={group.label}>
-			{#each group.sections as entry (entry.id)}
-				<a
-					class="chip"
-					class:active={entry.id === shown}
-					href="?tab={entry.id}"
-					aria-current={entry.id === shown ? 'page' : undefined}
-					data-sveltekit-reset="false"
-					data-sveltekit-preload-data="false"
-					onclickcapture={(event) => selectTab(event, entry.id)}
-				>
-					{entry.label}
-				</a>
-			{/each}
-		</nav>
-	{/if}
-
-	{#if form?.saved}
-		<FadeContent duration={300} threshold={0}>
-			<p class="saved" role="status">Settings saved.</p>
-		</FadeContent>
-	{/if}
-
-	<form
-		method="POST"
-		action="?/save"
-		bind:this={saveForm}
-		aria-busy={saving}
-		hidden={shown !== 'appearance' && shown !== 'playback'}
-		use:enhance={() => {
-			saving = true;
-			return async ({ update }) => {
-				await update({ reset: false });
-				// The action returns only this page's data. Settings also drive the
-				// layout (theme, grid density, player behaviour), so the layout load
-				// re-runs.
-				await refreshAll();
-				saving = false;
-			};
-		}}
-	>
-		<section class="hh-card hh-glass group" hidden={shown !== 'appearance'}>
-			<div class="group-head">
-				<h2>Appearance</h2>
-			</div>
-
-			<label class="row">
-				<span class="label">Theme</span>
-				<Select label="Theme" name="theme" bind:value={settings.theme} onchange={keepScheme} options={THEMES} />
-			</label>
-
-			<!-- Terminal's own four, of which Phosphor has the accent. Liquid and
-			     Paper take every colour from the artwork, have no grid, and fade
-			     the player's artwork one way. -->
-			{#if settings.theme === 'terminal'}
-				<label class="row">
-					<span class="label">Colour scheme</span>
-					<Select label="Colour scheme"
-						name="scheme"
-						bind:value={settings.scheme}
-						options={[
-							...TERMINAL_SCHEME_OPTIONS,
-							...data.customSchemes.filter((scheme) => scheme.base === 'terminal').map((scheme) => ({ value: scheme.id, label: scheme.name }))
-						]}
-					/>
-				</label>
-			{:else if themeSchemes.length}
-				<!-- Liquid, Paper and Phosphor have no schemes of their own: one from a
-				     file (`schemes.ts`) is offered under the theme it colours. -->
-				<label class="row">
-					<span class="label">Colour scheme</span>
-					<Select label="Colour scheme"
-						name="scheme"
-						bind:value={settings.scheme}
-						options={[{ value: 'heddohon', label: 'Heddohon' }, ...themeSchemes.map((scheme) => ({ value: scheme.id, label: scheme.name }))]}
-					/>
-				</label>
+			{#if group.sections.length > 1}
+				<nav class="chips" aria-label={group.label}>
+					{#each group.sections as entry (entry.id)}
+						<a
+							class="chip"
+							class:active={entry.id === shown}
+							href="?tab={entry.id}"
+							aria-current={entry.id === shown ? 'page' : undefined}
+							data-sveltekit-reset="false"
+							data-sveltekit-preload-data="false"
+							onclickcapture={(event) => selectTab(event, entry.id)}
+						>
+							{entry.label}
+						</a>
+					{/each}
+				</nav>
 			{/if}
-
-			{#if settings.theme === 'terminal' || settings.theme === 'phosphor'}
-				<label class="row">
-					<span class="label">Accent</span>
-					<Select label="Accent" name="accent" bind:value={settings.accent} options={ACCENTS} />
-				</label>
-			{/if}
-
-			{#if settings.theme === 'terminal'}
-				<label class="row">
-					<span class="label">Background dots</span>
-					<Select label="Background dots" name="dots" bind:value={settings.dots} options={DOTS} />
-				</label>
-
-				<label class="row">
-					<span class="label">Player artwork</span>
-					<Select label="Player artwork" name="playerArt" bind:value={settings.playerArt} options={PLAYER_ART} />
-				</label>
-			{/if}
-
-			<label class="row">
-				<span class="label">Interface scale</span>
-				<Select label="Interface scale" name="uiScale" bind:value={settings.uiScale} options={SCALES} />
-			</label>
-
-			<label class="row">
-				<span class="label">Font</span>
-				<!-- In the face chosen, before it is saved; see `[data-font]` in app.css. -->
-				<Select label="Font"
-					name="font"
-					bind:value={settings.font}
-					options={[
-						{ value: 'manrope', label: settings.theme === 'terminal' ? 'JetBrains Mono' : settings.theme === 'phosphor' ? 'Barlow' : 'Manrope' },
-						...FONTS
-					]}
-				/>
-			</label>
-
-			<label class="row">
-				<span class="label">Grid density</span>
-				<Select label="Grid density" name="gridSize" bind:value={settings.gridSize} options={GRID_SIZES} />
-			</label>
-
-			<label class="row">
-				<span class="label">Default album sort</span>
-				<Select label="Default album sort" name="defaultAlbumSort" bind:value={settings.defaultAlbumSort} options={ALBUM_SORTS} />
-			</label>
-
-			<label class="row switch">
-				<span class="label">Show quality badge</span>
-				<Switch name="showQualityBadge" bind:checked={settings.showQualityBadge} />
-			</label>
-
-			<!-- Terminal and Phosphor have no glass and no room behind it for a glow. -->
-			{#if settings.theme !== 'terminal' && settings.theme !== 'phosphor'}
-				<label class="row">
-					<span class="label">Aurora</span>
-					<Select label="Aurora" name="aurora" bind:value={settings.aurora} options={AURORAS} />
-				</label>
-			{/if}
-		</section>
-
-		<section class="hh-card hh-glass group" hidden={shown !== 'playback'}>
-			<div class="group-head">
-				<h2>Playback</h2>
-			</div>
-
-			<label class="row">
-				<span class="label">Track transitions</span>
-				<Select label="Track transitions" name="transition" bind:value={settings.transition} options={TRANSITIONS} />
-			</label>
-
-			{#if settings.transition === 'crossfade'}
-				<label class="row">
-					<span class="label">
-						Crossfade length
-						{#if !player.rampsVolume && !processing.enabled}
-							<span class="hint hh-muted">Not on this device: it changes tracks with a tight handoff.</span>
-						{/if}
-					</span>
-					<span class="control range">
-						<ElasticSlider
-							swell={false}
-							bind:value={settings.crossfadeSeconds}
-							startingValue={1}
-							maxValue={12}
-							isStepped
-							stepSize={1}
-							valueText="{settings.crossfadeSeconds} seconds"
-						/>
-						<input type="hidden" name="crossfadeSeconds" value={settings.crossfadeSeconds} />
-						<span class="hh-numeric">{settings.crossfadeSeconds}s</span>
-					</span>
-				</label>
-
-				<label class="row switch">
-					<span class="label">Crossfade within an album</span>
-					<Switch name="crossfadeWithinAlbum" bind:checked={settings.crossfadeWithinAlbum} />
-				</label>
-			{:else}
-				<input type="hidden" name="crossfadeSeconds" value={settings.crossfadeSeconds} />
-				{#if settings.crossfadeWithinAlbum}
-					<input type="hidden" name="crossfadeWithinAlbum" value="on" />
-				{/if}
-			{/if}
-
-			<label class="row switch">
-				<span class="label">Preload the next track</span>
-				<Switch name="preloadNext" bind:checked={settings.preloadNext} />
-			</label>
-
-			<label class="row switch">
-				<span class="label">Volume normalisation</span>
-				<Switch name="normalizeVolume" bind:checked={settings.normalizeVolume} />
-			</label>
-
-			<label class="row switch">
-				<span class="label">
-					Report playback to {data.serverLabel}
-				</span>
-				<Switch name="reportPlayback" bind:checked={settings.reportPlayback} />
-			</label>
-		</section>
-
-		<section class="hh-card hh-glass group" hidden={shown !== 'playback'}>
-			<div class="group-head">
-				<h2>Transcoding</h2>
-			</div>
-
-			<label class="row switch">
-				<span class="label">Transcode audio</span>
-				<Switch name="transcode" bind:checked={settings.transcode} />
-			</label>
-
-			<label class="row">
-				<span class="label">Codec</span>
-				<Select label="Codec" name="transcodeCodec" bind:value={settings.transcodeCodec} options={CODECS} />
-			</label>
-
-			<label class="row">
-				<span class="label">Bitrate</span>
-				<Select label="Bitrate"
-					name="transcodeBitrateKbps"
-					value={String(settings.transcodeBitrateKbps)}
-					onchange={(kbps) => (settings.transcodeBitrateKbps = Number(kbps))}
-					options={BITRATES}
-				/>
-			</label>
-		</section>
-
-	</form>
-
-	<!--
-		Kept in this browser, for the headphones or speakers it plays through, and
-		applied as they are changed. Outside the save form; its inputs have no
-		names either way.
-	-->
-	<section class="hh-card hh-glass group" id="this-browser" hidden={shown !== 'playback'}>
-		<div class="group-head">
-			<h2>This browser</h2>
 		</div>
 
-		<label class="row switch">
-			<span class="label">
-				Process audio
-				{#if player.processing && !processing.enabled}
-					<span class="hint hh-muted">Switched off; this page keeps processing until it is loaded again.</span>
-				{/if}
-			</span>
-			<Switch checked={processing.enabled} onchange={(on) => processing.setEnabled(on)} />
-		</label>
+		<div class="body">
+			{#if form?.saved}
+				<FadeContent duration={300} threshold={0}>
+					<p class="saved" role="status">Settings saved.</p>
+				</FadeContent>
+			{/if}
 
-		{#if processing.enabled}
-			<label class="row switch">
-				<span class="label">Visualiser</span>
-				<Switch checked={processing.visualiser} onchange={(on) => processing.setVisualiser(on)} />
-			</label>
-
-			<label class="row" class:set-aside={processing.bandsOff}>
-				<span class="label">Equaliser</span>
-				<Select label="Equaliser"
-					disabled={processing.bandsOff}
-					value={processing.preset ?? ''}
-					onchange={(key) => processing.applyPreset(key)}
-					options={[
-						...(processing.preset === null ? [{ value: '', label: 'Custom' }] : []),
-						...Object.entries(EQ_PRESETS).map(([key, preset]) => ({ value: key, label: preset.label }))
-					]}
-				/>
-			</label>
-
-			<div class="eq" class:set-aside={processing.bandsOff} role="group" aria-label="Equaliser bands">
-				{#each EQ_FREQUENCIES as frequency, band (frequency)}
-					<div class="band">
-						<span class="hz hh-numeric">{bandLabel(frequency)}</span>
-						<span class="band-slider">
-							<ElasticSlider
-								swell={false}
-								value={processing.gains[band]}
-								startingValue={-EQ_RANGE_DB}
-								maxValue={EQ_RANGE_DB}
-								isStepped
-								stepSize={1}
-								label="{bandLabel(frequency)}Hz, in dB"
-								disabled={processing.bandsOff}
-								onchange={(gain) => processing.setGain(band, gain)}
-							/>
-						</span>
-						<span class="gain hh-numeric">{processing.gains[band] > 0 ? '+' : ''}{processing.gains[band]}</span>
+			<form
+				method="POST"
+				action="?/save"
+				bind:this={saveForm}
+				aria-busy={saving}
+				hidden={shown !== 'appearance' && shown !== 'playback'}
+				use:enhance={() => {
+					saving = true;
+					return async ({ update }) => {
+						await update({ reset: false });
+						// The action returns only this page's data. Settings also drive the
+						// layout (theme, grid density, player behaviour), so the layout load
+						// re-runs.
+						await refreshAll();
+						saving = false;
+					};
+				}}
+			>
+				<section class="hh-card hh-glass group" hidden={shown !== 'appearance'}>
+					<div class="group-head">
+						<h2>Appearance</h2>
 					</div>
-				{/each}
-			</div>
 
-			<div class="correction">
-				<div class="label">
-					Headphone correction
-				</div>
+					<label class="row">
+						<span class="label">Theme</span>
+						<Select label="Theme" name="theme" bind:value={settings.theme} onchange={keepScheme} options={THEMES} />
+					</label>
 
-				{#if processing.correction}
-					{@const chosen = processing.correction}
-					<p class="chosen">
-						<span>
-							<strong>{chosen.name}</strong>
-							<span class="hh-muted">
-								{chosen.source ? `${chosen.source} · ` : ''}{chosen.filters.length} filter{chosen.filters.length === 1 ? '' : 's'},
-								preamp {signed(chosen.preamp)} dB
-							</span>
-						</span>
-						<button class="hh-button" type="button" onclick={() => processing.setCorrection(null)}>Remove</button>
-					</p>
-				{/if}
-
-				<div class="correction-actions">
-					{#if data.autoeq}
-						<!-- Enter in a search field would submit a form around it. -->
-						<input
-							class="hh-input"
-							type="search"
-							placeholder="Search headphones"
-							aria-label="Search headphones"
-							autocomplete="off"
-							bind:value={headphoneQuery}
-							oninput={searchHeadphones}
-							onkeydown={(event) => event.key === 'Enter' && event.preventDefault()}
-						/>
+					<!-- Terminal's own four, of which Phosphor has the accent. Liquid and
+					     Paper take every colour from the artwork, have no grid, and fade
+					     the player's artwork one way. -->
+					{#if settings.theme === 'terminal'}
+						<label class="row">
+							<span class="label">Colour scheme</span>
+							<Select label="Colour scheme"
+								name="scheme"
+								bind:value={settings.scheme}
+								options={[
+									...TERMINAL_SCHEME_OPTIONS,
+									...data.customSchemes.filter((scheme) => scheme.base === 'terminal').map((scheme) => ({ value: scheme.id, label: scheme.name }))
+								]}
+							/>
+						</label>
+					{:else if themeSchemes.length}
+						<!-- Liquid, Paper and Phosphor have no schemes of their own: one from a
+						     file (`schemes.ts`) is offered under the theme it colours. -->
+						<label class="row">
+							<span class="label">Colour scheme</span>
+							<Select label="Colour scheme"
+								name="scheme"
+								bind:value={settings.scheme}
+								options={[{ value: 'heddohon', label: 'Heddohon' }, ...themeSchemes.map((scheme) => ({ value: scheme.id, label: scheme.name }))]}
+							/>
+						</label>
 					{/if}
-					<label class="hh-button import">
-						<Icon name="plus" size={16} />
-						Import ParametricEQ.txt
-						<input
-							class="hh-visually-hidden"
-							type="file"
-							accept=".txt,text/plain"
-							onchange={(event) => void importCorrection(event.currentTarget)}
+
+					{#if settings.theme === 'terminal' || settings.theme === 'phosphor'}
+						<label class="row">
+							<span class="label">Accent</span>
+							<Select label="Accent" name="accent" bind:value={settings.accent} options={ACCENTS} />
+						</label>
+					{/if}
+
+					{#if settings.theme === 'terminal'}
+						<label class="row">
+							<span class="label">Background dots</span>
+							<Select label="Background dots" name="dots" bind:value={settings.dots} options={DOTS} />
+						</label>
+
+						<label class="row">
+							<span class="label">Player artwork</span>
+							<Select label="Player artwork" name="playerArt" bind:value={settings.playerArt} options={PLAYER_ART} />
+						</label>
+					{/if}
+
+					<label class="row">
+						<span class="label">Interface scale</span>
+						<Select label="Interface scale" name="uiScale" bind:value={settings.uiScale} options={SCALES} />
+					</label>
+
+					<label class="row">
+						<span class="label">Font</span>
+						<!-- In the face chosen, before it is saved; see `[data-font]` in app.css. -->
+						<Select label="Font"
+							name="font"
+							bind:value={settings.font}
+							options={[
+								{ value: 'manrope', label: settings.theme === 'terminal' ? 'JetBrains Mono' : settings.theme === 'phosphor' ? 'Barlow' : 'Manrope' },
+								...FONTS
+							]}
 						/>
 					</label>
+
+					<label class="row">
+						<span class="label">Grid density</span>
+						<Select label="Grid density" name="gridSize" bind:value={settings.gridSize} options={GRID_SIZES} />
+					</label>
+
+					<label class="row">
+						<span class="label">Default album sort</span>
+						<Select label="Default album sort" name="defaultAlbumSort" bind:value={settings.defaultAlbumSort} options={ALBUM_SORTS} />
+					</label>
+
+					<label class="row switch">
+						<span class="label">Show quality badge</span>
+						<Switch name="showQualityBadge" bind:checked={settings.showQualityBadge} />
+					</label>
+
+					<!-- Terminal and Phosphor have no glass and no room behind it for a glow. -->
+					{#if settings.theme !== 'terminal' && settings.theme !== 'phosphor'}
+						<label class="row">
+							<span class="label">Aurora</span>
+							<Select label="Aurora" name="aurora" bind:value={settings.aurora} options={AURORAS} />
+						</label>
+					{/if}
+				</section>
+
+				<section class="hh-card hh-glass group" hidden={shown !== 'playback'}>
+					<div class="group-head">
+						<h2>Playback</h2>
+					</div>
+
+					<label class="row">
+						<span class="label">Track transitions</span>
+						<Select label="Track transitions" name="transition" bind:value={settings.transition} options={TRANSITIONS} />
+					</label>
+
+					{#if settings.transition === 'crossfade'}
+						<label class="row">
+							<span class="label">
+								Crossfade length
+								{#if !player.rampsVolume && !processing.enabled}
+									<span class="hint hh-muted">Not on this device: it changes tracks with a tight handoff.</span>
+								{/if}
+							</span>
+							<span class="control range">
+								<ElasticSlider
+									swell={false}
+									bind:value={settings.crossfadeSeconds}
+									startingValue={1}
+									maxValue={12}
+									isStepped
+									stepSize={1}
+									valueText="{settings.crossfadeSeconds} seconds"
+								/>
+								<input type="hidden" name="crossfadeSeconds" value={settings.crossfadeSeconds} />
+								<span class="hh-numeric">{settings.crossfadeSeconds}s</span>
+							</span>
+						</label>
+
+						<label class="row switch">
+							<span class="label">Crossfade within an album</span>
+							<Switch name="crossfadeWithinAlbum" bind:checked={settings.crossfadeWithinAlbum} />
+						</label>
+					{:else}
+						<input type="hidden" name="crossfadeSeconds" value={settings.crossfadeSeconds} />
+						{#if settings.crossfadeWithinAlbum}
+							<input type="hidden" name="crossfadeWithinAlbum" value="on" />
+						{/if}
+					{/if}
+
+					<label class="row switch">
+						<span class="label">Preload the next track</span>
+						<Switch name="preloadNext" bind:checked={settings.preloadNext} />
+					</label>
+
+					<label class="row switch">
+						<span class="label">Volume normalisation</span>
+						<Switch name="normalizeVolume" bind:checked={settings.normalizeVolume} />
+					</label>
+
+					<label class="row switch">
+						<span class="label">
+							Report playback to {data.serverLabel}
+						</span>
+						<Switch name="reportPlayback" bind:checked={settings.reportPlayback} />
+					</label>
+				</section>
+
+				<section class="hh-card hh-glass group" hidden={shown !== 'playback'}>
+					<div class="group-head">
+						<h2>Transcoding</h2>
+					</div>
+
+					<label class="row switch">
+						<span class="label">Transcode audio</span>
+						<Switch name="transcode" bind:checked={settings.transcode} />
+					</label>
+
+					<label class="row">
+						<span class="label">Codec</span>
+						<Select label="Codec" name="transcodeCodec" bind:value={settings.transcodeCodec} options={CODECS} />
+					</label>
+
+					<label class="row">
+						<span class="label">Bitrate</span>
+						<Select label="Bitrate"
+							name="transcodeBitrateKbps"
+							value={String(settings.transcodeBitrateKbps)}
+							onchange={(kbps) => (settings.transcodeBitrateKbps = Number(kbps))}
+							options={BITRATES}
+						/>
+					</label>
+				</section>
+
+			</form>
+
+			<!--
+				Kept in this browser, for the headphones or speakers it plays through, and
+				applied as they are changed. Outside the save form; its inputs have no
+				names either way.
+			-->
+			<section class="hh-card hh-glass group" id="this-browser" hidden={shown !== 'playback'}>
+				<div class="group-head">
+					<h2>This browser</h2>
 				</div>
 
-				{#if headphoneMatches}
-					{#if headphoneMatches.length === 0}
-						<p class="hh-muted note">No headphone by that name in the database.</p>
-					{:else}
-						<ul class="matches" aria-label="Headphones found">
-							{#each headphoneMatches as match (match.id)}
-								<li>
-									<button type="button" disabled={correctionBusy} onclick={() => void chooseHeadphone(match)}>
-										<span>{match.name}</span>
-										<span class="hh-muted">{match.source}{match.rig ? ` on ${match.rig}` : ''}</span>
-									</button>
-								</li>
-							{/each}
-						</ul>
-					{/if}
-				{/if}
-				{#if correctionError}<p class="note" role="alert">{correctionError}</p>{/if}
-			</div>
-		{/if}
-	</section>
-
-	<!-- Outside the save form: nothing here is posted with it. -->
-	<section class="hh-card hh-glass group" id="install" hidden={shown !== 'appearance'}>
-		<div class="group-head">
-			<h2>Install the app</h2>
-		</div>
-
-		{#if installer.installed}
-			<p class="note">You are using the app.</p>
-		{:else if appKind}
-			<div class="install-ways">
-				<!-- Another site: a new tab, told nothing about this one. -->
-				<a class="hh-button" href={APP_RELEASES} target="_blank" rel="noopener noreferrer">
-					<Icon name="download" size={16} />
-					{appKind.action}
-				</a>
-				{#if installer.route === 'app-android' && installer.canPrompt}
-					<button class="hh-button" type="button" disabled={installer.busy} onclick={() => void installer.install()}>
-						Install from the browser
-					</button>
-				{/if}
-			</div>
-		{:else if installer.route === 'prompt'}
-			<button class="hh-button" type="button" disabled={installer.busy} onclick={() => void installer.install()}>
-				<Icon name="download" size={16} />
-				Install {data.appName}
-			</button>
-		{:else if installer.route === 'safari-mac' || installer.route === 'safari-ios' || installer.route === 'edge'}
-			<p class="note">{INSTALL_STEPS[installer.route]}</p>
-		{:else}
-			<p class="hh-muted note-inline">This browser does not install web apps.</p>
-		{/if}
-	</section>
-
-	<section class="hh-card hh-glass group" hidden={shown !== 'account'}>
-		<div class="group-head">
-			<h2>Session &amp; security</h2>
-		</div>
-
-		<dl class="facts">
-			<div>
-				<dt>Signed in as</dt>
-				<dd>{data.account.username}</dd>
-			</div>
-			<div>
-				<dt>Music server</dt>
-				<dd>{data.serverLabel}</dd>
-			</div>
-			<div>
-				<dt>This session expires</dt>
-				<dd>{expiry}</dd>
-			</div>
-		</dl>
-
-		<!--
-			Every browser signed in to this account, the most recently used first,
-			with this one marked. Another can be signed out from here. This one
-			signs out with the button below, which also clears its cookie.
-		-->
-		<h3 class="subhead">Signed in on</h3>
-
-		{#if form && 'sessionError' in form && form.sessionError}
-			<p class="hh-muted note-inline" role="alert">{form.sessionError}</p>
-		{/if}
-
-		<ul class="shares sessions">
-			{#each data.sessions as entry (entry.handle)}
-				<li class="session">
-					<span class="share-text">
-						<span class="share-title hh-truncate">
-							{entry.device ?? 'Unknown browser'}
-							{#if entry.current}<span class="this hh-eyebrow">This browser</span>{/if}
-						</span>
-						<span class="share-sub hh-truncate hh-muted">
-							Signed in <span class="hh-numeric">{shortDate(entry.createdAt)}</span> · last used
-							<span class="hh-numeric">{shortDate(entry.lastSeenAt)}</span>
-						</span>
+				<label class="row switch">
+					<span class="label">
+						Process audio
+						{#if player.processing && !processing.enabled}
+							<span class="hint hh-muted">Switched off; this page keeps processing until it is loaded again.</span>
+						{/if}
 					</span>
-					{#if !entry.current && !entry.endable}
-						<!-- Signed in after this browser; see `endSessions` in auth.ts. A
-						     greyed "Sign out from that browser" read as a button that did
-						     not work, so this says why there is none. -->
-						<span class="hh-muted later">Signed in after this browser.</span>
-					{:else if !entry.current}
+					<Switch checked={processing.enabled} onchange={(on) => processing.setEnabled(on)} />
+				</label>
+
+				{#if processing.enabled}
+					<label class="row switch">
+						<span class="label">Visualiser</span>
+						<Switch checked={processing.visualiser} onchange={(on) => processing.setVisualiser(on)} />
+					</label>
+
+					<label class="row" class:set-aside={processing.bandsOff}>
+						<span class="label">Equaliser</span>
+						<Select label="Equaliser"
+							disabled={processing.bandsOff}
+							value={processing.preset ?? ''}
+							onchange={(key) => processing.applyPreset(key)}
+							options={[
+								...(processing.preset === null ? [{ value: '', label: 'Custom' }] : []),
+								...Object.entries(EQ_PRESETS).map(([key, preset]) => ({ value: key, label: preset.label }))
+							]}
+						/>
+					</label>
+
+					<div class="eq" class:set-aside={processing.bandsOff} role="group" aria-label="Equaliser bands">
+						{#each EQ_FREQUENCIES as frequency, band (frequency)}
+							<div class="band">
+								<span class="hz hh-numeric">{bandLabel(frequency)}</span>
+								<span class="band-slider">
+									<ElasticSlider
+										swell={false}
+										value={processing.gains[band]}
+										startingValue={-EQ_RANGE_DB}
+										maxValue={EQ_RANGE_DB}
+										isStepped
+										stepSize={1}
+										label="{bandLabel(frequency)}Hz, in dB"
+										disabled={processing.bandsOff}
+										onchange={(gain) => processing.setGain(band, gain)}
+									/>
+								</span>
+								<span class="gain hh-numeric">{processing.gains[band] > 0 ? '+' : ''}{processing.gains[band]}</span>
+							</div>
+						{/each}
+					</div>
+
+					<div class="correction">
+						<div class="label">
+							Headphone correction
+						</div>
+
+						{#if processing.correction}
+							{@const chosen = processing.correction}
+							<p class="chosen">
+								<span>
+									<strong>{chosen.name}</strong>
+									<span class="hh-muted">
+										{chosen.source ? `${chosen.source} · ` : ''}{chosen.filters.length} filter{chosen.filters.length === 1 ? '' : 's'},
+										preamp {signed(chosen.preamp)} dB
+									</span>
+								</span>
+								<button class="hh-button" type="button" onclick={() => processing.setCorrection(null)}>Remove</button>
+							</p>
+						{/if}
+
+						<div class="correction-actions">
+							{#if data.autoeq}
+								<!-- Enter in a search field would submit a form around it. -->
+								<input
+									class="hh-input"
+									type="search"
+									placeholder="Search headphones"
+									aria-label="Search headphones"
+									autocomplete="off"
+									bind:value={headphoneQuery}
+									oninput={searchHeadphones}
+									onkeydown={(event) => event.key === 'Enter' && event.preventDefault()}
+								/>
+							{/if}
+							<label class="hh-button import">
+								<Icon name="plus" size={16} />
+								Import ParametricEQ.txt
+								<input
+									class="hh-visually-hidden"
+									type="file"
+									accept=".txt,text/plain"
+									onchange={(event) => void importCorrection(event.currentTarget)}
+								/>
+							</label>
+						</div>
+
+						{#if headphoneMatches}
+							{#if headphoneMatches.length === 0}
+								<p class="hh-muted note">No headphone by that name in the database.</p>
+							{:else}
+								<ul class="matches" aria-label="Headphones found">
+									{#each headphoneMatches as match (match.id)}
+										<li>
+											<button type="button" disabled={correctionBusy} onclick={() => void chooseHeadphone(match)}>
+												<span>{match.name}</span>
+												<span class="hh-muted">{match.source}{match.rig ? ` on ${match.rig}` : ''}</span>
+											</button>
+										</li>
+									{/each}
+								</ul>
+							{/if}
+						{/if}
+						{#if correctionError}<p class="note" role="alert">{correctionError}</p>{/if}
+					</div>
+				{/if}
+			</section>
+
+			<!-- Outside the save form: nothing here is posted with it. -->
+			<section class="hh-card hh-glass group" id="install" hidden={shown !== 'appearance'}>
+				<div class="group-head">
+					<h2>Install the app</h2>
+				</div>
+
+				{#if installer.installed}
+					<p class="note">You are using the app.</p>
+				{:else if appKind}
+					<div class="install-ways">
+						<!-- Another site: a new tab, told nothing about this one. -->
+						<a class="hh-button" href={APP_RELEASES} target="_blank" rel="noopener noreferrer">
+							<Icon name="download" size={16} />
+							{appKind.action}
+						</a>
+						{#if installer.route === 'app-android' && installer.canPrompt}
+							<button class="hh-button" type="button" disabled={installer.busy} onclick={() => void installer.install()}>
+								Install from the browser
+							</button>
+						{/if}
+					</div>
+				{:else if installer.route === 'prompt'}
+					<button class="hh-button" type="button" disabled={installer.busy} onclick={() => void installer.install()}>
+						<Icon name="download" size={16} />
+						Install {data.appName}
+					</button>
+				{:else if installer.route === 'safari-mac' || installer.route === 'safari-ios' || installer.route === 'edge'}
+					<p class="note">{INSTALL_STEPS[installer.route]}</p>
+				{:else}
+					<p class="hh-muted note-inline">This browser does not install web apps.</p>
+				{/if}
+			</section>
+
+			<section class="hh-card hh-glass group" hidden={shown !== 'account'}>
+				<div class="group-head">
+					<h2>Session &amp; security</h2>
+				</div>
+
+				<dl class="facts">
+					<div>
+						<dt>Signed in as</dt>
+						<dd>{data.account.username}</dd>
+					</div>
+					<div>
+						<dt>Music server</dt>
+						<dd>{data.serverLabel}</dd>
+					</div>
+					<div>
+						<dt>This session expires</dt>
+						<dd>{expiry}</dd>
+					</div>
+				</dl>
+
+				<!--
+					Every browser signed in to this account, the most recently used first,
+					with this one marked. Another can be signed out from here. This one
+					signs out with the button below, which also clears its cookie.
+				-->
+				<h3 class="subhead">Signed in on</h3>
+
+				{#if form && 'sessionError' in form && form.sessionError}
+					<p class="hh-muted note-inline" role="alert">{form.sessionError}</p>
+				{/if}
+
+				<ul class="shares sessions">
+					{#each data.sessions as entry (entry.handle)}
+						<li class="session">
+							<span class="share-text">
+								<span class="share-title hh-truncate">
+									{entry.device ?? 'Unknown browser'}
+									{#if entry.current}<span class="this hh-eyebrow">This browser</span>{/if}
+								</span>
+								<span class="share-sub hh-truncate hh-muted">
+									Signed in <span class="hh-numeric">{shortDate(entry.createdAt)}</span> · last used
+									<span class="hh-numeric">{shortDate(entry.lastSeenAt)}</span>
+								</span>
+							</span>
+							{#if !entry.current && !entry.endable}
+								<!-- Signed in after this browser; see `endSessions` in auth.ts. A
+								     greyed "Sign out from that browser" read as a button that did
+								     not work, so this says why there is none. -->
+								<span class="hh-muted later">Signed in after this browser.</span>
+							{:else if !entry.current}
+								<form
+									method="POST"
+									action="?/endSession"
+									use:enhance={() => {
+										ending = entry.handle;
+										return async ({ update }) => {
+											await update({ reset: false });
+											await refreshAll();
+											ending = null;
+										};
+									}}
+								>
+									<input type="hidden" name="handle" value={entry.handle} />
+									<button
+										class="hh-button danger withdraw"
+										type="submit"
+										disabled={ending === entry.handle}
+										aria-label="Sign out {entry.device ?? 'the unknown browser'}, last used {shortDate(entry.lastSeenAt)}"
+									>
+										{ending === entry.handle ? 'Signing out…' : 'Sign out'}
+									</button>
+								</form>
+							{/if}
+						</li>
+					{/each}
+				</ul>
+
+				<div class="session-actions">
+					<form method="POST" action="/logout">
+						<button class="hh-button danger" type="submit">
+							<Icon name="logout" size={16} />
+							Sign out
+						</button>
+					</form>
+					{#if endableSessions > 0}
 						<form
 							method="POST"
-							action="?/endSession"
+							action="?/endOtherSessions"
 							use:enhance={() => {
-								ending = entry.handle;
+								ending = 'others';
 								return async ({ update }) => {
 									await update({ reset: false });
 									await refreshAll();
@@ -1162,1075 +1217,1067 @@
 								};
 							}}
 						>
-							<input type="hidden" name="handle" value={entry.handle} />
-							<button
-								class="hh-button danger withdraw"
-								type="submit"
-								disabled={ending === entry.handle}
-								aria-label="Sign out {entry.device ?? 'the unknown browser'}, last used {shortDate(entry.lastSeenAt)}"
-							>
-								{ending === entry.handle ? 'Signing out…' : 'Sign out'}
+							<button class="hh-button danger" type="submit" disabled={ending === 'others'}>
+								{ending === 'others'
+									? 'Signing out…'
+									: `Sign out everywhere else (${endableSessions})`}
 							</button>
 						</form>
 					{/if}
-				</li>
-			{/each}
-		</ul>
-
-		<div class="session-actions">
-			<form method="POST" action="/logout">
-				<button class="hh-button danger" type="submit">
-					<Icon name="logout" size={16} />
-					Sign out
-				</button>
-			</form>
-			{#if endableSessions > 0}
-				<form
-					method="POST"
-					action="?/endOtherSessions"
-					use:enhance={() => {
-						ending = 'others';
-						return async ({ update }) => {
-							await update({ reset: false });
-							await refreshAll();
-							ending = null;
-						};
-					}}
-				>
-					<button class="hh-button danger" type="submit" disabled={ending === 'others'}>
-						{ending === 'others'
-							? 'Signing out…'
-							: `Sign out everywhere else (${endableSessions})`}
-					</button>
-				</form>
-			{/if}
-		</div>
-	</section>
-
-	<!-- The account's second factors; see `twofactor.ts`. Mounted while shown,
-	     since it reads them from the server when it starts. -->
-	<section class="hh-card hh-glass group" id="security" hidden={shown !== 'security'}>
-		<div class="group-head">
-			<h2>Two-step sign-in</h2>
-		</div>
-		{#if shown === 'security'}
-			<SecuritySettings serverLabel={data.serverLabel} admin={data.twoFactorAdmin} />
-		{/if}
-	</section>
-
-	<!-- Only where the operator has left it on; see `HEDDOHON_LISTENERS`. -->
-	{#if profile}
-		<section class="hh-card hh-glass group" id="listening" hidden={shown !== 'account'}>
-			<div class="group-head">
-				<h2>Listening now</h2>
-			</div>
-
-			{#if listeners.error}
-				<p class="hh-muted note-inline" role="alert">{listeners.error}</p>
-			{/if}
-
-			<label class="row switch">
-				<span class="label">Show others what I play</span>
-				<Switch
-					checked={profile.shown}
-					disabled={profileBusy}
-					onchange={(shown) => void saveProfile(() => listeners.save({ shown }))}
-				/>
-			</label>
-
-			<!-- Only with the Navidrome plugin, which is what hears of the other apps. -->
-			{#if data.plugin}
-				<label class="row switch">
-					<span class="label">Include what I play in other apps</span>
-					<Switch checked={listeningOtherApps} onchange={(on) => void showOtherApps(on)} />
-				</label>
-			{/if}
-
-			<div class="row">
-				<label class="label" for="profile-name">
-					Display name
-				</label>
-				<form class="profile-name" onsubmit={saveName}>
-					<input
-						id="profile-name"
-						class="hh-input"
-						type="text"
-						bind:value={profileName}
-						maxlength="32"
-						autocomplete="nickname"
-						spellcheck="false"
-						placeholder={data.account.username}
-					/>
-					<button class="hh-button" type="submit" disabled={profileBusy || profileName.trim() === (profile.name ?? '')}>
-						Save
-					</button>
-				</form>
-			</div>
-
-			<div class="row">
-				<span class="label">Picture</span>
-				<div class="profile-picture">
-					<Avatar
-						name={profile.name ?? data.account.username}
-						src={avatarUrl(profile.id, profile.avatar)}
-						size={3.5}
-					/>
-					<input
-						bind:this={pictureInput}
-						type="file"
-						accept="image/*"
-						hidden
-						aria-label="Picture file"
-						onchange={(event) => choosePicture(event.currentTarget)}
-					/>
-					<button class="hh-button" type="button" disabled={profileBusy} onclick={() => pictureInput?.click()}>
-						{profile.avatar ? 'Change' : 'Choose a picture'}
-					</button>
-					{#if profile.avatar}
-						<button
-							class="hh-button danger"
-							type="button"
-							disabled={profileBusy}
-							onclick={() => saveProfile(() => listeners.removePicture())}
-						>
-							Remove
-						</button>
-					{/if}
 				</div>
-			</div>
-		</section>
-	{/if}
-
-	<!-- Only where the music server can link at least one service: Navidrome,
-	     with Last.fm or ListenBrainz turned on. -->
-	{#await data.scrobblerLinks then links}
-		{#if links && (links.lastfm.available || links.listenbrainz.available)}
-			<section class="hh-card hh-glass group" id="scrobbling" hidden={shown !== 'connections'}>
-				<div class="group-head">
-					<h2>Scrobbling</h2>
-				</div>
-
-				{#if lastfmNotice}
-					<p class="hh-muted note-inline" role="status">{lastfmNotice}</p>
-				{/if}
-				{#if form && 'scrobblerError' in form && form.scrobblerError}
-					<p class="hh-muted note-inline" role="alert">{form.scrobblerError}</p>
-				{/if}
-
-				{#if links.lastfm.available}
-					<div class="row switch">
-						<span class="label">Last.fm</span>
-						{#if links.lastfm.linked}
-							<form method="POST" action="?/unlinkScrobbler" use:enhance={refreshAfter('lastfm')}>
-								<input type="hidden" name="service" value="lastfm" />
-								<button class="hh-button danger" type="submit" disabled={linking === 'lastfm'}>
-									{linking === 'lastfm' ? 'Unlinking…' : 'Unlink'}
-								</button>
-							</form>
-						{:else}
-							<form method="POST" action="?/startLastfm" use:enhance={toLastfm}>
-								<button class="hh-button" type="submit" disabled={linking === 'lastfm'}>
-									{linking === 'lastfm' ? 'Opening last.fm…' : 'Link on last.fm'}
-								</button>
-							</form>
-						{/if}
-					</div>
-				{/if}
-
-				{#if links.listenbrainz.available}
-					<div class="row switch">
-						<span class="label">ListenBrainz</span>
-						{#if links.listenbrainz.linked}
-							<form method="POST" action="?/unlinkScrobbler" use:enhance={refreshAfter('listenbrainz')}>
-								<input type="hidden" name="service" value="listenbrainz" />
-								<button class="hh-button danger" type="submit" disabled={linking === 'listenbrainz'}>
-									{linking === 'listenbrainz' ? 'Unlinking…' : 'Unlink'}
-								</button>
-							</form>
-						{/if}
-					</div>
-					{#if !links.listenbrainz.linked}
-						<form
-							class="token-row"
-							method="POST"
-							action="?/linkListenBrainz"
-							use:enhance={refreshAfter('listenbrainz')}
-						>
-							<input
-								class="hh-input"
-								type="password"
-								name="token"
-								required
-								maxlength="128"
-								autocomplete="off"
-								spellcheck="false"
-								aria-label="ListenBrainz user token"
-								placeholder="ListenBrainz user token"
-							/>
-							<button class="hh-button" type="submit" disabled={linking === 'listenbrainz'}>
-								{linking === 'listenbrainz' ? 'Linking…' : 'Link'}
-							</button>
-						</form>
-					{/if}
-				{/if}
-
 			</section>
-		{/if}
-	{/await}
 
-	<!-- Only where the operator has turned one of them on; see `integrations.ts`. -->
-	{#if data.integrations.offered.discord || data.integrations.offered.listenbrainz}
-		<section class="hh-card hh-glass group" id="activity" hidden={shown !== 'connections'}>
-			<div class="group-head">
-				<h2>Your plays, elsewhere</h2>
-			</div>
-
-			{#if form && 'integrationError' in form && form.integrationError}
-				<p class="hh-muted note-inline" role="alert">{form.integrationError}</p>
-			{/if}
-
-			{#if data.integrations.offered.discord}
-				{@const name = data.integrations.linked.discord}
-				<div class="row switch">
-					<span class="label">
-						Discord channel
-						{#if name}<span class="hint hh-muted">{name}</span>{/if}
-					</span>
-					{#if name}
-						<form method="POST" action="?/unlinkIntegration" use:enhance={integrationSubmit('discord')}>
-							<input type="hidden" name="kind" value="discord" />
-							<button class="hh-button danger" type="submit" disabled={integrating === 'discord'}>
-								{integrating === 'discord' ? 'Unlinking…' : 'Unlink'}
-							</button>
-						</form>
-					{/if}
-				</div>
-				{#if !name}
-					<form class="token-row" method="POST" action="?/linkIntegration" use:enhance={integrationSubmit('discord')}>
-						<input type="hidden" name="kind" value="discord" />
-						<input
-							class="hh-input"
-							type="password"
-							name="value"
-							required
-							maxlength="300"
-							autocomplete="off"
-							spellcheck="false"
-							aria-label="Discord webhook address"
-							placeholder="https://discord.com/api/webhooks/…"
-						/>
-						<button class="hh-button" type="submit" disabled={integrating === 'discord'}>
-							{integrating === 'discord' ? 'Linking…' : 'Link'}
-						</button>
-					</form>
-				{/if}
-			{/if}
-
-			{#if data.integrations.offered.listenbrainz}
-				{@const user = data.integrations.linked.listenbrainz}
-				<div class="row switch">
-					<span class="label">
-						ListenBrainz
-						{#if user}<span class="hint hh-muted">{user}</span>{/if}
-					</span>
-					{#if user}
-						<form method="POST" action="?/unlinkIntegration" use:enhance={integrationSubmit('listenbrainz')}>
-							<input type="hidden" name="kind" value="listenbrainz" />
-							<button class="hh-button danger" type="submit" disabled={integrating === 'listenbrainz'}>
-								{integrating === 'listenbrainz' ? 'Unlinking…' : 'Unlink'}
-							</button>
-						</form>
-					{/if}
-				</div>
-				{#if !user}
-					<form class="token-row" method="POST" action="?/linkIntegration" use:enhance={integrationSubmit('listenbrainz')}>
-						<input type="hidden" name="kind" value="listenbrainz" />
-						<input
-							class="hh-input"
-							type="password"
-							name="value"
-							required
-							maxlength="128"
-							autocomplete="off"
-							spellcheck="false"
-							aria-label="ListenBrainz user token"
-							placeholder="ListenBrainz user token"
-						/>
-						<button class="hh-button" type="submit" disabled={integrating === 'listenbrainz'}>
-							{integrating === 'listenbrainz' ? 'Linking…' : 'Link'}
-						</button>
-					</form>
-				{/if}
-			{/if}
-
-		</section>
-	{/if}
-
-	{#if data.nowPlaying}
-		{@const madeLink = form && 'nowPlayingToken' in form ? form.nowPlayingToken : null}
-		<section class="hh-card hh-glass group" id="now-playing" hidden={shown !== 'account'}>
-			<div class="group-head">
-				<h2>Now-playing link</h2>
-			</div>
-			{#if madeLink}
-				<div class="made-token" role="status">
-					<p>Shown this once.</p>
-					<input
-						class="hh-input secret"
-						readonly
-						value={`${page.url.origin}/now/${madeLink}`}
-						aria-label="The now-playing page"
-						onfocus={(event) => event.currentTarget.select()}
-					/>
-					<input
-						class="hh-input secret"
-						readonly
-						value={`${page.url.origin}/api/now-playing/${madeLink}`}
-						aria-label="The now-playing JSON"
-						onfocus={(event) => event.currentTarget.select()}
-					/>
-				</div>
-			{:else if data.nowPlaying.madeAt}
-				<p class="hh-muted note-inline">Link made {new Date(data.nowPlaying.madeAt).toLocaleDateString()}.</p>
-			{/if}
-			<div class="history-links">
-				<form method="POST" action="?/makeNowPlaying" use:enhance={() => async ({ update }) => update({ reset: false })}>
-					<button class="hh-button" type="submit">
-						<Icon name="link" size={16} />
-						{data.nowPlaying.madeAt || madeLink ? 'Make a new link' : 'Make a link'}
-					</button>
-				</form>
-				{#if data.nowPlaying.madeAt || madeLink}
-					<form method="POST" action="?/withdrawNowPlaying" use:enhance={() => async ({ update }) => update({ reset: false })}>
-						<button class="hh-button danger" type="submit">Withdraw the link</button>
-					</form>
-				{/if}
-			</div>
-			{#if form && 'nowPlayingError' in form && form.nowPlayingError}
-				<p class="hh-muted note-inline" role="alert">{form.nowPlayingError}</p>
-			{:else if form && 'nowPlayingWithdrawn' in form && form.nowPlayingWithdrawn}
-				<p class="hh-muted note-inline" role="status">Withdrawn. The link no longer works.</p>
-			{/if}
-		</section>
-	{/if}
-
-	{#if data.mcp}
-		{@const mcp = data.mcp}
-		{@const made = form && 'mcpToken' in form ? form.mcpToken : null}
-		{#if mcp.admin}
-			<section class="hh-card hh-glass group" id="assistants-server" hidden={shown !== 'ai'}>
+			<!-- The account's second factors; see `twofactor.ts`. Mounted while shown,
+			     since it reads them from the server when it starts. -->
+			<section class="hh-card hh-glass group" id="security" hidden={shown !== 'security'}>
 				<div class="group-head">
-					<h2>AI assistants on this server</h2>
+					<h2>Two-step sign-in</h2>
 				</div>
-				<form
-					method="POST"
-					action="?/saveMcp"
-					use:enhance={() => {
-						mcpBusy = 'switch';
-						return async ({ update }) => {
-							await update({ reset: false });
-							await refreshAll();
-							mcpBusy = null;
-						};
-					}}
-				>
+				{#if shown === 'security'}
+					<SecuritySettings serverLabel={data.serverLabel} admin={data.twoFactorAdmin} />
+				{/if}
+			</section>
+
+			<!-- Only where the operator has left it on; see `HEDDOHON_LISTENERS`. -->
+			{#if profile}
+				<section class="hh-card hh-glass group" id="listening" hidden={shown !== 'account'}>
+					<div class="group-head">
+						<h2>Listening now</h2>
+					</div>
+
+					{#if listeners.error}
+						<p class="hh-muted note-inline" role="alert">{listeners.error}</p>
+					{/if}
+
 					<label class="row switch">
-						<span class="label">
-							Allow AI assistants (MCP)
-							{#if mcp.admin.fromEnvironment}
-								<span class="hint hh-muted">Set by HEDDOHON_MCP in the environment.</span>
-							{/if}
-						</span>
-						<Switch name="mcp" checked={mcp.on} disabled={mcp.admin.fromEnvironment} />
+						<span class="label">Show others what I play</span>
+						<Switch
+							checked={profile.shown}
+							disabled={profileBusy}
+							onchange={(shown) => void saveProfile(() => listeners.save({ shown }))}
+						/>
 					</label>
-					{#if form && 'mcpSwitchError' in form && form.mcpSwitchError}
-						<p class="hh-muted note-inline" role="alert">{form.mcpSwitchError}</p>
-					{:else if form && 'mcpSaved' in form && form.mcpSaved}
-						<p class="hh-muted note-inline" role="status">Saved.</p>
-					{/if}
-					{#if !mcp.admin.fromEnvironment}
-						<button class="hh-button" type="submit" disabled={mcpBusy === 'switch'}>
-							{mcpBusy === 'switch' ? 'Saving…' : 'Save'}
-						</button>
-					{/if}
-				</form>
-			</section>
-		{/if}
 
-		{#if mcp.on || mcp.tokens.length > 0}
-			<section class="hh-card hh-glass group" id="assistants" hidden={shown !== 'ai'}>
+					<!-- Only with the Navidrome plugin, which is what hears of the other apps. -->
+					{#if data.plugin}
+						<label class="row switch">
+							<span class="label">Include what I play in other apps</span>
+							<Switch checked={listeningOtherApps} onchange={(on) => void showOtherApps(on)} />
+						</label>
+					{/if}
+
+					<div class="row">
+						<label class="label" for="profile-name">
+							Display name
+						</label>
+						<form class="profile-name" onsubmit={saveName}>
+							<input
+								id="profile-name"
+								class="hh-input"
+								type="text"
+								bind:value={profileName}
+								maxlength="32"
+								autocomplete="nickname"
+								spellcheck="false"
+								placeholder={data.account.username}
+							/>
+							<button class="hh-button" type="submit" disabled={profileBusy || profileName.trim() === (profile.name ?? '')}>
+								Save
+							</button>
+						</form>
+					</div>
+
+					<div class="row">
+						<span class="label">Picture</span>
+						<div class="profile-picture">
+							<Avatar
+								name={profile.name ?? data.account.username}
+								src={avatarUrl(profile.id, profile.avatar)}
+								size={3.5}
+							/>
+							<input
+								bind:this={pictureInput}
+								type="file"
+								accept="image/*"
+								hidden
+								aria-label="Picture file"
+								onchange={(event) => choosePicture(event.currentTarget)}
+							/>
+							<button class="hh-button" type="button" disabled={profileBusy} onclick={() => pictureInput?.click()}>
+								{profile.avatar ? 'Change' : 'Choose a picture'}
+							</button>
+							{#if profile.avatar}
+								<button
+									class="hh-button danger"
+									type="button"
+									disabled={profileBusy}
+									onclick={() => saveProfile(() => listeners.removePicture())}
+								>
+									Remove
+								</button>
+							{/if}
+						</div>
+					</div>
+				</section>
+			{/if}
+
+			<!-- Only where the music server can link at least one service: Navidrome,
+			     with Last.fm or ListenBrainz turned on. -->
+			{#await data.scrobblerLinks then links}
+				{#if links && (links.lastfm.available || links.listenbrainz.available)}
+					<section class="hh-card hh-glass group" id="scrobbling" hidden={shown !== 'connections'}>
+						<div class="group-head">
+							<h2>Scrobbling</h2>
+						</div>
+
+						{#if lastfmNotice}
+							<p class="hh-muted note-inline" role="status">{lastfmNotice}</p>
+						{/if}
+						{#if form && 'scrobblerError' in form && form.scrobblerError}
+							<p class="hh-muted note-inline" role="alert">{form.scrobblerError}</p>
+						{/if}
+
+						{#if links.lastfm.available}
+							<div class="row switch">
+								<span class="label">Last.fm</span>
+								{#if links.lastfm.linked}
+									<form method="POST" action="?/unlinkScrobbler" use:enhance={refreshAfter('lastfm')}>
+										<input type="hidden" name="service" value="lastfm" />
+										<button class="hh-button danger" type="submit" disabled={linking === 'lastfm'}>
+											{linking === 'lastfm' ? 'Unlinking…' : 'Unlink'}
+										</button>
+									</form>
+								{:else}
+									<form method="POST" action="?/startLastfm" use:enhance={toLastfm}>
+										<button class="hh-button" type="submit" disabled={linking === 'lastfm'}>
+											{linking === 'lastfm' ? 'Opening last.fm…' : 'Link on last.fm'}
+										</button>
+									</form>
+								{/if}
+							</div>
+						{/if}
+
+						{#if links.listenbrainz.available}
+							<div class="row switch">
+								<span class="label">ListenBrainz</span>
+								{#if links.listenbrainz.linked}
+									<form method="POST" action="?/unlinkScrobbler" use:enhance={refreshAfter('listenbrainz')}>
+										<input type="hidden" name="service" value="listenbrainz" />
+										<button class="hh-button danger" type="submit" disabled={linking === 'listenbrainz'}>
+											{linking === 'listenbrainz' ? 'Unlinking…' : 'Unlink'}
+										</button>
+									</form>
+								{/if}
+							</div>
+							{#if !links.listenbrainz.linked}
+								<form
+									class="token-row"
+									method="POST"
+									action="?/linkListenBrainz"
+									use:enhance={refreshAfter('listenbrainz')}
+								>
+									<input
+										class="hh-input"
+										type="password"
+										name="token"
+										required
+										maxlength="128"
+										autocomplete="off"
+										spellcheck="false"
+										aria-label="ListenBrainz user token"
+										placeholder="ListenBrainz user token"
+									/>
+									<button class="hh-button" type="submit" disabled={linking === 'listenbrainz'}>
+										{linking === 'listenbrainz' ? 'Linking…' : 'Link'}
+									</button>
+								</form>
+							{/if}
+						{/if}
+
+					</section>
+				{/if}
+			{/await}
+
+			<!-- Only where the operator has turned one of them on; see `integrations.ts`. -->
+			{#if data.integrations.offered.discord || data.integrations.offered.listenbrainz}
+				<section class="hh-card hh-glass group" id="activity" hidden={shown !== 'connections'}>
+					<div class="group-head">
+						<h2>Your plays, elsewhere</h2>
+					</div>
+
+					{#if form && 'integrationError' in form && form.integrationError}
+						<p class="hh-muted note-inline" role="alert">{form.integrationError}</p>
+					{/if}
+
+					{#if data.integrations.offered.discord}
+						{@const name = data.integrations.linked.discord}
+						<div class="row switch">
+							<span class="label">
+								Discord channel
+								{#if name}<span class="hint hh-muted">{name}</span>{/if}
+							</span>
+							{#if name}
+								<form method="POST" action="?/unlinkIntegration" use:enhance={integrationSubmit('discord')}>
+									<input type="hidden" name="kind" value="discord" />
+									<button class="hh-button danger" type="submit" disabled={integrating === 'discord'}>
+										{integrating === 'discord' ? 'Unlinking…' : 'Unlink'}
+									</button>
+								</form>
+							{/if}
+						</div>
+						{#if !name}
+							<form class="token-row" method="POST" action="?/linkIntegration" use:enhance={integrationSubmit('discord')}>
+								<input type="hidden" name="kind" value="discord" />
+								<input
+									class="hh-input"
+									type="password"
+									name="value"
+									required
+									maxlength="300"
+									autocomplete="off"
+									spellcheck="false"
+									aria-label="Discord webhook address"
+									placeholder="https://discord.com/api/webhooks/…"
+								/>
+								<button class="hh-button" type="submit" disabled={integrating === 'discord'}>
+									{integrating === 'discord' ? 'Linking…' : 'Link'}
+								</button>
+							</form>
+						{/if}
+					{/if}
+
+					{#if data.integrations.offered.listenbrainz}
+						{@const user = data.integrations.linked.listenbrainz}
+						<div class="row switch">
+							<span class="label">
+								ListenBrainz
+								{#if user}<span class="hint hh-muted">{user}</span>{/if}
+							</span>
+							{#if user}
+								<form method="POST" action="?/unlinkIntegration" use:enhance={integrationSubmit('listenbrainz')}>
+									<input type="hidden" name="kind" value="listenbrainz" />
+									<button class="hh-button danger" type="submit" disabled={integrating === 'listenbrainz'}>
+										{integrating === 'listenbrainz' ? 'Unlinking…' : 'Unlink'}
+									</button>
+								</form>
+							{/if}
+						</div>
+						{#if !user}
+							<form class="token-row" method="POST" action="?/linkIntegration" use:enhance={integrationSubmit('listenbrainz')}>
+								<input type="hidden" name="kind" value="listenbrainz" />
+								<input
+									class="hh-input"
+									type="password"
+									name="value"
+									required
+									maxlength="128"
+									autocomplete="off"
+									spellcheck="false"
+									aria-label="ListenBrainz user token"
+									placeholder="ListenBrainz user token"
+								/>
+								<button class="hh-button" type="submit" disabled={integrating === 'listenbrainz'}>
+									{integrating === 'listenbrainz' ? 'Linking…' : 'Link'}
+								</button>
+							</form>
+						{/if}
+					{/if}
+
+				</section>
+			{/if}
+
+			{#if data.nowPlaying}
+				{@const madeLink = form && 'nowPlayingToken' in form ? form.nowPlayingToken : null}
+				<section class="hh-card hh-glass group" id="now-playing" hidden={shown !== 'account'}>
+					<div class="group-head">
+						<h2>Now-playing link</h2>
+					</div>
+					{#if madeLink}
+						<div class="made-token" role="status">
+							<p>Shown this once.</p>
+							<input
+								class="hh-input secret"
+								readonly
+								value={`${page.url.origin}/now/${madeLink}`}
+								aria-label="The now-playing page"
+								onfocus={(event) => event.currentTarget.select()}
+							/>
+							<input
+								class="hh-input secret"
+								readonly
+								value={`${page.url.origin}/api/now-playing/${madeLink}`}
+								aria-label="The now-playing JSON"
+								onfocus={(event) => event.currentTarget.select()}
+							/>
+						</div>
+					{:else if data.nowPlaying.madeAt}
+						<p class="hh-muted note-inline">Link made {new Date(data.nowPlaying.madeAt).toLocaleDateString()}.</p>
+					{/if}
+					<div class="history-links">
+						<form method="POST" action="?/makeNowPlaying" use:enhance={() => async ({ update }) => update({ reset: false })}>
+							<button class="hh-button" type="submit">
+								<Icon name="link" size={16} />
+								{data.nowPlaying.madeAt || madeLink ? 'Make a new link' : 'Make a link'}
+							</button>
+						</form>
+						{#if data.nowPlaying.madeAt || madeLink}
+							<form method="POST" action="?/withdrawNowPlaying" use:enhance={() => async ({ update }) => update({ reset: false })}>
+								<button class="hh-button danger" type="submit">Withdraw the link</button>
+							</form>
+						{/if}
+					</div>
+					{#if form && 'nowPlayingError' in form && form.nowPlayingError}
+						<p class="hh-muted note-inline" role="alert">{form.nowPlayingError}</p>
+					{:else if form && 'nowPlayingWithdrawn' in form && form.nowPlayingWithdrawn}
+						<p class="hh-muted note-inline" role="status">Withdrawn. The link no longer works.</p>
+					{/if}
+				</section>
+			{/if}
+
+			{#if data.mcp}
+				{@const mcp = data.mcp}
+				{@const made = form && 'mcpToken' in form ? form.mcpToken : null}
+				{#if mcp.admin}
+					<section class="hh-card hh-glass group" id="assistants-server" hidden={shown !== 'ai'}>
+						<div class="group-head">
+							<h2>AI assistants on this server</h2>
+						</div>
+						<form
+							method="POST"
+							action="?/saveMcp"
+							use:enhance={() => {
+								mcpBusy = 'switch';
+								return async ({ update }) => {
+									await update({ reset: false });
+									await refreshAll();
+									mcpBusy = null;
+								};
+							}}
+						>
+							<label class="row switch">
+								<span class="label">
+									Allow AI assistants (MCP)
+									{#if mcp.admin.fromEnvironment}
+										<span class="hint hh-muted">Set by HEDDOHON_MCP in the environment.</span>
+									{/if}
+								</span>
+								<Switch name="mcp" checked={mcp.on} disabled={mcp.admin.fromEnvironment} />
+							</label>
+							{#if form && 'mcpSwitchError' in form && form.mcpSwitchError}
+								<p class="hh-muted note-inline" role="alert">{form.mcpSwitchError}</p>
+							{:else if form && 'mcpSaved' in form && form.mcpSaved}
+								<p class="hh-muted note-inline" role="status">Saved.</p>
+							{/if}
+							{#if !mcp.admin.fromEnvironment}
+								<button class="hh-button" type="submit" disabled={mcpBusy === 'switch'}>
+									{mcpBusy === 'switch' ? 'Saving…' : 'Save'}
+								</button>
+							{/if}
+						</form>
+					</section>
+				{/if}
+
+				{#if mcp.on || mcp.tokens.length > 0}
+					<section class="hh-card hh-glass group" id="assistants" hidden={shown !== 'ai'}>
+						<div class="group-head">
+							<h2>AI assistants</h2>
+						</div>
+
+						{#if !mcp.on}
+							<p class="hh-muted note-inline">
+								AI assistants are turned off on this server.
+							</p>
+						{/if}
+
+						{#if form && 'mcpError' in form && form.mcpError}
+							<p class="hh-muted note-inline" role="alert">{form.mcpError}</p>
+						{/if}
+
+						{#if made}
+							<div class="made-token" role="status">
+								<p>“{made.name}”, shown this once.</p>
+								<input
+									class="hh-input secret"
+									readonly
+									value={made.token}
+									aria-label="The new token"
+									onfocus={(event) => event.currentTarget.select()}
+								/>
+								<textarea
+									class="hh-input secret"
+									readonly
+									rows="3"
+									aria-label="The command that adds it to Claude Code"
+									onfocus={(event) => event.currentTarget.select()}
+									value={`claude mcp add --transport http heddohon ${mcp.endpoint} --header "Authorization: Bearer ${made.token}"`}
+								></textarea>
+								<!-- The address, for a client other than Claude Code. -->
+								<input
+									class="hh-input secret"
+									readonly
+									value={mcp.endpoint}
+									aria-label="The endpoint"
+									onfocus={(event) => event.currentTarget.select()}
+								/>
+							</div>
+						{/if}
+
+						{#if mcp.on && mcp.tokens.length < mcp.max}
+							<form method="POST" action="?/makeMcpToken" use:enhance={mcpSubmit('make')}>
+								<div class="token-row">
+									<input
+										class="hh-input"
+										name="name"
+										maxlength={mcp.maxName}
+										autocomplete="off"
+										aria-label="What the token is for"
+										placeholder="Claude Code on my laptop"
+									/>
+									<button class="hh-button" type="submit" disabled={mcpBusy === 'make'}>
+										{mcpBusy === 'make' ? 'Making…' : 'Make a token'}
+									</button>
+								</div>
+								<label class="row switch">
+									<span class="label">May change the library</span>
+									<Switch name="writes" checked />
+								</label>
+							</form>
+						{/if}
+
+						{#if mcp.tokens.length > 0}
+							<ul class="shares">
+								{#each mcp.tokens as token (token.id)}
+									<li class="share assistant">
+										<span class="share-text">
+											<span class="share-title hh-truncate">{token.name}</span>
+											<span class="share-sub hh-truncate hh-muted">
+												{token.writes ? 'Reads and changes' : 'Reads only'} · made
+												<span class="hh-numeric">{shortDate(token.createdAt)}</span> ·
+												{#if token.lastUsedAt}last used <span class="hh-numeric">{shortDate(token.lastUsedAt)}</span>{:else}not used yet{/if}
+											</span>
+										</span>
+										<form method="POST" action="?/withdrawMcpToken" use:enhance={mcpSubmit(token.id)}>
+											<input type="hidden" name="id" value={token.id} />
+											<button
+												class="hh-button danger withdraw"
+												type="submit"
+												disabled={mcpBusy === token.id}
+												aria-label="Withdraw the token {token.name}"
+											>
+												{mcpBusy === token.id ? 'Withdrawing…' : 'Withdraw'}
+											</button>
+										</form>
+									</li>
+								{/each}
+							</ul>
+						{/if}
+
+					</section>
+				{/if}
+			{/if}
+
+			<!-- Kept while sharing is off if the account still has links, so they can
+			     be withdrawn before the operator turns it back on. -->
+			{#if data.sharing || data.shares.length > 0}
+			<section class="hh-card hh-glass group" hidden={shown !== 'sharing'}>
 				<div class="group-head">
-					<h2>AI assistants</h2>
+					<h2>Shared links</h2>
 				</div>
-	
-				{#if !mcp.on}
+
+				{#if !data.sharing}
 					<p class="hh-muted note-inline">
-						AI assistants are turned off on this server.
+						Sharing is turned off on this server.
 					</p>
 				{/if}
-	
-				{#if form && 'mcpError' in form && form.mcpError}
-					<p class="hh-muted note-inline" role="alert">{form.mcpError}</p>
+
+				{#if form && 'shareError' in form && form.shareError}
+					<p class="hh-muted note-inline" role="alert">{form.shareError}</p>
 				{/if}
-	
-				{#if made}
-					<div class="made-token" role="status">
-						<p>“{made.name}”, shown this once.</p>
-						<input
-							class="hh-input secret"
-							readonly
-							value={made.token}
-							aria-label="The new token"
-							onfocus={(event) => event.currentTarget.select()}
-						/>
-						<textarea
-							class="hh-input secret"
-							readonly
-							rows="3"
-							aria-label="The command that adds it to Claude Code"
-							onfocus={(event) => event.currentTarget.select()}
-							value={`claude mcp add --transport http heddohon ${mcp.endpoint} --header "Authorization: Bearer ${made.token}"`}
-						></textarea>
-						<!-- The address, for a client other than Claude Code. -->
-						<input
-							class="hh-input secret"
-							readonly
-							value={mcp.endpoint}
-							aria-label="The endpoint"
-							onfocus={(event) => event.currentTarget.select()}
-						/>
-					</div>
-				{/if}
-	
-				{#if mcp.on && mcp.tokens.length < mcp.max}
-					<form method="POST" action="?/makeMcpToken" use:enhance={mcpSubmit('make')}>
-						<div class="token-row">
-							<input
-								class="hh-input"
-								name="name"
-								maxlength={mcp.maxName}
-								autocomplete="off"
-								aria-label="What the token is for"
-								placeholder="Claude Code on my laptop"
-							/>
-							<button class="hh-button" type="submit" disabled={mcpBusy === 'make'}>
-								{mcpBusy === 'make' ? 'Making…' : 'Make a token'}
-							</button>
-						</div>
-						<label class="row switch">
-							<span class="label">May change the library</span>
-							<Switch name="writes" checked />
-						</label>
-					</form>
-				{/if}
-	
-				{#if mcp.tokens.length > 0}
+
+				{#if data.shares.length === 0}
+					<p class="hh-muted empty">No live links.</p>
+				{:else}
 					<ul class="shares">
-						{#each mcp.tokens as token (token.id)}
-							<li class="share assistant">
+						{#each data.shares as share (share.id)}
+							<li class="share">
+								<span class="share-art">
+									<Cover coverArt={share.item?.coverArt} size={96} alt="" radius="var(--r-sm)" />
+								</span>
 								<span class="share-text">
-									<span class="share-title hh-truncate">{token.name}</span>
+									<span class="share-title hh-truncate">
+										{share.item?.title ?? `${share.kind === 'album' ? 'An album' : `A ${share.kind}`} your server no longer returns`}
+									</span>
 									<span class="share-sub hh-truncate hh-muted">
-										{token.writes ? 'Reads and changes' : 'Reads only'} · made
-										<span class="hh-numeric">{shortDate(token.createdAt)}</span> ·
-										{#if token.lastUsedAt}last used <span class="hh-numeric">{shortDate(token.lastUsedAt)}</span>{:else}not used yet{/if}
+										{share.kind === 'song' ? 'Song' : share.kind === 'album' ? 'Album' : 'Playlist'} ·
+										{#if share.item?.subtitle}{share.item.subtitle} · {/if}until
+										<span class="hh-numeric">{shortDate(share.expiresAt)}</span>
 									</span>
 								</span>
-								<form method="POST" action="?/withdrawMcpToken" use:enhance={mcpSubmit(token.id)}>
-									<input type="hidden" name="id" value={token.id} />
+								<form
+									method="POST"
+									action="?/revokeShare"
+									use:enhance={() => {
+										withdrawing = share.id;
+										return async ({ update }) => {
+											await update({ reset: false });
+											await refreshAll();
+											withdrawing = null;
+										};
+									}}
+								>
+									<input type="hidden" name="id" value={share.id} />
 									<button
 										class="hh-button danger withdraw"
 										type="submit"
-										disabled={mcpBusy === token.id}
-										aria-label="Withdraw the token {token.name}"
+										disabled={withdrawing === share.id}
+										aria-label="Withdraw the link to {share.item?.title ?? `this ${share.kind}`}"
 									>
-										{mcpBusy === token.id ? 'Withdrawing…' : 'Withdraw'}
+										{withdrawing === share.id ? 'Withdrawing…' : 'Withdraw'}
 									</button>
 								</form>
 							</li>
 						{/each}
 					</ul>
 				{/if}
-	
+
+				{#if data.shares.length > 1}
+					<form
+						method="POST"
+						action="?/revokeAllShares"
+						use:enhance={() => {
+							withdrawing = 'all';
+							return async ({ update }) => {
+								await update({ reset: false });
+								await refreshAll();
+								withdrawing = null;
+							};
+						}}
+					>
+						<button class="hh-button danger" type="submit" disabled={withdrawing === 'all'}>
+							<Icon name="trash" size={16} />
+							{withdrawing === 'all' ? 'Withdrawing…' : `Withdraw all ${data.shares.length} links`}
+						</button>
+					</form>
+				{/if}
 			</section>
-		{/if}
-	{/if}
+			{/if}
 
-	<!-- Kept while sharing is off if the account still has links, so they can
-	     be withdrawn before the operator turns it back on. -->
-	{#if data.sharing || data.shares.length > 0}
-	<section class="hh-card hh-glass group" hidden={shown !== 'sharing'}>
-		<div class="group-head">
-			<h2>Shared links</h2>
-		</div>
-
-		{#if !data.sharing}
-			<p class="hh-muted note-inline">
-				Sharing is turned off on this server.
-			</p>
-		{/if}
-
-		{#if form && 'shareError' in form && form.shareError}
-			<p class="hh-muted note-inline" role="alert">{form.shareError}</p>
-		{/if}
-
-		{#if data.shares.length === 0}
-			<p class="hh-muted empty">No live links.</p>
-		{:else}
-			<ul class="shares">
-				{#each data.shares as share (share.id)}
-					<li class="share">
-						<span class="share-art">
-							<Cover coverArt={share.item?.coverArt} size={96} alt="" radius="var(--r-sm)" />
-						</span>
-						<span class="share-text">
-							<span class="share-title hh-truncate">
-								{share.item?.title ?? `${share.kind === 'album' ? 'An album' : `A ${share.kind}`} your server no longer returns`}
-							</span>
-							<span class="share-sub hh-truncate hh-muted">
-								{share.kind === 'song' ? 'Song' : share.kind === 'album' ? 'Album' : 'Playlist'} ·
-								{#if share.item?.subtitle}{share.item.subtitle} · {/if}until
-								<span class="hh-numeric">{shortDate(share.expiresAt)}</span>
-							</span>
-						</span>
-						<form
-							method="POST"
-							action="?/revokeShare"
-							use:enhance={() => {
-								withdrawing = share.id;
-								return async ({ update }) => {
-									await update({ reset: false });
-									await refreshAll();
-									withdrawing = null;
-								};
-							}}
-						>
-							<input type="hidden" name="id" value={share.id} />
-							<button
-								class="hh-button danger withdraw"
-								type="submit"
-								disabled={withdrawing === share.id}
-								aria-label="Withdraw the link to {share.item?.title ?? `this ${share.kind}`}"
-							>
-								{withdrawing === share.id ? 'Withdrawing…' : 'Withdraw'}
-							</button>
-						</form>
-					</li>
-				{/each}
-			</ul>
-		{/if}
-
-		{#if data.shares.length > 1}
-			<form
-				method="POST"
-				action="?/revokeAllShares"
-				use:enhance={() => {
-					withdrawing = 'all';
-					return async ({ update }) => {
-						await update({ reset: false });
-						await refreshAll();
-						withdrawing = null;
-					};
-				}}
-			>
-				<button class="hh-button danger" type="submit" disabled={withdrawing === 'all'}>
-					<Icon name="trash" size={16} />
-					{withdrawing === 'all' ? 'Withdrawing…' : `Withdraw all ${data.shares.length} links`}
-				</button>
-			</form>
-		{/if}
-	</section>
-	{/if}
-
-	<section class="hh-card hh-glass group" hidden={shown !== 'storage'}>
-		<div class="group-head">
-			<h2>Cover cache</h2>
-		</div>
-
-		<dl class="facts">
-			<div>
-				<dt>Held</dt>
-				<dd class="hh-numeric">
-					{#if cache.bytes === null}
-						Off
-					{:else}
-						{formatSize(cache.bytes)} in {cache.files} file{cache.files === 1 ? '' : 's'}
-					{/if}
-				</dd>
-			</div>
-			<div>
-				<dt>Limit</dt>
-				<dd class="hh-numeric">
-					{cache.limitBytes > 0 ? formatSize(cache.limitBytes) : 'Caching disabled'}
-				</dd>
-			</div>
-			<div>
-				<dt>Shared with</dt>
-				<dd>Everyone signed in to {data.serverLabel || 'the music server'}</dd>
-			</div>
-		</dl>
-
-		<!--
-			The cache is keyed by the music server's cover id, with no account in
-			the key, so there is one copy of each cover for everyone. Any account
-			may clear it: a clear costs each cover being fetched upstream once
-			more.
-		-->
-
-		{#if cache.limitBytes > 0}
-			<form
-				method="POST"
-				action="?/clearCovers"
-				use:enhance={() => {
-					clearing = true;
-					return async ({ update }) => {
-						await update({ reset: false });
-						// The loader reports the held size, so the figures above only
-						// follow the clear once it has re-run.
-						await refreshAll();
-						clearing = false;
-					};
-				}}
-			>
-				<button class="hh-button" type="submit" disabled={clearing}>
-					<Icon name="trash" size={16} />
-					{clearing ? 'Clearing…' : 'Clear cover cache'}
-				</button>
-			</form>
-		{/if}
-
-		<!--
-			Offered to an account the music server lists as an administrator, and
-			refused to any other by the server: this has the music server render
-			every cover in the library.
-		-->
-		{#if cache.limitBytes > 0 && data.isAdmin}
-			<h3 class="subhead">Cache every cover</h3>
-			<label class="row switch">
-				<span class="label">Keep it filled</span>
-				<Switch bind:checked={daily} onchange={saveDaily} />
-			</label>
-			{#if filling}
-				<div class="fill">
-					<progress
-						aria-label="Covers cached"
-						max={fill.state === 'running' ? fill.total : undefined}
-						value={fill.state === 'running' ? fill.done : undefined}
-					></progress>
-					<span class="hh-muted hh-numeric">
-						{fill.state === 'listing'
-							? 'Reading the library…'
-							: `${fill.done.toLocaleString()} of ${fill.total.toLocaleString()}`}
-					</span>
+			<section class="hh-card hh-glass group" hidden={shown !== 'storage'}>
+				<div class="group-head">
+					<h2>Cover cache</h2>
 				</div>
-				<button class="hh-button" type="button" onclick={() => fillRequest('DELETE')}>
-					<Icon name="close" size={16} />
-					Stop
-				</button>
-			{:else}
-				<button class="hh-button" type="button" onclick={() => fillRequest('POST')}>
-					<Icon name="download" size={16} />
-					Cache every cover
-				</button>
-				{#if fillError}
-					<p class="hh-muted note-inline" role="alert">{fillError}</p>
-				{:else if fillSummary}
-					<p class="hh-muted note-inline" role="status">{fillSummary}</p>
+
+				<dl class="facts">
+					<div>
+						<dt>Held</dt>
+						<dd class="hh-numeric">
+							{#if cache.bytes === null}
+								Off
+							{:else}
+								{formatSize(cache.bytes)} in {cache.files} file{cache.files === 1 ? '' : 's'}
+							{/if}
+						</dd>
+					</div>
+					<div>
+						<dt>Limit</dt>
+						<dd class="hh-numeric">
+							{cache.limitBytes > 0 ? formatSize(cache.limitBytes) : 'Caching disabled'}
+						</dd>
+					</div>
+					<div>
+						<dt>Shared with</dt>
+						<dd>Everyone signed in to {data.serverLabel || 'the music server'}</dd>
+					</div>
+				</dl>
+
+				<!--
+					The cache is keyed by the music server's cover id, with no account in
+					the key, so there is one copy of each cover for everyone. Any account
+					may clear it: a clear costs each cover being fetched upstream once
+					more.
+				-->
+
+				{#if cache.limitBytes > 0}
+					<form
+						method="POST"
+						action="?/clearCovers"
+						use:enhance={() => {
+							clearing = true;
+							return async ({ update }) => {
+								await update({ reset: false });
+								// The loader reports the held size, so the figures above only
+								// follow the clear once it has re-run.
+								await refreshAll();
+								clearing = false;
+							};
+						}}
+					>
+						<button class="hh-button" type="submit" disabled={clearing}>
+							<Icon name="trash" size={16} />
+							{clearing ? 'Clearing…' : 'Clear cover cache'}
+						</button>
+					</form>
 				{/if}
-			{/if}
-		{/if}
-	</section>
 
-	<!--
-		Offered to an account the music server lists as an administrator, and
-		refused to any other by the server: the archive holds every account's
-		rows.
-	-->
-	{#if data.isAdmin}
-		<section class="hh-card hh-glass group" id="backup" hidden={shown !== 'storage'}>
-			<div class="group-head">
-				<h2>Database backup</h2>
-			</div>
-
-			<p class="hh-muted note-inline">Opens only with this server's HEDDOHON_SECRET, which is not in it.</p>
-			<button class="hh-button" type="button" onclick={downloadBackup} disabled={backingUp}>
-				<Icon name="download" size={16} />
-				{backingUp ? 'Making the backup…' : 'Download a backup'}
-			</button>
-			{#if backupError}
-				<p class="hh-muted note-inline" role="alert">{backupError}</p>
-			{:else if backupDone}
-				<p class="hh-muted note-inline" role="status">{backupDone}</p>
-			{/if}
-		</section>
-	{/if}
-
-	{#if report}
-		<section class="hh-card hh-glass group" id="library-report" hidden={shown !== 'storage'}>
-			<div class="group-head">
-				<h2>Library report</h2>
-			</div>
-
-			{#if report.state === 'running'}
-				<p class="hh-muted note-inline" role="status">Reading the library: {report.tracks.toLocaleString()} tracks so far.</p>
-			{:else}
-				<button class="hh-button" type="button" onclick={() => reportRequest('POST')}>
-					{report.state === 'done' ? 'Make it again' : 'Make a report'}
-				</button>
-			{/if}
-			{#if reportError}
-				<p class="hh-muted note-inline" role="alert">{reportError}</p>
-			{:else if report.state === 'failed'}
-				<p class="hh-muted note-inline" role="alert">{report.detail}</p>
-			{/if}
-
-			{#if report.state === 'done'}
-				{@const r = report.report}
-				{#if r.tracks === 0}
-					<p class="hh-muted note-inline">The music server listed no tracks.</p>
-				{:else}
-					<dl class="report-figures hh-numeric">
-						<div><dt>Tracks</dt><dd>{r.tracks.toLocaleString()}</dd></div>
-						<div><dt>Albums</dt><dd>{r.albums.toLocaleString()}</dd></div>
-						<div><dt>Artists</dt><dd>{r.artists.toLocaleString()}</dd></div>
-						<div><dt>Length</dt><dd>{formatLongDuration(r.seconds)}</dd></div>
-						<div><dt>Size</dt><dd>{formatBytes(r.bytes)}</dd></div>
-						<div><dt>Lossless</dt><dd>{percent(r.lossless, r.tracks)}</dd></div>
-						<div><dt>Hi-res</dt><dd>{percent(r.hiRes, r.tracks)}</dd></div>
-					</dl>
-
-					<div class="report-tables">
-						<table>
-							<caption>Formats</caption>
-							<thead><tr><th scope="col">Format</th><th scope="col">Tracks</th><th scope="col">Size</th></tr></thead>
-							<tbody>
-								{#each r.formats as entry (entry.format)}
-									<tr><td>{entry.format}</td><td class="hh-numeric">{entry.tracks.toLocaleString()}</td><td class="hh-numeric">{formatBytes(entry.bytes)}</td></tr>
-								{/each}
-							</tbody>
-						</table>
-						{#if r.resolutions.length > 0}
-							<table>
-								<caption>Lossless, by resolution</caption>
-								<thead><tr><th scope="col">Resolution</th><th scope="col">Tracks</th></tr></thead>
-								<tbody>
-									{#each r.resolutions as entry (entry.label)}
-										<tr><td>{entry.label}</td><td class="hh-numeric">{entry.tracks.toLocaleString()}</td></tr>
-									{/each}
-								</tbody>
-							</table>
+				<!--
+					Offered to an account the music server lists as an administrator, and
+					refused to any other by the server: this has the music server render
+					every cover in the library.
+				-->
+				{#if cache.limitBytes > 0 && data.isAdmin}
+					<h3 class="subhead">Cache every cover</h3>
+					<label class="row switch">
+						<span class="label">Keep it filled</span>
+						<Switch bind:checked={daily} onchange={saveDaily} />
+					</label>
+					{#if filling}
+						<div class="fill">
+							<progress
+								aria-label="Covers cached"
+								max={fill.state === 'running' ? fill.total : undefined}
+								value={fill.state === 'running' ? fill.done : undefined}
+							></progress>
+							<span class="hh-muted hh-numeric">
+								{fill.state === 'listing'
+									? 'Reading the library…'
+									: `${fill.done.toLocaleString()} of ${fill.total.toLocaleString()}`}
+							</span>
+						</div>
+						<button class="hh-button" type="button" onclick={() => fillRequest('DELETE')}>
+							<Icon name="close" size={16} />
+							Stop
+						</button>
+					{:else}
+						<button class="hh-button" type="button" onclick={() => fillRequest('POST')}>
+							<Icon name="download" size={16} />
+							Cache every cover
+						</button>
+						{#if fillError}
+							<p class="hh-muted note-inline" role="alert">{fillError}</p>
+						{:else if fillSummary}
+							<p class="hh-muted note-inline" role="status">{fillSummary}</p>
 						{/if}
-					</div>
-
-					<ul class="report-lacks hh-numeric">
-						<li>{r.withoutReplayGain.toLocaleString()} tracks without ReplayGain</li>
-						<li>{r.withoutGenre.toLocaleString()} without a genre</li>
-						<li>{r.withoutYear.toLocaleString()} without a year</li>
-					</ul>
-
-					{#if r.mixedCount > 0}
-						<details>
-							<summary>{r.mixedCount === 1 ? "1 album" : `${r.mixedCount.toLocaleString()} albums`} in more than one format{r.mixedCount > r.mixed.length ? `, the first ${r.mixed.length}` : ''}</summary>
-							<ul class="report-list">
-								{#each r.mixed as album (album.id)}
-									<li><a href="/albums/{album.id}">{album.name}</a><span class="hh-muted"> · {album.artist ?? 'Unknown artist'} · {album.formats.join(', ')}</span></li>
-								{/each}
-							</ul>
-						</details>
-					{/if}
-					{#if r.duplicateCount > 0}
-						<details>
-							<summary>{r.duplicateCount === 1 ? "1 album" : `${r.duplicateCount.toLocaleString()} albums`} held more than once{r.duplicateCount > r.duplicates.length ? `, the first ${r.duplicates.length}` : ''}</summary>
-							<ul class="report-list">
-								{#each r.duplicates as group, index (index)}
-									<li>
-										{group.name}<span class="hh-muted"> · {group.artist ?? 'Unknown artist'}:</span>
-										{#each group.albums as album, i (album.id)}{i > 0 ? ', ' : ' '}<a href="/albums/{album.id}">{album.formats.join('/')} ({album.tracks})</a>{/each}
-									</li>
-								{/each}
-							</ul>
-						</details>
-					{/if}
-					{#if r.withoutReplayGainAlbums.length > 0}
-						<details>
-							<summary>Albums with tracks without ReplayGain{r.withoutReplayGainAlbums.length >= 50 ? ', the first 50' : ''}</summary>
-							<ul class="report-list">
-								{#each r.withoutReplayGainAlbums as album (album.id)}
-									<li><a href="/albums/{album.id}">{album.name}</a><span class="hh-muted"> · {album.artist ?? 'Unknown artist'}</span></li>
-								{/each}
-							</ul>
-						</details>
 					{/if}
 				{/if}
+			</section>
+
+			<!--
+				Offered to an account the music server lists as an administrator, and
+				refused to any other by the server: the archive holds every account's
+				rows.
+			-->
+			{#if data.isAdmin}
+				<section class="hh-card hh-glass group" id="backup" hidden={shown !== 'storage'}>
+					<div class="group-head">
+						<h2>Database backup</h2>
+					</div>
+
+					<p class="hh-muted note-inline">Opens only with this server's HEDDOHON_SECRET, which is not in it.</p>
+					<button class="hh-button" type="button" onclick={downloadBackup} disabled={backingUp}>
+						<Icon name="download" size={16} />
+						{backingUp ? 'Making the backup…' : 'Download a backup'}
+					</button>
+					{#if backupError}
+						<p class="hh-muted note-inline" role="alert">{backupError}</p>
+					{:else if backupDone}
+						<p class="hh-muted note-inline" role="status">{backupDone}</p>
+					{/if}
+				</section>
 			{/if}
-		</section>
-	{/if}
 
-	<!--
-		The two values of the deployment an administrator can change from here.
-		Everything else about it is in its environment.
-	-->
-	{#if data.server}
-		{@const server = data.server}
-		<section class="hh-card hh-glass group" id="server" hidden={shown !== 'storage'}>
-			<div class="group-head">
-				<h2>This server</h2>
-			</div>
-
-			<form
-				method="POST"
-				action="?/saveServer"
-				use:enhance={() =>
-					async ({ update }) => {
-						await update({ reset: false });
-					}}
-			>
-				<label class="row">
-					<span class="label">Addresses</span>
-					{#if server.fromEnvironment.origin}
-						<span class="hh-muted control">Set by ORIGIN in the environment.</span>
-					{:else}
-						<textarea
-							class="hh-input control addresses"
-							name="origins"
-							rows={Math.max(2, server.origins.length + 1)}
-							spellcheck="false"
-							autocomplete="off"
-							placeholder="http://192.168.1.10:3000">{server.origins.join('\n')}</textarea>
-					{/if}
-				</label>
-
-				{#if server.withoutSecure.length > 0}
-					<div class="plain-http" role="note">
-						<strong>Sign-in on plain http.</strong>
-						On {server.withoutSecure.join(' and ')} the sign-in cookie is sent without
-						<code>Secure</code>, since a browser does not send a <code>Secure</code> cookie back over
-						<code>http://</code>. Anyone who can read that network's traffic can read the cookie, and the
-						password as it is typed. Use an <code>https://</code> address where there is one. Setting
-						<code>HEDDOHON_COOKIE_SECURE=true</code> in the environment ends this, and sign-in on
-						{server.withoutSecure.length === 1 ? 'that address' : 'those addresses'} with it.
+			{#if report}
+				<section class="hh-card hh-glass group" id="library-report" hidden={shown !== 'storage'}>
+					<div class="group-head">
+						<h2>Library report</h2>
 					</div>
-				{/if}
+
+					{#if report.state === 'running'}
+						<p class="hh-muted note-inline" role="status">Reading the library: {report.tracks.toLocaleString()} tracks so far.</p>
+					{:else}
+						<button class="hh-button" type="button" onclick={() => reportRequest('POST')}>
+							{report.state === 'done' ? 'Make it again' : 'Make a report'}
+						</button>
+					{/if}
+					{#if reportError}
+						<p class="hh-muted note-inline" role="alert">{reportError}</p>
+					{:else if report.state === 'failed'}
+						<p class="hh-muted note-inline" role="alert">{report.detail}</p>
+					{/if}
+
+					{#if report.state === 'done'}
+						{@const r = report.report}
+						{#if r.tracks === 0}
+							<p class="hh-muted note-inline">The music server listed no tracks.</p>
+						{:else}
+							<dl class="report-figures hh-numeric">
+								<div><dt>Tracks</dt><dd>{r.tracks.toLocaleString()}</dd></div>
+								<div><dt>Albums</dt><dd>{r.albums.toLocaleString()}</dd></div>
+								<div><dt>Artists</dt><dd>{r.artists.toLocaleString()}</dd></div>
+								<div><dt>Length</dt><dd>{formatLongDuration(r.seconds)}</dd></div>
+								<div><dt>Size</dt><dd>{formatBytes(r.bytes)}</dd></div>
+								<div><dt>Lossless</dt><dd>{percent(r.lossless, r.tracks)}</dd></div>
+								<div><dt>Hi-res</dt><dd>{percent(r.hiRes, r.tracks)}</dd></div>
+							</dl>
+
+							<div class="report-tables">
+								<table>
+									<caption>Formats</caption>
+									<thead><tr><th scope="col">Format</th><th scope="col">Tracks</th><th scope="col">Size</th></tr></thead>
+									<tbody>
+										{#each r.formats as entry (entry.format)}
+											<tr><td>{entry.format}</td><td class="hh-numeric">{entry.tracks.toLocaleString()}</td><td class="hh-numeric">{formatBytes(entry.bytes)}</td></tr>
+										{/each}
+									</tbody>
+								</table>
+								{#if r.resolutions.length > 0}
+									<table>
+										<caption>Lossless, by resolution</caption>
+										<thead><tr><th scope="col">Resolution</th><th scope="col">Tracks</th></tr></thead>
+										<tbody>
+											{#each r.resolutions as entry (entry.label)}
+												<tr><td>{entry.label}</td><td class="hh-numeric">{entry.tracks.toLocaleString()}</td></tr>
+											{/each}
+										</tbody>
+									</table>
+								{/if}
+							</div>
+
+							<ul class="report-lacks hh-numeric">
+								<li>{r.withoutReplayGain.toLocaleString()} tracks without ReplayGain</li>
+								<li>{r.withoutGenre.toLocaleString()} without a genre</li>
+								<li>{r.withoutYear.toLocaleString()} without a year</li>
+							</ul>
+
+							{#if r.mixedCount > 0}
+								<details>
+									<summary>{r.mixedCount === 1 ? "1 album" : `${r.mixedCount.toLocaleString()} albums`} in more than one format{r.mixedCount > r.mixed.length ? `, the first ${r.mixed.length}` : ''}</summary>
+									<ul class="report-list">
+										{#each r.mixed as album (album.id)}
+											<li><a href="/albums/{album.id}">{album.name}</a><span class="hh-muted"> · {album.artist ?? 'Unknown artist'} · {album.formats.join(', ')}</span></li>
+										{/each}
+									</ul>
+								</details>
+							{/if}
+							{#if r.duplicateCount > 0}
+								<details>
+									<summary>{r.duplicateCount === 1 ? "1 album" : `${r.duplicateCount.toLocaleString()} albums`} held more than once{r.duplicateCount > r.duplicates.length ? `, the first ${r.duplicates.length}` : ''}</summary>
+									<ul class="report-list">
+										{#each r.duplicates as group, index (index)}
+											<li>
+												{group.name}<span class="hh-muted"> · {group.artist ?? 'Unknown artist'}:</span>
+												{#each group.albums as album, i (album.id)}{i > 0 ? ', ' : ' '}<a href="/albums/{album.id}">{album.formats.join('/')} ({album.tracks})</a>{/each}
+											</li>
+										{/each}
+									</ul>
+								</details>
+							{/if}
+							{#if r.withoutReplayGainAlbums.length > 0}
+								<details>
+									<summary>Albums with tracks without ReplayGain{r.withoutReplayGainAlbums.length >= 50 ? ', the first 50' : ''}</summary>
+									<ul class="report-list">
+										{#each r.withoutReplayGainAlbums as album (album.id)}
+											<li><a href="/albums/{album.id}">{album.name}</a><span class="hh-muted"> · {album.artist ?? 'Unknown artist'}</span></li>
+										{/each}
+									</ul>
+								</details>
+							{/if}
+						{/if}
+					{/if}
+				</section>
+			{/if}
+
+			<!--
+				The two values of the deployment an administrator can change from here.
+				Everything else about it is in its environment.
+			-->
+			{#if data.server}
+				{@const server = data.server}
+				<section class="hh-card hh-glass group" id="server" hidden={shown !== 'storage'}>
+					<div class="group-head">
+						<h2>This server</h2>
+					</div>
+
+					<form
+						method="POST"
+						action="?/saveServer"
+						use:enhance={() =>
+							async ({ update }) => {
+								await update({ reset: false });
+							}}
+					>
+						<label class="row">
+							<span class="label">Addresses</span>
+							{#if server.fromEnvironment.origin}
+								<span class="hh-muted control">Set by ORIGIN in the environment.</span>
+							{:else}
+								<textarea
+									class="hh-input control addresses"
+									name="origins"
+									rows={Math.max(2, server.origins.length + 1)}
+									spellcheck="false"
+									autocomplete="off"
+									placeholder="http://192.168.1.10:3000">{server.origins.join('\n')}</textarea>
+							{/if}
+						</label>
+
+						{#if server.withoutSecure.length > 0}
+							<div class="plain-http" role="note">
+								<strong>Sign-in on plain http.</strong>
+								On {server.withoutSecure.join(' and ')} the sign-in cookie is sent without
+								<code>Secure</code>, since a browser does not send a <code>Secure</code> cookie back over
+								<code>http://</code>. Anyone who can read that network's traffic can read the cookie, and the
+								password as it is typed. Use an <code>https://</code> address where there is one. Setting
+								<code>HEDDOHON_COOKIE_SECURE=true</code> in the environment ends this, and sign-in on
+								{server.withoutSecure.length === 1 ? 'that address' : 'those addresses'} with it.
+							</div>
+						{/if}
+
+						<label class="row">
+							<span class="label">Cover cache size (MB)</span>
+							{#if server.fromEnvironment.coverCache}
+								<span class="hh-muted control">
+									{server.coverCacheMb.toLocaleString()} MB, set by HEDDOHON_COVER_CACHE_MB in the environment.
+								</span>
+							{:else}
+								<input
+									class="hh-input control"
+									name="coverCacheMb"
+									type="number"
+									min="0"
+									max={server.maxCoverCacheMb}
+									step="1"
+									inputmode="numeric"
+									value={server.coverCacheMb}
+								/>
+							{/if}
+						</label>
+
+						{#if form && 'serverError' in form && form.serverError}
+							<p class="hh-muted note-inline" role="alert">{form.serverError}</p>
+						{:else if form && 'serverSaved' in form && form.serverSaved}
+							<p class="hh-muted note-inline" role="status">Saved.</p>
+						{/if}
+						{#if !(server.fromEnvironment.origin && server.fromEnvironment.coverCache)}
+							<button class="hh-button" type="submit">Save</button>
+						{/if}
+					</form>
+				</section>
+			{/if}
+
+			{#if data.features}
+				<section class="hh-card hh-glass group" id="features" hidden={shown !== 'storage'}>
+					<div class="group-head">
+						<h2>Features</h2>
+					</div>
+					<form
+						method="POST"
+						action="?/saveFeatures"
+						use:enhance={() => {
+							featuresBusy = true;
+							return async ({ update }) => {
+								await update({ reset: false });
+								await refreshAll();
+								featuresBusy = false;
+							};
+						}}
+					>
+						{#each data.features as feature (feature.id)}
+							<label class="row switch">
+								<span class="label">
+									{feature.title}
+									{#if feature.fromEnvironment}
+										<span class="hint hh-muted">Set by {feature.variable} in the environment.</span>
+									{/if}
+								</span>
+								<Switch name={feature.id} checked={feature.on} disabled={feature.fromEnvironment} />
+							</label>
+						{/each}
+						{#if form && 'featuresError' in form && form.featuresError}
+							<p class="hh-muted note-inline" role="alert">{form.featuresError}</p>
+						{:else if form && 'featuresSaved' in form && form.featuresSaved}
+							<p class="hh-muted note-inline" role="status">Saved.</p>
+						{/if}
+						<button class="hh-button" type="submit" disabled={featuresBusy}>{featuresBusy ? 'Saving…' : 'Save'}</button>
+					</form>
+				</section>
+			{/if}
+
+			<section class="hh-card hh-glass group" hidden={shown !== 'history'}>
+				<div class="group-head">
+					<h2>Listening history</h2>
+				</div>
 
 				<label class="row">
-					<span class="label">Cover cache size (MB)</span>
-					{#if server.fromEnvironment.coverCache}
-						<span class="hh-muted control">
-							{server.coverCacheMb.toLocaleString()} MB, set by HEDDOHON_COVER_CACHE_MB in the environment.
-						</span>
-					{:else}
-						<input
-							class="hh-input control"
-							name="coverCacheMb"
-							type="number"
-							min="0"
-							max={server.maxCoverCacheMb}
-							step="1"
-							inputmode="numeric"
-							value={server.coverCacheMb}
-						/>
-					{/if}
+					<span class="label">Keep</span>
+					<Select label="Keep"
+						value={String(historyDays)}
+						onchange={(days) => void keepHistory(Number(days))}
+						options={[
+							{ value: '0', label: 'Forever' },
+							{ value: '90', label: '90 days, up to 5,000 plays' },
+							{ value: '365', label: 'A year, up to 50,000 plays' }
+						]}
+					/>
 				</label>
 
-				{#if form && 'serverError' in form && form.serverError}
-					<p class="hh-muted note-inline" role="alert">{form.serverError}</p>
-				{:else if form && 'serverSaved' in form && form.serverSaved}
-					<p class="hh-muted note-inline" role="status">Saved.</p>
-				{/if}
-				{#if !(server.fromEnvironment.origin && server.fromEnvironment.coverCache)}
-					<button class="hh-button" type="submit">Save</button>
-				{/if}
-			</form>
-		</section>
-	{/if}
-
-	{#if data.features}
-		<section class="hh-card hh-glass group" id="features" hidden={shown !== 'storage'}>
-			<div class="group-head">
-				<h2>Features</h2>
-			</div>
-			<form
-				method="POST"
-				action="?/saveFeatures"
-				use:enhance={() => {
-					featuresBusy = true;
-					return async ({ update }) => {
-						await update({ reset: false });
-						await refreshAll();
-						featuresBusy = false;
-					};
-				}}
-			>
-				{#each data.features as feature (feature.id)}
+				{#if data.plugin}
 					<label class="row switch">
 						<span class="label">
-							{feature.title}
-							{#if feature.fromEnvironment}
-								<span class="hint hh-muted">Set by {feature.variable} in the environment.</span>
+							Plays from other apps
+							{#if !data.plugin.heard}
+								<span class="hint hh-muted">Its Heddohon plugin has not been heard from in the last minute.</span>
 							{/if}
 						</span>
-						<Switch name={feature.id} checked={feature.on} disabled={feature.fromEnvironment} />
+						<Switch checked={historyOtherApps} onchange={(on) => void keepOtherApps(on)} />
 					</label>
-				{/each}
-				{#if form && 'featuresError' in form && form.featuresError}
-					<p class="hh-muted note-inline" role="alert">{form.featuresError}</p>
-				{:else if form && 'featuresSaved' in form && form.featuresSaved}
-					<p class="hh-muted note-inline" role="status">Saved.</p>
 				{/if}
-				<button class="hh-button" type="submit" disabled={featuresBusy}>{featuresBusy ? 'Saving…' : 'Save'}</button>
-			</form>
-		</section>
-	{/if}
 
-	<section class="hh-card hh-glass group" hidden={shown !== 'history'}>
-		<div class="group-head">
-			<h2>Listening history</h2>
-		</div>
+				{#if data.newReleasesOffered}
+					<label class="row switch">
+						<span class="label">New releases on the home page</span>
+						<Switch checked={newReleases} onchange={(on) => void showNewReleases(on)} />
+					</label>
+				{/if}
 
-		<label class="row">
-			<span class="label">Keep</span>
-			<Select label="Keep"
-				value={String(historyDays)}
-				onchange={(days) => void keepHistory(Number(days))}
-				options={[
-					{ value: '0', label: 'Forever' },
-					{ value: '90', label: '90 days, up to 5,000 plays' },
-					{ value: '365', label: 'A year, up to 50,000 plays' }
-				]}
-			/>
-		</label>
+				<div class="history-links">
+					<a class="hh-button" href="/history">
+						<Icon name="history" size={16} />
+						Recently played
+					</a>
+					<a class="hh-button" href="/stats">Your listening</a>
+				</div>
 
-		{#if data.plugin}
-			<label class="row switch">
-				<span class="label">
-					Plays from other apps
-					{#if !data.plugin.heard}
-						<span class="hint hh-muted">Its Heddohon plugin has not been heard from in the last minute.</span>
+				<h3 class="subhead">Export</h3>
+				<label class="row">
+					<span class="label">Format</span>
+					<Select label="Format"
+						bind:value={exportFormat}
+						options={[
+							{ value: 'csv', label: 'CSV' },
+							{ value: 'json', label: 'JSON (ListenBrainz)' }
+						]}
+					/>
+				</label>
+				<label class="row">
+					<span class="label">From</span>
+					<input class="hh-input control" type="date" bind:value={exportFrom} max={exportTo || undefined} />
+				</label>
+				<label class="row">
+					<span class="label">To</span>
+					<input class="hh-input control" type="date" bind:value={exportTo} min={exportFrom || undefined} />
+				</label>
+				<div class="history-links">
+					{#if data.historyCount === 0}
+						<button class="hh-button" type="button" disabled>No listening history</button>
+					{:else if exportRange.wrong}
+						<button class="hh-button" type="button" disabled>The start is after the end</button>
+					{:else}
+						<a class="hh-button" href={exportHref} download>
+							<Icon name="download" size={16} />
+							Download listening history
+						</a>
 					{/if}
-				</span>
-				<Switch checked={historyOtherApps} onchange={(on) => void keepOtherApps(on)} />
-			</label>
-		{/if}
+				</div>
 
-		{#if data.newReleasesOffered}
-			<label class="row switch">
-				<span class="label">New releases on the home page</span>
-				<Switch checked={newReleases} onchange={(on) => void showNewReleases(on)} />
-			</label>
-		{/if}
+				<h3 class="subhead">Import from {data.serverLabel || 'the music server'}</h3>
+				<form
+					method="POST"
+					action="?/importHistory"
+					use:enhance={() => {
+						importingHistory = true;
+						return async ({ update }) => {
+							await update({ reset: false });
+							await refreshAll();
+							importingHistory = false;
+						};
+					}}
+				>
+					<button class="hh-button" type="submit" disabled={importingHistory}>
+						<Icon name="history" size={16} />
+						{importingHistory ? 'Importing…' : 'Import play history'}
+					</button>
+				</form>
+				{#if form && 'historyImportPending' in form && form.historyImportPending}
+					<p class="hh-muted note-inline" role="status">
+						The import is still arriving from Navidrome. Its plays show in Recently played as they come in.
+					</p>
+				{:else if form && 'historyImportFull' in form && form.historyImportFull}
+					<p class="hh-muted note-inline" role="status">
+						{form.historyImported.imported === 0
+							? `Nothing new to import. Navidrome keeps ${form.historyImported.found.toLocaleString()} play${form.historyImported.found === 1 ? '' : 's'}, each already in the history${historyDays === 0 ? '' : ', older than it keeps'} or of a track no longer in the library.`
+							: `Imported ${form.historyImported.imported.toLocaleString()} of the ${form.historyImported.found.toLocaleString()} play${form.historyImported.found === 1 ? '' : 's'} Navidrome keeps.`}
+					</p>
+				{:else if form && 'historyImported' in form && form.historyImported}
+					<p class="hh-muted note-inline" role="status">
+						{form.historyImported.imported === 0
+							? `Nothing new to import. ${form.historyImported.found.toLocaleString()} played track${form.historyImported.found === 1 ? ' was' : 's were'} already in the history${historyDays === 0 ? '' : ' or older than it keeps'}.`
+							: `Imported ${form.historyImported.imported.toLocaleString()} play${form.historyImported.imported === 1 ? '' : 's'} of ${form.historyImported.found.toLocaleString()} played track${form.historyImported.found === 1 ? '' : 's'}.`}
+					</p>
+				{:else if form && 'historyImportError' in form && form.historyImportError}
+					<p class="hh-muted note-inline" role="alert">{form.historyImportError}</p>
+				{/if}
 
-		<div class="history-links">
-			<a class="hh-button" href="/history">
-				<Icon name="history" size={16} />
-				Recently played
-			</a>
-			<a class="hh-button" href="/stats">Your listening</a>
+				<form
+					method="POST"
+					action="?/clearHistory"
+					use:enhance={() => {
+						clearingHistory = true;
+						return async ({ update }) => {
+							await update({ reset: false });
+							await refreshAll();
+							clearingHistory = false;
+						};
+					}}
+				>
+					<button class="hh-button" type="submit" disabled={clearingHistory || data.historyCount === 0}>
+						<Icon name="trash" size={16} />
+						{clearingHistory
+							? 'Clearing…'
+							: data.historyCount === 0
+								? 'No listening history'
+								: `Clear listening history (${data.historyCount.toLocaleString()})`}
+					</button>
+				</form>
+			</section>
+
+			<footer class="about">
+				<span>{data.appName}</span>
+				<span class="hh-numeric">v{data.appVersion}</span>
+			</footer>
 		</div>
-
-		<h3 class="subhead">Export</h3>
-		<label class="row">
-			<span class="label">Format</span>
-			<Select label="Format"
-				bind:value={exportFormat}
-				options={[
-					{ value: 'csv', label: 'CSV' },
-					{ value: 'json', label: 'JSON (ListenBrainz)' }
-				]}
-			/>
-		</label>
-		<label class="row">
-			<span class="label">From</span>
-			<input class="hh-input control" type="date" bind:value={exportFrom} max={exportTo || undefined} />
-		</label>
-		<label class="row">
-			<span class="label">To</span>
-			<input class="hh-input control" type="date" bind:value={exportTo} min={exportFrom || undefined} />
-		</label>
-		<div class="history-links">
-			{#if data.historyCount === 0}
-				<button class="hh-button" type="button" disabled>No listening history</button>
-			{:else if exportRange.wrong}
-				<button class="hh-button" type="button" disabled>The start is after the end</button>
-			{:else}
-				<a class="hh-button" href={exportHref} download>
-					<Icon name="download" size={16} />
-					Download listening history
-				</a>
-			{/if}
-		</div>
-
-		<h3 class="subhead">Import from {data.serverLabel || 'the music server'}</h3>
-		<form
-			method="POST"
-			action="?/importHistory"
-			use:enhance={() => {
-				importingHistory = true;
-				return async ({ update }) => {
-					await update({ reset: false });
-					await refreshAll();
-					importingHistory = false;
-				};
-			}}
-		>
-			<button class="hh-button" type="submit" disabled={importingHistory}>
-				<Icon name="history" size={16} />
-				{importingHistory ? 'Importing…' : 'Import play history'}
-			</button>
-		</form>
-		{#if form && 'historyImportPending' in form && form.historyImportPending}
-			<p class="hh-muted note-inline" role="status">
-				The import is still arriving from Navidrome. Its plays show in Recently played as they come in.
-			</p>
-		{:else if form && 'historyImportFull' in form && form.historyImportFull}
-			<p class="hh-muted note-inline" role="status">
-				{form.historyImported.imported === 0
-					? `Nothing new to import. Navidrome keeps ${form.historyImported.found.toLocaleString()} play${form.historyImported.found === 1 ? '' : 's'}, each already in the history${historyDays === 0 ? '' : ', older than it keeps'} or of a track no longer in the library.`
-					: `Imported ${form.historyImported.imported.toLocaleString()} of the ${form.historyImported.found.toLocaleString()} play${form.historyImported.found === 1 ? '' : 's'} Navidrome keeps.`}
-			</p>
-		{:else if form && 'historyImported' in form && form.historyImported}
-			<p class="hh-muted note-inline" role="status">
-				{form.historyImported.imported === 0
-					? `Nothing new to import. ${form.historyImported.found.toLocaleString()} played track${form.historyImported.found === 1 ? ' was' : 's were'} already in the history${historyDays === 0 ? '' : ' or older than it keeps'}.`
-					: `Imported ${form.historyImported.imported.toLocaleString()} play${form.historyImported.imported === 1 ? '' : 's'} of ${form.historyImported.found.toLocaleString()} played track${form.historyImported.found === 1 ? '' : 's'}.`}
-			</p>
-		{:else if form && 'historyImportError' in form && form.historyImportError}
-			<p class="hh-muted note-inline" role="alert">{form.historyImportError}</p>
-		{/if}
-
-		<form
-			method="POST"
-			action="?/clearHistory"
-			use:enhance={() => {
-				clearingHistory = true;
-				return async ({ update }) => {
-					await update({ reset: false });
-					await refreshAll();
-					clearingHistory = false;
-				};
-			}}
-		>
-			<button class="hh-button" type="submit" disabled={clearingHistory || data.historyCount === 0}>
-				<Icon name="trash" size={16} />
-				{clearingHistory
-					? 'Clearing…'
-					: data.historyCount === 0
-						? 'No listening history'
-						: `Clear listening history (${data.historyCount.toLocaleString()})`}
-			</button>
-		</form>
-	</section>
-
-	<footer class="about">
-		<span>{data.appName}</span>
-		<span class="hh-numeric">v{data.appVersion}</span>
-	</footer>
+	</div>
 </div>
 
 <style>
 	.page {
 		display: grid;
 		gap: var(--space-5);
+		max-width: 60rem;
+		/* The side list follows the page's own width, which the rail and a
+		   docked player take from, not the window's. */
+		container-type: inline-size;
+	}
+
+	.layout,
+	.body {
+		display: grid;
+		gap: var(--space-5);
+	}
+
+	.body {
+		min-width: 0;
 		max-width: 46rem;
+	}
+
+	.side {
+		display: grid;
+		gap: var(--space-4);
+		align-content: start;
+	}
+
+	/* Under the side list only; on a narrow page the chips hold the sections. */
+	.sub {
+		display: none;
 	}
 
 	header {
@@ -2247,6 +2294,17 @@
 		overflow-x: auto;
 		/* On a narrow phone the row scrolls sideways. */
 		scrollbar-width: none;
+	}
+
+	/* Five tabs across a phone: at 0.8rem a side, Server was off the edge at 390px. */
+	@media (max-width: 30rem) {
+		.tabs {
+			justify-content: space-between;
+		}
+
+		.tabs .tab {
+			padding-inline: 0.3rem;
+		}
 	}
 
 	/* The sections of the chosen tab, where it has more than one. */
@@ -2827,12 +2885,72 @@
 		}
 	}
 
+	/* After the tabs' and the chips' own rules, which it overrides. */
+	/*
+	 * A wide page: the tabs are a list down the side, the open group's sections
+	 * indented under it, and the settings beside them. 11rem holds
+	 * "Connections" and "Shared links" on one line each.
+	 */
+	@container (min-width: 50rem) {
+		.layout {
+			grid-template-columns: 11rem minmax(0, 46rem);
+			gap: var(--space-7);
+			align-items: start;
+		}
+
+		.side {
+			position: sticky;
+			top: var(--space-5);
+		}
+
+		.tabs {
+			flex-direction: column;
+			gap: 2px;
+			padding: 0 var(--space-3) 0 0;
+			border-bottom: 0;
+			border-right: 1px solid var(--border-hairline);
+			overflow: visible;
+		}
+
+		.tab {
+			padding: 0.45rem 0.75rem;
+			border-radius: var(--r-md);
+		}
+
+		.tab.active {
+			background: color-mix(in srgb, var(--accent) 14%, transparent);
+		}
+
+		.sub {
+			display: block;
+			padding: 0.3rem 0.75rem 0.3rem 1.5rem;
+			border-radius: var(--r-md);
+			color: var(--text-faint);
+			font-size: 0.8125rem;
+			white-space: nowrap;
+			transition: color var(--transition);
+		}
+
+		.sub:hover {
+			color: var(--text-default);
+		}
+
+		.sub.active {
+			color: var(--text-strong);
+		}
+
+		.chips {
+			display: none;
+		}
+	}
+
 	/* ── Terminal ────────────────────────────────────────────────────────────── */
 
 	/* The tab that is open: the accent, on a rule of it. The other themes light
 	   the label, and this one has no glow to do it with. */
+	/* The buttons' corner: Terminal's pill radius is 3px, which reads as square. */
 	:global([data-theme='terminal']) .chip {
-		border-radius: 0;
+		border-radius: var(--r-md);
 	}
 
 	:global([data-theme='terminal']) .chip.active {
@@ -2840,8 +2958,19 @@
 	}
 
 	:global([data-theme='terminal']) .tab.active {
-		border-radius: 0;
 		color: var(--accent);
 		box-shadow: inset 0 -2px 0 var(--accent);
+	}
+
+	/* In the side list the open tab is a rounded block of the accent, as the
+	   buttons are, with the rule along its left edge. */
+	@container (min-width: 50rem) {
+		:global([data-theme='terminal']) .tab.active {
+			box-shadow: inset 2px 0 0 var(--accent);
+		}
+
+		:global([data-theme='terminal']) .sub.active {
+			color: var(--accent);
+		}
 	}
 </style>
