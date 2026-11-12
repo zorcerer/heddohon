@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { notices } from '#lib/client/notices.svelte.ts';
 	import { enhance, type SubmitFunction } from '$app/forms';
-	import { refreshAll, goto } from '$app/navigation';
+	import { afterNavigate, refreshAll, goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { untrack } from 'svelte';
 	import Cover from '#lib/components/Cover.svelte';
@@ -406,6 +406,16 @@
 	}
 
 	let tab = $state<Tab>(untrack(() => tabFrom(page.url)));
+	// A navigation to Settings while it is open (`cd settings/security` on the
+	// command line) keeps this component, so the section is read again from the
+	// address it went to. From `to` and not `page.url`: a tab's own switch is a
+	// shallow navigation, which comes through here too and leaves `page.url`
+	// where it was, so reading that put every switch back. Only an address that
+	// names a section: a form's answer comes back to `/settings` bare, and
+	// unlinking Last.fm put the page on Appearance.
+	afterNavigate(({ type, to }) => {
+		if (type !== 'enter' && to?.url.searchParams.has('tab')) tab = tabFrom(to.url);
+	});
 	// A link to a section that is not offered: sharing off with no links left, or AI with nothing to show.
 	const shown = $derived<Tab>(offered(tab) ? tab : 'appearance');
 	const group = $derived(groups.find((entry) => entry.sections.some((section) => section.id === shown)) ?? groups[0]);

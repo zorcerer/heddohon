@@ -10,6 +10,7 @@ import { goto, refreshAll } from '$app/navigation';
 import { playContainer, playInstantMix, queueContainer } from './actions';
 import { setStarred } from './favourites.svelte';
 import { player } from './player.svelte';
+import { EQ_PRESETS, processing } from './processing.svelte';
 import { ratingOf, setRating } from './ratings.svelte';
 import type { Album, Artist, SearchResults, Song } from '#lib/types.ts';
 
@@ -93,6 +94,26 @@ export const PLACES = [
 	'settings'
 ] as const;
 
+/**
+ * The sections of Settings, by the name its address and the path strip give
+ * them (`?tab=` in `routes/settings/+page.svelte`), so the strip's
+ * `~/settings/security` is a place `cd` goes.
+ */
+export const SETTINGS_SECTIONS = [
+	'appearance',
+	'playback',
+	'account',
+	'security',
+	'history',
+	'connections',
+	'ai',
+	'sharing',
+	'storage'
+] as const;
+
+/** What `eq` takes: a preset, or the switch for audio processing. */
+export const EQ_WORDS = ['on', 'off', ...Object.keys(EQ_PRESETS)] as const;
+
 /** The themes, and Terminal's colour schemes, as Settings offers them (`SCHEMES` in `settings.ts`). */
 export const THEMES = ['terminal', 'liquid', 'paper', 'phosphor'] as const;
 export const SCHEMES = [
@@ -109,7 +130,7 @@ export const SCHEMES = [
 ] as const;
 
 /** What a command's argument is, for what the line suggests as it is typed. */
-export type Takes = 'search' | 'place' | 'theme' | 'scheme' | null;
+export type Takes = 'search' | 'place' | 'theme' | 'scheme' | 'eq' | null;
 
 export interface Context {
 	/** The library search, as `/api/search` answers. */
@@ -369,7 +390,7 @@ export const COMMANDS: Command[] = [
 	{
 		name: 'cd',
 		aliases: ['go'],
-		usage: 'cd <albums|artists|…|..|~>',
+		usage: 'cd <albums|artists|…|settings/<section>|..|~>',
 		help: 'Goes to a page of the library. Alone, or ~, home; .. one up.',
 		takes: 'place',
 		async run(arg, context) {
@@ -382,6 +403,14 @@ export const COMMANDS: Command[] = [
 				const up = context.path.split('/').filter(Boolean).slice(0, -1);
 				await goto(`/${up.join('/')}`);
 				return `~/${up.join('/')}`;
+			}
+			const [place, section] = to.split('/');
+			if (place === 'settings' && section) {
+				if (!(SETTINGS_SECTIONS as readonly string[]).includes(section)) {
+					throw new Refused(`Settings has ${SETTINGS_SECTIONS.join(', ')}.`);
+				}
+				await goto(`/settings?tab=${section}`);
+				return `~/settings/${section}`;
 			}
 			if (!(PLACES as readonly string[]).includes(to)) throw new Refused(`There is no ${to}. Try ${PLACES.slice(0, 4).join(', ')}…`);
 			await goto(`/${to}`);
@@ -398,6 +427,29 @@ export const COMMANDS: Command[] = [
 			if (!arg.trim()) throw new Refused('Give the words to search for.');
 			await goto(`/search?q=${encodeURIComponent(arg.trim())}`);
 			return `searching for ${arg.trim()}`;
+		}
+	},
+	{
+		name: 'eq',
+		usage: 'eq <on|off|flat|bass|treble|vocal|loudness>',
+		help: "Switches this browser's audio processing, or sets the equaliser to a preset.",
+		takes: 'eq',
+		async run(arg) {
+			const word = arg.trim().toLowerCase();
+			if (word === 'off') {
+				processing.setEnabled(false);
+				// An element cannot leave the graph; see `processing.svelte.ts`.
+				return player.processing ? 'processing off from the next page load' : 'processing off';
+			}
+			if (word === 'on') {
+				processing.setEnabled(true);
+				return 'processing on';
+			}
+			if (!Object.hasOwn(EQ_PRESETS, word)) throw new Refused(`eq takes ${EQ_WORDS.join(', ')}.`);
+			if (processing.bandsOff) throw new Refused('A headphone correction is set; the bands follow it.');
+			if (!processing.enabled) processing.setEnabled(true);
+			processing.applyPreset(word);
+			return `equaliser ${EQ_PRESETS[word].label.toLowerCase()}`;
 		}
 	},
 	{
