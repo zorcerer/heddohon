@@ -10,6 +10,22 @@ It is being built a piece at a time. Nothing here runs unless a server turns
 sound analysis on, and the played audio is never touched: the analysis reads
 a decoded copy of an excerpt.
 
+## Turning it on and off
+
+`HEDDOHON_ANALYSIS=true` in the environment, or the switch under Settings,
+Server, Features (and the first-run setup), as for the other optional
+features (`features.ts`). Set in the environment, it is decided there and the
+switch is locked. Off:
+
+- nothing of it runs, and `openSource` answers null;
+- Settings shows no Sound analysis card, and naming an account is refused;
+- an account already named stays sealed in `meta`, unused, and is still
+  refused at sign-in;
+- `analysis.db` stays where it is, and can be deleted.
+
+New code that runs analysis work checks `config().analysis` first, or gets
+its source from `openSource`, which does.
+
 ## The lines it stays inside
 
 Heddohon is a player in front of the music server, and the analysis keeps to
@@ -32,6 +48,7 @@ server's**):
 | `decode.ts` | A song's bytes to an excerpt of samples, through ffmpeg on a pipe. | no |
 | `source.ts` | `AnalysisSource`: lists songs and reads one song's audio. Nothing else. | no |
 | `store.ts` | `analysis.db`: one row a song, stale when the file or the analysis changes. | no |
+| `account.ts` | The analysis account: kept sealed, checked, refused at sign-in. The only opener of its login. | yes |
 
 The four take what they need as arguments (samples, a stream, a file path, an
 adapter), so each is tested by importing it directly, without starting the
@@ -50,12 +67,37 @@ analyse(samples, rate)    the numbers
 store.put(song, numbers)  or store.fail(song, why)
 ```
 
+## The analysis account: rules not to break
+
+The analysis runs with nobody's request behind it, so it reads the library as
+an account of its own, which an administrator makes on the music server and
+names under Settings, Server. [SECURITY.md](../../../../SECURITY.md), **Sound
+analysis**, has the reasoning. In the code:
+
+- **Only `account.ts` opens its login**, and only `openSource` does it, handing
+  out an `AnalysisSource`. Do not export the credential, do not name the
+  sealing purpose anywhere else, and do not build an `AnalysisSource` outside
+  `account.ts`. `tests/e2e/analysis-account.test.mjs` fails if you do.
+- **Do not give it a session**, a row in `accounts`, a token or a link. It is
+  not a Heddohon account, and sign-in refuses it (`login/+page.server.ts`, and
+  the Quick Connect poll). A new way of signing in has to refuse it too:
+  check `isAnalysisAccount` before anything is stored.
+- **Do not widen `AnalysisSource`.** Listing songs and reading one song's
+  original bytes is all the analysis needs from the music server. Anything
+  else it needs to show belongs to the asking account's own request.
+- **What is shown is checked per account.** Results are shared; a song from
+  them is looked up with the asking account's own login before it is shown.
+- **Saving keeps the checks**: an administrator, an account that cannot play,
+  one the server will not describe, and a name with a Heddohon account of its
+  own are all refused.
+
 ## Running the tests
 
 ```bash
 node --test tests/e2e/analysis-features.test.mjs   # the measurements, on signals with known answers
 node --test tests/e2e/analysis-store.test.mjs      # analysis.db
 node --test tests/e2e/analysis-decode.test.mjs     # the source and the decode
+npm run build && node --test tests/e2e/analysis-account.test.mjs   # the account, against the built app
 ```
 
 They need Node 22.18 or later, which runs TypeScript with its types stripped,

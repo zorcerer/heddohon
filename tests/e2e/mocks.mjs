@@ -98,7 +98,10 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 		username: 'testuser',
 		password: 'testpass',
 		/** More accounts on the same server, by name, each with its password. */
-		others: new Map([['seconduser', 'secondpass']]),
+		others: new Map([
+			['seconduser', 'secondpass'],
+			['analyst', 'analyst-pass']
+		]),
 		/** Song ids one account cannot read, by its name: `getSong` answers error 70, as for a library it has no access to. */
 		hidden: new Map(),
 		starred: new Map([
@@ -165,6 +168,14 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 		coverPadding: 0,
 		/** What `getUser` says of the account: `adminRole`. */
 		admin: true,
+		/**
+		 * What `getUser` says of the other accounts, by name, over an ordinary
+		 * account's roles (`streamRole` and nothing more). `null` for a name
+		 * makes `getUser` fail, as a server that will not say.
+		 */
+		roles: new Map(),
+		/** Every name a request signed in as, in order, accepted or not. */
+		seen: [],
 		/** Songs on each album from `getAlbum`, up to 26: `s1a`, `s1b`, `s1c` and on. */
 		albumSongs: 2,
 		/**
@@ -360,6 +371,7 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 			if (state.loginFailing) return reply(503, { error: 'Service Unavailable' });
 			// The same accounts the Subsonic side signs in, and the same
 			// passwords: a Navidrome has one user list.
+			state.seen.push(sent.username);
 			const expected = sent.username === state.username ? state.password : state.others.get(sent.username);
 			if (expected === undefined || sent.password !== expected) {
 				return reply(401, { error: 'Invalid username or password' });
@@ -486,6 +498,7 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 			res.end(JSON.stringify(body));
 		};
 
+		state.seen.push(p.get('u'));
 		const password = p.get('u') === state.username ? state.password : state.others.get(p.get('u'));
 		// As text: with no user and no salt the sum is a number, which the hash refuses.
 		const expected = createHash('md5').update(`${password}${p.get('s')}`).digest('hex');
@@ -758,7 +771,13 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 				}
 				return send(ok({ randomSongs: { song: [song(1, 'a'), song(2, 'a')] } }));
 			case 'getUser':
-				return send(ok({ user: { username: state.username, adminRole: state.admin } }));
+				{
+					const asked = p.get('username') ?? p.get('u');
+					if (asked === state.username) return send(ok({ user: { username: state.username, adminRole: state.admin, streamRole: true } }));
+					const roles = state.roles.get(asked);
+					if (roles === null) return send(failed(50, 'Not authorized'));
+					return send(ok({ user: { username: asked, adminRole: false, streamRole: true, ...roles } }));
+				}
 			case 'getCoverArt': {
 				// Navidrome names a song's cover `mf-` and the song's id. The
 				// mock's songs carry their album's cover, which is the id its

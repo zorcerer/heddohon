@@ -540,6 +540,23 @@ async function libraryIndex(cred: StoredCredential, musicFolderId: string | null
 /** Songs a page of `getPlayedSongs` reads. */
 const PLAYED_PAGE = 500;
 
+/**
+ * The roles of `getUser` beyond playing, in words for an administrator
+ * (`accountRights`). Navidrome gives every account `playlistRole`, and
+ * `downloadRole` and `shareRole` by its own settings, not per account.
+ */
+const SUBSONIC_EXTRA_ROLES: readonly (readonly [string, string])[] = [
+	['settingsRole', 'change settings'],
+	['uploadRole', 'upload'],
+	['downloadRole', 'download'],
+	['shareRole', 'share'],
+	['playlistRole', 'edit playlists'],
+	['coverArtRole', 'change cover art'],
+	['commentRole', 'comment'],
+	['podcastRole', 'manage podcasts'],
+	['jukeboxRole', 'use the jukebox']
+];
+
 const SORT_TO_LIST_TYPE: Record<AlbumQuery['sort'], string> = {
 	recentlyAdded: 'newest',
 	recentlyPlayed: 'recent',
@@ -596,6 +613,18 @@ export const subsonicBackend: MediaBackend = {
 		} catch {
 			return null;
 		}
+	},
+
+	async accountRights(cred) {
+		if (cred.kind !== 'subsonic') throw new Error('Wrong credential kind for the Subsonic backend');
+		const body = await call<{ user?: Record<string, unknown> }>(cred, 'getUser.view', { username: cred.username });
+		const user = body.user ?? {};
+		const flag = (name: string) => (typeof user[name] === 'boolean' ? (user[name] as boolean) : null);
+		return {
+			admin: flag('adminRole'),
+			stream: flag('streamRole'),
+			extra: SUBSONIC_EXTRA_ROLES.filter(([role]) => user[role] === true).map(([, words]) => words)
+		};
 	},
 
 	async getAlbums(cred, query) {

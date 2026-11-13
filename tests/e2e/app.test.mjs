@@ -5092,6 +5092,7 @@ describe('optional features', () => {
 				discord: 'off',
 				listenbrainz: 'off',
 				mcp: 'off',
+				analysis: 'off',
 				// The one on until switched off.
 				profiles: 'on'
 			});

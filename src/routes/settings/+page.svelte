@@ -648,6 +648,26 @@
 	/** The MCP token form waiting on the server: `make`, or the id of one being withdrawn. */
 	let mcpBusy = $state<string | null>(null);
 	let featuresBusy = $state(false);
+	/** The sound analysis account's form: waiting on the server, and the password typed or suggested. */
+	let analysisBusy = $state(false);
+	let analysisPassword = $state('');
+
+	/**
+	 * 32 letters and digits from the browser's own random source, about 190
+	 * bits, to set on the account on the music server before saving. Shown in
+	 * the field so it can be copied; once saved it is not shown again.
+	 */
+	function suggestAnalysisPassword() {
+		const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
+		let out = '';
+		while (out.length < 32) {
+			// Bytes from 228 up are thrown away, so every character is as likely.
+			for (const byte of crypto.getRandomValues(new Uint8Array(48))) {
+				if (byte < 228 && out.length < 32) out += alphabet[byte % alphabet.length];
+			}
+		}
+		analysisPassword = out;
+	}
 
 	function mcpSubmit(busy: string): SubmitFunction {
 		return () => {
@@ -2109,6 +2129,89 @@
 						{/if}
 						<button class="hh-button" type="submit" disabled={featuresBusy}>{featuresBusy ? 'Saving…' : 'Save'}</button>
 					</form>
+				</section>
+			{/if}
+
+			{#if data.analysis}
+				<!--
+					The account sound analysis reads the library as (`analysis/account.ts`).
+					Its password goes to the server once and is not shown again.
+				-->
+				<section class="hh-card hh-glass group" id="analysis" hidden={shown !== 'storage'}>
+					<div class="group-head">
+						<h2>Sound analysis</h2>
+					</div>
+					{#if data.analysis.account}
+						<div class="row">
+							<span class="label">Reads the library as</span>
+							<span class="hh-numeric">{data.analysis.account.username}</span>
+						</div>
+						<div class="row">
+							<span class="label">Named by</span>
+							<span>{data.analysis.account.savedBy}, {new Date(data.analysis.account.savedAt).toLocaleDateString()}</span>
+						</div>
+						{#if data.analysis.account.extra.length > 0}
+							<p class="hh-muted note-inline" role="note">
+								The music server lets this account {data.analysis.account.extra.join(', ')}. The analysis needs none of it: take
+								it away on the music server.
+							</p>
+						{/if}
+						<form
+							method="POST"
+							action="?/removeAnalysisAccount"
+							use:enhance={() => {
+								analysisBusy = true;
+								return async ({ update }) => {
+									await update({ reset: false });
+									await refreshAll();
+									analysisBusy = false;
+								};
+							}}
+						>
+							<button class="hh-button" type="submit" disabled={analysisBusy}>Remove</button>
+						</form>
+					{:else}
+						<form
+							method="POST"
+							action="?/saveAnalysisAccount"
+							autocomplete="off"
+							use:enhance={() => {
+								analysisBusy = true;
+								return async ({ update }) => {
+									await update({ reset: true });
+									await refreshAll();
+									analysisBusy = false;
+								};
+							}}
+						>
+							<label class="row">
+								<span class="label">Account on the music server</span>
+								<input
+									class="hh-input"
+									name="username"
+									autocomplete="off"
+									spellcheck="false"
+									value={form && 'analysisUsername' in form ? form.analysisUsername : ''}
+									required
+								/>
+							</label>
+							<label class="row">
+								<span class="label">Password</span>
+								<input class="hh-input" name="password" type="text" autocomplete="new-password" spellcheck="false" bind:value={analysisPassword} required />
+							</label>
+							<button class="hh-button" type="button" onclick={suggestAnalysisPassword}>Suggest a password</button>
+							<button class="hh-button hh-button--primary" type="submit" disabled={analysisBusy}>{analysisBusy ? 'Checking…' : 'Save'}</button>
+						</form>
+						<p class="hh-muted note-inline" role="note">
+							An ordinary account, made for this alone: not an administrator, and not one anyone signs in with. It can still sign in
+							to the music server's own apps, which Heddohon cannot prevent, so give it a long password nobody knows.
+						</p>
+					{/if}
+					{#if form && 'analysisError' in form && form.analysisError}
+						<p class="hh-muted note-inline" role="alert">{form.analysisError}</p>
+					{:else if form && 'analysisSaved' in form && form.analysisSaved}
+						<p class="hh-muted note-inline" role="status">Saved.</p>
+					{/if}
 				</section>
 			{/if}
 

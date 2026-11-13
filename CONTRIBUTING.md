@@ -148,7 +148,9 @@ behaviour decision, not a refactor: raise it in the issue first.
   Upstream addresses come from configuration alone, never from a request.
 - **A stored credential is used within the request that opened it.** Work
   that goes on after a response (a background refresh, a timer) must not hold
-  one.
+  one. The exceptions are recorded in [SECURITY.md](SECURITY.md): the cover
+  fill, and sound analysis, which reads as an account of its own opened only
+  in `src/lib/server/analysis/account.ts`.
 - **Every write passes the origin check** in `hooks.server.ts`, with no path
   condition. Do not add exemptions.
 - **Every route is private** unless listed in `PUBLIC_ROUTES` in
@@ -163,7 +165,8 @@ behaviour decision, not a refactor: raise it in the issue first.
   `data:` URLs. Serve an asset from the app, or proxy it.
 - **The music server decides what an account may see.** Calls use the
   account's own credential, and anything cached from the library is keyed by
-  account.
+  account. Sound analysis's results are shared between accounts; anything
+  shown from them is looked up with the asking account's own login first.
 - **Input is bounded.** An API route checks every field by type and size; a
   new bound goes in the **Input bounds** table in [SECURITY.md](SECURITY.md).
 

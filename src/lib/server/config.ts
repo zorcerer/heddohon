@@ -116,6 +116,14 @@ export interface AppConfig {
 	 */
 	mcp: boolean;
 	/**
+	 * Whether the server may measure how songs sound (loudness, tempo, key and
+	 * a vector for "sounds like"), reading the library as an analysis account
+	 * an administrator gives it; see `analysis/README.md`. Off, nothing of it
+	 * runs and its card in Settings is not shown; a saved analysis account
+	 * stays sealed and unused.
+	 */
+	analysis: boolean;
+	/**
 	 * Whether every account must have a second factor (a TOTP app or a
 	 * passkey) to use the app; see `twofactor.ts`. An account without one is
 	 * held to setting it up.
@@ -183,6 +191,7 @@ export const SETUP_NAMES = [
 	'HEDDOHON_DISCORD',
 	'HEDDOHON_LISTENBRAINZ',
 	'HEDDOHON_MCP',
+	'HEDDOHON_ANALYSIS',
 	'HEDDOHON_REQUIRE_TWO_FACTOR',
 	'HEDDOHON_PROFILES',
 	'HEDDOHON_COVER_CACHE_MB',
@@ -657,6 +666,9 @@ function build(): AppConfig {
 		// Off unless asked for: what an assistant reads through it reaches the
 		// provider of the assistant's model, which is a third party.
 		mcp: flagEnv('HEDDOHON_MCP', false),
+		// Off unless asked for: it holds an account's login on the music server
+		// with no request behind it, and takes about a second of one core a song.
+		analysis: flagEnv('HEDDOHON_ANALYSIS', false),
 		requireTwoFactor: flagEnv('HEDDOHON_REQUIRE_TWO_FACTOR', false),
 		oidc: oidcConfig(),
 		profiles: flagEnv('HEDDOHON_PROFILES', true),
@@ -789,6 +801,7 @@ export function config(): AppConfig {
 			radioPrivate: false,
 			navidromePluginToken: null,
 			mcp: false,
+			analysis: false,
 			requireTwoFactor: false,
 			oidc: null,
 			profiles: true,

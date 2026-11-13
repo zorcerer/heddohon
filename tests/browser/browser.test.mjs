@@ -6660,7 +6660,7 @@ describe('the settings tabs', () => {
 			await page.goto(app.url + '/settings', { waitUntil: 'networkidle' });
 			const tabs = page.getByRole('navigation', { name: 'Settings' });
 			const heading = (name) => page.getByRole('heading', { name, exact: true });
-			assert.equal(await tabs.getByRole('link', { name: 'Look' }).getAttribute('aria-current'), 'page');
+			assert.equal(await tabs.getByRole('link', { name: 'Look', exact: true }).getAttribute('aria-current'), 'page');
 			assert.ok(await heading('Appearance').isVisible());
 			for (const name of ['Playback', 'Transcoding', 'Session & security', 'Cover cache']) {
 				assert.equal(await heading(name).isVisible(), false, `${name} shows on the Appearance tab`);
@@ -6669,7 +6669,9 @@ describe('the settings tabs', () => {
 			// A switch reads nothing from the server.
 			let fetched = 0;
 			page.on('request', (request) => {
-				if (request.url().includes('/settings') && request.resourceType() !== 'image') {
+				// The page or its data, not the PATCH that marks features seen when
+				// the Server tab opens on one an administrator has not looked at.
+				if (new URL(request.url()).pathname.startsWith('/settings') && request.resourceType() !== 'image') {
 					fetched++;
 				}
 			});
@@ -6680,7 +6682,7 @@ describe('the settings tabs', () => {
 			assert.equal(fetched, 0, 'the tab switch asked the server for the page');
 
 			// Saving from Appearance keeps what the Playback tab holds.
-			await tabs.getByRole('link', { name: 'Look' }).click();
+			await tabs.getByRole('link', { name: 'Look', exact: true }).click();
 			await autosaved(page, () => pick(select(page, 'theme'), 'light'));
 			await page.getByText('Settings saved.').waitFor();
 			const saved = await (await context.request.get(`${app.url}/api/settings`)).json();
@@ -8212,7 +8214,7 @@ describe('the first-run setup page', () => {
 });
 
 describe('features that are off', () => {
-	const ALL = ['newReleases', 'lrclib', 'autoeq', 'discord', 'listenbrainz', 'mcp', 'profiles'];
+	const ALL = ['newReleases', 'lrclib', 'autoeq', 'discord', 'listenbrainz', 'mcp', 'analysis', 'profiles'];
 	const seen = (featuresSeen) => context.request.patch(`${app.url}/api/settings`, { data: { featuresSeen }, headers: { origin: app.url } });
 
 	test('an administrator sees a dot on Settings until the Server tab is opened, and the tab switches them', async () => {
