@@ -1,3 +1,4 @@
+import { startAnalysisJob, stopAnalysisJob } from '#lib/server/analysis/job.ts';
 import { isRedirect, redirect, type RequestEvent } from '@sveltejs/kit';
 import type { Handle, HandleServerError, ServerInit } from '@sveltejs/kit/hooks';
 import { building, version } from '$app/env';
@@ -177,6 +178,8 @@ export const init: ServerInit = () => {
 		// A misconfiguration. The first request reports it.
 	}
 	exitOnShutdown();
+	// Rests a minute at a time while sound analysis is off; see `analysis/job.ts`.
+	startAnalysisJob();
 };
 
 /**
@@ -193,7 +196,9 @@ function exitOnShutdown() {
 	if (marked.__heddohonExitOnShutdown) return;
 	marked.__heddohonExitOnShutdown = true;
 	process.once('sveltekit:shutdown' as 'exit', () => {
-		void closeStore()
+		void stopAnalysisJob()
+			.catch((err) => log.error('analysis-stop-failed', { detail: reason(err) }))
+			.then(() => closeStore())
 			.catch((err) => log.error('database-close-failed', { detail: reason(err) }))
 			.finally(() => process.exit(0));
 	});

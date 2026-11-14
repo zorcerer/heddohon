@@ -189,6 +189,49 @@ const targets = {
  * `upgrade-insecure-requests` is absent: a plain-http deployment is supported
  * (see `HEDDOHON_COOKIE_SECURE`), and upgrading would break it.
  */
+/*
+ * The sound analysis worker (`src/lib/server/analysis/worker.ts`), built as a
+ * file of its own beside the server, `build/server/analysis-worker.js`, and
+ * its address, as `import workerUrl from 'virtual:analysis-worker'`.
+ *
+ * A `worker_threads` worker runs a file, and the server is bundled: `new
+ * URL('./worker.ts', import.meta.url)` was left pointing at a source file the
+ * build does not have. So the worker is emitted as a chunk of its own, and
+ * its address written relative to whichever chunk imports it, once that
+ * chunk's place is known (`renderChunk`). Rolldown writes Rollup's
+ * `import.meta.ROLLUP_FILE_URL_` as a web path (`/analysis-worker.js`) and
+ * has no `resolveFileUrl` to change that (Vite 8, measured 2026-11-14).
+ *
+ * In development the address is the source file, which Node runs with its
+ * types stripped.
+ */
+const WORKER_ID = 'virtual:analysis-worker';
+const WORKER_FILE = 'analysis-worker.js';
+const WORKER_PLACE = '__HEDDOHON_ANALYSIS_WORKER__';
+function analysisWorker(): import('vite').Plugin {
+	const worker = join(import.meta.dirname, 'src/lib/server/analysis/worker.ts');
+	return {
+		name: 'heddohon-analysis-worker',
+		resolveId(id) {
+			if (id === WORKER_ID) return '\0' + WORKER_ID;
+		},
+		load(id) {
+			if (id !== '\0' + WORKER_ID) return;
+			if (this.environment?.config.consumer === 'server' && this.environment.mode === 'build') {
+				this.emitFile({ type: 'chunk', id: worker, fileName: WORKER_FILE });
+				return `export default new URL(${JSON.stringify(WORKER_PLACE)}, import.meta.url);`;
+			}
+			return `export default new URL(${JSON.stringify('file://' + worker)});`;
+		},
+		renderChunk(code, chunk) {
+			if (!code.includes(WORKER_PLACE)) return null;
+			const depth = chunk.fileName.split('/').length - 1;
+			const path = (depth === 0 ? './' : '../'.repeat(depth)) + WORKER_FILE;
+			return { code: code.replaceAll(WORKER_PLACE, path), map: null };
+		}
+	};
+}
+
 export default defineConfig({
 	css: { lightningcss: { targets } },
 	/*
@@ -199,6 +242,7 @@ export default defineConfig({
 	 */
 	build: { cssMinify: 'lightningcss', assetsInlineLimit: 0 },
 	plugins: [
+		analysisWorker(),
 		tailwindcss(),
 		sveltekit({
 			compilerOptions: {

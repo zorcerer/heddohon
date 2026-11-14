@@ -1,3 +1,4 @@
+import { wakeAnalysisJob } from '#lib/server/analysis/job.ts';
 import { AnalysisAccountRefused, analysisAccountStatus, removeAnalysisAccount, saveAnalysisAccount } from '#lib/server/analysis/account.ts';
 import { fail } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
@@ -283,6 +284,7 @@ export const actions: Actions = {
 			if (wanted) on.push(feature.id);
 		}
 		saveSetup(values);
+		wakeAnalysisJob();
 		await saveSettings(session.account.id, { featuresSeen: [...FEATURE_IDS] });
 		log.warn('features-switched', { by: session.account.username, on: on.join(',') || 'none' });
 		return { featuresSaved: true };
@@ -305,6 +307,7 @@ export const actions: Actions = {
 		const password = String(form.get('password') ?? '').slice(0, 1000);
 		try {
 			await saveAnalysisAccount(session.account.backend, username, password, session.account.username);
+			wakeAnalysisJob();
 		} catch (err) {
 			if (err instanceof AnalysisAccountRefused) return fail(400, { analysisError: err.message, analysisUsername: username });
 			throw err;
@@ -320,6 +323,7 @@ export const actions: Actions = {
 			return fail(403, { analysisError: 'Only an administrator of the music server can change this.' });
 		}
 		await removeAnalysisAccount(session.account.backend, session.account.username);
+		wakeAnalysisJob();
 		return { analysisRemoved: true };
 	},
 

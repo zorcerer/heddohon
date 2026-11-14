@@ -100,6 +100,17 @@ describe('decoding a song for analysis', { skip: skip || noFfmpeg }, () => {
 		assert.ok(Math.abs(rms(samples) - 0.4 / Math.SQRT2) < 0.01, `rms ${rms(samples)}`);
 	});
 
+	test('reads from the start when asked, whatever length the music server reported', async () => {
+		const { stream } = streamOf(wav([[20, 440, 0.2]]));
+		const samples = await decodeExcerpt(stream, { ffmpeg, duration: 300, fromStart: true });
+		assert.ok(Math.abs(samples.length - 20 * ANALYSIS_RATE) < ANALYSIS_RATE / 10, `${samples.length} samples`);
+	});
+
+	test('says a file shorter than the music server reported decodes to nothing from 30 seconds in', async () => {
+		const { stream } = streamOf(wav([[20, 440, 0.2]]));
+		await assert.rejects(decodeExcerpt(stream, { ffmpeg, duration: 300 }), (err) => err instanceof DecodeError && err.kind === 'empty');
+	});
+
 	test('takes a song shorter than the excerpt whole, from its start', async () => {
 		const { stream } = streamOf(wav([[20, 440, 0.2]]));
 		const samples = await decodeExcerpt(stream, { ffmpeg, duration: 20 });
