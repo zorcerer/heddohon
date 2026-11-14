@@ -1,6 +1,8 @@
 /**
- * The optional parts of the server that are off until someone turns them on,
- * each of which sends something to a third party or opens something to one.
+ * The optional parts of the server that are off until someone turns them on.
+ * Each sends something to a third party or opens something to one, but sound
+ * analysis, which is here for what it holds and costs: an account's login on
+ * the music server, and the processor.
  * An administrator of the music server switches them under Settings,
  * Features, and the first-run setup offers them; both save the variable to
  * `setup.json` (`SETUP_NAMES`). A variable set in the environment decides it
@@ -18,7 +20,7 @@
  */
 import { config, fromEnvironment, type AppConfig, type SetupName } from './config';
 
-export const FEATURE_IDS = ['newReleases', 'lrclib', 'autoeq', 'discord', 'listenbrainz', 'mcp', 'profiles'] as const;
+export const FEATURE_IDS = ['newReleases', 'lrclib', 'autoeq', 'discord', 'listenbrainz', 'mcp', 'analysis', 'profiles'] as const;
 export type FeatureId = (typeof FEATURE_IDS)[number];
 
 interface Feature {
@@ -79,6 +81,14 @@ export const FEATURES: readonly Feature[] = [
 		detail:
 			'Each account can make a token for an AI assistant, which then reads its library and, if the token allows it, changes its playlists. What it reads goes to whoever runs its model.',
 		on: (cfg) => cfg.mcp
+	},
+	{
+		id: 'analysis',
+		variable: 'HEDDOHON_ANALYSIS',
+		title: 'Sound analysis',
+		detail:
+			'The server measures how each song sounds, once, to level volume and find songs that sound alike. It reads the library as an account you make for it on the music server and name under Settings, Server, and takes about a second of one processor core a song. Nothing leaves the server, and nothing is written to the library.',
+		on: (cfg) => cfg.analysis
 	},
 	{
 		id: 'profiles',

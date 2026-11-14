@@ -511,6 +511,73 @@ accounts and open nothing.
 - **Left out of a backup** with the sessions, so a token withdrawn after the
   backup was made does not work again on a server restored from it.
 
+## Sound analysis
+
+Sound analysis (issue #312) measures how each song sounds on Heddohon's own
+server. It is off by default: `HEDDOHON_ANALYSIS=true`, or the first-run
+setup or an administrator under Settings, Features, turns it on. Off, nothing
+of it runs and Settings shows no card for it; an account already named stays
+sealed and unused.
+
+**It reads the library as an account of its own.** Analysis runs with no
+request behind it, so it cannot use anyone's session. An administrator of the
+music server makes an ordinary account for it there and names it under
+Settings, Server. That account is the one shared account on the music server
+Heddohon keeps, and the one exception to invariant 10's "no service account";
+it was chosen over holding an administrator's credential (decided 2026-11-12).
+What holds it to analysis alone:
+
+- **It is not a Heddohon account.** Its login is a row in `meta`, sealed with
+  AES-256-GCM under a key of its own purpose (`analysis-account`), not a row
+  in `accounts`. It never makes a session, so it has no cookie, MCP token,
+  shared link, second factor or single sign-on link, and cannot be given one.
+- **It cannot sign in to Heddohon.** The sign-in form refuses its name, in any
+  case, before the music server is asked, so its password is never tried. The
+  form gives the answer a wrong password gets and counts it in the throttle,
+  so it does not tell a visitor which name is the analysis account; the log
+  says so (`sign-in-refused-analysis-account`). Quick Connect, which names the
+  user only once Jellyfin answers, refuses it there, as an approval that ran
+  out.
+- **Its login is opened in one module.** `analysis/account.ts` is the only
+  reader of the sealed value, and hands out an `AnalysisSource`: two methods,
+  list songs and read one song's original bytes. The credential stays inside
+  it. A test fails if another module names the sealing purpose or builds a
+  source.
+- **It must be able to do little.** Saving it signs it in and asks the music
+  server what it may do. An administrator is refused, as is an account that may
+  not play, or one the server will not say about (`getUser` on Subsonic,
+  `Policy` on Jellyfin). Any right beyond listing and playing (sharing,
+  uploading, deleting, settings) is named on the card for the administrator to
+  take away.
+- **It is dedicated.** A name that already has a Heddohon account is refused,
+  so it inherits nothing, and once named it cannot sign in to gain anything.
+- **The password is not shown again.** The card offers a 32-character password
+  made from the browser's random source (about 190 bits) to set on the music
+  server first. Once saved, Settings shows the name, who named it and when,
+  never the password or a token.
+
+What Heddohon cannot do is stop that account signing in to the music server's
+own interface or another app with its password: that is the music server's to
+allow. The card says so.
+
+**A shared result, an account's view.** A song is measured once and the result
+is shared by every account: numbers about a file, as Subsonic covers are
+shared (invariant 10's other exception). Anything that shows songs from it
+looks each one up with the asking account's own login first, and drops what
+the music server says that account cannot see.
+
+**Where it is kept.** The results are in `analysis.db` in the data directory, a
+SQLite file of their own, whichever database the server runs on. It holds
+the music server's song ids and numbers, and no titles. It is not in the
+backup and can be deleted with no loss but the time to measure again. The
+analysis account's sealed login is in the main database's `meta`, and is in
+the backup like every other sealed credential.
+
+**It never writes to the library**, and reads audio only through the music
+server's API. ffmpeg decodes it in a child process at the lowest priority,
+fed on its standard input: nothing of the music server is on its command
+line, where `ps` would show it.
+
 ## Credentials at rest
 
 - Upstream credentials are sealed with **AES-256-GCM** before they reach the database.
@@ -527,7 +594,8 @@ accounts and open nothing.
   `misconfigured` until the right `crypto-salt` is restored.
   Separate keys cover encryption, session digests, share-link digests,
   known-device cookies, Last.fm link state, cast addresses, the comparison
-  of the Navidrome plugin's token and MCP token digests.
+  of the Navidrome plugin's token, MCP token digests, and the sound analysis
+  account's login.
 - Each seal uses a fresh 12-byte random IV. The tag is verified on open, and a
   blob with a wrong version, part count, IV length or tag length is rejected.
 - Changing `HEDDOHON_SECRET` makes every stored credential unreadable and signs
@@ -1985,6 +2053,9 @@ The same steps in the order to do them, with less of the reasoning, are in
     or `Permissions-Policy` on every site replaces Heddohon's: the nonce-based
     script policy, `same-origin` referrers and the sandbox on media. Attach such
     a header set to the sites that need it rather than to every site.
+15. **If you turn on sound analysis**, make an ordinary account for it on the
+    music server, with only the rights to list and play, give it the password
+    Settings suggests, and use that account for nothing else.
 
 ## Audit history
 

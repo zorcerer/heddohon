@@ -131,6 +131,7 @@ page follows a request through it. Where things are:
 | `src/hooks.server.ts` | Every request first: the origin check, the session, the gate on private routes, the security headers |
 | `src/lib/server/config.ts` | Every environment variable, parsed and checked once |
 | `src/lib/server/backends/` | Navidrome and Subsonic (`subsonic.ts`) and Jellyfin (`jellyfin.ts`) behind one interface (`types.ts`) |
+| `src/lib/server/analysis/` | Sound analysis: measuring loudness, tempo, key and sound from a song's audio. Its [README](src/lib/server/analysis/README.md) is the map, and the place to start |
 | `src/lib/server/` | The rest of the server: accounts and sessions (`auth.ts`), the database (`db.ts`), settings, history, caches, media proxying |
 | `src/routes/` | Pages, each with its `+page.server.ts` loader, and the JSON API under `src/routes/api/` |
 | `src/lib/client/` | State in the browser: the player (`player.svelte.ts`), the queue, favourites, the right-click menu |
@@ -147,7 +148,9 @@ behaviour decision, not a refactor: raise it in the issue first.
   Upstream addresses come from configuration alone, never from a request.
 - **A stored credential is used within the request that opened it.** Work
   that goes on after a response (a background refresh, a timer) must not hold
-  one.
+  one. The exceptions are recorded in [SECURITY.md](SECURITY.md): the cover
+  fill, and sound analysis, which reads as an account of its own opened only
+  in `src/lib/server/analysis/account.ts`.
 - **Every write passes the origin check** in `hooks.server.ts`, with no path
   condition. Do not add exemptions.
 - **Every route is private** unless listed in `PUBLIC_ROUTES` in
@@ -162,7 +165,8 @@ behaviour decision, not a refactor: raise it in the issue first.
   `data:` URLs. Serve an asset from the app, or proxy it.
 - **The music server decides what an account may see.** Calls use the
   account's own credential, and anything cached from the library is keyed by
-  account.
+  account. Sound analysis's results are shared between accounts; anything
+  shown from them is looked up with the asking account's own login first.
 - **Input is bounded.** An API route checks every field by type and size; a
   new bound goes in the **Input bounds** table in [SECURITY.md](SECURITY.md).
 

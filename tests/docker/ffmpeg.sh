@@ -9,6 +9,9 @@
 # Each must decode to about one second of 22.05kHz mono float samples whose
 # level is that of the tone, and the binary must need no library. Needs
 # Docker.
+#
+# With HEDDOHON_FFMPEG_OUT=<file> the binary is left there, for the tests
+# that decode with it (`tests/e2e/analysis-decode.test.mjs`).
 set -uo pipefail
 
 root=$(cd "$(dirname "$0")/../.." && pwd)
@@ -59,6 +62,10 @@ for file in tone.flac tone.mp3; do
 	check "decodes $file" "${ok:-no}" "$out"
 done
 
+if [ -n "${HEDDOHON_FFMPEG_OUT:-}" ]; then
+	cp "$bin/ffmpeg" "$HEDDOHON_FFMPEG_OUT"
+	chmod 0755 "$HEDDOHON_FFMPEG_OUT"
+fi
 rm -rf "$bin"
 echo "$passed passed, $failed failed"
 [ "$failed" -eq 0 ]

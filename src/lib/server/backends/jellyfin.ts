@@ -70,6 +70,19 @@ const CLIENT_VERSION = APP_VERSION;
 const ITEM_FIELDS = 'Genres,DateCreated,ChildCount,ParentId,PrimaryImageAspectRatio';
 const SONG_FIELDS = `${ITEM_FIELDS},MediaSources`;
 
+/** The parts of a user's `Policy` beyond playing, in words for an administrator (`accountRights`). */
+const JELLYFIN_EXTRA_RIGHTS: readonly (readonly [string, string])[] = [
+	['EnableContentDeletion', 'delete media'],
+	['EnableContentDownloading', 'download'],
+	['EnableRemoteControlOfOtherUsers', 'control other users\' players'],
+	['EnableSharedDeviceControl', 'control shared devices'],
+	['EnablePublicSharing', 'share'],
+	['EnableCollectionManagement', 'manage collections'],
+	['EnableSubtitleManagement', 'manage subtitles'],
+	['EnableLyricManagement', 'manage lyrics'],
+	['EnableLiveTvManagement', 'manage live TV']
+];
+
 function creds(cred: StoredCredential) {
 	if (cred.kind !== 'jellyfin') throw new Error('Wrong credential kind for the Jellyfin backend');
 	return cred;
@@ -700,6 +713,17 @@ export const jellyfinBackend: MediaBackend = {
 		} catch {
 			return null;
 		}
+	},
+
+	async accountRights(cred) {
+		const user = await call<{ Policy?: Record<string, unknown> }>(cred, `/Users/${seg(creds(cred).userId)}`);
+		const policy = user?.Policy ?? {};
+		const flag = (name: string) => (typeof policy[name] === 'boolean' ? (policy[name] as boolean) : null);
+		return {
+			admin: flag('IsAdministrator'),
+			stream: flag('EnableMediaPlayback'),
+			extra: JELLYFIN_EXTRA_RIGHTS.filter(([right]) => policy[right] === true).map(([, words]) => words)
+		};
 	},
 
 	async getAlbums(cred, query) {

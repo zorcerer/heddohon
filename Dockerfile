@@ -68,7 +68,7 @@ RUN set -e; cross=''; \
 		--enable-small --enable-static --disable-shared --extra-ldflags=-static --pkg-config-flags=--static \
 		--enable-protocol=file,pipe \
 		--enable-demuxer=flac,mp3,mov,ogg,wav,aac,matroska,aiff,ape,wv,asf \
-		--enable-decoder=flac,mp3,mp3float,aac,aac_latm,alac,opus,vorbis,wavpack,ape,wmav2,pcm_s16le,pcm_s24le,pcm_s32le,pcm_f32le,pcm_s16be,pcm_s24be \
+		--enable-decoder=flac,mp3,mp3float,aac,aac_latm,alac,opus,vorbis,wavpack,ape,wmav2,pcm_u8,pcm_s16le,pcm_s24le,pcm_s32le,pcm_f32le,pcm_s16be,pcm_s24be \
 		--enable-parser=flac,mpegaudio,aac,opus,vorbis \
 		--enable-filter=abuffer,abuffersink,aresample,aformat,anull,atrim,null,buffer,buffersink \
 		--enable-muxer=pcm_f32le --enable-encoder=pcm_f32le --enable-swresample \
