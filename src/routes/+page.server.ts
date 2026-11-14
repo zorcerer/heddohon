@@ -6,6 +6,7 @@ import { log, reason } from '#lib/server/log.ts';
 import { dailyMixes, summary } from '#lib/server/mixes.ts';
 import { newReleases } from '#lib/server/newreleases.ts';
 import { unseenFeatures } from '#lib/server/features.ts';
+import { analysisStopped } from '#lib/server/analysis/job.ts';
 import { ensureHandle, getProfile } from '#lib/server/listening.ts';
 import { profilesOn } from '#lib/server/profilepage.ts';
 
@@ -71,13 +72,19 @@ export const load: PageServerLoad = async ({ locals }) => {
 	 * there is something to tell.
 	 */
 	const unseen = unseenFeatures(locals.settings?.featuresSeen ?? []);
+	// Sound analysis stopped on an error marks them too (`analysis/job.ts`).
+	const stopped = analysisStopped();
 	const featureNotice =
-		unseen.length === 0
-			? Promise.resolve([])
+		unseen.length === 0 && !stopped
+			? Promise.resolve({ features: [], analysisStopped: false })
 			: backend
 					.isAdmin(credential)
-					.then((admin) => (admin === true ? unseen.map(({ id, title }) => ({ id, title })) : []))
-					.catch(() => []);
+					.then((admin) =>
+						admin === true
+							? { features: unseen.map(({ id, title }) => ({ id, title })), analysisStopped: stopped }
+							: { features: [], analysisStopped: false }
+					)
+					.catch(() => ({ features: [], analysisStopped: false }));
 
 	// From this server's history, without an upstream call. A failed read leaves
 	// the shelf out.

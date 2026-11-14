@@ -8,6 +8,7 @@
 	import Avatar from '#lib/components/Avatar.svelte';
 	import Icon from '#lib/components/Icon.svelte';
 	import SecuritySettings from '#lib/components/SecuritySettings.svelte';
+	import AnalysisSettings from '#lib/components/AnalysisSettings.svelte';
 	import Switch from '#lib/components/Switch.svelte';
 	import Select from '#lib/components/Select.svelte';
 	import ElasticSlider from '#lib/components/bits/ElasticSlider.svelte';
@@ -363,7 +364,8 @@
 		{ id: 'connections', label: 'Scrobbling' },
 		{ id: 'ai', label: 'AI' },
 		{ id: 'sharing', label: 'Shared links' },
-		{ id: 'storage', label: 'Server' }
+		{ id: 'storage', label: 'Server' },
+		{ id: 'analysis', label: 'Sound analysis' }
 	] as const;
 	type Tab = (typeof TABS)[number]['id'];
 
@@ -377,7 +379,7 @@
 		{ id: 'look', label: 'Look', sections: ['appearance'] },
 		{ id: 'playback', label: 'Playback', sections: ['playback'] },
 		{ id: 'connections', label: 'Connections', sections: ['connections', 'ai', 'sharing'] },
-		{ id: 'server', label: 'Server', sections: ['storage'] }
+		{ id: 'server', label: 'Server', sections: ['storage', 'analysis'] }
 	];
 
 	const sharingShown = $derived(data.sharing || data.shares.length > 0);
@@ -386,6 +388,8 @@
 		if (id === 'sharing') return sharingShown;
 		if (id === 'ai') return data.mcp !== null;
 		if (id === 'connections') return connectionsShown;
+		// For an administrator of the music server, on or off; see `analysis/job.ts`.
+		if (id === 'analysis') return data.analysis !== null;
 		return true;
 	}
 	const groups = $derived(
@@ -441,6 +445,11 @@
 			headers: { 'content-type': 'application/json' },
 			body: JSON.stringify({ featuresSeen: seen })
 		}).catch(() => undefined);
+	});
+
+	// Opening Sound analysis is looking at the stop the dot told of.
+	$effect(() => {
+		if (shown === 'analysis') notices.analysisStopped = false;
 	});
 
 	// On a phone the row scrolls sideways; the chosen tab is brought into it.
@@ -736,7 +745,7 @@
 						onclickcapture={(event) => selectTab(event, entry.sections[0].id)}
 					>
 						{entry.label}
-						{#if entry.id === 'server' && unseenFeatures.length > 0}<span class="dot" role="img" aria-label=", features to look at"></span>{/if}
+						{#if entry.id === 'server' && unseenFeatures.length > 0}<span class="dot" role="img" aria-label=", features to look at"></span>{:else if entry.id === 'server' && notices.analysisStopped}<span class="dot" role="img" aria-label=", sound analysis stopped"></span>{/if}
 					</a>
 					<!-- The open group's sections, under it where the tabs are a list down the side; the chips below are hidden there. -->
 					{#if entry.id === group.id && entry.sections.length > 1}
@@ -2133,13 +2142,25 @@
 			{/if}
 
 			{#if data.analysis}
+				<!-- What the job is doing, and its controls. Mounted while shown, since it asks the server every 5 seconds. -->
+				<section class="hh-card hh-glass group" id="analysis" hidden={shown !== 'analysis'}>
+					<div class="group-head">
+						<h2>Sound analysis</h2>
+					</div>
+					{#if shown === 'analysis'}
+						<AnalysisSettings on={data.analysis.on} fromEnvironment={data.analysis.fromEnvironment} />
+					{/if}
+				</section>
+			{/if}
+
+			{#if data.analysis?.on}
 				<!--
 					The account sound analysis reads the library as (`analysis/account.ts`).
 					Its password goes to the server once and is not shown again.
 				-->
-				<section class="hh-card hh-glass group" id="analysis" hidden={shown !== 'storage'}>
+				<section class="hh-card hh-glass group" id="analysis-account" hidden={shown !== 'analysis'}>
 					<div class="group-head">
-						<h2>Sound analysis</h2>
+						<h2>Account</h2>
 					</div>
 					{#if data.analysis.account}
 						<div class="row">

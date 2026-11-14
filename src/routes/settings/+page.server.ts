@@ -192,9 +192,16 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 				: null,
 		// The Server tab's Features: each optional feature's switch, for an administrator of the music server.
 		features: isAdmin === true ? featureStates() : null,
-		// The Server tab's Sound analysis: the account it reads as, while the feature is on, for an administrator.
+		// Settings, Server, Sound analysis, for an administrator: the switch, and the account it reads as.
+		// What the job is doing is asked of `/api/analysis` while the section is open.
 		analysis:
-			isAdmin === true && cfg.analysis ? { account: await analysisAccountStatus(session.account.backend) } : null,
+			isAdmin === true
+				? {
+						on: cfg.analysis,
+						fromEnvironment: fromEnvironment('HEDDOHON_ANALYSIS'),
+						account: cfg.analysis ? await analysisAccountStatus(session.account.backend) : null
+					}
+				: null,
 		// Settings, Security: the switch that requires a second factor of every account, for an administrator.
 		twoFactorAdmin:
 			isAdmin === true ? { required: cfg.requireTwoFactor, fromEnvironment: decidedByEnvironment().requireTwoFactor } : null

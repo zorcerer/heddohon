@@ -69,7 +69,7 @@
 
 	<a class="settings hh-glass" href="/settings">
 		<Icon name="settings" size={19} />
-		<span>Settings{#if notices.features.length > 0}<span class="dot" role="img" aria-label=", features to look at"></span>{/if}</span>
+		<span>Settings{#if notices.features.length > 0}<span class="dot" role="img" aria-label=", features to look at"></span>{:else if notices.analysisStopped}<span class="dot" role="img" aria-label=", sound analysis stopped"></span>{/if}</span>
 		<Icon name="chevron-right" size={16} />
 	</a>
 

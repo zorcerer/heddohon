@@ -8256,6 +8256,228 @@ describe('features that are off', () => {
 });
 
 /*
+ * #319: Sound analysis under Settings, Server. What the job says comes from
+ * a stand-in for `/api/analysis` here, one state after another; the API
+ * itself is tested in `tests/e2e/analysis-settings.test.mjs`.
+ */
+describe('sound analysis in Settings', () => {
+	const SETTINGS = { paused: false, pace: 'gentle', whileListening: 'pause', hours: null };
+	const status = (state, extra = {}) => ({
+		state,
+		total: 12000,
+		measured: 3000,
+		failed: 2,
+		current: null,
+		lastHour: 1500,
+		finishInMs: 6 * 3600_000,
+		lastError: null,
+		...extra
+	});
+	const WORDS = [
+		[status('no-account', { total: 0, measured: 0, failed: 0, lastHour: 0, finishInMs: null }), 'No account'],
+		[status('listing'), 'Reading the library'],
+		[status('running', { current: { backend: 'subsonic', title: 'Night Drive', artist: 'The Mock Band' } }), 'Running'],
+		[status('paused'), 'Paused'],
+		[status('throttled'), 'Waiting for quiet'],
+		[status('outside-hours'), 'Waiting for its hours'],
+		[status('done', { measured: 11998, finishInMs: null }), 'Done'],
+		[status('stopped', { lastError: { title: '', message: 'ffmpeg is not installed', at: Date.now() } }), 'Stopped']
+	];
+
+	/** Answers the section from `answer`, and keeps what it sends. */
+	async function standIn(page, answer) {
+		const sent = [];
+		await page.route(`${app.url}/api/analysis`, async (route) => {
+			const request = route.request();
+			if (request.method() !== 'GET') {
+				const body = JSON.parse(request.postData() ?? 'null');
+				sent.push({ method: request.method(), body });
+				if (request.method() === 'PATCH') answer.settings = { ...answer.settings, ...body };
+			}
+			await route.fulfill({ json: answer });
+		});
+		return sent;
+	}
+
+	for (const width of [1440, 390]) {
+		test(`at ${width} px it shows each state, and each control saves`, async () => {
+			const view = await browser.newContext({ viewport: { width, height: 900 } });
+			await view.request.post(`${app.url}/login`, {
+				form: { username: 'testuser', password: 'testpass', backend: 'subsonic', next: '/' },
+				headers: { origin: app.url, accept: 'text/html' },
+				maxRedirects: 0
+			});
+			const page = await view.newPage();
+			const problems = [];
+			page.on('console', (message) => message.type() === 'error' && problems.push(message.text()));
+			page.on('pageerror', (err) => problems.push(err.message));
+			try {
+				const answer = { on: true, fromEnvironment: false, status: status('running'), settings: { ...SETTINGS } };
+				const sent = await standIn(page, answer);
+				await page.goto(app.url + '/settings?tab=analysis');
+				const section = page.locator('section#analysis');
+				await section.getByRole('heading', { name: 'Sound analysis' }).waitFor();
+				const state = section.locator('.state');
+
+				for (const [given, word] of WORDS) {
+					answer.status = given;
+					await page.reload();
+					await state.filter({ hasText: word }).waitFor();
+					if (given.total > 0) {
+						assert.equal(await section.getByRole('progressbar', { name: 'Songs analysed' }).getAttribute('max'), String(given.total));
+						assert.match(await section.textContent(), new RegExp(`${(given.measured + given.failed).toLocaleString('en-US')} of 12,000`));
+					}
+				}
+				answer.status = WORDS[2][0];
+				await page.reload();
+				await section.getByText('Night Drive · The Mock Band').waitFor();
+				assert.match(await section.locator('.figures').textContent(), /Last hour\s*1,500.*Left\s*6 h.*Failed\s*2/s);
+
+				// Each control sends its one field.
+				await section.getByRole('switch', { name: 'Paused' }).click();
+				await section.getByRole('combobox', { name: 'Speed' }).click();
+				await page.getByRole('option', { name: 'Background' }).click();
+				await section.getByRole('combobox', { name: 'While someone listens' }).click();
+				await page.getByRole('option', { name: 'Carry on' }).click();
+				await section.getByRole('switch', { name: 'Only at set hours' }).click();
+				await section.getByLabel('From').fill('22:30');
+				await section.getByRole('button', { name: 'Retry failed songs' }).click();
+				await page.waitForTimeout(300);
+				assert.deepEqual(sent, [
+					{ method: 'PATCH', body: { paused: true } },
+					{ method: 'PATCH', body: { pace: 'background' } },
+					{ method: 'PATCH', body: { whileListening: 'continue' } },
+					{ method: 'PATCH', body: { hours: { from: 60, to: 420 } } },
+					{ method: 'PATCH', body: { hours: { from: 1350, to: 420 } } },
+					{ method: 'POST', body: { action: 'retry' } }
+				]);
+
+				// Reset asks first, and keeping them sends nothing.
+				sent.length = 0;
+				await section.getByRole('button', { name: 'Reset…' }).click();
+				const confirm = section.getByRole('alertdialog', { name: 'Confirm reset' });
+				await confirm.getByRole('button', { name: 'Keep them' }).click();
+				assert.equal(sent.length, 0);
+				await section.getByRole('button', { name: 'Reset…' }).click();
+				await confirm.getByRole('button', { name: 'Reset' }).click();
+				await page.waitForTimeout(300);
+				assert.deepEqual(sent, [{ method: 'POST', body: { action: 'reset' } }]);
+
+				// The switch, where the environment does not decide it.
+				sent.length = 0;
+				await section.getByRole('switch', { name: 'Sound analysis on' }).click();
+				await page.waitForTimeout(300);
+				assert.deepEqual(sent[0], { method: 'PATCH', body: { on: false } });
+				// Off, there is nothing to pace.
+				answer.on = false;
+				answer.status = status('off');
+				await page.reload();
+				await state.filter({ hasText: 'Off' }).waitFor();
+				assert.equal(await section.getByRole('switch', { name: 'Paused' }).count(), 0);
+				answer.fromEnvironment = true;
+				await page.reload();
+				await state.filter({ hasText: 'Off for the server' }).waitFor();
+				assert.equal(await section.getByRole('switch', { name: 'Sound analysis on' }).isDisabled(), true);
+			} finally {
+				// An account keeps 50 sessions, and the suite's own is among the oldest:
+				// two more left open ended it, and the tests after this were signed out.
+				await view.request.post(`${app.url}/logout`, { headers: { origin: app.url }, maxRedirects: 0 });
+				await view.close();
+			}
+			assert.deepEqual(problems, []);
+		});
+	}
+
+	test('cd settings/analysis goes to it, and an account that is no administrator has none of it', async () => {
+		const origin = { origin: app.url };
+		// The command line is Terminal's; the theme the suite had is put back after.
+		const { theme } = await (await context.request.get(`${app.url}/api/settings`)).json();
+		await context.request.patch(`${app.url}/api/settings`, { headers: origin, data: { theme: 'terminal' } });
+		const { page, problems } = await watchedPage();
+		try {
+			await standIn(page, { on: false, fromEnvironment: false, status: null, settings: { ...SETTINGS } });
+			await page.goto(app.url + '/', { waitUntil: 'networkidle' });
+			await page.keyboard.press('Control+k');
+			await page.getByRole('combobox', { name: 'Command' }).pressSequentially('cd settings/analysis');
+			await page.keyboard.press('Enter');
+			await page.waitForURL(/\/settings\?tab=analysis$/);
+			await page.locator('section#analysis').getByRole('heading', { name: 'Sound analysis' }).waitFor();
+		} finally {
+			await context.request.patch(`${app.url}/api/settings`, { headers: origin, data: { theme } });
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+
+		const jf = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+		try {
+			await jf.request.post(`${app.url}/login`, {
+				form: { username: 'jfuser', password: 'jfpass', backend: 'jellyfin', next: '/' },
+				headers: { origin: app.url, accept: 'text/html' },
+				maxRedirects: 0
+			});
+			const listener = await jf.newPage();
+			await listener.goto(app.url + '/settings?tab=analysis', { waitUntil: 'load' });
+			assert.equal(await listener.locator('section#analysis').count(), 0);
+			assert.equal(await listener.getByRole('link', { name: 'Sound analysis' }).count(), 0);
+			assert.equal((await jf.request.get(`${app.url}/api/analysis`)).status(), 403);
+		} finally {
+			await jf.close();
+		}
+	});
+
+	test('stopped on an error, it marks the links to Settings until its section is opened', async () => {
+		const { mkdtempSync, rmSync } = await import('node:fs');
+		const { tmpdir } = await import('node:os');
+		const { join } = await import('node:path');
+		// No ffmpeg on the app's path: the job stops at its first song.
+		const emptyPath = mkdtempSync(join(tmpdir(), 'heddohon-no-ffmpeg-'));
+		const own = await startApp({ subsonicUrl: subsonic.url, jellyfinUrl: jellyfin.url, env: { HEDDOHON_ANALYSIS: 'true', PATH: emptyPath } });
+		const view = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+		const problems = [];
+		try {
+			await view.request.post(`${own.url}/login`, {
+				form: { username: 'testuser', password: 'testpass', backend: 'subsonic', next: '/' },
+				headers: { origin: own.url, accept: 'text/html' },
+				maxRedirects: 0
+			});
+			// Every feature seen, so the dot is the stop's alone.
+			await view.request.patch(`${own.url}/api/settings`, {
+				headers: { origin: own.url },
+				data: { featuresSeen: ['newReleases', 'lrclib', 'autoeq', 'discord', 'listenbrainz', 'mcp', 'analysis', 'profiles'] }
+			});
+			const page = await view.newPage();
+			page.on('pageerror', (err) => problems.push(err.message));
+			await page.goto(own.url + '/settings?tab=analysis', { waitUntil: 'load' });
+			const account = page.locator('section#analysis-account');
+			await account.getByRole('textbox', { name: 'Account on the music server' }).fill('analyst');
+			await account.getByRole('textbox', { name: 'Password' }).fill('analyst-pass');
+			await account.getByRole('button', { name: 'Save' }).click();
+			await account.getByText('Reads the library as').waitFor();
+			await page.locator('section#analysis .state').filter({ hasText: 'Stopped' }).waitFor({ timeout: 15_000 });
+			assert.match(await page.locator('section#analysis').textContent(), /ffmpeg/);
+
+			await page.goto(own.url + '/', { waitUntil: 'load' });
+			const link = page.locator('nav.rail a[href="/settings"]');
+			await link.locator('.dot').waitFor();
+			assert.match(await link.textContent(), /sound analysis stopped/);
+			await link.click();
+			await page.waitForURL(/\/settings/);
+			const tab = page.getByRole('navigation', { name: 'Settings' }).getByRole('link', { name: /^Server/ });
+			assert.equal(await tab.locator('.dot').getAttribute('aria-label'), ', sound analysis stopped');
+			await tab.click();
+			await page.getByRole('link', { name: 'Sound analysis', exact: true }).filter({ visible: true }).click();
+			await page.locator('section#analysis .state').filter({ hasText: 'Stopped' }).waitFor();
+			assert.equal(await link.locator('.dot').count(), 0, 'the dot stayed after the section was opened');
+		} finally {
+			await view.close();
+			await own.stop();
+			rmSync(emptyPath, { recursive: true, force: true });
+		}
+		assert.deepEqual(problems, []);
+	});
+});
+
+/*
  * #182: a colour scheme from a file in the data directory, chosen in Settings,
  * repaints the page at once, its fixed accents included, and the page comes
  * back in it.
