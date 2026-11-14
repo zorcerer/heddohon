@@ -49,6 +49,10 @@ server's**):
 | `source.ts` | `AnalysisSource`: lists songs and reads one song's audio. Nothing else. | no |
 | `store.ts` | `analysis.db`: one row a song, stale when the file or the analysis changes. | no |
 | `account.ts` | The analysis account: kept sealed, checked, refused at sign-in. The only opener of its login. | yes |
+| `queue.ts` | The job: what to measure next, the pace, pausing, the rule for listeners, the hours, the status. Everything it uses is passed in (`JobDeps`). | no |
+| `worker.ts` | `analyse` in a worker thread, so a song's second of arithmetic never holds up a request. | no |
+| `analyser.ts` | Starts that worker on first use, and again if it dies. | no |
+| `job.ts` | The job as the server runs it: the app's parts given to `queue.ts`, its settings in `meta`, started and stopped with the server. | yes |
 
 The four take what they need as arguments (samples, a stream, a file path, an
 adapter), so each is tested by importing it directly, without starting the
@@ -56,7 +60,7 @@ app. Keep new pieces that way where they can be. Imports between files in
 this folder name the file with its extension (`./features.ts`), which is what
 lets Node run them as they are.
 
-How a song flows through them:
+How a song flows through them, one at a time:
 
 ```
 source.songs()            every song the analysis account can see, with a file key
@@ -91,13 +95,48 @@ analysis**, has the reasoning. In the code:
   one the server will not describe, and a name with a Heddohon account of its
   own are all refused.
 
+## The job
+
+`job.ts` starts it with the server (`init` in `hooks.server.ts`) and stops it
+on shutdown. Each step looks, in order, at: the feature switch, `paused`, the
+hours, whether anyone has listened in the last 60 seconds
+(`listening-activity.ts`, noted by every route that sends a listener audio),
+and whether an analysis account is named. Then it measures one song and
+rests by its pace: `full` none, `gentle` as long as the song took, and
+`background` up to 3 minutes a song.
+
+States, as `status()` reports them and the log names them (`analysis-<state>`
+when it changes): `off`, `no-account`, `listing`, `running`, `paused`,
+`throttled` (someone listens), `outside-hours`, `done` (lists the library again
+every 6 hours for new songs) and `stopped` (no ffmpeg, or the library would
+not list; it tries again in 5 minutes). A song that fails is kept as failed
+with its reason (`analysis-song-failed`) and the job goes on; a song whose
+excerpt from 30 seconds in is empty, shorter than the music server reported,
+is read once more from its start.
+
+Settings call `wakeAnalysisJob` after a change that should be seen at once
+(the feature switched, the account named or removed), so the job looks again
+rather than finishing its rest.
+
+### The worker in the build
+
+A `worker_threads` worker runs a file, and the server is bundled into
+`build/`. The `analysisWorker` plugin in `vite.config.ts` builds `worker.ts`
+as `build/server/analysis-worker.js` and gives its address as
+`import workerUrl from 'virtual:analysis-worker'`. In development the address
+is `worker.ts` itself, which Node runs with its types stripped. So `worker.ts`
+and what it imports use relative imports with the extension, and nothing that
+needs the app's configuration.
+
 ## Running the tests
 
 ```bash
 node --test tests/e2e/analysis-features.test.mjs   # the measurements, on signals with known answers
 node --test tests/e2e/analysis-store.test.mjs      # analysis.db
 node --test tests/e2e/analysis-decode.test.mjs     # the source and the decode
+node --test tests/e2e/analysis-job.test.mjs        # the job, with stand-ins and a clock of its own
 npm run build && node --test tests/e2e/analysis-account.test.mjs   # the account, against the built app
+npm run build && node --test tests/e2e/analysis-run.test.mjs       # all of it in the built app, with ffmpeg and the worker
 ```
 
 They need Node 22.18 or later, which runs TypeScript with its types stripped,

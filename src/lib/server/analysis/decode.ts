@@ -48,6 +48,8 @@ export class DecodeError extends Error {
 export interface DecodeOptions {
 	/** The song's length in seconds as the music server reports it, to place the excerpt; unknown reads from 30s. */
 	duration?: number | null;
+	/** Reads from the start whatever the length: for a song whose excerpt came back empty. */
+	fromStart?: boolean;
 	/** The ffmpeg to run. */
 	ffmpeg?: string;
 	signal?: AbortSignal;
@@ -68,7 +70,7 @@ export function excerptStart(duration: number | null | undefined): number {
  */
 export function decodeExcerpt(audio: ReadableStream<Uint8Array>, options: DecodeOptions = {}): Promise<Float32Array> {
 	const { ffmpeg = 'ffmpeg', signal, timeoutMs = DECODE_TIMEOUT_MS } = options;
-	const from = excerptStart(options.duration);
+	const from = options.fromStart ? 0 : excerptStart(options.duration);
 	// The seek is on the output side: a pipe cannot be sought, so ffmpeg
 	// decodes from the start and drops what comes before `from`.
 	const args = ['-nostdin', '-v', 'error', '-i', 'pipe:0', '-ss', String(from), '-t', String(EXCERPT_LENGTH), '-vn', '-ac', '1', '-ar', String(ANALYSIS_RATE), '-f', 'f32le', 'pipe:1'];

@@ -1,3 +1,4 @@
+import { noteListening } from '#lib/server/listening-activity.ts';
 import { error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { sessionByHandle, tiedToSession } from '#lib/server/auth.ts';
@@ -21,6 +22,7 @@ const handler: RequestHandler = async (event) => {
 
 	// The media proxy reads the session from `locals`, as for the browser.
 	event.locals.session = session;
+	noteListening();
 	const settings = await getSettings(session.account.id);
 	const transcode: TranscodeRequest | null = settings.transcode
 		? { codec: settings.transcodeCodec, bitrateKbps: settings.transcodeBitrateKbps }

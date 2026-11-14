@@ -1,3 +1,4 @@
+import { noteListening } from '#lib/server/listening-activity.ts';
 import { error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { sessionByHandle, tiedToSession } from '#lib/server/auth.ts';
@@ -18,6 +19,7 @@ const handler: RequestHandler = async (event) => {
 	if (!party?.state || !songId || songId !== party.state.songId) error(404, 'Not found');
 	const host = await sessionByHandle(party.accountId, party.session);
 	if (!host) error(404, 'Not found');
+	noteListening();
 	const req = streamRequestFrom(event);
 	const response = await proxySharedMedia(event, 'stream', () =>
 		backendFor(party.backend).openStream(host.credential, songId, req, null)
