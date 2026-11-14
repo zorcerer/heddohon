@@ -62,8 +62,10 @@
 	// seen mark the links to Settings; see notices.svelte.ts and features.ts.
 	$effect(() => {
 		let current = true;
-		data.featureNotice.then((features) => {
-			if (current) notices.features = features.map((feature) => feature.id);
+		data.featureNotice.then((notice) => {
+			if (!current) return;
+			notices.features = notice.features.map((feature) => feature.id);
+			notices.analysisStopped = notice.analysisStopped;
 		});
 		return () => {
 			current = false;

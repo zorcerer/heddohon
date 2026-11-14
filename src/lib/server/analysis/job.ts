@@ -111,7 +111,10 @@ export function startAnalysisJob(): void {
 				}
 				signal.addEventListener('abort', done, { once: true });
 			}),
-		log: (event, fields) => log.info(event, fields),
+		// A stop is the one line written at the default level (`error`): the job
+		// cannot go on, and on 2026-11-14 an empty log was all an administrator
+		// had to tell a running job from one that never started.
+		log: (event, fields) => (event === 'analysis-stopped' ? log.error(event, fields) : log.info(event, fields)),
 		minuteOfDay: () => {
 			const now = new Date();
 			return now.getHours() * 60 + now.getMinutes();
@@ -139,6 +142,11 @@ export function wakeAnalysisJob(): void {
 /** What the job is doing, or null where it was never started. */
 export function analysisStatus(): JobStatus | null {
 	return job?.status() ?? null;
+}
+
+/** Whether the job has stopped on an error, for the dot on the links to Settings. */
+export function analysisStopped(): boolean {
+	return job?.status().state === 'stopped';
 }
 
 /** Removes `analysis.db` and starts the library again. */

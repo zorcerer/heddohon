@@ -145,8 +145,8 @@
 					aria-current={isActive('/settings', false) ? 'page' : undefined}
 				>
 					<Icon name="settings" size={19} />
-					<span class="hh-visually-hidden">Settings{notices.features.length > 0 ? ', features to look at' : ''}</span>
-					{#if notices.features.length > 0}<span class="dot" aria-hidden="true"></span>{/if}
+					<span class="hh-visually-hidden">Settings{notices.features.length > 0 ? ', features to look at' : notices.analysisStopped ? ', sound analysis stopped' : ''}</span>
+					{#if notices.any}<span class="dot" aria-hidden="true"></span>{/if}
 				</a>
 			</Tip>
 

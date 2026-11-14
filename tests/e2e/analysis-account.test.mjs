@@ -194,10 +194,13 @@ describe('with sound analysis off', () => {
 	});
 	after(async () => off?.stop());
 
-	test('there is no card, and naming an account is refused', async () => {
+	test('there is no account card, and naming an account is refused', async () => {
 		const client = new Client(off.url);
 		assert.equal((await client.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' })).status, 303);
-		assert.equal((await client.page('/settings?tab=storage')).html.includes('Sound analysis</h2>'), false);
+		// The section is there, to switch it on from; the account's card is not.
+		const html = (await client.page('/settings?tab=analysis')).html;
+		assert.ok(html.includes('id="analysis"'), 'no Sound analysis section for an administrator');
+		assert.equal(html.includes('id="analysis-account"'), false);
 		const response = await client.request('/settings?/saveAnalysisAccount', {
 			method: 'POST',
 			headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json', 'x-sveltekit-action': 'true' },

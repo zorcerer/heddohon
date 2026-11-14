@@ -13,12 +13,12 @@ a decoded copy of an excerpt.
 ## Turning it on and off
 
 `HEDDOHON_ANALYSIS=true` in the environment, or the switch under Settings,
-Server, Features (and the first-run setup), as for the other optional
-features (`features.ts`). Set in the environment, it is decided there and the
-switch is locked. Off:
+Server, Features or Settings, Server, Sound analysis (and the first-run
+setup), as for the other optional features (`features.ts`). Set in the
+environment, it is decided there and the switches are locked. Off:
 
 - nothing of it runs, and `openSource` answers null;
-- Settings shows no Sound analysis card, and naming an account is refused;
+- Settings shows no account card, and naming an account is refused;
 - an account already named stays sealed in `meta`, unused, and is still
   refused at sign-in;
 - `analysis.db` stays where it is, and can be deleted.
@@ -118,6 +118,21 @@ Settings call `wakeAnalysisJob` after a change that should be seen at once
 (the feature switched, the account named or removed), so the job looks again
 rather than finishing its rest.
 
+A stop is logged at `error`, the default level, so it shows in a log that is
+otherwise empty; the other states are `info`.
+
+## In Settings
+
+Settings, Server, Sound analysis (`?tab=analysis`, `cd settings/analysis`) is
+offered to an account the music server lists as an administrator, on or off.
+`AnalysisSettings.svelte` shows the state, the progress and the controls, and
+asks `src/routes/api/analysis/+server.ts` every 5 seconds while it is open:
+`GET` the status and settings, `PATCH` a setting or the switch, `POST`
+`retry` or `reset`. The account's card sits under it while the feature is on.
+A stopped job puts a dot on the links to Settings (`analysisStopped`, read by
+the home page's loader, and `notices.svelte.ts`), cleared by opening the
+section.
+
 ### The worker in the build
 
 A `worker_threads` worker runs a file, and the server is bundled into
@@ -135,6 +150,7 @@ node --test tests/e2e/analysis-features.test.mjs   # the measurements, on signal
 node --test tests/e2e/analysis-store.test.mjs      # analysis.db
 node --test tests/e2e/analysis-decode.test.mjs     # the source and the decode
 node --test tests/e2e/analysis-job.test.mjs        # the job, with stand-ins and a clock of its own
+npm run build && node --test tests/e2e/analysis-settings.test.mjs  # /api/analysis, and a stop in the log
 npm run build && node --test tests/e2e/analysis-account.test.mjs   # the account, against the built app
 npm run build && node --test tests/e2e/analysis-run.test.mjs       # all of it in the built app, with ffmpeg and the worker
 ```

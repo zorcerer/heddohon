@@ -108,7 +108,8 @@ export const SETTINGS_SECTIONS = [
 	'connections',
 	'ai',
 	'sharing',
-	'storage'
+	'storage',
+	'analysis'
 ] as const;
 
 /** What `eq` takes: a preset, or the switch for audio processing. */
