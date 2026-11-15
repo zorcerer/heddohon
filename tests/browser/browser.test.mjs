@@ -8381,6 +8381,8 @@ describe('sound analysis in Settings', () => {
 			} finally {
 				// An account keeps 50 sessions, and the suite's own is among the oldest:
 				// two more left open ended it, and the tests after this were signed out.
+				// The page first: signing out ends its streams mid-answer, which it logs.
+				await page.close();
 				await view.request.post(`${app.url}/logout`, { headers: { origin: app.url }, maxRedirects: 0 });
 				await view.close();
 			}
@@ -8472,6 +8474,57 @@ describe('sound analysis in Settings', () => {
 			await view.close();
 			await own.stop();
 			rmSync(emptyPath, { recursive: true, force: true });
+		}
+		assert.deepEqual(problems, []);
+	});
+});
+
+/*
+ * #333: what sound analysis measured, in the player's Track details. The
+ * figures come from a stand-in for `/api/sound/<id>`; the route itself is
+ * tested in `tests/e2e/analysis-run.test.mjs`.
+ */
+describe("a song's sound in Track details", () => {
+	test('a measured song shows its tempo, key and loudness, and one not measured shows none', async () => {
+		const own = await startApp({ subsonicUrl: subsonic.url, jellyfinUrl: jellyfin.url, env: { HEDDOHON_ANALYSIS: 'true' } });
+		const view = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+		const problems = [];
+		subsonic.state.audio = { type: 'audio/wav', body: silentWav(30) };
+		try {
+			await view.request.post(`${own.url}/login`, {
+				form: { username: 'testuser', password: 'testpass', backend: 'subsonic', next: '/' },
+				headers: { origin: own.url, accept: 'text/html' },
+				maxRedirects: 0
+			});
+			const page = await view.newPage();
+			page.on('console', (message) => message.type() === 'error' && problems.push(message.text()));
+			page.on('pageerror', (err) => problems.push(err.message));
+			const asked = [];
+			await page.route(`${own.url}/api/sound/*`, async (route) => {
+				const id = decodeURIComponent(new URL(route.request().url()).pathname.split('/').pop());
+				asked.push(id);
+				await route.fulfill({ json: { sound: id === 's2a' ? { tempo: 124, key: { tonic: 9, minor: true }, loudness: -8.4 } : null } });
+			});
+			await page.goto(own.url + '/albums/al2', { waitUntil: 'load' });
+			await page.getByRole('button', { name: 'Play Song 2a', exact: true }).click();
+			await page.waitForFunction(() => document.querySelector('aside.panel h2.title')?.textContent === 'Song 2a');
+			// Nothing is asked for until the details are open.
+			assert.deepEqual(asked, []);
+			await page.getByRole('button', { name: 'Track details' }).click();
+			const facts = page.locator('aside.panel .facts');
+			await facts.getByText('124 BPM').waitFor();
+			const text = (await facts.textContent()).replace(/\s+/g, ' ');
+			assert.match(text, /Bitrate.*Tempo\s*124 BPM\s*Key\s*A minor\s*Loudness\s*-8\.4 LUFS\s*Album/);
+
+			await page.getByRole('button', { name: 'Next track' }).first().click();
+			await page.waitForFunction(() => document.querySelector('aside.panel h2.title')?.textContent === 'Song 2b');
+			await page.waitForTimeout(400);
+			assert.deepEqual(asked, ['s2a', 's2b']);
+			assert.equal(await facts.getByText('Tempo').count(), 0, 'a song not measured showed a tempo');
+		} finally {
+			subsonic.state.audio = null;
+			await view.close();
+			await own.stop();
 		}
 		assert.deepEqual(problems, []);
 	});

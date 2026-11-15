@@ -129,6 +129,10 @@ offered to an account the music server lists as an administrator, on or off.
 asks `src/routes/api/analysis/+server.ts` every 5 seconds while it is open:
 `GET` the status and settings, `PATCH` a setting or the switch, `POST`
 `retry` or `reset`. The account's card sits under it while the feature is on.
+The player's Track details shows a measured song's tempo, key and loudness
+from `src/routes/api/sound/[id]/+server.ts`, which looks the song up with the
+asking account's login first.
+
 A stopped job puts a dot on the links to Settings (`analysisStopped`, read by
 the home page's loader, and `notices.svelte.ts`), cleared by opening the
 section.

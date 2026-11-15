@@ -83,4 +83,22 @@ describe('sound analysis in the running app', { skip }, () => {
 		asked.delete(null);
 		assert.deepEqual([...asked], ['analyst'], `the music server was asked as ${[...asked].join(', ')}`);
 	});
+
+	// Issue #333: what was measured, for the player's Track details.
+	test('gives an account what was measured of a song it can see, and nothing of one it cannot', async () => {
+		const listener = new Client(app.url);
+		await listener.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' });
+		const { default: Database } = await import('better-sqlite3');
+		const db = new Database(join(app.dataDir, 'analysis.db'), { readonly: true });
+		const [{ song_id: id }] = db.prepare('SELECT song_id FROM song_features LIMIT 1').all();
+		db.close();
+
+		assert.equal((await fetch(`${app.url}/api/sound/${encodeURIComponent(id)}`)).status, 401);
+		const answer = await listener.request(`/api/sound/${encodeURIComponent(id)}`);
+		assert.equal(answer.status, 200);
+		// Silence: no beat, no key, and the floor of the loudness scale.
+		assert.deepEqual(await answer.json(), { sound: { tempo: null, key: null, loudness: -70 } });
+		assert.equal((await listener.request('/api/sound/no-such-song')).status, 404);
+		assert.equal((await listener.request(`/api/sound/${'x'.repeat(256)}`)).status, 404);
+	});
 });
