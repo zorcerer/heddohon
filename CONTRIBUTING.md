@@ -190,7 +190,8 @@ behaviour decision, not a refactor: raise it in the issue first.
   `backends/types.ts`, implemented for both servers; where one server has no
   such thing, say so in the method's comment and return an empty result.
 - **A new page:** its path in `PAGE_PATHS` in `src/routes/+layout.svelte` and
-  in the page lists of `tests/browser/browser.test.mjs`.
+  in the page lists of `tests/browser/player.test.mjs` (**the policy**) and
+  `tests/browser/themes.test.mjs`.
 - **A new log event:** named in kebab case, and listed in the pull request
   for the wiki's Configuration page.
 - **The interface:** looked at in all four themes (Terminal, the default;
