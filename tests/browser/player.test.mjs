@@ -164,18 +164,26 @@ describe('the length on the seek bar', () => {
 		// Six seconds of audio for a song the library lists at 180.
 		subsonic.state.audio = { type: 'audio/wav', body: silentWav(6) };
 		const { page, problems } = await watchedPage();
-		const length = async () => {
+		// The bar shows the library's length until the element has measured the
+		// file, which can come after playback starts: on a loaded CI runner the
+		// bar still read 180 for the original. Waits up to 5s for `expected`, and
+		// returns what the bar ends on.
+		const length = async (expected) => {
 			await page.getByRole('button', { name: 'Play Song 1a', exact: true }).click();
 			await page.waitForFunction(() => [...document.querySelectorAll('audio')].some((a) => !a.paused && a.currentTime > 0));
-			return Number(await page.locator('aside.panel [role=slider][aria-label="Seek within track"]').getAttribute('aria-valuemax'));
+			const bar = 'aside.panel [role=slider][aria-label="Seek within track"]';
+			await page
+				.waitForFunction(([selector, want]) => Number(document.querySelector(selector)?.getAttribute('aria-valuemax')) === want, [bar, expected], { timeout: 5000 })
+				.catch(() => {});
+			return Number(await page.locator(bar).getAttribute('aria-valuemax'));
 		};
 		try {
 			await page.goto(app.url + '/albums/al1', { waitUntil: 'networkidle' });
-			assert.equal(await length(), 6, 'the original file\'s own length is not on the bar');
+			assert.equal(await length(6), 6, 'the original file\'s own length is not on the bar');
 
 			await context.request.patch(`${app.url}/api/settings`, { data: { transcode: true }, headers: { origin: app.url } });
 			await page.goto(app.url + '/albums/al1', { waitUntil: 'networkidle' });
-			assert.equal(await length(), 180, 'the bar spans what the element made of the transcode');
+			assert.equal(await length(180), 180, 'the bar spans what the element made of the transcode');
 		} finally {
 			subsonic.state.audio = null;
 			await context.request.patch(`${app.url}/api/settings`, { data: { transcode: false }, headers: { origin: app.url } });

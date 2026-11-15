@@ -754,6 +754,11 @@ describe('reordering a playlist', () => {
 			);
 			await saved;
 			assert.deepEqual(subsonic.state.playlistEntries, ['s2a', 's1a', 's3a']);
+			// The handle has its focus back once the row is drawn in its new place,
+			// which on a loaded CI runner came after the save's answer.
+			await page
+				.waitForFunction(() => /^Move Song 1a/.test(document.activeElement?.getAttribute('aria-label') ?? ''), null, { timeout: 5000 })
+				.catch(() => {});
 			const focused = await page.evaluate(() => document.activeElement?.getAttribute('aria-label') ?? '');
 			assert.match(focused, /^Move Song 1a, number 2 of 3/);
 			// Enter on a handle is the handle's: it does not start the row's song.
