@@ -2428,7 +2428,7 @@ Found holding:
 Asked by the maintainer: is a profile picture kept without its metadata, and
 can a display name run as markup? Each with a check, in
 `tests/e2e/app.test.mjs` (**a picture is kept without its metadata**) and
-`tests/browser/browser.test.mjs` (**an account that chooses to be shown**).
+`tests/browser/panel-and-remote.test.mjs` (**an account that chooses to be shown**).
 
 | Severity | Finding | Fix |
 | --- | --- | --- |
