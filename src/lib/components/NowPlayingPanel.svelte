@@ -14,6 +14,7 @@
 	 * of its own: both wanted the right edge. The footer row switches them.
 	 */
 	import { untrack } from 'svelte';
+	import { SvelteMap } from 'svelte/reactivity';
 	import { SLEEP_MINUTES, player } from '#lib/client/player.svelte.ts';
 	import { processing } from '#lib/client/processing.svelte.ts';
 	import { audioOutputs } from '#lib/client/output.svelte.ts';
@@ -325,6 +326,33 @@
 		});
 	}
 
+	/*
+	 * What sound analysis measured of the song (`/api/sound/[id]`), asked for
+	 * while Track details is open and the server analyses. Kept by id, so
+	 * opening the details again for a song asks once.
+	 */
+	interface Sound {
+		tempo: number | null;
+		key: { tonic: number; minor: boolean } | null;
+		loudness: number;
+	}
+	const sounds = new SvelteMap<string, Sound | null>();
+	$effect(() => {
+		const id = song && !song.live && details && page.data.analysis ? song.id : null;
+		if (!id || sounds.has(id)) return;
+		const controller = new AbortController();
+		fetch(`/api/sound/${encodeURIComponent(id)}`, { signal: controller.signal })
+			.then((response) => (response.ok ? (response.json() as Promise<{ sound: Sound | null }>) : null))
+			.then((body) => {
+				if (body) sounds.set(id, body.sound);
+			})
+			// Left out when it cannot be read.
+			.catch(() => {});
+		return () => controller.abort();
+	});
+	const NOTES = ['C', 'C♯', 'D', 'E♭', 'E', 'F', 'F♯', 'G', 'A♭', 'A', 'B♭', 'B'];
+	const sound = $derived(song ? (sounds.get(song.id) ?? null) : null);
+
 	const facts = $derived(
 		song
 			? [
@@ -336,6 +364,13 @@
 							: '—'
 					],
 					['Bitrate', song.quality.bitrateKbps ? `${song.quality.bitrateKbps} kbps` : '—'],
+					...(sound
+						? [
+								['Tempo', sound.tempo === null ? '—' : `${sound.tempo} BPM`],
+								['Key', sound.key ? `${NOTES[sound.key.tonic]} ${sound.key.minor ? 'minor' : 'major'}` : '—'],
+								['Loudness', `${sound.loudness.toFixed(1)} LUFS`]
+							]
+						: []),
 					['Album', song.album ?? '—'],
 					['Track', song.track ? String(song.track) : '—']
 				]

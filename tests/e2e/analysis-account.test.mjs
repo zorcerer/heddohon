@@ -209,5 +209,7 @@ describe('with sound analysis off', () => {
 		const result = await response.json();
 		assert.equal(result.status, 400);
 		assert.ok(result.data.includes('Sound analysis is off'), 'an account was named with the feature off');
+		// Nor does Track details get anything (issue #333).
+		assert.equal((await client.request('/api/sound/s1')).status, 404);
 	});
 });

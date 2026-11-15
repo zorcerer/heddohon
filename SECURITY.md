@@ -573,7 +573,10 @@ allow. The card says so.
 is shared by every account: numbers about a file, as Subsonic covers are
 shared (invariant 10's other exception). Anything that shows songs from it
 looks each one up with the asking account's own login first, and drops what
-the music server says that account cannot see.
+the music server says that account cannot see. The player's Track details
+(`/api/sound/<id>`) is the first: a song the account's login does not get
+from the music server answers 404, and a result is given only for the file
+the music server now lists.
 
 **Where it is kept.** The results are in `analysis.db` in the data directory, a
 SQLite file of their own, whichever database the server runs on. It holds
