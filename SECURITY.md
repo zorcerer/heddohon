@@ -528,6 +528,13 @@ retry, reset, the switch) spend the server's processor or its results. A stop
 on an error is written to the log at the default level (`analysis-stopped`)
 and puts a dot on the links to Settings for an administrator.
 
+**One album now.** An administrator can have an album measured from its menu
+(`/api/analysis/album/<id>`), ahead of the library and while the job is
+paused, though never while someone listens. The album's songs are read with
+that administrator's own login; the analysis account reads only their audio,
+so `AnalysisSource` stays a list of songs and a reader of audio. Each
+administrator has one album waiting at most.
+
 **It reads the library as an account of its own.** Analysis runs with no
 request behind it, so it cannot use anyone's session. An administrator of the
 music server makes an ordinary account for it there and names it under
@@ -1752,6 +1759,7 @@ Covers are cached under `$HEDDOHON_DATA_DIR/covers` (see
 | MCP tool arguments | ids of 1 to 255 characters; a search of 2 to 200 characters and 50 of each kind; 200 albums, 1000 artists, 100 songs or 100 plays a page; 1000 songs or positions a playlist write; a playlist name of 200 characters; a rating from 0 to 5 |
 | MCP request | one JSON-RPC message, within the 512 KB body cap |
 | Library report | an account the music server lists as an administrator; one at a time on the server; kept in memory a day; 50 entries a list |
+| One album analysed now (`/api/analysis/album/<id>`) | an account the music server lists as an administrator, asked on every request (a `GET` from anyone else answers `{ offered: false }`); the album read with that account's own login; one album waiting for each administrator, 409 while it does; 404 with the feature off or no analysis account named |
 | Sound analysis settings (`/api/analysis`) | an account the music server lists as an administrator, asked on every request; `paused` and `on` booleans, `pace` one of `full`, `gentle` and `background`, `whileListening` `pause` or `continue`, `hours` null or two whole minutes from 0 to 1439; `on` refused while `HEDDOHON_ANALYSIS` is set in the environment; an action of `retry` or `reset` |
 | Daily mixes | 3 a day for an account, 40 songs each, made at most once a day from this server's history and kept in `daily_mixes` |
 | Listening history export | the account's own plays; `format` `csv` or `json`, `from` and `to` whole epoch milliseconds up to 8.64e15, `from` before `to`; read 2000 plays a query and written as read. A CSV field that starts with `=`, `+`, `-`, `@`, a tab or a carriage return takes a `'` in front, so a spreadsheet does not run a track name as a formula |

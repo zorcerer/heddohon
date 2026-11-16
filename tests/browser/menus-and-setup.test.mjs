@@ -807,6 +807,121 @@ describe("a song's sound in Track details", () => {
 });
 
 /*
+ * #330: one album analysed now, from its menu. What the server says comes
+ * from a stand-in for `/api/analysis/album/<id>`; the route is tested in
+ * `tests/e2e/analysis-run.test.mjs`.
+ */
+describe('analysing one album', () => {
+	test("an administrator's album menu offers it and says what came of it; it is not offered otherwise", async () => {
+		const own = await startApp({ subsonicUrl: subsonic.url, jellyfinUrl: jellyfin.url, env: { HEDDOHON_ANALYSIS: 'true' } });
+		const view = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+		const problems = [];
+		try {
+			await view.request.post(`${own.url}/login`, {
+				form: { username: 'testuser', password: 'testpass', backend: 'subsonic', next: '/' },
+				headers: { origin: own.url, accept: 'text/html' },
+				maxRedirects: 0
+			});
+			const page = await view.newPage();
+			page.on('console', (message) => message.type() === 'error' && problems.push(message.text()));
+			page.on('pageerror', (err) => problems.push(err.message));
+			const answer = { offered: true, measured: 0, total: 2, waiting: false };
+			const posted = [];
+			await page.route(`${own.url}/api/analysis/album/*`, async (route) => {
+				const id = new URL(route.request().url()).pathname.split('/').pop();
+				if (route.request().method() === 'POST') {
+					posted.push(id);
+					// As the server does: the album waits, and its menu says so after.
+					answer.waiting = true;
+					return route.fulfill({ status: 202, json: answer });
+				}
+				await route.fulfill({ json: answer });
+			});
+			const menu = page.getByRole('menu');
+			const open = async () => {
+				await page.keyboard.press('Escape');
+				await menu.waitFor({ state: 'detached' });
+				await page.locator('a.card[href="/albums/al1"]').click({ button: 'right' });
+				await menu.waitFor();
+			};
+			await page.goto(own.url + '/albums', { waitUntil: 'load' });
+			await page.locator('a.card[href="/albums/al1"]').click({ button: 'right' });
+			await menu.waitFor();
+			const item = menu.getByRole('menuitem', { name: 'Analyse this album', exact: true });
+			await item.waitFor();
+			await item.click();
+			await menu.getByRole('menuitem', { name: 'Analysing this album', exact: true }).waitFor();
+			assert.deepEqual(posted, ['al1']);
+
+			// One waiting from this administrator: the menu says so, and asks nothing.
+			await open();
+			const waiting = menu.getByRole('menuitem', { name: 'Another album is being analysed', exact: true });
+			await waiting.waitFor();
+			await waiting.click();
+			await page.waitForTimeout(300);
+			assert.deepEqual(posted, ['al1']);
+
+			// Every song measured: the item says it measures them again.
+			answer.waiting = false;
+			answer.measured = 2;
+			await open();
+			await menu.getByRole('menuitem', { name: 'Analyse again', exact: true }).waitFor();
+
+			// Not offered: the item is not there.
+			answer.offered = false;
+			await open();
+			await menu.getByRole('menuitem', { name: 'Play', exact: true }).waitFor();
+			await page.waitForTimeout(300);
+			assert.equal(await menu.getByRole('menuitem', { name: /Analys/ }).count(), 0);
+		} finally {
+			await view.close();
+			await own.stop();
+		}
+		assert.deepEqual(problems, []);
+	});
+
+	test('the Sound analysis section shows the album under way', async () => {
+		const own = await startApp({ subsonicUrl: subsonic.url, jellyfinUrl: jellyfin.url, env: { HEDDOHON_ANALYSIS: 'true' } });
+		const view = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+		try {
+			await view.request.post(`${own.url}/login`, {
+				form: { username: 'testuser', password: 'testpass', backend: 'subsonic', next: '/' },
+				headers: { origin: own.url, accept: 'text/html' },
+				maxRedirects: 0
+			});
+			const page = await view.newPage();
+			await page.route(`${own.url}/api/analysis`, (route) =>
+				route.fulfill({
+					json: {
+						on: true,
+						fromEnvironment: true,
+						settings: { paused: true, pace: 'gentle', whileListening: 'pause', hours: null },
+						status: {
+							state: 'running',
+							total: 120,
+							measured: 40,
+							failed: 0,
+							current: { backend: 'subsonic', title: 'Song 3a', artist: 'Artist 0003' },
+							lastHour: 30,
+							finishInMs: 3_600_000,
+							lastError: null,
+							album: { title: 'Album 3', done: 1, total: 2 }
+						}
+					}
+				})
+			);
+			await page.goto(own.url + '/settings?tab=analysis');
+			const figures = page.locator('section#analysis .figures');
+			await figures.getByText('Album asked for').waitFor();
+			assert.match((await figures.textContent()).replace(/\s+/g, ' '), /Album asked for Album 3 · 1 of 2/);
+		} finally {
+			await view.close();
+			await own.stop();
+		}
+	});
+});
+
+/*
  * #182: a colour scheme from a file in the data directory, chosen in Settings,
  * repaints the page at once, its fixed accents included, and the page comes
  * back in it.

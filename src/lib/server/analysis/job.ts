@@ -17,7 +17,8 @@ import { openSource } from './account.ts';
 import { analyseInWorker, stopAnalyser } from './analyser.ts';
 import { decodeExcerpt } from './decode.ts';
 import { AnalysisJob, DEFAULT_SETTINGS, PACES, type JobSettings, type JobStatus } from './queue.ts';
-import type { AnalysisSource } from './source.ts';
+import { analysisSongOf, type AnalysisSource } from './source.ts';
+import type { AlbumDetail, BackendKind } from '#lib/types.ts';
 import { AnalysisStore } from './store.ts';
 
 const SETTINGS_KEY = 'analysis-settings';
@@ -147,6 +148,28 @@ export function analysisStatus(): JobStatus | null {
 /** Whether the job has stopped on an error, for the dot on the links to Settings. */
 export function analysisStopped(): boolean {
 	return job?.status().state === 'stopped';
+}
+
+/**
+ * How much of an album, as an administrator's own login lists it, has a
+ * current result, and whether that administrator has an album waiting.
+ */
+export function albumAnalysis(backend: BackendKind, album: AlbumDetail, by: string): { measured: number; total: number; waiting: boolean } {
+	const songs = album.songs.filter((song) => !song.live);
+	const measured = songs.filter((song) => analysisStore().get({ backend, songId: song.id, fileKey: analysisSongOf(song).fileKey }) !== null).length;
+	return { measured, total: songs.length, waiting: job?.albumWaiting(by) ?? false };
+}
+
+/**
+ * Puts an album ahead of the library (issue #330), its songs as the asking
+ * administrator's login lists them. `waiting` where that administrator
+ * already has one, `empty` where it has no song to measure.
+ */
+export function analyseAlbum(backend: BackendKind, album: AlbumDetail, by: string): 'queued' | 'waiting' | 'empty' {
+	const songs = album.songs.filter((song) => !song.live).map(analysisSongOf);
+	if (songs.length === 0) return 'empty';
+	if (!job) return 'waiting';
+	return job.queueAlbum({ by, backend, title: album.name, songs }) ? 'queued' : 'waiting';
 }
 
 /** Removes `analysis.db` and starts the library again. */

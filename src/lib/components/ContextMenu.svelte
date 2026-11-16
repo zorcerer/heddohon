@@ -82,6 +82,56 @@
 		mix = 'idle';
 	});
 
+	/*
+	 * Sound analysis of one album (issue #330): asked of the server when the
+	 * menu opens on an album while the server analyses, since only it knows
+	 * whether this account administers the music server and an analysis
+	 * account is named. Offered where it says so; the item stays open and
+	 * says what happened, as the mix does.
+	 */
+	let analysis = $state<{ id: string; offered: boolean; measured: number; total: number; waiting: boolean } | null>(null);
+	let analysing = $state<'idle' | 'busy' | 'queued' | 'waiting' | 'failed'>('idle');
+	$effect(() => {
+		const id = subject?.kind === 'album' && page.data.analysis ? subject.album.id : null;
+		analysing = 'idle';
+		if (!id) return;
+		const controller = new AbortController();
+		fetch(`/api/analysis/album/${encodeURIComponent(id)}`, { signal: controller.signal })
+			.then((response) => (response.ok ? response.json() : null))
+			.then((body) => {
+				if (body) analysis = { id, ...body };
+			})
+			.catch(() => {});
+		return () => controller.abort();
+	});
+	const analysisItem = $derived.by((): Item | null => {
+		if (subject?.kind !== 'album' || analysis?.id !== subject.album.id || !analysis.offered) return null;
+		const label =
+			analysing === 'busy'
+				? 'Asking…'
+				: analysing === 'queued'
+					? 'Analysing this album'
+					: analysing === 'waiting' || analysis.waiting
+						? 'Another album is being analysed'
+						: analysing === 'failed'
+							? 'The server did not take it'
+							: analysis.total > 0 && analysis.measured === analysis.total
+								? 'Analyse again'
+								: 'Analyse this album';
+		const id = analysis.id;
+		return { kind: 'action', label, icon: 'wave', stays: true, run: () => analyseAlbum(id) };
+	});
+	async function analyseAlbum(id: string) {
+		if (analysing !== 'idle' || analysis?.waiting) return;
+		analysing = 'busy';
+		try {
+			const response = await fetch(`/api/analysis/album/${encodeURIComponent(id)}`, { method: 'POST' });
+			analysing = response.status === 202 ? 'queued' : response.status === 409 ? 'waiting' : 'failed';
+		} catch {
+			analysing = 'failed';
+		}
+	}
+
 	/** An album's tracks, then something done with them. The menu has closed by then. */
 	async function withTracks(id: string, then: (songs: Awaited<ReturnType<typeof fetchTracks>>) => unknown) {
 		const songs = await fetchTracks('album', id);
@@ -169,6 +219,7 @@
 					]),
 			{ kind: 'action', label: mixLabel, icon: 'radio', run: () => startMix('album', album.id), stays: true }
 		);
+		if (analysisItem) list.push(analysisItem);
 		if (sharing) {
 			list.push({
 				kind: 'action',

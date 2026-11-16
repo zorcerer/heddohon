@@ -12,6 +12,11 @@
  * take two cores where the pace promises at most one. Each step checks the
  * settings first, so turning it off, pausing it or a listener arriving stops
  * it within the song under way.
+ *
+ * An album an administrator asks for (`queueAlbum`, issue #330) goes ahead
+ * of the library: its songs are measured again though they have a current
+ * result, while the job is paused or outside its hours, and still not while
+ * someone listens.
  */
 import { ANALYSIS_RATE, DecodeError } from './decode.ts';
 import type { SongFeatures } from './features.ts';
@@ -65,6 +70,21 @@ export interface JobStatus {
 	/** At that pace, how long the rest would take, in ms; null where nothing is left or there is no pace yet. */
 	finishInMs: number | null;
 	lastError: { title: string; message: string; at: number } | null;
+	/** The album asked for that is being measured, and how far it is. */
+	album: { title: string; done: number; total: number } | null;
+}
+
+/**
+ * An album an administrator asked to have measured now. Its songs come from
+ * that administrator's own request (`job.ts`); the analysis account reads
+ * only their audio.
+ */
+export interface AlbumRequest {
+	/** Who asked: one album waiting at a time each. */
+	by: string;
+	backend: string;
+	title: string;
+	songs: AnalysisSong[];
 }
 
 export interface JobDeps {
@@ -125,6 +145,8 @@ export class AnalysisJob {
 	/** When each of the songs finished in the last hour did. */
 	#finished: number[] = [];
 	#libraries = new Map<string, Library>();
+	/** Albums asked for, first first; `next` is the song of it to measure. */
+	#albums: (AlbumRequest & { next: number })[] = [];
 	#stopper: AbortController | null = null;
 	#running: Promise<void> | null = null;
 
@@ -154,8 +176,26 @@ export class AnalysisJob {
 			current: this.#current,
 			lastHour,
 			finishInMs: left > 0 && lastHour > 0 ? Math.round((left / lastHour) * HOUR_MS) : null,
-			lastError: this.#lastError
+			lastError: this.#lastError,
+			album: this.#albums[0] ? { title: this.#albums[0].title, done: this.#albums[0].next, total: this.#albums[0].songs.length } : null
 		};
+	}
+
+	/**
+	 * Puts an album ahead of the library. False where the same administrator
+	 * already has one waiting, or the album has no songs.
+	 */
+	queueAlbum(request: AlbumRequest): boolean {
+		if (request.songs.length === 0 || this.albumWaiting(request.by)) return false;
+		this.#albums.push({ ...request, next: 0 });
+		this.#deps.log('analysis-album-queued', { by: request.by, backend: request.backend, songs: request.songs.length });
+		this.wake();
+		return true;
+	}
+
+	/** Whether this administrator has an album waiting or under way. */
+	albumWaiting(by: string): boolean {
+		return this.#albums.some((album) => album.by === by);
 	}
 
 	/** Starts the loop, if it is not running. */
@@ -229,13 +269,16 @@ export class AnalysisJob {
 			return IDLE_MS;
 		}
 		const settings = await deps.settings();
-		if (settings.paused) {
-			this.#set('paused');
-			return IDLE_MS;
-		}
-		if (!withinHours(settings.hours, deps.minuteOfDay())) {
-			this.#set('outside-hours');
-			return IDLE_MS;
+		// An album asked for is asked for now: neither a pause nor the hours hold it.
+		if (this.#albums.length === 0) {
+			if (settings.paused) {
+				this.#set('paused');
+				return IDLE_MS;
+			}
+			if (!withinHours(settings.hours, deps.minuteOfDay())) {
+				this.#set('outside-hours');
+				return IDLE_MS;
+			}
 		}
 		if (settings.whileListening === 'pause') {
 			const quietFor = deps.now() - deps.lastListened();
@@ -246,6 +289,7 @@ export class AnalysisJob {
 		}
 
 		const sources = await deps.sources();
+		if (this.#albums.length > 0) return this.#measureAlbum(sources, settings, signal);
 		if (sources.length === 0) {
 			this.#set('no-account');
 			return IDLE_MS;
@@ -289,32 +333,62 @@ export class AnalysisJob {
 		return null;
 	}
 
+	/** The next song of the first album asked for, measured whatever is stored for it. */
+	async #measureAlbum(sources: AnalysisSource[], settings: JobSettings, signal: AbortSignal): Promise<number> {
+		const album = this.#albums[0];
+		const source = sources.find((each) => each.backend === album.backend);
+		if (!source) {
+			// The account was removed, or the feature switched off and on, since it was asked for.
+			this.#albums.shift();
+			this.#deps.log('analysis-album-dropped', { by: album.by, backend: album.backend, detail: 'no analysis account' });
+			return 0;
+		}
+		const { rest, done } = await this.#measureSong(source, album.songs[album.next], settings, signal);
+		if (done) album.next++;
+		if (album.next >= album.songs.length) {
+			this.#albums.shift();
+			this.#deps.log('analysis-album-done', { by: album.by, backend: album.backend, songs: album.songs.length });
+		}
+		return rest;
+	}
+
 	async #measure(library: Library, song: AnalysisSong, settings: JobSettings, signal: AbortSignal): Promise<number> {
+		const { rest, done } = await this.#measureSong(library.source, song, settings, signal);
+		if (done) library.next++;
+		return rest;
+	}
+
+	/**
+	 * Measures one song and keeps the result or the failure. `rest` is how
+	 * long to wait after it; `done` is false where the song is to be tried
+	 * again: the job was stopped, or it has no ffmpeg.
+	 */
+	async #measureSong(source: AnalysisSource, song: AnalysisSong, settings: JobSettings, signal: AbortSignal): Promise<{ rest: number; done: boolean }> {
 		const deps = this.#deps;
-		const ref = { backend: library.source.backend, songId: song.id, fileKey: song.fileKey };
+		const ref = { backend: source.backend, songId: song.id, fileKey: song.fileKey };
 		this.#set('running');
 		this.#current = { backend: ref.backend, title: song.title, artist: song.artist };
 		const started = deps.now();
 		try {
 			let samples: Float32Array;
 			try {
-				samples = await deps.decode(await library.source.audio(song.id, signal), { duration: song.duration, signal });
+				samples = await deps.decode(await source.audio(song.id, signal), { duration: song.duration, signal });
 			} catch (err) {
 				// The excerpt starts 30s in by the length the music server reports. A
 				// file shorter than that decodes to nothing there: read it once more
 				// from its start.
 				if (!(err instanceof DecodeError && err.kind === 'empty')) throw err;
-				samples = await deps.decode(await library.source.audio(song.id, signal), { duration: song.duration, signal, fromStart: true });
+				samples = await deps.decode(await source.audio(song.id, signal), { duration: song.duration, signal, fromStart: true });
 			}
 			const features = await deps.analyse(samples, ANALYSIS_RATE);
-			if (signal.aborted) return 0;
+			if (signal.aborted) return { rest: 0, done: false };
 			deps.store.put(ref, features);
 		} catch (err) {
-			if (signal.aborted) return 0;
+			if (signal.aborted) return { rest: 0, done: false };
 			// No ffmpeg is not the song's fault: every song would fail the same way.
 			if (err instanceof DecodeError && err.kind === 'missing') {
 				this.#stop(err.message);
-				return RETRY_MS;
+				return { rest: RETRY_MS, done: false };
 			}
 			const message = err instanceof Error ? err.message : String(err);
 			deps.store.fail(ref, message);
@@ -323,12 +397,11 @@ export class AnalysisJob {
 		} finally {
 			this.#current = null;
 		}
-		library.next++;
 		const took = deps.now() - started;
 		this.#finished.push(deps.now());
-		if (settings.pace === 'full') return 0;
-		if (settings.pace === 'background') return Math.max(0, BACKGROUND_EVERY_MS - took);
-		return took;
+		if (settings.pace === 'full') return { rest: 0, done: true };
+		if (settings.pace === 'background') return { rest: Math.max(0, BACKGROUND_EVERY_MS - took), done: true };
+		return { rest: took, done: true };
 	}
 
 	#stop(message: string): void {

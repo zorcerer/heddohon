@@ -209,7 +209,9 @@ describe('with sound analysis off', () => {
 		const result = await response.json();
 		assert.equal(result.status, 400);
 		assert.ok(result.data.includes('Sound analysis is off'), 'an account was named with the feature off');
-		// Nor does Track details get anything (issue #333).
+		// Nor does Track details get anything (issue #333), nor an album's menu (#330).
 		assert.equal((await client.request('/api/sound/s1')).status, 404);
+		assert.deepEqual(await (await client.request('/api/analysis/album/al1')).json(), { offered: false });
+		assert.equal((await client.request('/api/analysis/album/al1', { method: 'POST' })).status, 404);
 	});
 });

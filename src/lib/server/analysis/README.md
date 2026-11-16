@@ -129,6 +129,13 @@ offered to an account the music server lists as an administrator, on or off.
 asks `src/routes/api/analysis/+server.ts` every 5 seconds while it is open:
 `GET` the status and settings, `PATCH` a setting or the switch, `POST`
 `retry` or `reset`. The account's card sits under it while the feature is on.
+An album's menu offers **Analyse this album** to an administrator while an
+analysis account is named (`src/routes/api/analysis/album/[id]/+server.ts`,
+`queueAlbum` in `queue.ts`): its songs, as the administrator's login lists
+them, go ahead of the library and are measured again whatever is stored, while
+the job is paused or outside its hours, and not while someone listens. One
+album waits at a time for each administrator; the section shows its progress.
+
 The player's Track details shows a measured song's tempo, key and loudness
 from `src/routes/api/sound/[id]/+server.ts`, which looks the song up with the
 asking account's login first.
