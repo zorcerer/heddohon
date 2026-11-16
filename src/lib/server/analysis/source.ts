@@ -50,6 +50,11 @@ export function fileKeyOf(song: Song): string {
 	return `${song.quality.sizeBytes ?? '?'}:${song.quality.format ?? '?'}:${Math.round(song.duration)}`;
 }
 
+/** A song from the music server as the analysis keeps it. */
+export function analysisSongOf(song: Song): AnalysisSong {
+	return { id: song.id, title: song.title, artist: song.artist ?? null, duration: song.duration, fileKey: fileKeyOf(song) };
+}
+
 /**
  * A source reading as `credential`. Called by `account.ts` with the analysis
  * account's credential, and by tests with a stand-in.
@@ -63,7 +68,7 @@ export function sourceFor(backend: AnalysisBackend, credential: StoredCredential
 				for (const song of page) {
 					// A radio station has no file to measure.
 					if (song.live) continue;
-					found.push({ id: song.id, title: song.title, artist: song.artist ?? null, duration: song.duration, fileKey: fileKeyOf(song) });
+					found.push(analysisSongOf(song));
 				}
 			});
 			return found;

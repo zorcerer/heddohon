@@ -289,3 +289,67 @@ describe('the analysis job', { skip }, () => {
 		assert.equal(h.job.status().total, 4);
 	});
 });
+
+/** An album asked for, as `job.ts` gives one: songs from the asking administrator's login. */
+const albumOf = (h, ids, by = 'admin-1') => ({
+	by,
+	backend: 'subsonic',
+	title: 'An album',
+	songs: ids.map((id) => h.world.library.find((song) => song.id === id))
+});
+
+describe('an album asked for (issue #330)', { skip }, () => {
+	test('goes ahead of the library, and its songs are measured again though current', async () => {
+		const h = harness({ songs: 10 });
+		await runUntil(h, () => h.job.status().state === 'done');
+		assert.equal(h.world.measured.length, 10);
+		assert.equal(h.job.queueAlbum(albumOf(h, ['s7', 's8'])), true);
+		await runUntil(h, () => h.world.measured.length === 12);
+		assert.deepEqual(h.world.measured.slice(10), ['s7', 's8']);
+		assert.equal(h.job.status().album, null, 'the album stayed in the status once done');
+		assert.ok(h.world.events.some(([event]) => event === 'analysis-album-done'));
+	});
+
+	test('comes before songs not yet measured, and says how far it is', async () => {
+		const h = harness({ songs: 10, settings: { pace: 'full' } });
+		h.job.queueAlbum(albumOf(h, ['s9', 's5', 's6']));
+		assert.deepEqual(h.job.status().album, { title: 'An album', done: 0, total: 3 });
+		await runUntil(h, () => h.world.measured.length === 4);
+		assert.deepEqual(h.world.measured.slice(0, 4), ['s9', 's5', 's6', 's0']);
+	});
+
+	test('runs while the job is paused or outside its hours, and not while someone listens', async () => {
+		const h = harness({ songs: 5, settings: { paused: true, hours: { from: 60, to: 120 } } });
+		h.job.queueAlbum(albumOf(h, ['s3', 's4']));
+		await runUntil(h, () => h.world.measured.length === 2);
+		assert.deepEqual(h.world.measured, ['s3', 's4']);
+		// Then the pause holds the library.
+		await runUntil(h, () => h.job.status().state === 'paused');
+		assert.equal(h.world.measured.length, 2);
+
+		const listened = harness({ songs: 5 });
+		listened.world.lastListened = listened.world.now;
+		listened.job.queueAlbum(albumOf(listened, ['s1']));
+		await runUntil(listened, () => listened.job.status().state === 'throttled', 20);
+		assert.equal(listened.job.status().state, 'throttled');
+		assert.deepEqual(listened.world.measured.slice(0, 1), [], 'an album was measured while someone listened');
+	});
+
+	test('takes one album at a time from each administrator', () => {
+		const h = harness({ songs: 5 });
+		assert.equal(h.job.queueAlbum(albumOf(h, ['s0'])), true);
+		assert.equal(h.job.queueAlbum(albumOf(h, ['s1'])), false);
+		assert.equal(h.job.albumWaiting('admin-1'), true);
+		assert.equal(h.job.queueAlbum(albumOf(h, ['s1'], 'admin-2')), true);
+		assert.equal(h.job.queueAlbum({ ...albumOf(h, []), by: 'admin-3' }), false, 'an album with no songs was taken');
+	});
+
+	test('a song the analysis account cannot read fails with the reason, and the album goes on', async () => {
+		const h = harness({ songs: 5 });
+		h.world.failOn.add('s2');
+		h.job.queueAlbum(albumOf(h, ['s2', 's3']));
+		await runUntil(h, () => h.world.measured.includes('s3'));
+		assert.equal(h.store.errorOf({ backend: 'subsonic', songId: 's2', fileKey: 'k2' }), 'The music server answered 404 for s2.');
+		assert.match(h.job.status().lastError.message, /404 for s2/);
+	});
+});

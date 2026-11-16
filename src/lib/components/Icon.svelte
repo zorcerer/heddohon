@@ -55,7 +55,8 @@
 		| 'devices'
 		| 'cast'
 		| 'screen'
-		| 'github';
+		| 'github'
+		| 'wave';
 
 	let {
 		name,
@@ -119,6 +120,8 @@
 		moon: 'M19.5 14.6A7.8 7.8 0 0 1 9.4 4.5a7.8 7.8 0 1 0 10.1 10.1Z',
 		// A point sending out waves, the usual mark for a radio or a mix.
 		radio: 'M12 12h.01M8.5 8.5a5 5 0 0 0 0 7M15.5 8.5a5 5 0 0 1 0 7M5.6 5.6a9 9 0 0 0 0 12.8M18.4 5.6a9 9 0 0 1 0 12.8',
+		// Five bars of a level meter: sound analysis.
+		wave: 'M4 10.5v3M8 7v10M12 4v16M16 8v8M20 10.5v3',
 		// A tag, the usual mark for a category.
 		genre:
 			'M4.5 12.4V5.9A1.4 1.4 0 0 1 5.9 4.5h6.5l7.1 7.1a1.4 1.4 0 0 1 0 2l-5.9 5.9a1.4 1.4 0 0 1-2 0l-7.1-7.1ZM8.6 7.4a1.2 1.2 0 1 0 0 2.4 1.2 1.2 0 0 0 0-2.4Z',

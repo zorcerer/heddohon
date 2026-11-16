@@ -97,6 +97,9 @@ describe('/api/analysis', () => {
 		assert.deepEqual(body.settings, { paused: true, pace: 'background', whileListening: 'continue', hours: { from: 1380, to: 360 } });
 		assert.deepEqual((await overview()).settings, body.settings);
 		assert.equal(JSON.parse(readFileSync(join(app.dataDir, 'setup.json'), 'utf8')).HEDDOHON_ANALYSIS, 'true');
+		// On, but with no account named, no album is offered or taken (issue #330).
+		assert.deepEqual(await (await admin.request('/api/analysis/album/al1')).json(), { offered: false });
+		assert.equal((await admin.request('/api/analysis/album/al1', { method: 'POST' })).status, 404);
 		// One field at a time leaves the others.
 		const next = await (await admin.request('/api/analysis', json({ hours: null, whileListening: 'pause' }))).json();
 		assert.deepEqual(next.settings, { paused: true, pace: 'background', whileListening: 'pause', hours: null });

@@ -84,6 +84,51 @@ describe('sound analysis in the running app', { skip }, () => {
 		assert.deepEqual([...asked], ['analyst'], `the music server was asked as ${[...asked].join(', ')}`);
 	});
 
+	// Issue #330: one album now, from its menu.
+	test('an administrator has an album measured again now, once at a time; anyone else is not offered it', async () => {
+		const admin = new Client(app.url);
+		await admin.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' });
+		const { default: Database } = await import('better-sqlite3');
+		const measuredAt = () => {
+			const db = new Database(join(app.dataDir, 'analysis.db'), { readonly: true });
+			try {
+				return Object.fromEntries(db.prepare("SELECT song_id, analysed_at FROM song_features WHERE song_id IN ('s1a', 's1b')").all().map((row) => [row.song_id, row.analysed_at]));
+			} finally {
+				db.close();
+			}
+		};
+		const before = measuredAt();
+		assert.equal(Object.keys(before).length, 2, 'the album was not measured by the library walk');
+
+		const offer = await (await admin.request('/api/analysis/album/al1')).json();
+		assert.deepEqual(offer, { offered: true, measured: 2, total: 2, waiting: false });
+
+		const asked = await admin.request('/api/analysis/album/al1', { method: 'POST' });
+		assert.equal(asked.status, 202);
+		assert.equal((await admin.request('/api/analysis/album/al2', { method: 'POST' })).status, 409, 'a second album was taken while one waits');
+		// Measured again, though the results were current.
+		const deadline = Date.now() + 15_000;
+		while (Date.now() < deadline) {
+			const now = measuredAt();
+			if (now.s1a > before.s1a && now.s1b > before.s1b) break;
+			await new Promise((resolve) => setTimeout(resolve, 200));
+		}
+		const after = measuredAt();
+		assert.ok(after.s1a > before.s1a && after.s1b > before.s1b, 'the album was not measured again');
+		assert.equal((await (await admin.request('/api/analysis/album/al1')).json()).waiting, false);
+
+		// An account the music server does not list as an administrator.
+		subsonic.state.admin = false;
+		try {
+			assert.deepEqual(await (await admin.request('/api/analysis/album/al1')).json(), { offered: false });
+			assert.equal((await admin.request('/api/analysis/album/al1', { method: 'POST' })).status, 403);
+		} finally {
+			subsonic.state.admin = true;
+		}
+		assert.equal((await fetch(`${app.url}/api/analysis/album/al1`)).status, 401);
+		assert.equal((await admin.request('/api/analysis/album/no-such-album', { method: 'POST' })).status, 404);
+	});
+
 	// Issue #333: what was measured, for the player's Track details.
 	test('gives an account what was measured of a song it can see, and nothing of one it cannot', async () => {
 		const listener = new Client(app.url);

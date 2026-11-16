@@ -26,6 +26,7 @@
 			lastHour: number;
 			finishInMs: number | null;
 			lastError: { title: string; message: string; at: number } | null;
+			album: { title: string; done: number; total: number } | null;
 		} | null;
 		settings: {
 			paused: boolean;
@@ -160,6 +161,12 @@
 		<span class="hh-numeric">{count(done)} of {count(status.total)}</span>
 	</div>
 	<dl class="figures">
+		{#if status.album}
+			<div class="wide">
+				<dt>Album asked for</dt>
+				<dd>{status.album.title} · <span class="hh-numeric">{count(status.album.done)} of {count(status.album.total)}</span></dd>
+			</div>
+		{/if}
 		{#if status.current}
 			<div class="wide">
 				<dt>Now</dt>
