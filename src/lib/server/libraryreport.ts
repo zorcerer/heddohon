@@ -146,7 +146,8 @@ class Tally {
 			if (!song.year) this.#withoutYear++;
 
 			const ref: AlbumRef | null = song.albumId ? { id: song.albumId, name: song.album ?? 'Unknown album', artist } : null;
-			if (song.replayGain?.trackGain == null) {
+			// A gain sound analysis measured is not one the file carries.
+			if (song.replayGain?.trackGain == null || song.replayGain.measured) {
 				this.#withoutReplayGain++;
 				if (ref && this.#withoutReplayGainAlbums.size < LISTED) this.#withoutReplayGainAlbums.set(ref.id, ref);
 			}

@@ -162,6 +162,8 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 		coverColors: new Map(),
 		/** Titles to answer with in place of a song's own, by song id. */
 		songTitles: new Map(),
+		/** OpenSubsonic `replayGain` to answer with, by song id, as tags carry it. */
+		replayGains: new Map(),
 		/** The content type to answer a cover with in place of `image/png`, by cover id. */
 		coverTypes: new Map(),
 		/** Bytes added after every cover, for a cover of a known weight. */
@@ -280,6 +282,7 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 		starred: state.starred.get(`s${i}${side}`),
 		userRating: state.ratings.get(`s${i}${side}`),
 		...(state.songGenre ? { genre: state.songGenre } : {}),
+		...(state.replayGains.has(`s${i}${side}`) ? { replayGain: state.replayGains.get(`s${i}${side}`) } : {}),
 		// For the library report: the second song of an album an MP3, or on a
 		// second copy of the album.
 		...(side === 'b' && state.lossy.has(i) ? { suffix: 'mp3', bitRate: 320, bitDepth: undefined, size: 7_000_000 } : {}),
@@ -337,7 +340,10 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 			channels: 2,
 			...(s.starred ? { starred: true, starredAt: s.starred } : {}),
 			...(s.userRating ? { rating: s.userRating } : {}),
-			...(s.playCount === undefined ? {} : { playCount: s.playCount })
+			...(s.playCount === undefined ? {} : { playCount: s.playCount }),
+			...(s.replayGain
+				? { rgTrackGain: s.replayGain.trackGain, rgAlbumGain: s.replayGain.albumGain, rgTrackPeak: s.replayGain.trackPeak, rgAlbumPeak: s.replayGain.albumPeak }
+				: {})
 		};
 	};
 
@@ -1385,6 +1391,18 @@ export async function startMusicBrainz() {
  * plays: for `state.audio`, where a check needs `timeupdate` to fire (the
  * stream's body is not audio otherwise), and for `npm run dev:mock`.
  */
+/**
+ * A 440Hz sine of `seconds` at `amplitude` (0 to 1) of full scale, as 8-bit
+ * WAV: audio with a level, for sound analysis to measure.
+ */
+export function toneWav(seconds, amplitude) {
+	const wav = silentWav(seconds);
+	for (let i = 0; i < 8000 * seconds; i++) {
+		wav[44 + i] = Math.round(128 + 127 * amplitude * Math.sin((2 * Math.PI * 440 * i) / 8000));
+	}
+	return wav;
+}
+
 export function silentWav(seconds) {
 	const rate = 8000;
 	const data = rate * seconds;

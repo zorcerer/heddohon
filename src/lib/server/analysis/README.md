@@ -129,6 +129,14 @@ offered to an account the music server lists as an administrator, on or off.
 asks `src/routes/api/analysis/+server.ts` every 5 seconds while it is open:
 `GET` the status and settings, `PATCH` a setting or the switch, `POST`
 `retry` or `reset`. The account's card sits under it while the feature is on.
+Volume levelling reads the results (`results.ts`, issue #320): each backend
+adapter passes every song it maps through `levelled`, which gives a song
+without ReplayGain a track gain to -18 LUFS from its measured loudness. Tags
+win, and so does Jellyfin's own gain. No peak, since the one measured is of
+an excerpt, so the player only lowers a song from a measured gain. The gain
+is marked `measured`, and the library report still counts the file as
+having no ReplayGain of its own.
+
 An album's menu offers **Analyse this album** to an administrator while an
 analysis account is named (`src/routes/api/analysis/album/[id]/+server.ts`,
 `queueAlbum` in `queue.ts`): its songs, as the administrator's login lists

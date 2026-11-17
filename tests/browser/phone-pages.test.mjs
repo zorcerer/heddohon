@@ -936,21 +936,34 @@ describe('the bars a phone paints around the page', () => {
 				const [r, g, b] = canvas.getImageData(0, 0, 1, 1).data;
 				return { hex, meta: [1, 3, 5].map((at) => Number.parseInt(hex.slice(at, at + 2), 16)), canvas: [r, g, b] };
 			});
+		/*
+		 * The colour eases for 900ms and the bar is written again once it has
+		 * landed. Waits for the two to agree, up to 8s, rather than a fixed
+		 * time: with three browser files running side by side the bar was one
+		 * step behind the canvas after 2.2s. A wrong colour still fails below.
+		 */
+		const settled = async () => {
+			const deadline = Date.now() + 8000;
+			let last = await seen();
+			while (Date.now() < deadline && last.meta.join() !== last.canvas.join()) {
+				await page.waitForTimeout(200);
+				last = await seen();
+			}
+			return last;
+		};
 		try {
 			await page.goto(app.url + '/albums/al33', { waitUntil: 'networkidle' });
 			await page.getByRole('button', { name: 'Play Song 33a', exact: true }).click();
 			await page.waitForFunction(() => [...document.querySelectorAll('audio')].some((a) => !a.paused && a.currentTime > 0));
-			// The colour eases for 900ms, and the bar is written again once it has landed.
-			await page.waitForTimeout(2200);
-			const dark = await seen();
+			await page.waitForTimeout(1000);
+			const dark = await settled();
 			assert.deepEqual(dark.meta, dark.canvas, 'the bar is the canvas colour');
 			assert.notEqual(dark.hex, '#0b0c0f', 'and no longer the bare ground');
 			assert.ok(dark.meta[0] > dark.meta[2] + 8, `lit by a red cover: ${dark.hex}`);
 
 			await settings({ theme: 'light' });
 			await page.goto(app.url + '/albums/al33', { waitUntil: 'networkidle' });
-			await page.waitForTimeout(1500);
-			const light = await seen();
+			const light = await settled();
 			assert.deepEqual(light.meta, light.canvas);
 			assert.ok(Math.min(...light.meta) > 180, `the light theme's bar is light: ${light.hex}`);
 		} finally {

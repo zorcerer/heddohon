@@ -1294,6 +1294,11 @@ describe('presses, cards and arriving at an album', () => {
 			});
 			await card.hover();
 			await page.waitForTimeout(700);
+			// Landed: with three browser files running side by side the glow was
+			// still at 0.993 after 700ms.
+			await page
+				.waitForFunction((el) => getComputedStyle(el.querySelector('.art'), '::before').opacity === '1', await card.elementHandle(), { timeout: 3000 })
+				.catch(() => {});
 			const frames = await page.evaluate(() => window.__glow);
 			assert.ok(frames.some((value) => value > 0 && value < 1), `the glow did not fade in: ${[...new Set(frames)].join(', ')}`);
 			const state = await card.evaluate((el) => {

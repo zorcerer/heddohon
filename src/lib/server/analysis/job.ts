@@ -8,7 +8,6 @@
  * hours) are a row in the main database's `meta`, so they survive a restart
  * and are in the backup. Its results are in `analysis.db` (`store.ts`).
  */
-import { join } from 'node:path';
 import { config } from '../config';
 import { store as mainStore } from '../db';
 import { lastListened } from '../listening-activity';
@@ -19,18 +18,13 @@ import { decodeExcerpt } from './decode.ts';
 import { AnalysisJob, DEFAULT_SETTINGS, PACES, type JobSettings, type JobStatus } from './queue.ts';
 import { analysisSongOf, type AnalysisSource } from './source.ts';
 import type { AlbumDetail, BackendKind } from '#lib/types.ts';
-import { AnalysisStore } from './store.ts';
+import { analysisStore, closeAnalysisStore } from './results.ts';
 
 const SETTINGS_KEY = 'analysis-settings';
 
-let results: AnalysisStore | null = null;
 let job: AnalysisJob | null = null;
 
-/** `analysis.db` in the data directory, opened on first use. */
-export function analysisStore(): AnalysisStore {
-	results ??= new AnalysisStore(join(config().dataDir, 'analysis.db'));
-	return results;
-}
+export { analysisStore };
 
 /** The settings as saved, each field checked, with the defaults for anything missing or wrong. */
 export async function jobSettings(): Promise<JobSettings> {
@@ -129,7 +123,7 @@ export async function stopAnalysisJob(): Promise<void> {
 	await job?.stop();
 	job = null;
 	await stopAnalyser();
-	results?.close();
+	closeAnalysisStore();
 }
 
 /**

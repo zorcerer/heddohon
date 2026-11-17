@@ -5,6 +5,7 @@
  * the plaintext password is needed on every call (see StoredCredential). It is
  * held sealed and opened per request.
  */
+import { levelled } from '../analysis/results.ts';
 import { log } from '../log';
 import { upstreamFor } from '../config';
 import { subsonicToken, randomSalt } from '../crypto';
@@ -262,7 +263,7 @@ function ratingOf(value: unknown): number {
 function toSong(raw: Record<string, any>): Song {
 	const created = typeof raw.created === 'string' ? Date.parse(raw.created) : NaN;
 	const played = typeof raw.played === 'string' ? Date.parse(raw.played) : NaN;
-	return {
+	return levelled('subsonic', {
 		id: String(raw.id),
 		title: raw.title ?? raw.name ?? 'Unknown title',
 		albumId: raw.albumId ? String(raw.albumId) : null,
@@ -285,7 +286,7 @@ function toSong(raw: Record<string, any>): Song {
 		lastPlayedAt: Number.isFinite(played) ? played : null,
 		quality: quality(raw),
 		replayGain: replayGainOf(raw.replayGain)
-	};
+	});
 }
 
 /**
@@ -331,7 +332,7 @@ function fromNative(raw: Record<string, unknown>): Song {
 			.map((candidate) => numberOrNull(candidate))
 			.find((candidate) => candidate !== null && candidate > 0) ?? null;
 	const text = (value: unknown) => (typeof value === 'string' && value !== '' ? value : null);
-	return {
+	return levelled('subsonic', {
 		id,
 		title: text(raw.title) ?? 'Unknown title',
 		albumId: raw.albumId ? String(raw.albumId) : null,
@@ -366,7 +367,7 @@ function fromNative(raw: Record<string, unknown>): Song {
 			trackPeak: raw.rgTrackPeak,
 			albumPeak: raw.rgAlbumPeak
 		})
-	};
+	});
 }
 
 /**
