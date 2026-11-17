@@ -135,6 +135,11 @@ describe('/api/analysis', () => {
 		assert.equal(existsSync(file), false, 'analysis.db is still there');
 	});
 
+	test('a song not measured keeps what the music server sent', async () => {
+		const answer = await admin.request('/api/songs', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ids: ['s1a'] }) });
+		assert.equal((await answer.json()).songs[0].replayGain, null);
+	});
+
 	test('switched off, it says so at once', async () => {
 		const body = await (await admin.request('/api/analysis', json({ on: false }))).json();
 		assert.equal(body.on, false);

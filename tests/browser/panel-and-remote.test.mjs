@@ -530,7 +530,7 @@ describe('playback on another browser', () => {
 		const guestAudio = () =>
 			guest.evaluate(() => {
 				const a = document.querySelector('audio.together-audio');
-				return { src: a?.getAttribute('src') ?? '', paused: a?.paused ?? true, time: a?.currentTime ?? 0 };
+				return { src: a?.getAttribute('src') ?? '', paused: a?.paused ?? true, time: a?.currentTime ?? 0, at: Date.now() };
 			});
 		subsonic.state.audio = { type: 'audio/wav', body: silentWav(60) };
 		try {
@@ -553,8 +553,12 @@ describe('playback on another browser', () => {
 			await guest.waitForFunction(() => !document.querySelector('audio.together-audio')?.paused, null, { timeout: 5000 });
 			const joined = await guestAudio();
 			assert.match(joined.src, /\?song=s17a$/);
-			const hostTime = await hostPage.evaluate(() => [...document.querySelectorAll('audio')].find((a) => !a.paused)?.currentTime ?? 0);
-			assert.ok(Math.abs(joined.time - hostTime) < 1.5, `the guest is at ${joined.time}, the host at ${hostTime}`);
+			const host = await hostPage.evaluate(() => ({ time: [...document.querySelectorAll('audio')].find((a) => !a.paused)?.currentTime ?? 0, at: Date.now() }));
+			// The two are read one after the other, and with the browser files
+			// running side by side seconds passed between them: the host's time is
+			// taken back to the moment the guest's was read.
+			const hostTime = host.time - (host.at - joined.at) / 1000;
+			assert.ok(Math.abs(joined.time - hostTime) < 1.5, `the guest is at ${joined.time}, the host at ${hostTime} by the same clock`);
 			await hostPage.locator('aside.panel .live', { hasText: '1 listening' }).waitFor({ timeout: 5000 });
 
 			await hostPage.locator('aside.panel button.step').nth(1).click();

@@ -155,6 +155,19 @@ export class AnalysisStore {
 		return row;
 	}
 
+	/**
+	 * The song's measured loudness in LUFS, as the file is now, or null: never
+	 * measured, stale, or failed. Reads one column, for every song the music
+	 * server sends (`results.ts`).
+	 */
+	loudnessOf(song: SongRef): number | null {
+		const row = this.#open()
+			.prepare('SELECT file_key, version, loudness FROM song_features WHERE backend = ? AND song_id = ? AND error IS NULL')
+			.get(song.backend, song.songId) as Pick<Row, 'file_key' | 'version' | 'loudness'> | undefined;
+		if (!row || row.file_key !== song.fileKey || row.version !== FEATURES_VERSION) return null;
+		return row.loudness;
+	}
+
 	/** Whether the song has a current row, measured or failed: the job skips it. */
 	settled(song: SongRef): boolean {
 		return this.#row(song) !== null;

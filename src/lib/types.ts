@@ -40,6 +40,8 @@ export interface ReplayGain {
 	albumGain: number | null;
 	trackPeak: number | null;
 	albumPeak: number | null;
+	/** From sound analysis and not the file's tags (`analysis/results.ts`). */
+	measured?: true;
 }
 
 export interface Song {

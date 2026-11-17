@@ -5,6 +5,7 @@
  * once and discarded, and the token is sealed and stored. Quick Connect ends
  * at the same token without a password.
  */
+import { levelled } from '../analysis/results.ts';
 import { upstreamFor } from '../config';
 import {
 	UpstreamError,
@@ -291,7 +292,7 @@ function toSong(item: JellyfinItem): Song {
 	const artist = item.ArtistItems?.[0] ?? item.AlbumArtists?.[0];
 	const created = item.DateCreated ? Date.parse(item.DateCreated) : NaN;
 	const played = item.UserData?.LastPlayedDate ? Date.parse(item.UserData.LastPlayedDate) : NaN;
-	return {
+	return levelled('jellyfin', {
 		id: item.Id,
 		title: item.Name ?? 'Unknown title',
 		albumId: item.AlbumId ?? null,
@@ -320,7 +321,7 @@ function toSong(item: JellyfinItem): Song {
 			typeof item.NormalizationGain === 'number'
 				? { trackGain: item.NormalizationGain, albumGain: null, trackPeak: null, albumPeak: null }
 				: null
-	};
+	});
 }
 
 function toAlbum(item: JellyfinItem): Album {

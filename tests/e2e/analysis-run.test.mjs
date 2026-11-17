@@ -16,7 +16,7 @@ import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { after, before, describe, test } from 'node:test';
 import { Client, startApp } from './harness.mjs';
-import { silentWav, startJellyfin, startSubsonic } from './mocks.mjs';
+import { silentWav, startJellyfin, startSubsonic, toneWav } from './mocks.mjs';
 
 const ffmpeg = process.env.HEDDOHON_TEST_FFMPEG || 'ffmpeg';
 const hasFfmpeg = spawnSync(ffmpeg, ['-version']).status === 0;
@@ -127,6 +127,54 @@ describe('sound analysis in the running app', { skip }, () => {
 		}
 		assert.equal((await fetch(`${app.url}/api/analysis/album/al1`)).status, 401);
 		assert.equal((await admin.request('/api/analysis/album/no-such-album', { method: 'POST' })).status, 404);
+	});
+
+	// Issue #320: volume levelling from the measured loudness, where the tags give none.
+	test('a song without ReplayGain is levelled from its measured loudness; tags and silence are left alone', async () => {
+		const admin = new Client(app.url);
+		await admin.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' });
+		const { default: Database } = await import('better-sqlite3');
+		const loudness = (id) => {
+			const db = new Database(join(app.dataDir, 'analysis.db'), { readonly: true });
+			try {
+				return db.prepare('SELECT loudness, analysed_at FROM song_features WHERE song_id = ?').get(id);
+			} finally {
+				db.close();
+			}
+		};
+		// Album 2 measured again as a tone, so it has a level.
+		const before = loudness('s2a').analysed_at;
+		subsonic.state.audio = { type: 'audio/wav', body: toneWav(40, 0.5) };
+		try {
+			assert.equal((await admin.request('/api/analysis/album/al2', { method: 'POST' })).status, 202);
+			const deadline = Date.now() + 15_000;
+			while (loudness('s2a').analysed_at === before && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 200));
+		} finally {
+			subsonic.state.audio = { type: 'audio/wav', body: silentWav(40) };
+		}
+		const measured = loudness('s2a').loudness;
+		assert.ok(measured > -30 && measured < 0, `the tone measured ${measured} LUFS`);
+
+		const tagged = { trackGain: -6.5, albumGain: -7, trackPeak: 0.98, albumPeak: 0.99 };
+		// On the album just measured as a tone: the tags win over a measurement.
+		subsonic.state.replayGains.set('s2b', tagged);
+		const songs = async () => {
+			const answer = await admin.request('/api/songs', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ ids: ['s2a', 's1a', 's2b'] })
+			});
+			return Object.fromEntries((await answer.json()).songs.map((song) => [song.id, song.replayGain]));
+		};
+		try {
+			const gains = await songs();
+			// To -18 LUFS, with no peak: the excerpt's is not the file's.
+			assert.deepEqual(gains.s2a, { trackGain: Math.round((-18 - measured) * 100) / 100, albumGain: null, trackPeak: null, albumPeak: null, measured: true });
+			assert.equal(gains.s1a, null, 'silence was given a gain');
+			assert.deepEqual(gains.s2b, tagged, 'the tags gave way to the measurement');
+		} finally {
+			subsonic.state.replayGains.clear();
+		}
 	});
 
 	// Issue #333: what was measured, for the player's Track details.

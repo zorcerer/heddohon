@@ -348,6 +348,11 @@ describe('on a phone', () => {
 				await drag(page, page.locator('aside.panel .grabber'), 0, 60);
 				await page.waitForTimeout(600);
 				assert.equal(await sheetOpen(page), true, 'a 60px pull closed the sheet');
+				// Settled at the top: with the browser files running side by side the
+				// spring was still 2.6px short after 600ms.
+				await page
+					.waitForFunction(() => document.querySelector('aside.panel')?.getBoundingClientRect().top === 12, null, { timeout: 3000 })
+					.catch(() => {});
 				const top = await page.locator('aside.panel').evaluate((el) => el.getBoundingClientRect().top);
 				assert.equal(top, 12, 'the sheet did not go back up');
 
