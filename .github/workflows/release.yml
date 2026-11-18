@@ -122,6 +122,12 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      # The arm64 ffmpeg is cross-compiled, and nothing else runs it before a
+      # Pi does: it decodes the test files under the emulation above, before
+      # anything is pushed (#342). About a minute: the stage is cached.
+      - name: Decode audio with the arm64 ffmpeg
+        run: tests/docker/ffmpeg.sh --platform linux/arm64
+
       - name: Refuse to overwrite a published version
         run: |
           if docker buildx imagetools inspect "$GHCR:$VERSION" >/dev/null 2>&1; then
