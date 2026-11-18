@@ -180,6 +180,12 @@ path, or `HEDDOHON_TEST_FFMPEG=/path/to/ffmpeg`. `tests/docker/ffmpeg.sh`
 builds the image's own, and leaves it at `HEDDOHON_FFMPEG_OUT` if that is
 set. Without one the decode tests skip and say so.
 
+`tests/docker/ffmpeg.sh --platform linux/arm64` cross-compiles the arm64
+build, as the image does, and decodes the fixtures with it under emulation:
+Docker's where QEMU is registered (the dev image and release workflows run it
+before they push), or `HEDDOHON_QEMU=/path/to/qemu-aarch64` from Debian's
+`qemu-user` package, which needs no root.
+
 ## Changing a measurement
 
 1. Change `features.ts`, and raise `FEATURES_VERSION`. Stored results from
