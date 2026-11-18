@@ -12,6 +12,7 @@
 	 * a table under it, for a reader the picture does not reach.
 	 */
 	import SectionHeader from './SectionHeader.svelte';
+	import { dayStart, periodDays } from '#lib/client/period-days.ts';
 
 	let {
 		hours,
@@ -38,8 +39,6 @@
 		seconds: number;
 	}
 
-	const dayStart = (at: Date) => new Date(at.getFullYear(), at.getMonth(), at.getDate());
-	const nextDay = (at: Date) => new Date(at.getFullYear(), at.getMonth(), at.getDate() + 1);
 	/** Monday first. */
 	const weekday = (at: Date) => (at.getDay() + 6) % 7;
 
@@ -61,14 +60,10 @@
 		// Every day of the period, with the days nothing played on, to the day
 		// the figures were read. Everything kept starts at its first play.
 		const first = hours.length > 0 ? new Date(hours[0][0] * HOUR_MS) : new Date(to);
-		const start = dayStart(from > 0 ? new Date(from) : first);
-		const end = dayStart(new Date(to));
-		const days: Day[] = [];
-		// Stepped by the date: a day is 23 or 25 hours at a clock change.
-		for (let at = start; at <= end; at = nextDay(at)) {
+		const days: Day[] = periodDays(from, to, first).map((at) => {
 			const found = byDay.get(at.getTime());
-			days.push({ at, plays: found?.plays ?? 0, seconds: found?.seconds ?? 0 });
-		}
+			return { at, plays: found?.plays ?? 0, seconds: found?.seconds ?? 0 };
+		});
 		return { days, grid, parts };
 	});
 
