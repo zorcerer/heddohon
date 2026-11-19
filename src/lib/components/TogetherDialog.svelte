@@ -52,6 +52,18 @@
 				</button>
 			</span>
 
+			<fieldset class="access">
+				<legend>Anyone with the link can</legend>
+				<label>
+					<input type="radio" name="together-access" checked={together.party.access === 'listen'} onchange={() => void together.setAccess('listen')} />
+					<span><strong>Listen only</strong><span class="hh-muted">Hear what plays and see what is up next.</span></span>
+				</label>
+				<label>
+					<input type="radio" name="together-access" checked={together.party.access === 'add'} onchange={() => void together.setAccess('add')} />
+					<span><strong>Listen and add tracks</strong><span class="hh-muted">Search and browse your library, and add to the queue.</span></span>
+				</label>
+			</fieldset>
+
 			<p class="count" role="status">
 				<span class="dot" aria-hidden="true"></span>
 				{together.listeners === 0
@@ -63,7 +75,7 @@
 				<ul class="members" aria-label="Members">
 					{#each together.members as member (member.id)}
 						<li>
-							<span class="hh-truncate">{member.name}</span>
+							<span class="hh-truncate">{member.name}{#if member.guest}<span class="hh-muted guest">&nbsp;· guest</span>{/if}</span>
 							<button
 								class="hh-button"
 								type="button"
@@ -170,6 +182,49 @@
 		height: 0.5rem;
 		border-radius: 50%;
 		background: var(--danger);
+	}
+
+	.access {
+		display: grid;
+		gap: var(--space-2);
+		margin: 0;
+		padding: 0;
+		border: 0;
+		font-size: 0.875rem;
+	}
+
+	.access legend {
+		margin-bottom: var(--space-2);
+		padding: 0;
+		color: var(--text-strong);
+		font-weight: 600;
+	}
+
+	.access label {
+		display: flex;
+		align-items: flex-start;
+		gap: var(--space-2);
+		cursor: pointer;
+	}
+
+	.access input {
+		margin-top: 0.2rem;
+		accent-color: var(--glow-color);
+	}
+
+	.access label > span {
+		display: grid;
+		gap: 0.1rem;
+	}
+
+	.access strong {
+		color: var(--text-strong);
+		font-weight: 600;
+	}
+
+	.access .hh-muted,
+	.guest {
+		font-size: 0.8125rem;
 	}
 
 	.members {

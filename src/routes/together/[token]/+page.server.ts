@@ -17,6 +17,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		reactions: [...REACTIONS],
 		queue: party.queue,
 		queueTotal: party.queueTotal,
+		access: party.access,
 		viewer: locals.session ? { name: locals.session.account.username, standing: party.standing } : null
 	};
 };
