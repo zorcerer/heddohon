@@ -650,6 +650,59 @@ describe('a volume limit on the server', () => {
 	});
 });
 
+/*
+ * #344: the favourites page arrives at once on a first read and streams the
+ * list, which took 2.4s on a large Jellyfin library; a tab switch inside the
+ * listing's 30 seconds paints from memory, with no wait drawn.
+ */
+describe('the favourites page', () => {
+	test('shows its heading before a slow list arrives, and a tab switch after it waits for nothing', async () => {
+		// An app of its own, so the list has not been read yet.
+		const own = await startApp({ subsonicUrl: subsonic.url, jellyfinUrl: jellyfin.url });
+		const view = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+		const problems = [];
+		subsonic.state.delays.set('getStarred2', 2000);
+		try {
+			await view.request.post(`${own.url}/login`, {
+				form: { username: 'testuser', password: 'testpass', backend: 'subsonic', next: '/' },
+				headers: { origin: own.url, accept: 'text/html' },
+				maxRedirects: 0
+			});
+			await view.request.patch(`${own.url}/api/settings`, { data: { installCardDismissed: true, aurora: 'off' }, headers: { origin: own.url } });
+			const page = await view.newPage();
+			page.on('pageerror', (err) => problems.push(err.message));
+			const started = Date.now();
+			await page.goto(own.url + '/favourites', { waitUntil: 'commit' });
+			await page.getByRole('heading', { name: 'Favourites', exact: true }).waitFor();
+			const heading = Date.now() - started;
+			await page.getByRole('status', { name: 'Loading favourites' }).waitFor();
+			await page.locator('main .track').first().waitFor({ timeout: 10_000 });
+			const list = Date.now() - started;
+			assert.ok(heading < 1500, `the heading took ${heading}ms behind a list held back 2000ms`);
+			assert.ok(list >= 2000, `the list arrived at ${list}ms, before the music server answered`);
+
+			// Held now: another order paints from memory, without a wait.
+			const before = Date.now();
+			let waited = false;
+			const watching = page.getByRole('status', { name: 'Loading favourites' }).waitFor({ timeout: 1500 }).then(
+				() => (waited = true),
+				() => {}
+			);
+			await page.getByRole('navigation', { name: 'Sort favourites' }).getByRole('link', { name: 'A–Z' }).click();
+			await page.waitForURL(/sort=alphabetical/, { waitUntil: 'commit' });
+			await page.locator('main .track').first().waitFor();
+			assert.ok(Date.now() - before < 1500, `the new order took ${Date.now() - before}ms from memory`);
+			await watching;
+			assert.equal(waited, false, 'a wait was drawn for a list held in memory');
+		} finally {
+			subsonic.state.delays.delete('getStarred2');
+			await view.close();
+			await own.stop();
+		}
+		assert.deepEqual(problems, []);
+	});
+});
+
 describe('motion', () => {
 	test('the rail marker travels to the destination at the click, and lands under it', async () => {
 		const { page, problems } = await watchedPage();

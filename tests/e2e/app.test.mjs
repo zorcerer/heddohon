@@ -890,6 +890,9 @@ describe('favourites', () => {
 				.map(([title]) => title);
 
 		try {
+			// Read once first: a list read for the first time is streamed after the
+			// page (#344), and the HTML holds it from the second load.
+			await user.page('/favourites?tab=songs');
 			const newest = await user.page('/favourites?tab=songs');
 			assert.match(newest.html, /Recently starred/);
 			assert.deepEqual(order(newest.html), ['Song 5b', 'Song 10a', 'Song 1a', 'Song 0a']);
@@ -918,6 +921,8 @@ describe('favourites', () => {
 				.map(([title]) => title);
 
 		try {
+			// Read once first, as above: the first read is streamed.
+			await user.page('/favourites?tab=songs&sort=random&seed=1');
 			const first = await user.page('/favourites?tab=songs&sort=random&seed=1');
 			assert.equal(first.response.status, 200, explain('shuffled favourites failed'));
 			assert.match(first.html, />Random</);
@@ -948,6 +953,8 @@ describe('favourites', () => {
 		jellyfin.state.favourites.add('a1');
 		jellyfin.state.favourites.add('a2');
 		try {
+			// Read once first, as above: the first read is streamed.
+			await client.page('/favourites?tab=artists&sort=recentlyStarred');
 			const { response, html } = await client.page('/favourites?tab=artists&sort=recentlyStarred');
 			assert.equal(response.status, 200, explain('Jellyfin favourites page failed'));
 			assert.ok(!html.includes('Recently starred'));
