@@ -16,7 +16,7 @@
  * This module also knows whether the account has joined someone else's party
  * as a member, for "Add to listen together" on a track.
  */
-import type { AdditionEvent, MemberView, PartyView } from '#lib/server/together.ts';
+import type { AdditionEvent, MemberView, PartyAccessMode, PartyView } from '#lib/server/together.ts';
 import type { Song } from '#lib/types.ts';
 import { player } from './player.svelte';
 
@@ -142,6 +142,20 @@ class Together {
 	/** The link to hand out, with this server's address. */
 	get link(): string {
 		return this.party ? new URL(this.party.url, location.origin).toString() : '';
+	}
+
+	/** Sets what the people with the link may do: listen only, or also look through the library and add. */
+	async setAccess(access: PartyAccessMode) {
+		const party = this.party;
+		if (!party || party.access === access) return;
+		this.party = { ...party, access };
+		const response = await fetch('/api/together/access', {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ access })
+		}).catch(() => null);
+		if (response?.ok) this.party = (await response.json()).party as PartyView;
+		else if (this.party) this.party = { ...this.party, access: party.access };
 	}
 
 	/** Removes a member from the party this browser hosts, for the rest of it. */
@@ -328,7 +342,9 @@ class Together {
 							coverArt: song.coverArt,
 							duration: player.duration || song.duration,
 							position,
-							playing
+							playing,
+							artistId: song.artistId,
+							albumId: song.albumId
 						}
 					: null
 			})

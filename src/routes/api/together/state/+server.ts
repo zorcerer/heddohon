@@ -36,7 +36,9 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 			coverArt: id(raw.coverArt),
 			duration: seconds(raw.duration),
 			position: seconds(raw.position),
-			playing: raw.playing === true
+			playing: raw.playing === true,
+			artistId: id(raw.artistId),
+			albumId: id(raw.albumId)
 		};
 	}
 	if (!report(session, state)) error(404, 'This browser is not hosting');

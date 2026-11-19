@@ -1381,11 +1381,17 @@ describe('playback on another browser', () => {
 	});
 
 	describe('listening together', () => {
-		const host = async () => {
+		/** A party that lets the people with the link add, unless `access` says otherwise. */
+		const host = async (access = 'add') => {
 			const client = await signedIn();
 			const started = await client.json('/api/together', 'POST', {});
 			assert.equal(started.status, 200, explain('listening together would not start'));
-			return { client, party: (await started.json()).party };
+			const { party } = await started.json();
+			assert.equal(party.access, 'listen', 'a party started letting the link add');
+			if (access === 'listen') return { client, party };
+			const set = await client.json('/api/together/access', 'POST', { access });
+			assert.equal(set.status, 200, explain('the host could not let the party add'));
+			return { client, party: (await set.json()).party };
 		};
 		const report = (client, state) => client.json('/api/together/state', 'POST', { state });
 		const song = (id, extra = {}) => ({ songId: id, title: `Song ${id.slice(1)}`, artist: 'Artist', album: 'Album', coverArt: 'al-3', duration: 180, position: 10, playing: true, ...extra });
@@ -1680,6 +1686,132 @@ describe('playback on another browser', () => {
 				second.stream.cancel();
 				third.stream.cancel();
 				idle.cancel();
+				await client.json('/api/together', 'DELETE', {});
+			}
+		});
+
+		/** A visitor without an account with the party's stream open, joined as a guest under `name`. */
+		const asGuest = async (party, name = 'Mila') => {
+			const client = new Client(app.url);
+			const stream = await listen(client, `${party.url}/events`);
+			const joined = await client.json(`${party.url}/guest`, 'POST', { listener: stream.id, name });
+			assert.equal(joined.status, 200, explain('joining as a guest was refused'));
+			return { client, stream, member: (await joined.json()).member };
+		};
+		const browse = (client, party, params) => client.request(`${party.url}/library?${new URLSearchParams(params)}`);
+
+		test('a party only listens until the host lets it add, and the switch reaches everyone at once', async () => {
+			const { client, party } = await host('listen');
+			const second = await member(party);
+			const guest = await asGuest(party);
+			try {
+				assert.equal((await guest.stream.next('access')).access, 'listen');
+				assert.equal((await add(second.client, party, 's5a')).status, 403, 'a member added to a party that only listens');
+				assert.equal((await guest.client.json(`${party.url}/guest/queue`, 'POST', { songId: 's5a' })).status, 403, 'a guest added');
+				assert.equal((await browse(guest.client, party, { view: 'search', q: 'Artist' })).status, 403, 'a guest searched the library');
+				assert.equal((await second.client.json('/api/together/access', 'POST', { access: 'add' })).status, 404, 'a member opened the party');
+				assert.equal((await client.json('/api/together/access', 'POST', { access: 'everything' })).status, 400);
+
+				assert.equal((await client.json('/api/together/access', 'POST', { access: 'add' })).status, 200);
+				assert.equal((await guest.stream.next('access')).access, 'add');
+				assert.equal((await browse(guest.client, party, { view: 'search', q: 'Artist 0003' })).status, 200);
+
+				await client.json('/api/together/access', 'POST', { access: 'listen' });
+				assert.equal((await guest.stream.next('access')).access, 'listen');
+				assert.equal((await browse(guest.client, party, { view: 'search', q: 'Artist 0003' })).status, 403, 'the switch back did not close the library');
+			} finally {
+				second.stream.cancel();
+				guest.stream.cancel();
+				await client.json('/api/together', 'DELETE', {});
+			}
+		});
+
+		test('a guest joins under a name, looks through the host\'s library and adds from it', async () => {
+			const { client, party } = await host();
+			const hosting = await listen(client, `${party.url}/events`);
+			const stranger = new Client(app.url);
+			try {
+				// Without joining, nothing of the library.
+				assert.equal((await browse(stranger, party, { view: 'artists' })).status, 403);
+				assert.equal((await stranger.json(`${party.url}/guest/queue`, 'POST', { songId: 's3a' })).status, 403);
+				const nameless = await listen(stranger, `${party.url}/events`);
+				assert.equal((await stranger.json(`${party.url}/guest`, 'POST', { listener: nameless.id, name: '  \u0007 ' })).status, 400, 'a guest joined without a name');
+				assert.equal((await stranger.json(`${party.url}/guest`, 'POST', { listener: 'not-a-stream', name: 'X' })).status, 404);
+				nameless.cancel();
+
+				const guest = await asGuest(party, `  Mila ‮${'x'.repeat(60)}`);
+				assert.equal(guest.member.guest, true);
+				assert.equal(guest.member.name, `Mila ${'x'.repeat(27)}`, 'the name was not cleaned and cut');
+				for (;;) {
+					const { members } = await hosting.next('members');
+					if (members.some((entry) => entry.id === guest.member.id && entry.guest)) break;
+				}
+
+				const found = await (await browse(guest.client, party, { view: 'search', q: 'Artist 0003' })).json();
+				assert.deepEqual(Object.keys(found), ['songs', 'albums', 'artists']);
+				assert.equal(found.songs[0].id, 's3a');
+				assert.deepEqual(Object.keys(found.songs[0]).sort(), ['album', 'albumId', 'artist', 'artistId', 'disc', 'duration', 'id', 'title', 'track'], 'more of a track was sent than the page needs');
+				const { artists } = await (await browse(guest.client, party, { view: 'artists' })).json();
+				assert.ok(artists.length > 0 && artists.every((artist) => !('starred' in artist)));
+				const { albums } = await (await browse(guest.client, party, { view: 'artist', id: 'ar3' })).json();
+				assert.equal(albums[0].id, 'al3');
+				const page = await (await browse(guest.client, party, { view: 'albums', sort: 'alphabetical' })).json();
+				assert.ok(page.albums.length > 0);
+				const album = await (await browse(guest.client, party, { view: 'album', id: 'al3' })).json();
+				assert.equal(album.album.id, 'al3');
+				assert.equal(album.songs[0].id, 's3a');
+				assert.equal((await browse(guest.client, party, { view: 'album', id: 'nothing' })).status, 404);
+				assert.equal((await browse(guest.client, party, { view: 'album' })).status, 400);
+				assert.equal((await browse(guest.client, party, { view: 'playlists' })).status, 400);
+				const { genres } = await (await browse(guest.client, party, { view: 'genres' })).json();
+				assert.ok(Array.isArray(genres));
+				if (genres.length > 0) {
+					const inGenre = await browse(guest.client, party, { view: 'genre', id: genres[0].id });
+					assert.equal(inGenre.status, 200);
+					assert.ok(Array.isArray((await inGenre.json()).albums));
+				}
+				assert.equal((await browse(guest.client, party, { view: 'genre' })).status, 400);
+
+				const added = await guest.client.json(`${party.url}/guest/queue`, 'POST', { songId: 's3a' });
+				assert.equal(added.status, 200, explain('the guest\'s addition was refused'));
+				const { entry } = await added.json();
+				const event = await hosting.next('add');
+				assert.deepEqual([event.entry, event.song.id, event.by], [entry, 's3a', { id: guest.member.id, name: guest.member.name }]);
+				assert.equal((await guest.client.json(`${party.url}/guest/queue`, 'POST', { songId: 's3b' })).status, 429, 'a second track inside 2 seconds');
+				await gap();
+				assert.equal((await guest.client.json(`${party.url}/guest/queue`, 'POST', { songId: 'missing' })).status, 404);
+
+				// The cookie keeps the guest across a reload: a new stream, the same name and additions.
+				guest.stream.cancel();
+				const again = await listen(guest.client, `${party.url}/events`);
+				const rejoined = await (await guest.client.json(`${party.url}/guest`, 'POST', { listener: again.id, name: 'Mila' })).json();
+				assert.equal(rejoined.member.id, guest.member.id);
+				assert.equal((await guest.client.json(`${party.url}/guest/queue`, 'DELETE', { entry })).status, 200);
+				assert.equal((await stranger.json(`${party.url}/guest/queue`, 'DELETE', { entry })).status, 404);
+
+				// Removed by the host, the stream ends and the cookie no longer lets the guest in.
+				assert.equal((await client.json('/api/together/members', 'DELETE', { member: guest.member.id })).status, 200);
+				await again.next('removed');
+				assert.equal((await browse(guest.client, party, { view: 'artists' })).status, 403);
+				const back = await listen(guest.client, `${party.url}/events`);
+				assert.equal((await guest.client.json(`${party.url}/guest`, 'POST', { listener: back.id, name: 'Mila' })).status, 403);
+				back.cancel();
+			} finally {
+				hosting.cancel();
+				await client.json('/api/together', 'DELETE', {});
+			}
+		});
+
+		test('an account on the host\'s music server joins as a member, not as a guest', async () => {
+			const { client, party } = await host();
+			const second = await member(party);
+			try {
+				assert.equal((await second.client.json(`${party.url}/guest`, 'POST', { listener: second.stream.id, name: 'Someone' })).status, 403);
+				const hosting = await listen(client, `${party.url}/events`);
+				assert.equal((await client.json(`${party.url}/guest`, 'POST', { listener: hosting.id, name: 'Host' })).status, 404, 'the host joined its own party as a guest');
+				hosting.cancel();
+			} finally {
+				second.stream.cancel();
 				await client.json('/api/together', 'DELETE', {});
 			}
 		});
