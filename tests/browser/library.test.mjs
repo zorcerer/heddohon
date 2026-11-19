@@ -566,6 +566,88 @@ describe('a volume limit on the server', () => {
 			await limited.stop();
 		}
 	});
+
+	/*
+	 * #297: a visitor without an account sets their own level under the limit,
+	 * on a shared link as on a listen-together page, and this browser keeps it
+	 * for both. Storage that throws leaves the page at the limit.
+	 */
+	test("a visitor's level on a shared link and as a guest is under the limit, and kept", async () => {
+		const limited = await startApp({ subsonicUrl: subsonic.url, jellyfinUrl: jellyfin.url, env: { HEDDOHON_VOLUME_LIMIT: '50' } });
+		const view = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+		const visitor = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+		const locked = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+		// Storage that throws on every read and write, as some private windows do.
+		await locked.addInitScript(() => {
+			Storage.prototype.getItem = () => {
+				throw new DOMException('denied', 'SecurityError');
+			};
+			Storage.prototype.setItem = () => {
+				throw new DOMException('denied', 'SecurityError');
+			};
+		});
+		subsonic.state.audio = { type: 'audio/wav', body: silentWav(30) };
+		const problems = [];
+		const watch = (page) => page.on('pageerror', (err) => problems.push(err.message));
+		const element = '[src*="/stream/"]';
+		try {
+			await view.request.post(`${limited.url}/login`, {
+				form: { username: 'testuser', password: 'testpass', backend: 'subsonic', next: '/' },
+				headers: { origin: limited.url, accept: 'text/html' },
+				maxRedirects: 0
+			});
+			const made = await (
+				await view.request.post(`${limited.url}/api/shares`, { data: { kind: 'album', id: 'al19', days: 1 }, headers: { origin: limited.url } })
+			).json();
+
+			const shared = await visitor.newPage();
+			watch(shared);
+			await shared.goto(limited.url + made.path, { waitUntil: 'networkidle' });
+			const slider = shared.getByRole('slider', { name: 'Volume' });
+			// By the keyboard: half the slider is a quarter, under a limit of a half.
+			await slider.focus();
+			await shared.keyboard.press('End');
+			await shared.waitForFunction((sel) => document.querySelector(`audio${sel}`)?.volume === 0.5, element);
+			for (let i = 0; i < 10; i++) await shared.keyboard.press('ArrowLeft');
+			assert.equal(await slider.getAttribute('aria-valuenow'), '0.5');
+			await shared.waitForFunction((sel) => document.querySelector(`audio${sel}`)?.volume === 0.25, element);
+			// Muting keeps the level.
+			await shared.getByRole('button', { name: 'Mute' }).click();
+			await shared.getByRole('button', { name: 'Unmute' }).click();
+			assert.equal(await slider.getAttribute('aria-valuenow'), '0.5');
+			// Kept across a reload.
+			await shared.reload({ waitUntil: 'networkidle' });
+			await shared.waitForFunction((sel) => document.querySelector(`audio${sel}`)?.volume === 0.25, element, { timeout: 5000 });
+			assert.equal(await shared.getByRole('slider', { name: 'Volume' }).getAttribute('aria-valuenow'), '0.5');
+			await shared.close();
+
+			// The same level as a listen-together guest.
+			const started = await view.request.post(`${limited.url}/api/together`, { data: {}, headers: { origin: limited.url } });
+			const guest = await visitor.newPage();
+			watch(guest);
+			await guest.goto(limited.url + (await started.json()).party.url);
+			await guest.waitForFunction(() => document.querySelector('audio.together-audio')?.volume === 0.25, null, { timeout: 5000 });
+			await guest.close();
+
+			// Storage that throws: the page plays at the limit, and a change is not an error.
+			const plain = await locked.newPage();
+			watch(plain);
+			await plain.goto(limited.url + made.path, { waitUntil: 'networkidle' });
+			await plain.waitForFunction((sel) => document.querySelector(`audio${sel}`)?.volume === 0.5, element, { timeout: 5000 });
+			await plain.getByRole('slider', { name: 'Volume' }).focus();
+			await plain.keyboard.press('ArrowLeft');
+			// 0.95 of 0.5, within floating point.
+			await plain.waitForFunction((sel) => Math.abs((document.querySelector(`audio${sel}`)?.volume ?? 0) - 0.475) < 1e-6, element);
+			await plain.close();
+		} finally {
+			subsonic.state.audio = null;
+			await locked.close();
+			await visitor.close();
+			await view.close();
+			await limited.stop();
+		}
+		assert.deepEqual(problems, []);
+	});
 });
 
 describe('motion', () => {

@@ -20,6 +20,7 @@
 	import type { FloatingReaction } from '#lib/client/together.svelte.ts';
 	import type { MemberView, PartyState, QueueRow } from '#lib/server/together.ts';
 	import ElasticSlider from '#lib/components/bits/ElasticSlider.svelte';
+	import { guestVolume, keepGuestVolume, volumeSettable } from '#lib/client/guest-volume.ts';
 	import type { Song } from '#lib/types.ts';
 	import type { PageData } from './$types';
 
@@ -43,7 +44,9 @@
 	let skew = 0;
 	let audio = $state<HTMLAudioElement | null>(null);
 	let position = $state(0);
+	/* The guest's level, kept in this browser and shared with shared links (#297). */
 	let volume = $state(1);
+	let canSetVolume = $state(true);
 	let reactions = $state<FloatingReaction[]>([]);
 	let reactionKey = 0;
 	let problem = $state<string | null>(null);
@@ -190,6 +193,8 @@
 	}
 
 	onMount(() => {
+		volume = guestVolume();
+		canSetVolume = volumeSettable();
 		const source = new EventSource(`${base}/events`);
 		source.addEventListener('hello', (event) => {
 			({ id: listenerId, tag: listenerTag } = JSON.parse((event as MessageEvent).data));
@@ -302,9 +307,20 @@
 				{#if !joined}
 					<button class="hh-button hh-button--primary join" onclick={join}>Join{mayAdd ? ` as ${data.viewer?.name}` : ''}</button>
 				{:else}
-					<span class="volume">
-						<ElasticSlider swell={false} bind:value={volume} startingValue={0} maxValue={1} isStepped stepSize={0.05} label="Volume" />
-					</span>
+					{#if canSetVolume}
+						<span class="volume">
+							<ElasticSlider
+								swell={false}
+								bind:value={volume}
+								startingValue={0}
+								maxValue={1}
+								isStepped
+								stepSize={0.05}
+								label="Volume"
+								onchange={keepGuestVolume}
+							/>
+						</span>
+					{/if}
 				{/if}
 			</div>
 
