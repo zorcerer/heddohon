@@ -8,16 +8,47 @@
 	import SortChips from '#lib/components/SortChips.svelte';
 	import Segment from '#lib/components/Segment.svelte';
 	import TrackList from '#lib/components/TrackList.svelte';
+	import Busy from '#lib/components/Busy.svelte';
 	import { playContainer } from '#lib/client/actions.ts';
 	import { player } from '#lib/client/player.svelte.ts';
 	import type { PageData } from './$types';
+	import type { FavouritesView } from './+page.server.ts';
 
 	let { data }: { data: PageData } = $props();
 
-	const total = $derived(data.counts.songs + data.counts.albums + data.counts.artists);
+	/*
+	 * The favourites, or a promise of them on a first read (#344): the
+	 * heading is drawn at once and the list when it arrives. Kept once
+	 * arrived, for the play button in the heading.
+	 */
+	let view = $state<FavouritesView | null>(null);
+	let failed = $state(false);
+	$effect(() => {
+		const given = data.view;
+		failed = false;
+		if (!(given instanceof Promise)) {
+			view = given;
+			return;
+		}
+		let current = true;
+		given.then(
+			(arrived) => {
+				if (current) view = arrived;
+			},
+			() => {
+				if (current) failed = true;
+			}
+		);
+		return () => {
+			current = false;
+		};
+	});
+	// Server-rendered from what arrived without waiting, so a held list paints in the first byte.
+	const shown = $derived(view ?? (data.view instanceof Promise ? null : data.view));
+
 	const LABELS = { songs: 'Tracks', albums: 'Albums', artists: 'Artists' } as const;
 
-	type Sort = (typeof data.sorts)[number];
+	type Sort = FavouritesView['sorts'][number];
 
 	const SORT_LABELS: Record<Sort, string> = {
 		recentlyStarred: 'Recently starred',
@@ -31,7 +62,7 @@
 		random: 'Random'
 	};
 
-	function tabHref(tab: (typeof data.tabs)[number]): string {
+	function tabHref(tab: FavouritesView['tabs'][number]): string {
 		const params = new URLSearchParams();
 		params.set('tab', tab);
 		// A tab change starts at page one, without the sort: each tab has its own
@@ -41,9 +72,9 @@
 
 	function sortHref(sort: Sort): string {
 		const params = new URLSearchParams(pageState.url.search);
-		params.set('tab', data.tab);
+		params.set('tab', shown!.tab);
 		params.set('sort', sort);
-		if (sort === 'random') params.set('seed', String(data.reshuffleSeed));
+		if (sort === 'random') params.set('seed', String(shown!.reshuffleSeed));
 		else params.delete('seed');
 		// A new ordering starts at the top, as on the albums page.
 		params.delete('page');
@@ -52,16 +83,16 @@
 
 	function pageHref(target: number): string {
 		const params = new URLSearchParams(pageState.url.search);
-		params.set('tab', data.tab);
+		params.set('tab', shown!.tab);
 		params.set('page', String(target));
-		params.set('sort', data.sort);
+		params.set('sort', shown!.sort);
 		// The shuffle's seed, so the next page continues the same order.
-		if (data.seed !== null) params.set('seed', String(data.seed));
+		if (shown!.seed !== null) params.set('seed', String(shown!.seed));
 		return `/favourites?${params}`;
 	}
 
 	/** "Play tracks" queues the page shown, not the whole favourites list, which can be several thousand tracks. */
-	const pageSongs = $derived(data.songs?.items ?? []);
+	const pageSongs = $derived(shown?.songs?.items ?? []);
 </script>
 
 <svelte:head>
@@ -80,7 +111,15 @@
 		{/snippet}
 	</SectionHeader>
 
-	{#if total === 0}
+	{#if !shown}
+		<div class="waiting" role="status" aria-label={failed ? 'The music server did not answer' : 'Loading favourites'}>
+			{#if failed}
+				<p class="hh-muted">The music server did not answer.</p>
+			{:else}
+				<Busy cell={6} />
+			{/if}
+		</div>
+	{:else if shown.counts.songs + shown.counts.albums + shown.counts.artists === 0}
 		<div class="empty">
 			<Icon name="heart" size={28} />
 			<h2>No favourites yet</h2>
@@ -88,16 +127,16 @@
 	{:else}
 		<div class="bar">
 			<Segment
-				items={data.tabs
-					.filter((tab) => data.counts[tab] > 0)
-					.map((tab) => ({ value: tab, label: `${LABELS[tab]} ${data.counts[tab].toLocaleString()}`, href: tabHref(tab) }))}
-				value={data.tab}
+				items={shown.tabs
+					.filter((tab) => shown.counts[tab] > 0)
+					.map((tab) => ({ value: tab, label: `${LABELS[tab]} ${shown.counts[tab].toLocaleString()}`, href: tabHref(tab) }))}
+				value={shown.tab}
 				label="Favourite type"
 			/>
-			{#if data.counts[data.tab] > 1}
+			{#if shown.counts[shown.tab] > 1}
 				<SortChips
-					sorts={data.sorts}
-					active={data.sort}
+					sorts={shown.sorts}
+					active={shown.sort}
 					labels={SORT_LABELS}
 					href={sortHref}
 					label="Sort favourites"
@@ -105,12 +144,12 @@
 			{/if}
 		</div>
 
-		{#if data.songs}
-			<TrackList songs={data.songs.items} variant="artwork" showAlbum />
-			<Pager {...data.songs} href={pageHref} label="Favourite track pages" noun="tracks" />
-		{:else if data.albums}
+		{#if shown.songs}
+			<TrackList songs={shown.songs.items} variant="artwork" showAlbum />
+			<Pager {...shown.songs} href={pageHref} label="Favourite track pages" noun="tracks" />
+		{:else if shown.albums}
 			<MediaGrid density={data.settings.gridSize}>
-				{#each data.albums.items as album (album.id)}
+				{#each shown.albums.items as album (album.id)}
 					<MediaCard
 						href="/albums/{album.id}"
 						title={album.name}
@@ -122,10 +161,10 @@
 					/>
 				{/each}
 			</MediaGrid>
-			<Pager {...data.albums} href={pageHref} label="Favourite album pages" noun="albums" />
-		{:else if data.artists}
+			<Pager {...shown.albums} href={pageHref} label="Favourite album pages" noun="albums" />
+		{:else if shown.artists}
 			<MediaGrid density="compact">
-				{#each data.artists.items as artist (artist.id)}
+				{#each shown.artists.items as artist (artist.id)}
 					<MediaCard
 						href="/artists/{artist.id}"
 						title={artist.name}
@@ -135,7 +174,7 @@
 					/>
 				{/each}
 			</MediaGrid>
-			<Pager {...data.artists} href={pageHref} label="Favourite artist pages" noun="artists" />
+			<Pager {...shown.artists} href={pageHref} label="Favourite artist pages" noun="artists" />
 		{/if}
 	{/if}
 </div>
@@ -155,6 +194,13 @@
 		gap: var(--space-2);
 		border-bottom: 1px solid var(--border-hairline);
 		padding-bottom: var(--space-2);
+	}
+
+	.waiting {
+		display: grid;
+		place-items: center;
+		min-height: 12rem;
+		color: var(--text-faint);
 	}
 
 	.empty {
