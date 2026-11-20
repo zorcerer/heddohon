@@ -142,16 +142,26 @@ describe('sound analysis in the running app', { skip }, () => {
 				db.close();
 			}
 		};
-		// Album 2 measured again as a tone, so it has a level.
+		// Album 2 measured again as a tone, so it has a level. Waits until nothing
+		// of this account's is queued, before and after: the album the test above
+		// asked for may still be under way, and a fixed 15s ran out on a loaded
+		// machine on 2026-11-20, before the tone was measured.
+		const settled = async () => {
+			const deadline = Date.now() + 60_000;
+			while ((await (await admin.request('/api/analysis/album/al2')).json()).waiting && Date.now() < deadline) {
+				await new Promise((resolve) => setTimeout(resolve, 200));
+			}
+		};
+		await settled();
 		const before = loudness('s2a').analysed_at;
 		subsonic.state.audio = { type: 'audio/wav', body: toneWav(40, 0.5) };
 		try {
 			assert.equal((await admin.request('/api/analysis/album/al2', { method: 'POST' })).status, 202);
-			const deadline = Date.now() + 15_000;
-			while (loudness('s2a').analysed_at === before && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 200));
+			await settled();
 		} finally {
 			subsonic.state.audio = { type: 'audio/wav', body: silentWav(40) };
 		}
+		assert.notEqual(loudness('s2a').analysed_at, before, 'album 2 was not measured again');
 		const measured = loudness('s2a').loudness;
 		assert.ok(measured > -30 && measured < 0, `the tone measured ${measured} LUFS`);
 
