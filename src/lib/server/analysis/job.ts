@@ -18,7 +18,7 @@ import { decodeExcerpt } from './decode.ts';
 import { AnalysisJob, DEFAULT_SETTINGS, PACES, type JobSettings, type JobStatus } from './queue.ts';
 import { analysisSongOf, type AnalysisSource } from './source.ts';
 import type { AlbumDetail, BackendKind } from '#lib/types.ts';
-import { analysisStore, closeAnalysisStore } from './results.ts';
+import { analysisStore, closeAnalysisStore, forgetSoundIndexes } from './results.ts';
 
 const SETTINGS_KEY = 'analysis-settings';
 
@@ -169,6 +169,7 @@ export function analyseAlbum(backend: BackendKind, album: AlbumDetail, by: strin
 /** Removes `analysis.db` and starts the library again. */
 export function resetAnalysis(by: string): void {
 	analysisStore().reset();
+	forgetSoundIndexes();
 	log.warn('analysis-reset', { by });
 	job?.forget();
 }

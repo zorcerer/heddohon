@@ -53,6 +53,8 @@ server's**):
 | `worker.ts` | `analyse` in a worker thread, so a song's second of arithmetic never holds up a request. | no |
 | `analyser.ts` | Starts that worker on first use, and again if it dies. | no |
 | `job.ts` | The job as the server runs it: the app's parts given to `queue.ts`, its settings in `meta`, started and stopped with the server. | yes |
+| `similar.ts` | Songs that sound alike: the vectors scaled across the library, their nearest neighbours, and albums folded from those the asking account can see. | no |
+| `results.ts` | The shared `analysis.db` handle, volume levelling, and one sound-alike index per music server, for the rest of the server. | yes |
 
 The four take what they need as arguments (samples, a stream, a file path, an
 adapter), so each is tested by importing it directly, without starting the
@@ -137,6 +139,15 @@ an excerpt, so the player only lowers a song from a measured gain. The gain
 is marked `measured`, and the library report still counts the file as
 having no ReplayGain of its own.
 
+The album page's "You might like" shelf (`similarAlbums` in
+`suggestions.ts`, issue #321) is the music server's own answer first. Where
+that leaves it short, `similar.ts` fills it: every measured vector held in
+memory (`soundIndex` in `results.ts`, built again every 5 minutes), each of
+the 32 values scaled across the library, and the songs nearest the album's
+by cosine similarity. They are looked up with the asking account's login and
+folded into albums, not this album and not its artist's. Subsonic's albums
+from the same genre come last.
+
 An album's menu offers **Analyse this album** to an administrator while an
 analysis account is named (`src/routes/api/analysis/album/[id]/+server.ts`,
 `queueAlbum` in `queue.ts`): its songs, as the administrator's login lists
@@ -169,6 +180,7 @@ node --test tests/e2e/analysis-features.test.mjs   # the measurements, on signal
 node --test tests/e2e/analysis-store.test.mjs      # analysis.db
 node --test tests/e2e/analysis-decode.test.mjs     # the source and the decode
 node --test tests/e2e/analysis-job.test.mjs        # the job, with stand-ins and a clock of its own
+node --test tests/e2e/analysis-similar.test.mjs    # the sound-alike index and the albums folded from it
 npm run build && node --test tests/e2e/analysis-settings.test.mjs  # /api/analysis, and a stop in the log
 npm run build && node --test tests/e2e/analysis-account.test.mjs   # the account, against the built app
 npm run build && node --test tests/e2e/analysis-run.test.mjs       # all of it in the built app, with ffmpeg and the worker

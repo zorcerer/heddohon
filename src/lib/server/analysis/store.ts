@@ -168,6 +168,21 @@ export class AnalysisStore {
 		return row.loudness;
 	}
 
+	/**
+	 * Every measured song's vector on `backend` by the current analysis, for the
+	 * sound-alike index (`similar.ts`): the ids, and the vectors end to end,
+	 * `VECTOR_LENGTH` values each. 50,000 songs are 6.4MB.
+	 */
+	vectors(backend: string): { songIds: string[]; vectors: Float32Array } {
+		const rows = this.#open()
+			.prepare('SELECT song_id, vector FROM song_features WHERE backend = ? AND version = ? AND error IS NULL AND vector IS NOT NULL')
+			.all(backend, FEATURES_VERSION) as { song_id: string; vector: Buffer }[];
+		const vectors = new Float32Array(rows.length * VECTOR_LENGTH);
+		const bytes = new Uint8Array(vectors.buffer);
+		rows.forEach((row, i) => bytes.set(row.vector.subarray(0, VECTOR_LENGTH * 4), i * VECTOR_LENGTH * 4));
+		return { songIds: rows.map((row) => row.song_id), vectors };
+	}
+
 	/** Whether the song has a current row, measured or failed: the job skips it. */
 	settled(song: SongRef): boolean {
 		return this.#row(song) !== null;

@@ -802,10 +802,10 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 			case 'stream': {
 				// A check's own answer, for a stream that fails: true when it has answered.
 				if (state.onStream?.(p.get('id'), req, res)) return;
-				// A function is called for each request: a body that differs from one
-				// read to the next.
+				// A function is called for each request, with the song's id: a body that
+				// differs from one read to the next, or from one song to the next.
 				const audio = state.audio?.body;
-				const body = typeof audio === 'function' ? audio() : (audio ?? Buffer.alloc(1000, 7));
+				const body = typeof audio === 'function' ? audio(p.get('id')) : (audio ?? Buffer.alloc(1000, 7));
 				const range = /^bytes=(\d+)-(\d*)$/.exec(req.headers.range ?? '');
 				res.setHeader('content-type', state.audio?.type ?? 'audio/flac');
 				if (state.ignoreRange) {
@@ -1392,13 +1392,14 @@ export async function startMusicBrainz() {
  * stream's body is not audio otherwise), and for `npm run dev:mock`.
  */
 /**
- * A 440Hz sine of `seconds` at `amplitude` (0 to 1) of full scale, as 8-bit
- * WAV: audio with a level, for sound analysis to measure.
+ * A sine of `seconds` at `amplitude` (0 to 1) of full scale and `frequency`
+ * (440Hz unless given, under 4000Hz), as 8-bit WAV: audio with a level and a
+ * pitch, for sound analysis to measure.
  */
-export function toneWav(seconds, amplitude) {
+export function toneWav(seconds, amplitude, frequency = 440) {
 	const wav = silentWav(seconds);
 	for (let i = 0; i < 8000 * seconds; i++) {
-		wav[44 + i] = Math.round(128 + 127 * amplitude * Math.sin((2 * Math.PI * 440 * i) / 8000));
+		wav[44 + i] = Math.round(128 + 127 * amplitude * Math.sin((2 * Math.PI * frequency * i) / 8000));
 	}
 	return wav;
 }

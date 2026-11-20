@@ -10,6 +10,7 @@
 import { join } from 'node:path';
 import type { ReplayGain, Song } from '#lib/types.ts';
 import { config } from '../config';
+import { SoundIndex } from './similar.ts';
 import { fileKeyOf } from './source.ts';
 import { AnalysisStore } from './store.ts';
 
@@ -63,4 +64,38 @@ export function levelled(backend: string, song: Song): Song {
 		measured: true
 	};
 	return { ...song, replayGain: gain };
+}
+
+/**
+ * How long a sound-alike index is used before it is built again from
+ * `analysis.db`, so songs the job measured since join it. Building one of
+ * 50,000 songs reads 6.4MB and takes tens of milliseconds.
+ */
+const INDEX_MS = 5 * 60 * 1000;
+
+const indexes = new Map<string, { index: SoundIndex; builtAt: number }>();
+
+/**
+ * The music server's songs by how they sound (issue #321), or null while the
+ * server does not analyse or nothing of it is measured.
+ */
+export function soundIndex(backend: string): SoundIndex | null {
+	try {
+		if (!config().analysis) return null;
+		let held = indexes.get(backend);
+		if (!held || Date.now() - held.builtAt > INDEX_MS) {
+			const { songIds, vectors } = analysisStore().vectors(backend);
+			held = { index: new SoundIndex(songIds, vectors), builtAt: Date.now() };
+			indexes.set(backend, held);
+		}
+		return held.index.size > 0 ? held.index : null;
+	} catch {
+		// A deployment still being set up, or a file that cannot be read: nothing measured.
+		return null;
+	}
+}
+
+/** Drops the indexes, after the results were removed. */
+export function forgetSoundIndexes(): void {
+	indexes.clear();
 }
