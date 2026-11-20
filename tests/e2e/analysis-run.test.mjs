@@ -194,4 +194,76 @@ describe('sound analysis in the running app', { skip }, () => {
 		assert.equal((await listener.request('/api/sound/no-such-song')).status, 404);
 		assert.equal((await listener.request(`/api/sound/${'x'.repeat(256)}`)).status, 404);
 	});
+
+	// Issue #321: albums that sound alike, where the music server's own shelf is short.
+	test('fills a short "You might like" shelf with albums that sound alike, after the server\'s own, as the account sees them', async () => {
+		const admin = new Client(app.url);
+		await admin.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' });
+		const { default: Database } = await import('better-sqlite3');
+		const measuredAt = (id) => {
+			const db = new Database(join(app.dataDir, 'analysis.db'), { readonly: true });
+			try {
+				return db.prepare('SELECT analysed_at FROM song_features WHERE song_id = ?').get(id)?.analysed_at ?? 0;
+			} finally {
+				db.close();
+			}
+		};
+		// Albums 0 and 1 a low tone, album 2 a high quiet one: 0 and 1 sound alike.
+		const tones = { 0: toneWav(40, 0.5, 440), 1: toneWav(40, 0.5, 460), 2: toneWav(40, 0.15, 3000) };
+		subsonic.state.audio = { type: 'audio/wav', body: (id) => tones[/^s(\d+)/.exec(id ?? '')?.[1]] ?? silentWav(40) };
+		try {
+			// Done once nothing of this account's waits, as its album menu reads it:
+			// an album an earlier test asked for may still be under way.
+			const settled = async (album) => {
+				const deadline = Date.now() + 20_000;
+				while ((await (await admin.request(`/api/analysis/album/${album}`)).json()).waiting && Date.now() < deadline) {
+					await new Promise((resolve) => setTimeout(resolve, 200));
+				}
+			};
+			for (const album of ['al0', 'al1', 'al2']) {
+				await settled(album);
+				const before = measuredAt(`s${album.slice(2)}b`);
+				assert.equal((await admin.request(`/api/analysis/album/${album}`, { method: 'POST' })).status, 202);
+				await settled(album);
+				assert.notEqual(measuredAt(`s${album.slice(2)}b`), before, `${album} was not measured again`);
+			}
+		} finally {
+			subsonic.state.audio = { type: 'audio/wav', body: silentWav(40) };
+		}
+		// The shelf is streamed into the page's own response; its cards are named
+		// there, after the page's own album, which is left out.
+		const shelf = async (album) => {
+			const { html } = await admin.page(`/albums/${album}`);
+			return ['Album 0', 'Album 1', 'Album 2']
+				.filter((name) => name !== `Album ${album.slice(2)}`)
+				.map((name) => [name, html.lastIndexOf(`"${name}"`)])
+				.filter(([, at]) => at >= 0)
+				.sort((a, b) => a[1] - b[1])
+				.map(([name]) => name);
+		};
+
+		// The server's agents answer nothing: the shelf is album 0's sound-alike first.
+		assert.equal((await shelf('al0'))[0], 'Album 1');
+
+		// The server's own answer comes first: for album 1 it names album 2, and
+		// the sound-alike album 0 follows it.
+		subsonic.state.similarAlbums = 1;
+		try {
+			assert.deepEqual(await shelf('al1'), ['Album 2', 'Album 0']);
+		} finally {
+			subsonic.state.similarAlbums = 0;
+		}
+
+		// Album 0's songs are in a library this account cannot see: album 2's
+		// shelf, for which album 0 sounds nearer than album 1 does not, leaves it out.
+		subsonic.state.hidden.set('testuser', new Set(['s0a', 's0b']));
+		try {
+			const shown = await shelf('al2');
+			assert.ok(!shown.includes('Album 0'), `a hidden album is on the shelf: ${shown.join(', ')}`);
+			assert.ok(shown.includes('Album 1'), `the visible one is not: ${shown.join(', ')}`);
+		} finally {
+			subsonic.state.hidden.delete('testuser');
+		}
+	});
+
 });

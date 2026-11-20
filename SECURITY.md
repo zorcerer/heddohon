@@ -582,6 +582,10 @@ shared (invariant 10's other exception). Anything that shows songs from it
 looks each one up with the asking account's own login first, and drops what
 the music server says that account cannot see. Volume levelling (`levelled` in `analysis/results.ts`) adds a gain only to
 a song the music server has just sent for the account's own login. The
+album page's "You might like" shelf, where the music server's own answer
+leaves it short, takes the songs that sound nearest the album's, looks them
+up with the account's own login, and shows only the albums of songs that
+come back (`soundAlikeAlbums` in `analysis/similar.ts`). The
 player's Track details
 (`/api/sound/<id>`) is the first route to ask for a result on its own: a song the account's login does not get
 from the music server answers 404, and a result is given only for the file
