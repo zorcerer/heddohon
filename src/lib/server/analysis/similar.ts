@@ -50,6 +50,11 @@ export class SoundIndex {
 		return this.#ids.length;
 	}
 
+	/** Whether the song has a vector in the index. */
+	has(songId: string): boolean {
+		return this.#at.has(songId);
+	}
+
 	/**
 	 * The `count` songs nearest the seeds' mean, nearest first, the seeds left
 	 * out. Seeds without a vector count for nothing; none with one is an empty
