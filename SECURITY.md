@@ -463,8 +463,8 @@ request from Navidrome to Heddohon. Heddohon makes no request to the plugin.
 With `HEDDOHON_MCP=true`, `/api/mcp` answers the Model Context Protocol over
 its Streamable HTTP transport, and Settings, AI, offers each account tokens
 for it. A client given one (Claude Code, for one) can read the account's
-library, favourites, playlists, history and listening statistics, and, if the
-token allows it, make, rename and delete playlists, change their entries, and
+library, favourites, playlists, history and listening statistics, songs that
+sound alike where sound analysis runs, and, if the token allows it, make, rename and delete playlists, change their entries, and
 set favourites and ratings. It is off by default: without it the route
 answers 404 and Settings does not offer tokens. Where the environment does not
 set the variable, the first-run setup saves it, and an account the music
@@ -585,7 +585,11 @@ a song the music server has just sent for the account's own login. The
 album page's "You might like" shelf, where the music server's own answer
 leaves it short, takes the songs that sound nearest the album's, looks them
 up with the account's own login, and shows only the albums of songs that
-come back (`soundAlikeAlbums` in `analysis/similar.ts`). The
+come back (`soundAlikeAlbums` in `analysis/similar.ts`). An AI
+assistant's `songs_that_sound_like` looks up the song it is asked about with
+the token's account's own login first, answers one it cannot see as one that
+does not exist, and returns only the nearest songs that login gets back
+(`mcptools.ts`). The
 player's Track details
 (`/api/sound/<id>`) is the first route to ask for a result on its own: a song the account's login does not get
 from the music server answers 404, and a result is given only for the file

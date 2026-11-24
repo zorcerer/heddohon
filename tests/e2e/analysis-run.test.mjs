@@ -37,7 +37,7 @@ describe('sound analysis in the running app', { skip }, () => {
 		jellyfin = await startJellyfin();
 		// The app finds ffmpeg on its path, as the image's is.
 		const path = ffmpeg.includes('/') ? `${dirname(ffmpeg)}:${process.env.PATH}` : process.env.PATH;
-		app = await startApp({ subsonicUrl: subsonic.url, jellyfinUrl: jellyfin.url, env: { HEDDOHON_ANALYSIS: 'true', PATH: path } });
+		app = await startApp({ subsonicUrl: subsonic.url, jellyfinUrl: jellyfin.url, env: { HEDDOHON_ANALYSIS: 'true', HEDDOHON_MCP: 'true', PATH: path } });
 	});
 
 	after(async () => {
@@ -276,4 +276,67 @@ describe('sound analysis in the running app', { skip }, () => {
 		}
 	});
 
+	// Issue #325: songs that sound like a song, for an AI assistant. Runs after
+	// the shelf's test above, which measured albums 0 and 1 as low tones and
+	// album 2 as a high quiet one.
+	test('answers an AI assistant with songs that sound alike, as the account sees them', async () => {
+		/** A token from Settings, as a person makes one. */
+		const tokenOf = async (client) => {
+			const made = await client.request('/settings?/makeMcpToken', {
+				method: 'POST',
+				headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json', 'x-sveltekit-action': 'true' },
+				body: new URLSearchParams({ name: 'Sound' }).toString()
+			});
+			const [token] = JSON.parse((await made.json()).data).filter((value) => typeof value === 'string' && value.startsWith('hhmcp_'));
+			assert.ok(token, 'no token was made');
+			return token;
+		};
+		let id = 0;
+		const rpc = async (token, method, params) => {
+			const response = await fetch(`${app.url}/api/mcp`, {
+				method: 'POST',
+				headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', authorization: `Bearer ${token}` },
+				body: JSON.stringify({ jsonrpc: '2.0', id: ++id, method, params })
+			});
+			assert.equal(response.status, 200);
+			return (await response.json()).result;
+		};
+		const call = async (token, args) => {
+			const result = await rpc(token, 'tools/call', { name: 'songs_that_sound_like', arguments: args });
+			return result.isError ? { failed: result.content[0].text } : JSON.parse(result.content[0].text);
+		};
+
+		const listener = new Client(app.url);
+		await listener.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' });
+		const token = await tokenOf(listener);
+		const { tools } = await rpc(token, 'tools/list', {});
+		const tool = tools.find((item) => item.name === 'songs_that_sound_like');
+		assert.ok(tool, 'the tool is not listed');
+		assert.equal(tool.annotations.readOnlyHint, true);
+
+		// Album 0's other song is the same tone, album 1's a near one, album 2's far.
+		const alike = await call(token, { id: 's0a' });
+		assert.equal(alike.song.id, 's0a');
+		assert.deepEqual(alike.songs.map((song) => song.id).slice(0, 3).sort(), ['s0b', 's1a', 's1b']);
+		assert.ok(!alike.songs.some((song) => song.id === 's0a'), 'the song itself is in its answer');
+		assert.equal(alike.songs[0].title, 'Song 0b', 'the songs are not as the music server names them');
+		assert.equal((await call(token, { id: 's0a', limit: 2 })).songs.length, 2);
+		assert.match((await call(token, { id: 's0a', limit: 51 })).failed, /limit/);
+
+		// Songs in a library this account cannot see are left out, and a song it
+		// cannot see answers as one that does not exist.
+		subsonic.state.hidden.set('testuser', new Set(['s0b', 's1a', 's2a']));
+		try {
+			const shown = (await call(token, { id: 's0a' })).songs.map((song) => song.id);
+			assert.deepEqual(shown, ['s1b', 's2b']);
+			assert.deepEqual(await call(token, { id: 's2a' }), { failed: 'There is no song of that id' });
+		} finally {
+			subsonic.state.hidden.delete('testuser');
+		}
+
+		// A song nothing was measured of: Jellyfin's, a server the job does not read here.
+		const jellyfinListener = new Client(app.url);
+		assert.equal((await jellyfinListener.signIn({ username: 'jfuser', password: 'jfpass', backend: 'jellyfin' })).status, 303);
+		assert.deepEqual(await call(await tokenOf(jellyfinListener), { id: 't1' }), { failed: 'That song has not been measured yet' });
+	});
 });
