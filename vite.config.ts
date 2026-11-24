@@ -63,6 +63,12 @@ function hardenedAdapter(): Adapter {
 			 * An `ORIGIN` that is not an address makes every request a 400, as
 			 * adapter-node 5 did.
 			 *
+			 * Several addresses in `ORIGIN`, apart by commas or spaces and each
+			 * starting `http://` or `https://`, are not pinned: they are a list,
+			 * as the saved ones are (issue #356), but a request on any other
+			 * `Host` is pinned to the first, as one address pins every request.
+			 * Anything else is pinned as one, and a 400 where it is not an address.
+			 *
 			 * Without it, the saved addresses (`src/lib/server/origin.ts`): a
 			 * request that arrives on one is given that one. Only where the
 			 * operator has set neither `PROTOCOL_HEADER` nor `HOST_HEADER`: with
@@ -78,14 +84,17 @@ function hardenedAdapter(): Adapter {
 					'// Written by hardenedAdapter in vite.config.ts; see src/lib/server/origin.ts.',
 					"const PROTOCOL = 'x-heddohon-protocol';",
 					"const HOST = 'x-heddohon-host';",
-					"const given = process.env.ORIGIN?.trim() ?? '';",
+					"const env = process.env.ORIGIN?.trim() ?? '';",
+					'// Several addresses are a list, which config() publishes as the saved ones.',
+					"const parts = env.split(/[\\s,]+/).filter(Boolean);",
+					"const given = parts.length > 1 && parts.every((part) => /^https?:\\/\\//i.test(part)) ? '' : env;",
 					'let pinned = null;',
 					'try {',
 					'\tif (given) pinned = new URL(given);',
 					'} catch {',
 					'\t// Answered in savedOrigin.',
 					'}',
-					'const active = Boolean(given) || (!process.env.PROTOCOL_HEADER && !process.env.HOST_HEADER);',
+					'const active = Boolean(env) || (!process.env.PROTOCOL_HEADER && !process.env.HOST_HEADER);',
 					'if (active) {',
 					'\tprocess.env.PROTOCOL_HEADER = PROTOCOL;',
 					'\tprocess.env.HOST_HEADER = HOST;',
@@ -106,6 +115,7 @@ function hardenedAdapter(): Adapter {
 					'\t} else if (active) {',
 					'\t\tconst host = req.headers.host;',
 					'\t\tconst saved = globalThis.__heddohonSavedOrigins;',
+					'\t\tlet matched = false;',
 					'\t\tif (host && Array.isArray(saved)) {',
 					'\t\t\tfor (const origin of saved) {',
 					'\t\t\t\ttry {',
@@ -114,11 +124,18 @@ function hardenedAdapter(): Adapter {
 					"\t\t\t\t\tif (new URL(url.protocol + '//' + host).host !== url.host) continue;",
 					'\t\t\t\t\treq.headers[PROTOCOL] = url.protocol.slice(0, -1);',
 					'\t\t\t\t\treq.headers[HOST] = url.host;',
+					'\t\t\t\t\tmatched = true;',
 					'\t\t\t\t\tbreak;',
 					'\t\t\t\t} catch {',
 					'\t\t\t\t\t// A Host that is not one. The adapter refuses it.',
 					'\t\t\t\t}',
 					'\t\t\t}',
+					'\t\t}',
+					'\t\t// A list from ORIGIN pins any other Host to its first address, as one address does.',
+					'\t\tif (env && !matched && Array.isArray(saved) && saved.length > 0) {',
+					'\t\t\tconst first = new URL(saved[0]);',
+					'\t\t\treq.headers[PROTOCOL] = first.protocol.slice(0, -1);',
+					'\t\t\treq.headers[HOST] = first.host;',
 					'\t\t}',
 					'\t}',
 					'\tnext();',
