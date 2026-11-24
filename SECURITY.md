@@ -1521,6 +1521,11 @@ first-run setup or by an administrator under Settings, Storage:
   request is pinned to it, so the origin check compares `Origin` with the
   same address. An `ORIGIN` that is not an address answers every request
   with a 400, as adapter-node 5 did.
+- `ORIGIN` with several addresses (#356), apart by commas or spaces and each
+  starting `http://` or `https://`, is a list served as a saved one is: a
+  request is given the address its `Host` names. A request on any other `Host`
+  is pinned to the first, so the rule above holds for a list as for one
+  address.
 - No check is relaxed. SvelteKit's and this one both run as before, against
   that address. A saved address is matched against `Host`, which names the
   server the request was sent to, so a page on another site is refused

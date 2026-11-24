@@ -521,11 +521,23 @@ export function parseOrigins(raw: string): string[] {
 
 /**
  * The addresses saved for this deployment, where the environment sets no
- * `ORIGIN`. With `ORIGIN` in the environment every request is served on that
- * one address, and a saved list is not read. See `origin.ts`.
+ * `ORIGIN`. With one address in `ORIGIN` every request is served on it, and a
+ * saved list is not read. Several, apart by commas or spaces and each starting
+ * `http://` or `https://`, are the list in place of the saved one (issue
+ * #356). See `origin.ts`.
  */
 function savedOrigins(): string[] {
-	if (fromEnvironment('ORIGIN')) return [];
+	const given = process.env.ORIGIN?.trim() ?? '';
+	const parts = given.split(/[\s,]+/).filter(Boolean);
+	// As `saved-origin.js` reads it (`vite.config.ts`): anything else is one address.
+	if (parts.length > 1 && parts.every((part) => /^https?:\/\//i.test(part))) {
+		try {
+			return parseOrigins(given);
+		} catch (err) {
+			throw new ConfigError(`ORIGIN: ${err instanceof Error ? err.message : 'not valid'}`);
+		}
+	}
+	if (given) return [];
 	const kept = savedValues().ORIGIN;
 	if (!kept) return [];
 	try {
