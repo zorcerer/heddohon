@@ -36,10 +36,12 @@ function socketPaths(platform = process.platform, env = process.env) {
 	if (env.HEDDOHON_DESKTOP_DISCORD_SOCKET) return [env.HEDDOHON_DESKTOP_DISCORD_SOCKET];
 	const numbers = [...Array(10).keys()];
 	if (platform === 'win32') return numbers.map((n) => `\\\\?\\pipe\\discord-ipc-${n}`);
+	// Unix paths, whatever system the suite asks this on.
+	const join = path.posix.join;
 	const base = env.XDG_RUNTIME_DIR || env.TMPDIR || env.TMP || env.TEMP || '/tmp';
 	// The desktop client, then Flatpak's and Snap's.
-	const dirs = [base, path.join(base, 'app', 'com.discordapp.Discord'), path.join(base, 'snap.discord')];
-	return dirs.flatMap((dir) => numbers.map((n) => path.join(dir, `discord-ipc-${n}`)));
+	const dirs = [base, join(base, 'app', 'com.discordapp.Discord'), join(base, 'snap.discord')];
+	return dirs.flatMap((dir) => numbers.map((n) => join(dir, `discord-ipc-${n}`)));
 }
 
 /** A line of an activity: trimmed to Discord's 128 characters and at least 2, which it asks for. */
