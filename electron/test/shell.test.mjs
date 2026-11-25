@@ -347,6 +347,105 @@ describe('the desktop media controls', () => {
 	});
 });
 
+describe('the Discord activity', { skip: (standIn && 'the stand-in server plays nothing') || (process.platform === 'win32' && 'a Unix socket') }, () => {
+	const { encode, FRAME, HANDSHAKE, ICON } = require('../discord.js');
+
+	/** A Discord on a socket of its own: it answers the handshake with READY and keeps every activity it is sent. */
+	async function fakeDiscord(at) {
+		const { createServer } = await import('node:net');
+		const activities = [];
+		const sockets = new Set();
+		const server = createServer((socket) => {
+			sockets.add(socket);
+			let buffered = Buffer.alloc(0);
+			socket.on('data', (chunk) => {
+				buffered = Buffer.concat([buffered, chunk]);
+				while (buffered.length >= 8 && buffered.length >= 8 + buffered.readInt32LE(4)) {
+					const op = buffered.readInt32LE(0);
+					const body = JSON.parse(buffered.subarray(8, 8 + buffered.readInt32LE(4)).toString('utf8'));
+					buffered = buffered.subarray(8 + buffered.readInt32LE(4));
+					if (op === HANDSHAKE) socket.write(encode(FRAME, { cmd: 'DISPATCH', evt: 'READY', data: { v: 1 } }));
+					else if (body.cmd === 'SET_ACTIVITY') activities.push(body.args.activity);
+				}
+			});
+		});
+		await new Promise((done) => server.listen(at, done));
+		return { activities, close: () => new Promise((done) => (sockets.forEach((socket) => socket.destroy()), server.close(() => done()))) };
+	}
+
+	async function start(data, socket) {
+		const app = await startShell({
+			executablePath: packaged ?? executablePath,
+			args: packaged ? ['--no-sandbox'] : [shell, '--no-sandbox'],
+			env: {
+				...process.env,
+				HEDDOHON_DESKTOP_DATA: data,
+				HEDDOHON_DESKTOP_NO_UPDATE_CHECK: '1',
+				HEDDOHON_DESKTOP_DISCORD_APP: '123456789012345678',
+				HEDDOHON_DESKTOP_DISCORD_SOCKET: socket
+			},
+			timeout: 30_000
+		});
+		return { app, page: await app.firstWindow() };
+	}
+
+	const until = async (check, what, ms = 15_000) => {
+		const deadline = Date.now() + ms;
+		while (!check()) {
+			if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
+			await new Promise((done) => setTimeout(done, 100));
+		}
+	};
+
+	test('is off until switched on, then shows the playing song with the icon for an album with no release, and clears on pause', async () => {
+		const backend = await startSubsonic({ artistCount: 3 });
+		backend.state.audio = { type: 'audio/wav', body: silentWav(60) };
+		const up = await startApp({ subsonicUrl: backend.url, jellyfinUrl: jellyfin.url, env: { HEDDOHON_REMOTE_CONTROL: 'false' } });
+		const data = mkdtempSync(join(tmpdir(), 'heddohon-desktop-'));
+		const socket = join(data, 'discord-ipc-0');
+		const discord = await fakeDiscord(socket);
+		writeFileSync(join(data, 'config.json'), JSON.stringify({ server: up.url }));
+		const { app, page } = await start(data, socket);
+		const play = async () => {
+			await page.goto(`${up.url}/albums/al1`);
+			await page.getByRole('button', { name: 'Play Song 1a', exact: true }).click();
+			await page.waitForFunction(() => [...document.querySelectorAll('audio')].some((a) => !a.paused && a.currentTime > 0.5));
+		};
+		try {
+			await page.getByLabel('Username').fill('testuser');
+			await page.getByLabel('Password').fill('testpass');
+			await page.getByRole('button', { name: /sign in/i }).click();
+			await page.waitForURL(`${up.url}/`);
+			const item = () => app.evaluate(({ Menu }) => Menu.getApplicationMenu().items[0].submenu.items.find((entry) => entry.label === 'Show what plays on Discord')?.checked);
+			assert.equal(await item(), false, 'the switch is not in the menu, or is on');
+
+			// Off: nothing goes to Discord.
+			await play();
+			await page.waitForTimeout(2000);
+			assert.deepEqual(discord.activities, []);
+
+			await app.evaluate(({ Menu }) => Menu.getApplicationMenu().items[0].submenu.items.find((entry) => entry.label === 'Show what plays on Discord').click());
+			assert.equal(JSON.parse(readFileSync(join(data, 'config.json'), 'utf8')).discord, true);
+			await play();
+			await until(() => discord.activities.some((activity) => activity?.details === 'Song 1a'), 'the activity');
+			const shown = discord.activities.findLast((activity) => activity?.details === 'Song 1a');
+			assert.equal(shown.type, 2);
+			assert.equal(shown.assets.large_image, ICON, 'album 1 has no MusicBrainz release');
+			assert.ok(shown.timestamps.end > shown.timestamps.start);
+
+			await page.evaluate(() => [...document.querySelectorAll('audio')].forEach((a) => a.pause()));
+			await until(() => discord.activities.at(-1) === null, 'the activity to clear');
+
+		} finally {
+			await app.close();
+			await discord.close();
+			await up.stop();
+			await backend.close();
+			rmSync(data, { recursive: true, force: true });
+		}
+	});
+});
+
 describe('a newer release', () => {
 	/** GitHub's answer for the latest release, from a server of the suite's own. */
 	async function releases(tag) {

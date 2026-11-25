@@ -1123,6 +1123,21 @@ describe('links elsewhere', () => {
 		assert.match(html, /MusicBrainz Release Group/);
 		assert.doesNotMatch(html, /MusicBrainz Album|someone:secret/);
 	});
+
+	// Issue #358: the desktop app's Discord activity shows the cover by this id.
+	test('an album\'s MusicBrainz release id, for the desktop app, and none for a release group', async () => {
+		assert.equal((await fetch(`${app.url}/api/albums/al4/release`)).status, 401);
+		await asFreshAccount('release', async (client) => {
+			const release = async (id) => (await client.request(`/api/albums/${id}/release`)).json();
+			// Navidrome's tags, in capitals, given as MusicBrainz writes them.
+			assert.deepEqual(await release('al4'), { release: 'de5c6a49-a5ec-41d9-9117-a128898fa099' });
+			assert.deepEqual(await release('al5'), { release: null });
+		});
+		const jellyfinClient = new Client(app.url);
+		await jellyfinClient.signIn({ username: 'jfuser', password: 'jfpass', backend: 'jellyfin' });
+		assert.deepEqual(await (await jellyfinClient.request('/api/albums/b2/release')).json(), { release: '11111111-2222-3333-4444-555555555555' });
+		assert.deepEqual(await (await jellyfinClient.request('/api/albums/b1/release')).json(), { release: null });
+	});
 });
 
 describe('appears on', () => {

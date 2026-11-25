@@ -64,7 +64,8 @@ against the packaged app, after `npm run dist`. On Windows that is
 ## What the window is allowed
 
 - The page is remote, so it has no Node, runs sandboxed with context
-  isolation, and the preload gives its two calls to the address screen only.
+  isolation, and the preload gives its calls to the app's own two screens
+  only, but one (below).
 - The window stays on the server's origin, and so does any window a page on
   the server opens. Any other address opens in the default browser.
 - Permissions are granted to the server's origin only, and only the ones the
@@ -74,6 +75,26 @@ against the packaged app, after `npm run dist`. On Windows that is
   so a grant would be silent. Up to 0.5.0 they were granted.
 - The address screen's calls, which can read the saved request headers,
   answer the package's own file and no other file on the disk.
+- A web page is given one call, which says what plays for the Discord
+  activity and returns nothing. It is listened to only from the saved
+  server's page, and only with the switch below on.
+
+## What plays, on Discord
+
+**Heddohon, Show what plays on Discord** in the menu bar (Alt shows it) puts
+the playing song on your Discord profile as "Listening to", with its artist,
+its album, the cover and the time left. It is off until ticked, and kept per
+computer. Discord has to be running on the same computer: the app talks to
+it over Discord's local socket, which a browser tab cannot reach. Paused,
+nothing is shown. An account with "Report playback" off sends nothing.
+
+The cover is the album's front on Cover Art Archive, found by the
+MusicBrainz release id the music server has for the album (from its tags
+on Navidrome, its provider ids on Jellyfin). Discord fetches it from there,
+so your server's address and its covers are never sent to Discord. An album
+without a release id, or one Cover Art Archive has no front for, shows the
+Heddohon icon from heddohon.app. What Discord gets is the title, the artist,
+the album and that release id.
 
 ## A sign-in in front of the server
 
