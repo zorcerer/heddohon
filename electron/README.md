@@ -75,16 +75,16 @@ against the packaged app, after `npm run dist`. On Windows that is
   so a grant would be silent. Up to 0.5.0 they were granted.
 - The address screen's calls, which can read the saved request headers,
   answer the package's own file and no other file on the disk.
-- A web page is given one call, which says what plays for the Discord
-  activity and returns nothing. It is listened to only from the saved
-  server's page, and only with the switch below on.
+- A web page is given two calls for the Discord activity: one says what
+  plays and returns nothing, the other reads and sets the switch below.
+  Both are answered only from the saved server's page.
 
 ## What plays, on Discord
 
-**Heddohon, Show what plays on Discord** in the menu bar (Alt shows it) puts
-the playing song on your Discord profile as "Listening to", with its artist,
-its album, the cover and the time left. It is off until ticked, and kept per
-computer. Discord has to be running on the same computer: the app talks to
+**Show what plays on Discord**, in the server's Settings, Playback, This
+browser (shown only in the app), puts the playing song on your Discord
+profile as "Listening to", with its artist, its album, the cover and the
+time left. It is off until switched on, and kept per computer by the app. Discord has to be running on the same computer: the app talks to
 it over Discord's local socket, which a browser tab cannot reach. Paused,
 nothing is shown. An account with "Report playback" off sends nothing.
 
