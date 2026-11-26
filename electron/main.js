@@ -47,12 +47,12 @@ const SWITCH_NOTICE_DELAY_MS = 2000;
 const MAX_CHECK_BYTES = 64 * 1024;
 
 /**
- * The Discord application the activity is shown under (issue #358), made once
+ * The Discord application the activity is shown under (issue #358), "Heddohon"
  * in Discord's Developer Portal; its name is what Discord says is being
- * listened to. It is not a secret. Empty, the menu does not offer Discord.
- * `HEDDOHON_DESKTOP_DISCORD_APP` sets it for one run, for the suite.
+ * listened to. It is not a secret. `HEDDOHON_DESKTOP_DISCORD_APP` sets
+ * another for one run, for the suite.
  */
-const DISCORD_APPLICATION_ID = process.env.HEDDOHON_DESKTOP_DISCORD_APP || '';
+const DISCORD_APPLICATION_ID = process.env.HEDDOHON_DESKTOP_DISCORD_APP || '1575320862918320169';
 
 const NOT_HEDDOHON = (origin) => `${origin} answered, but not as a Heddohon server.`;
 const UNREACHABLE = (origin) => `${origin} could not be reached. Check the address, and that this computer can open it in a browser.`;
@@ -561,38 +561,63 @@ ipcMain.handle('setup:connect', async (event, raw, headerText) => {
  * server's main frame is listened to, only with the menu's switch on. The
  * page sends nothing while its account has "Report playback" off.
  *
- * The cover is the album's front on Cover Art Archive, by the MusicBrainz
- * release the server knows it as (`/api/albums/<id>/release`): Discord fetches
- * it from there, so nothing of the server, its address or its covers, is sent
- * to Discord. An album with no release, or one Cover Art Archive has no front
- * for, shows the app's icon.
+ * The cover is asked of the server (`/api/presence`), and tried in this order:
+ *
+ *  1. The cover on the server, by a link Discord can fetch without a sign-in,
+ *     where its administrator turned that on (`HEDDOHON_DISCORD_COVERS`). It
+ *     is fetched once from a session of its own, with no cookie and none of
+ *     the saved headers, as Discord would: a sign-in proxy in front of the
+ *     server turns that away, and the next is used. An http server is
+ *     skipped; Discord fetches https.
+ *  2. The album's front on Cover Art Archive, by the MusicBrainz release the
+ *     server knows it as. Nothing of the server reaches Discord this way.
+ *  3. The app's icon.
  */
 let presence = null;
-/** Cover addresses by album id, or null for the icon. Held for the run, up to 500 albums. */
+/** Covers by album and cover id, each with when it was found. Up to 500, each for 12 hours, half a server link's life. */
 const covers = new Map();
 const MAX_COVERS = 500;
+const COVER_MS = 12 * 60 * 60 * 1000;
 const RELEASE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const SERVER_COVER = /^\/api\/presence-cover\/[A-Za-z0-9_.-]{1,1024}$/;
 
-async function coverFor(contents, albumId) {
-	if (!albumId) return null;
-	if (covers.has(albumId)) return covers.get(albumId);
+/** Whether `url` answers an image to a request with no cookie and no saved header. */
+async function reachable(url) {
+	try {
+		const answer = await session.fromPartition('heddohon-discord-check').fetch(url, { method: 'HEAD', credentials: 'omit', redirect: 'error' });
+		return answer.ok && (answer.headers.get('content-type') ?? '').startsWith('image/');
+	} catch {
+		return false;
+	}
+}
+
+async function coverFor(contents, state) {
+	const key = `${state.albumId ?? ''}\u0000${state.coverId ?? ''}`;
+	const held = covers.get(key);
+	if (held && Date.now() - held.at < COVER_MS) return held.cover;
 	let cover = null;
 	try {
-		// Asked from the page, which carries the session; the answer is held to a release id.
-		const release = await contents.executeJavaScript(
-			`fetch('/api/albums/' + encodeURIComponent(${JSON.stringify(albumId)}) + '/release').then((r) => (r.ok ? r.json() : null)).then((b) => b?.release ?? null).catch(() => null)`
+		// Asked from the page, which carries the session.
+		const query = new URLSearchParams();
+		if (state.albumId) query.set('album', state.albumId);
+		if (state.coverId) query.set('cover', state.coverId);
+		const answer = await contents.executeJavaScript(
+			`fetch('/api/presence?' + ${JSON.stringify(query.toString())}).then((r) => (r.ok ? r.json() : null)).catch(() => null)`
 		);
-		if (typeof release === 'string' && RELEASE_ID.test(release)) {
+		const own = typeof answer?.cover === 'string' && SERVER_COVER.test(answer.cover) && config.server?.startsWith('https://') ? `${config.server}${answer.cover}` : null;
+		if (own && (await reachable(own))) cover = own;
+		const release = answer?.release;
+		if (!cover && typeof release === 'string' && RELEASE_ID.test(release)) {
 			const url = coverArtArchive(release);
 			// Cover Art Archive answers 404 for a release it has no front for, and Discord would show nothing.
-			const answer = await net.fetch(url, { method: 'HEAD', credentials: 'omit' });
-			if (answer.ok) cover = url;
+			if ((await net.fetch(url, { method: 'HEAD', credentials: 'omit' })).ok) cover = url;
 		}
 	} catch {
-		// Offline, or the page went away: the icon, and asked again next run.
+		// Offline, or the page went away: the icon, and asked again on the next song.
+		return null;
 	}
 	if (covers.size >= MAX_COVERS) covers.delete(covers.keys().next().value);
-	covers.set(albumId, cover);
+	covers.set(key, { cover, at: Date.now() });
 	return cover;
 }
 
@@ -603,7 +628,7 @@ ipcMain.on('presence', (event, raw) => {
 	presence ??= new Presence(DISCORD_APPLICATION_ID);
 	if (!state?.playing) return presence.set(null);
 	const contents = event.sender;
-	void coverFor(contents, state.albumId).then((cover) => presence?.set(activityOf(state, cover)));
+	void coverFor(contents, state).then((cover) => presence?.set(activityOf(state, cover)));
 });
 
 /*

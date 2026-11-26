@@ -61,12 +61,13 @@ function stateOf(raw) {
 	if (!raw || typeof raw !== 'object') return null;
 	const title = line(raw.title);
 	if (!title) return null;
-	const albumId = typeof raw.albumId === 'string' && raw.albumId.length > 0 && raw.albumId.length < 256 ? raw.albumId : null;
+	const id = (value) => (typeof value === 'string' && value.length > 0 && value.length < 256 ? value : null);
 	return {
 		title,
 		artist: line(raw.artist),
 		album: line(raw.album),
-		albumId,
+		albumId: id(raw.albumId),
+		coverId: id(raw.coverId),
 		duration: finite(raw.duration),
 		position: finite(raw.position) ?? 0,
 		playing: raw.playing === true

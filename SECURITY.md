@@ -1316,6 +1316,43 @@ page on a see-through background), `/api/now-playing/<token>` (JSON) and
 - **Anyone who holds the link sees what the account plays** for as long as
   the link stands. Settings says so beside the button.
 
+## The desktop app's Discord activity
+
+The desktop app (Linux and Windows) can show what plays on the listener's
+Discord profile, over Discord's local socket on the same computer. It is off
+until ticked in the app's menu. The server's page tells the app what plays
+through one call the preload gives web pages, `heddohonPresence`, which
+returns nothing; the app listens to it only from the saved server's main
+frame. An account with "Report playback" off sends nothing. Discord gets
+the title, the artist, the album, the song's start and end, and a cover
+address.
+
+The cover comes from the first of these that answers:
+
+- **This server, where an administrator turned it on**
+  (`HEDDOHON_DISCORD_COVERS`, Settings, Server, Features; off by default).
+  Discord's servers fetch an activity's image themselves, with no sign-in,
+  so the app is given a link that carries its own authority:
+  `/api/presence-cover/<token>`, a public route. The token is sealed with
+  AES-256-GCM under a key of its own (`presence-cover`), and names one cover
+  in the asking account's cache scope, its size, and when it stops working,
+  24 hours on. Sealed rather than signed: the scope holds a Jellyfin user's
+  id, and the link is shown to Discord. It is made only for a cover already
+  in the account's own cover cache, and is served from the cache alone, with
+  the cover cache's headers (`cachedCoverHeaders`): no stored credential is
+  opened and the music server is not asked. A cover swept from the cache, an
+  expired or altered token, and the switch turned off all answer 404.
+  Discord learns the address the app opens the server at. The app first
+  fetches the link from a session of its own, with no cookie and none of its
+  saved headers, and uses it only if that answers an image: a sign-in proxy
+  in front of the server turns it away there as it would Discord. An `http`
+  server is not offered to Discord.
+- **Cover Art Archive**, by the album's MusicBrainz release id, which the
+  music server knows from its tags (Navidrome) or provider ids (Jellyfin)
+  and `/api/presence` reads with the account's own login. Discord fetches it
+  from Cover Art Archive; nothing of this server is sent.
+- **The Heddohon icon**, from heddohon.app.
+
 ## Listening together
 
 A signed-in browser can start a live session and hand out its link,

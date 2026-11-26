@@ -2279,6 +2279,7 @@ class Player {
 			artist: song.artist,
 			album: song.album,
 			albumId: song.albumId,
+			coverId: song.coverArt,
 			duration,
 			position: Math.min(this.currentTime, duration),
 			playing: this.playing

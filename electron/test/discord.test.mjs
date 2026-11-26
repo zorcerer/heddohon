@@ -54,7 +54,7 @@ const until = async (check, ms = 5000) => {
 	}
 };
 
-const PLAYING = { title: 'Song 4a', artist: 'Artist 4', album: 'Album 4', albumId: 'al4', duration: 200, position: 50, playing: true };
+const PLAYING = { title: 'Song 4a', artist: 'Artist 4', album: 'Album 4', albumId: 'al4', coverId: 'al-4', duration: 200, position: 50, playing: true };
 
 describe('what the page says plays', () => {
 	test('is held to what it can be', () => {
@@ -62,12 +62,12 @@ describe('what the page says plays', () => {
 		assert.equal(stateOf(null), null);
 		assert.equal(stateOf('Song'), null);
 		assert.equal(stateOf({ ...PLAYING, title: '  ' }), null, 'a song with no title');
-		const odd = stateOf({ title: 'x'.repeat(500), artist: 5, album: 'A', albumId: 'y'.repeat(300), duration: -1, position: Number.NaN, playing: 'yes' });
+		const odd = stateOf({ title: 'x'.repeat(500), artist: 5, album: 'A', albumId: 'y'.repeat(300), coverId: 7, duration: -1, position: Number.NaN, playing: 'yes' });
 		assert.equal(odd.title.length, 128);
 		assert.equal(odd.artist, null);
 		// Discord asks for two characters at least.
 		assert.equal(odd.album, 'A⠀');
-		assert.deepEqual([odd.albumId, odd.duration, odd.position, odd.playing], [null, null, 0, false]);
+		assert.deepEqual([odd.albumId, odd.coverId, odd.duration, odd.position, odd.playing], [null, null, null, 0, false]);
 	});
 
 	test('becomes a Listening activity with its cover, or the icon, and clears when paused', () => {
