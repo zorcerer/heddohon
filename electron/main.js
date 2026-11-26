@@ -47,12 +47,12 @@ const SWITCH_NOTICE_DELAY_MS = 2000;
 const MAX_CHECK_BYTES = 64 * 1024;
 
 /**
- * The Discord application the activity is shown under (issue #358), made once
+ * The Discord application the activity is shown under (issue #358), "Heddohon"
  * in Discord's Developer Portal; its name is what Discord says is being
- * listened to. It is not a secret. Empty, the menu does not offer Discord.
- * `HEDDOHON_DESKTOP_DISCORD_APP` sets it for one run, for the suite.
+ * listened to. It is not a secret. `HEDDOHON_DESKTOP_DISCORD_APP` sets
+ * another for one run, for the suite.
  */
-const DISCORD_APPLICATION_ID = process.env.HEDDOHON_DESKTOP_DISCORD_APP || '';
+const DISCORD_APPLICATION_ID = process.env.HEDDOHON_DESKTOP_DISCORD_APP || '1575320862918320169';
 
 const NOT_HEDDOHON = (origin) => `${origin} answered, but not as a Heddohon server.`;
 const UNREACHABLE = (origin) => `${origin} could not be reached. Check the address, and that this computer can open it in a browser.`;
