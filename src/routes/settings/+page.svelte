@@ -193,6 +193,25 @@
 				: settings.scheme === 'heddohon' || themeSchemes.some((scheme) => scheme.id === settings.scheme);
 		if (!offered) settings.scheme = 'heddohon';
 	}
+	/**
+	 * The desktop app's Discord activity (issue #358): its switch is the app's,
+	 * kept per computer, and only the app's window has `heddohonDiscord`
+	 * (`electron/preload.js`). Null in a browser, and in an app without it.
+	 */
+	type DesktopDiscord = { state: () => Promise<{ on: boolean } | null>; set: (on: boolean) => Promise<{ on: boolean } | null> };
+	let discordOn = $state<boolean | null>(null);
+	const desktopDiscord = () => (globalThis as { heddohonDiscord?: DesktopDiscord }).heddohonDiscord;
+	$effect(() => {
+		void desktopDiscord()
+			?.state()
+			.then((state) => (discordOn = state ? state.on : null))
+			.catch(() => undefined);
+	});
+	async function setDiscord(on: boolean) {
+		const state = await desktopDiscord()?.set(on).catch(() => null);
+		discordOn = state ? state.on : discordOn;
+	}
+
 	let saving = $state(false);
 	let clearing = $state(false);
 	let clearingHistory = $state(false);
@@ -1018,6 +1037,13 @@
 					</span>
 					<Switch checked={processing.enabled} onchange={(on) => processing.setEnabled(on)} />
 				</label>
+
+				{#if discordOn !== null}
+					<label class="row switch">
+						<span class="label">Show what plays on Discord</span>
+						<Switch checked={discordOn} onchange={(on) => void setDiscord(on)} />
+					</label>
+				{/if}
 
 				{#if processing.enabled}
 					<label class="row switch">

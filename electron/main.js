@@ -49,7 +49,8 @@ const MAX_CHECK_BYTES = 64 * 1024;
 /**
  * The Discord application the activity is shown under (issue #358), "Heddohon"
  * in Discord's Developer Portal; its name is what Discord says is being
- * listened to. It is not a secret. `HEDDOHON_DESKTOP_DISCORD_APP` sets
+ * listened to. It is not a secret. Empty, Settings offers no switch for it.
+ * `HEDDOHON_DESKTOP_DISCORD_APP` sets
  * another for one run, for the suite.
  */
 const DISCORD_APPLICATION_ID = process.env.HEDDOHON_DESKTOP_DISCORD_APP || '1575320862918320169';
@@ -395,20 +396,6 @@ function buildMenu(update = null) {
 				{ label: `Version ${app.getVersion()}`, enabled: false },
 				{ label: 'Check for updates…', click: () => void checkForUpdate(true) },
 				{ type: 'separator' },
-				...(DISCORD_APPLICATION_ID
-					? [
-							{
-								label: 'Show what plays on Discord',
-								type: 'checkbox',
-								checked: Boolean(config.discord),
-								click: (item) => {
-									config.discord = item.checked;
-									saveConfig();
-									if (!config.discord) void presence?.stop();
-								}
-							}
-						]
-					: []),
 				{
 					label: 'Software rendering',
 					type: 'checkbox',
@@ -558,7 +545,7 @@ ipcMain.handle('setup:connect', async (event, raw, headerText) => {
 /*
  * What plays, on Discord (issue #358; `discord.js`). The server's page says
  * what plays through `heddohonPresence` (`preload.js`), and only the saved
- * server's main frame is listened to, only with the menu's switch on. The
+ * server's main frame is listened to, only with the switch on. The
  * page sends nothing while its account has "Report playback" off.
  *
  * The cover is asked of the server (`/api/presence`), and tried in this order:
@@ -621,9 +608,25 @@ async function coverFor(contents, state) {
 	return cover;
 }
 
+/** Whether a call came from the saved server's own page, its main frame. */
+const fromSavedServer = (event) => event.senderFrame === event.sender.mainFrame && isSavedServer(event.senderFrame?.url ?? '');
+
+/*
+ * The switch, kept per computer in the profile's config.json and off until
+ * turned on. The server's Settings shows it (This browser) and changes it
+ * through these; nothing answers a page that is not the saved server's.
+ */
+ipcMain.handle('discord:state', (event) => (DISCORD_APPLICATION_ID && fromSavedServer(event) ? { on: Boolean(config.discord) } : null));
+ipcMain.handle('discord:set', (event, on) => {
+	if (!DISCORD_APPLICATION_ID || !fromSavedServer(event)) return null;
+	config.discord = on === true;
+	saveConfig();
+	if (!config.discord) void presence?.stop();
+	return { on: config.discord };
+});
+
 ipcMain.on('presence', (event, raw) => {
-	if (!DISCORD_APPLICATION_ID || !config.discord) return;
-	if (event.senderFrame !== event.sender.mainFrame || !isSavedServer(event.senderFrame?.url ?? '')) return;
+	if (!DISCORD_APPLICATION_ID || !config.discord || !fromSavedServer(event)) return;
 	const state = stateOf(raw);
 	presence ??= new Presence(DISCORD_APPLICATION_ID);
 	if (!state?.playing) return presence.set(null);

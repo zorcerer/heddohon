@@ -416,16 +416,28 @@ describe('the Discord activity', { skip: (standIn && 'the stand-in server plays 
 			await page.getByLabel('Password').fill('testpass');
 			await page.getByRole('button', { name: /sign in/i }).click();
 			await page.waitForURL(`${up.url}/`);
-			const item = () => app.evaluate(({ Menu }) => Menu.getApplicationMenu().items[0].submenu.items.find((entry) => entry.label === 'Show what plays on Discord')?.checked);
-			assert.equal(await item(), false, 'the switch is not in the menu, or is on');
+			// The switch is in the server's Settings, This browser, and starts off.
+			await page.goto(`${up.url}/settings?tab=playback`);
+			const row = page.locator('label.row', { hasText: 'Show what plays on Discord' });
+			await row.waitFor();
+			assert.equal(await row.getByRole('switch').getAttribute('aria-checked'), 'false');
+			assert.equal(
+				await app.evaluate(({ Menu }) => Menu.getApplicationMenu().items[0].submenu.items.some((entry) => /Discord/.test(entry.label ?? ''))),
+				false,
+				'the menu still has a Discord item'
+			);
 
 			// Off: nothing goes to Discord.
 			await play();
 			await page.waitForTimeout(2000);
 			assert.deepEqual(discord.activities, []);
 
-			await app.evaluate(({ Menu }) => Menu.getApplicationMenu().items[0].submenu.items.find((entry) => entry.label === 'Show what plays on Discord').click());
+			await page.goto(`${up.url}/settings?tab=playback`);
+			await row.getByRole('switch').click();
+			for (let i = 0; i < 50 && JSON.parse(readFileSync(join(data, 'config.json'), 'utf8')).discord !== true; i++) await page.waitForTimeout(100);
 			assert.equal(JSON.parse(readFileSync(join(data, 'config.json'), 'utf8')).discord, true);
+			await page.reload();
+			assert.equal(await row.getByRole('switch').getAttribute('aria-checked'), 'true', 'the switch is not kept');
 			await play();
 			await until(() => discord.activities.some((activity) => activity?.details === 'Song 1a'), 'the activity');
 			const shown = discord.activities.findLast((activity) => activity?.details === 'Song 1a');

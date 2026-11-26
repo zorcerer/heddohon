@@ -588,6 +588,8 @@ describe('the equaliser', () => {
 			const toggle = page.getByRole('switch', { name: /^Process audio/ });
 			assert.equal(await toggle.isChecked(), false);
 			assert.equal(await page.getByRole('group', { name: 'Equaliser bands' }).count(), 0);
+			// The Discord switch is the desktop app's, and a browser is not shown it.
+			assert.equal(await page.getByText('Show what plays on Discord').count(), 0);
 
 			await toggle.check();
 			await pick(page.getByRole('combobox', { name: 'Equaliser' }), 'bass');
