@@ -159,6 +159,24 @@ function keyOf(path: string): string {
 	return name.slice(0, name.lastIndexOf('.'));
 }
 
+/**
+ * The headers a cached cover is served with, by `/api/cover/<id>` and by a
+ * Discord cover's link (`/api/presence-cover`). They match what the proxy
+ * sends, or a cover would be inert from upstream and scriptable from disk
+ * (invariant 6).
+ */
+export function cachedCoverHeaders(contentType: string, etag: string, cacheControl = 'private, max-age=86400, stale-while-revalidate=604800'): Headers {
+	return new Headers({
+		'content-type': contentType,
+		etag,
+		'cache-control': cacheControl,
+		'content-security-policy': "default-src 'none'; sandbox",
+		'content-disposition': 'inline',
+		'x-content-type-options': 'nosniff',
+		'accept-ranges': 'bytes'
+	});
+}
+
 /** Returns a cached cover, or null when there is not one. */
 export async function readCover(
 	scope: CoverScope,

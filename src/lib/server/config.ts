@@ -92,6 +92,12 @@ export interface AppConfig {
 	musicbrainzUrl: string | null;
 	/** Discord's address, for posting plays to a channel's webhook, or null when off; see `integrations.ts`. */
 	discordUrl: string | null;
+	/**
+	 * Whether the desktop app's Discord activity shows a cover from this server,
+	 * by a signed link Discord fetches without a sign-in (`presencecover.ts`).
+	 * Off, it is Cover Art Archive's, by the album's MusicBrainz release.
+	 */
+	discordCovers: boolean;
 	/** The ListenBrainz API, for scrobbles this server sends itself, or null when off; see `integrations.ts`. */
 	listenbrainzUrl: string | null;
 	/** Whether the library can be browsed by its folders on disk: the Folders page and playing a folder. */
@@ -189,6 +195,7 @@ export const SETUP_NAMES = [
 	'HEDDOHON_NEW_RELEASES',
 	'HEDDOHON_AUTOEQ',
 	'HEDDOHON_DISCORD',
+	'HEDDOHON_DISCORD_COVERS',
 	'HEDDOHON_LISTENBRAINZ',
 	'HEDDOHON_MCP',
 	'HEDDOHON_ANALYSIS',
@@ -662,6 +669,9 @@ function build(): AppConfig {
 		discordUrl: flagEnv('HEDDOHON_DISCORD', false)
 			? normaliseUrl('HEDDOHON_DISCORD_URL', env('HEDDOHON_DISCORD_URL') ?? 'https://discord.com')
 			: null,
+		// Off unless asked for: Discord then fetches covers from this server's
+		// address, which it learns.
+		discordCovers: flagEnv('HEDDOHON_DISCORD_COVERS', false),
 		listenbrainzUrl: flagEnv('HEDDOHON_LISTENBRAINZ', false)
 			? normaliseUrl('HEDDOHON_LISTENBRAINZ_URL', env('HEDDOHON_LISTENBRAINZ_URL') ?? 'https://api.listenbrainz.org')
 			: null,
@@ -806,6 +816,7 @@ export function config(): AppConfig {
 			autoeqUrl: null,
 			musicbrainzUrl: null,
 			discordUrl: null,
+			discordCovers: false,
 			listenbrainzUrl: null,
 			folders: true,
 			defaultTheme: 'terminal',

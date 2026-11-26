@@ -20,7 +20,7 @@
  */
 import { config, fromEnvironment, type AppConfig, type SetupName } from './config';
 
-export const FEATURE_IDS = ['newReleases', 'lrclib', 'autoeq', 'discord', 'listenbrainz', 'mcp', 'analysis', 'profiles'] as const;
+export const FEATURE_IDS = ['newReleases', 'lrclib', 'autoeq', 'discord', 'discordCovers', 'listenbrainz', 'mcp', 'analysis', 'profiles'] as const;
 export type FeatureId = (typeof FEATURE_IDS)[number];
 
 interface Feature {
@@ -66,6 +66,14 @@ export const FEATURES: readonly Feature[] = [
 		detail:
 			'An account can link a Discord channel by a webhook, and the title, artist, album and cover of each track it plays are posted there.',
 		on: (cfg) => cfg.discordUrl !== null
+	},
+	{
+		id: 'discordCovers',
+		variable: 'HEDDOHON_DISCORD_COVERS',
+		title: 'Discord covers from this server',
+		detail:
+			"The desktop app can show what plays on a listener's Discord profile. On, Discord fetches the album's cover from this server, by a link that works for a day, and so learns the address the app opens the server at. Off, the cover is Cover Art Archive's, found by the album's MusicBrainz id. A sign-in proxy in front of this server (Authelia, Authentik, Cloudflare Access) blocks Discord, as does a server only reachable on a local network: the app then shows Cover Art Archive's cover, or the Heddohon icon.",
+		on: (cfg) => cfg.discordCovers
 	},
 	{
 		id: 'listenbrainz',

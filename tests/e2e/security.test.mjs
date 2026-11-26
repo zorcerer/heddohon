@@ -23,7 +23,7 @@ const ROUTES = resolve(import.meta.dirname, '../../src/routes');
  * lists them. Written out here, so making a route public takes a change to
  * this file as well.
  */
-const PUBLIC = ['/login', '/healthz', '/share', '/cast', '/together', '/manifest.webmanifest', '/.well-known/assetlinks.json', '/api/plugin/navidrome', '/now', '/api/now-playing', '/p'];
+const PUBLIC = ['/login', '/healthz', '/share', '/cast', '/together', '/manifest.webmanifest', '/.well-known/assetlinks.json', '/api/plugin/navidrome', '/now', '/api/now-playing', '/p', '/api/presence-cover'];
 const isPublic = (path) => PUBLIC.some((route) => path === route || path.startsWith(`${route}/`));
 
 /**
@@ -156,10 +156,10 @@ describe('every route', () => {
 
 	test('under /api without the session gate, a write is the Navidrome plugin\'s alone, and is not there without its token', async () => {
 		const open = ALL.filter((route) => isPublic(route.path) && route.path.startsWith('/api/'));
-		// The rest are a now-playing link's reads, which take its token in the path.
+		// The rest are a now-playing link's reads and a Discord cover's, which take their token in the path.
 		assert.deepEqual(
-			open.filter((route) => !WRITES.has(route.method)).map((route) => route.path).sort(),
-			['/api/now-playing/x', '/api/now-playing/x/cover']
+			[...new Set(open.filter((route) => !WRITES.has(route.method)).map((route) => route.path))].sort(),
+			['/api/now-playing/x', '/api/now-playing/x/cover', '/api/presence-cover/x']
 		);
 		const writes = open.filter((route) => WRITES.has(route.method));
 		assert.deepEqual(writes, [{ path: '/api/plugin/navidrome', method: 'POST' }]);

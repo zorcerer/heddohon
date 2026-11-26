@@ -50,7 +50,7 @@ export function setUpSuite() {
 		// The notice of features that are off, which an administrator is shown once
 		// on the home page; its own test turns it back on.
 		await context.request.patch(`${app.url}/api/settings`, {
-			data: { featuresSeen: ['newReleases', 'lrclib', 'autoeq', 'discord', 'listenbrainz', 'mcp', 'profiles'] },
+			data: { featuresSeen: ['newReleases', 'lrclib', 'autoeq', 'discord', 'discordCovers', 'listenbrainz', 'mcp', 'profiles'] },
 			headers: { origin: app.url }
 		});
 	});

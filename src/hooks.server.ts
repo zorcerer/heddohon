@@ -47,7 +47,9 @@ const PUBLIC_ROUTES = [
 	'/now',
 	'/api/now-playing',
 	// A profile page's public link, its covers and its picture; see profilepage.ts.
-	'/p'
+	'/p',
+	// A cover for the desktop app's Discord activity, by a sealed link; see presencecover.ts.
+	'/api/presence-cover'
 ];
 
 /**
