@@ -33,6 +33,7 @@
 		"files": [
 			"main.js",
 			"lib.js",
+			"discord.js",
 			"preload.js",
 			"setup.html",
 			"setup.css",

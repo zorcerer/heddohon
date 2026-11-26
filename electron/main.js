@@ -8,9 +8,10 @@
  * the desktop's media controls read: MPRIS on Linux (media keys, `playerctl`),
  * the system media controls on Windows.
  *
- * The page is a remote one, so it is given nothing: context isolation and the
- * sandbox are on, there is no Node in it, and the preload exposes its calls to
- * the app's own two screens alone. The window stays on the server's origin,
+ * The page is a remote one, so it is given next to nothing: context isolation
+ * and the sandbox are on, there is no Node in it, and the preload exposes its
+ * calls to the app's own two screens alone, but `heddohonPresence`, which says
+ * what plays for the Discord activity and is heard only from the saved server. The window stays on the server's origin,
  * and any other address opens in the default browser.
  *
  * A server behind a proxy that asks who you are first (Authelia, Authentik,
@@ -31,6 +32,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { fileURLToPath } = require('node:url');
 const { originOf, compareVersions, parseHeaders, formatHeaders, classify } = require('./lib');
+const { Presence, stateOf, activityOf, coverArtArchive } = require('./discord');
 
 const REPOSITORY = 'zorcerer/heddohon';
 const SETUP = path.join(__dirname, 'setup.html');
@@ -43,6 +45,14 @@ const UPDATE_CHECK_DELAY_MS = 5000;
 const SWITCH_NOTICE_DELAY_MS = 2000;
 /** `/healthz` is a few dozen bytes. Nothing longer is read. */
 const MAX_CHECK_BYTES = 64 * 1024;
+
+/**
+ * The Discord application the activity is shown under (issue #358), made once
+ * in Discord's Developer Portal; its name is what Discord says is being
+ * listened to. It is not a secret. Empty, the menu does not offer Discord.
+ * `HEDDOHON_DESKTOP_DISCORD_APP` sets it for one run, for the suite.
+ */
+const DISCORD_APPLICATION_ID = process.env.HEDDOHON_DESKTOP_DISCORD_APP || '';
 
 const NOT_HEDDOHON = (origin) => `${origin} answered, but not as a Heddohon server.`;
 const UNREACHABLE = (origin) => `${origin} could not be reached. Check the address, and that this computer can open it in a browser.`;
@@ -385,6 +395,20 @@ function buildMenu(update = null) {
 				{ label: `Version ${app.getVersion()}`, enabled: false },
 				{ label: 'Check for updates…', click: () => void checkForUpdate(true) },
 				{ type: 'separator' },
+				...(DISCORD_APPLICATION_ID
+					? [
+							{
+								label: 'Show what plays on Discord',
+								type: 'checkbox',
+								checked: Boolean(config.discord),
+								click: (item) => {
+									config.discord = item.checked;
+									saveConfig();
+									if (!config.discord) void presence?.stop();
+								}
+							}
+						]
+					: []),
 				{
 					label: 'Software rendering',
 					type: 'checkbox',
@@ -532,6 +556,57 @@ ipcMain.handle('setup:connect', async (event, raw, headerText) => {
 });
 
 /*
+ * What plays, on Discord (issue #358; `discord.js`). The server's page says
+ * what plays through `heddohonPresence` (`preload.js`), and only the saved
+ * server's main frame is listened to, only with the menu's switch on. The
+ * page sends nothing while its account has "Report playback" off.
+ *
+ * The cover is the album's front on Cover Art Archive, by the MusicBrainz
+ * release the server knows it as (`/api/albums/<id>/release`): Discord fetches
+ * it from there, so nothing of the server, its address or its covers, is sent
+ * to Discord. An album with no release, or one Cover Art Archive has no front
+ * for, shows the app's icon.
+ */
+let presence = null;
+/** Cover addresses by album id, or null for the icon. Held for the run, up to 500 albums. */
+const covers = new Map();
+const MAX_COVERS = 500;
+const RELEASE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+async function coverFor(contents, albumId) {
+	if (!albumId) return null;
+	if (covers.has(albumId)) return covers.get(albumId);
+	let cover = null;
+	try {
+		// Asked from the page, which carries the session; the answer is held to a release id.
+		const release = await contents.executeJavaScript(
+			`fetch('/api/albums/' + encodeURIComponent(${JSON.stringify(albumId)}) + '/release').then((r) => (r.ok ? r.json() : null)).then((b) => b?.release ?? null).catch(() => null)`
+		);
+		if (typeof release === 'string' && RELEASE_ID.test(release)) {
+			const url = coverArtArchive(release);
+			// Cover Art Archive answers 404 for a release it has no front for, and Discord would show nothing.
+			const answer = await net.fetch(url, { method: 'HEAD', credentials: 'omit' });
+			if (answer.ok) cover = url;
+		}
+	} catch {
+		// Offline, or the page went away: the icon, and asked again next run.
+	}
+	if (covers.size >= MAX_COVERS) covers.delete(covers.keys().next().value);
+	covers.set(albumId, cover);
+	return cover;
+}
+
+ipcMain.on('presence', (event, raw) => {
+	if (!DISCORD_APPLICATION_ID || !config.discord) return;
+	if (event.senderFrame !== event.sender.mainFrame || !isSavedServer(event.senderFrame?.url ?? '')) return;
+	const state = stateOf(raw);
+	presence ??= new Presence(DISCORD_APPLICATION_ID);
+	if (!state?.playing) return presence.set(null);
+	const contents = event.sender;
+	void coverFor(contents, state.albumId).then((cover) => presence?.set(activityOf(state, cover)));
+});
+
+/*
  * A basic-auth challenge, asked for in a small window over the main one. One
  * prompt at a time: a page and what it loads can each be challenged before the
  * first answer is in.
@@ -632,4 +707,13 @@ if (!app.requestSingleInstanceLock()) {
 	});
 
 	app.on('window-all-closed', () => app.quit());
+
+	// The activity is cleared as the app goes, or Discord shows it until it notices.
+	let leaving = false;
+	app.on('before-quit', (event) => {
+		if (leaving || !presence) return;
+		leaving = true;
+		event.preventDefault();
+		void Promise.race([presence.stop(), new Promise((resolve) => setTimeout(resolve, 1000))]).finally(() => app.quit());
+	});
 }
