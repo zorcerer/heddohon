@@ -1923,6 +1923,35 @@ describe('playback on another browser', () => {
 			}
 		});
 
+		// Follow-up to #350: a guest browses as the host does.
+		test('a guest sees only the libraries the host browses, and an album\'s version', async () => {
+			subsonic.state.musicFolders = [
+				{ id: 1, name: 'Music' },
+				{ id: 2, name: 'Audiobooks' }
+			];
+			subsonic.state.albumShapes.set('al2', { version: 'Deluxe Edition' });
+			const { client, party } = await host();
+			const guest = await asGuest(party);
+			try {
+				assert.equal((await client.json('/api/settings', 'PATCH', { libraries: ['2'] })).status, 200);
+				const { albums } = await (await browse(guest.client, party, { view: 'albums', sort: 'alphabetical' })).json();
+				assert.deepEqual(albums.map((album) => album.id), ['al2'], 'a guest listed an album of a library the host does not browse');
+				assert.equal(albums[0].version, 'Deluxe Edition');
+				const { artists } = await (await browse(guest.client, party, { view: 'artists' })).json();
+				assert.deepEqual(artists.map((artist) => artist.id), ['ar2']);
+				// The host's own Artists page, read after the guest's list: the same library alone.
+				const own = (await client.page('/artists')).html;
+				assert.match(own, /Artist 0002/);
+				assert.doesNotMatch(own, /Artist 0001/, 'the guest\'s read filled the host\'s list with every library');
+			} finally {
+				guest.stream.cancel();
+				await client.json('/api/settings', 'PATCH', { libraries: [] });
+				await client.json('/api/together', 'DELETE', {});
+				subsonic.state.musicFolders = [{ id: 1, name: 'Music' }];
+				subsonic.state.albumShapes.clear();
+			}
+		});
+
 		test('guests read the whole lists of the host\'s library from memory, not once a request', async () => {
 			const { client, party } = await host();
 			const first = await asGuest(party, 'Mila');

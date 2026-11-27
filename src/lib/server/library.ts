@@ -3,6 +3,7 @@ import { error, type ServerLoadEvent } from '@sveltejs/kit';
 import { backendFor, UpstreamError, type MediaBackend } from './backends';
 import { destroyAllSessions } from './auth';
 import type { StoredCredential } from './backends/types';
+import type { AuthenticatedSession } from './auth';
 import { log, reason } from './log';
 
 export interface LibraryContext {
@@ -82,4 +83,16 @@ export async function librarySettled<T extends Record<string, Promise<unknown>>>
 		}
 	});
 	return out as { [K in keyof T]: Awaited<T[K]> | null };
+}
+
+/**
+ * The session with the libraries its account chose to browse (issue #365) on
+ * its credential, which every listing call then passes on as `musicFolderId`
+ * (`subsonic.ts`). A copy: a session is held for other requests. Used for a
+ * request of the account's own (`hooks.server.ts`) and for a listen-together
+ * guest, who browses as the host does (`together-guests.ts`).
+ */
+export function browsing(session: AuthenticatedSession, libraries: readonly string[] | undefined): AuthenticatedSession {
+	if (session.credential.kind !== 'subsonic' || !libraries?.length) return session;
+	return { ...session, credential: { ...session.credential, libraries: [...libraries] } };
 }

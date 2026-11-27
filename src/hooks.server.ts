@@ -21,6 +21,7 @@ import {
 } from '#lib/server/log.ts';
 import { logKeepDays } from '#lib/server/logfile.ts';
 import { keepCoversFilled } from '#lib/server/coverfill.ts';
+import { browsing } from '#lib/server/library.ts';
 import { closeStore, store } from '#lib/server/db.ts';
 
 /**
@@ -472,12 +473,8 @@ const handleRequest: Handle = async ({ event, resolve }) => {
 	const session = await resolveSession(event);
 	event.locals.session = session;
 	event.locals.settings = session ? await getSettings(session.account.id) : null;
-	// The libraries the account browses (issue #365), on the credential every
-	// call of this request makes. A copy: the session is held for other requests.
-	const libraries = event.locals.settings?.libraries;
-	if (session && session.credential.kind === 'subsonic' && libraries?.length) {
-		event.locals.session = { ...session, credential: { ...session.credential, libraries } };
-	}
+	// The libraries the account browses (issue #365), on the credential every call of this request makes.
+	if (session) event.locals.session = browsing(session, event.locals.settings?.libraries);
 	if (session) nameRequestUser(session.account.username);
 
 	if (!session && !isPublic(event.url.pathname)) {
