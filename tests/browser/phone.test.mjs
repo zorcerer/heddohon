@@ -267,6 +267,26 @@ describe('on a phone', () => {
 			subsonic.state.audio = null;
 		});
 
+		// The heart's button holds 44px on a touch screen; in Terminal the key beside it was 40.
+		test('in Terminal the sheet\'s heart and add keys are the same size', async () => {
+			const theme = (value) => phone.request.patch(`${app.url}/api/settings`, { data: { theme: value }, headers: { origin: app.url } });
+			await theme('terminal');
+			const { page, problems } = await phonePage('/');
+			try {
+				await playAlbum(page, 13);
+				await tap(page, page.locator('#dock-open'));
+				await page.waitForFunction(() => document.querySelector('.app').classList.contains('player-open'), null, { timeout: 5000 });
+				const heart = await page.locator('.rounds .round button').first().boundingBox();
+				const add = await page.locator('.rounds button.round[aria-label="Add to playlist"]').boundingBox();
+				assert.deepEqual([Math.round(heart.width), Math.round(heart.height)], [Math.round(add.width), Math.round(add.height)]);
+				assert.equal(Math.round(add.width), 44);
+			} finally {
+				await theme(process.env.HH_SUITE_THEME ?? 'liquid');
+				await page.close();
+			}
+			assert.deepEqual(problems, []);
+		});
+
 		test('the dock shows it, and opens the sheet, which holds the page still', async () => {
 			const { page, problems } = await phonePage('/');
 			try {
@@ -282,12 +302,24 @@ describe('on a phone', () => {
 				await page.waitForFunction(() => document.querySelector('.app').classList.contains('player-open'), null, {
 					timeout: 5000
 				});
-				await page.waitForTimeout(300);
+				// The blur comes in with the sheet, by its radius: under 6px while the sheet still rises.
+				const radius = () =>
+					page.locator('.sheet-backdrop').evaluate((node) => {
+						const style = getComputedStyle(node);
+						return Number(/blur\(([\d.]+)px\)/.exec(style.backdropFilter || style.webkitBackdropFilter)?.[1] ?? NaN);
+					});
+				const rising = await radius();
+				assert.ok(rising < 6, `the blur was whole as the sheet began to rise: ${rising}px`);
+				await page.waitForFunction(
+					() => /blur\(6px\)/.test(getComputedStyle(document.querySelector('.sheet-backdrop')).backdropFilter),
+					null,
+					{ timeout: 5000 }
+				);
 				await page.mouse.move(200, 400);
 				await page.mouse.wheel(0, 800);
 				await page.waitForTimeout(300);
 				assert.equal(await page.evaluate(() => scrollY), 600, 'the page scrolled under the open sheet');
-				// The page around the open sheet is blurred, by a layer under it that is never faded.
+				// The page around the open sheet is blurred, by a layer under it whose opacity is never animated.
 				const backdrop = () =>
 					page.locator('.sheet-backdrop').evaluate((node) => {
 						const style = getComputedStyle(node);
@@ -299,7 +331,12 @@ describe('on a phone', () => {
 				await page.waitForFunction(() => !document.querySelector('.app').classList.contains('player-open'), null, {
 					timeout: 5000
 				});
-				await page.waitForTimeout(300);
+				// As the sheet falls the blur goes with it, and the layer is hidden once it has.
+				// A moment in: the exit curve starts slowly.
+				await page.waitForTimeout(120);
+				const falling = await radius();
+				assert.ok(falling < 6, `the blur stayed whole as the sheet began to fall: ${falling}px`);
+				await page.waitForFunction(() => getComputedStyle(document.querySelector('.sheet-backdrop')).visibility === 'hidden', null, { timeout: 5000 });
 				assert.equal(await page.evaluate(() => document.activeElement?.id), 'dock-open', 'focus is not back on the dock');
 				assert.equal((await backdrop()).shown, 'hidden', 'the page stayed blurred with the sheet closed');
 				await page.mouse.wheel(0, 800);

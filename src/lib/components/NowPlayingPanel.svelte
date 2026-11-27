@@ -2069,6 +2069,16 @@
 		color: var(--text-strong);
 	}
 
+	/* On a touch screen the heart's button (PulseHeart) holds 44px at least,
+	   the size a finger needs, and the key beside it was left at 40px. Both 44. */
+	@media (pointer: coarse) {
+		:global([data-theme='terminal']) .round,
+		:global([data-theme='terminal']) .round :global(button) {
+			width: 2.75rem;
+			height: 2.75rem;
+		}
+	}
+
 	:global([data-theme='terminal']) .times > :first-child {
 		color: var(--text-strong);
 	}

@@ -1569,10 +1569,11 @@
 
 		/*
 		 * The page around the open sheet, and under it as it is pulled down,
-		 * blurred by 6px. It is never faded: a layer changing its opacity behind
-		 * glass goes dark in Safari and Firefox (see the veil above). So it
-		 * appears once the sheet has risen or morphed open, `--dur-morph` after
-		 * `player-open`, and goes the moment the sheet starts to close.
+		 * blurred by 6px. The blur comes in as the sheet rises and goes as it
+		 * falls, on the sheet's own timings, by its radius (0 to 6px). Its
+		 * opacity is never animated: a layer changing its opacity behind glass
+		 * goes dark in Safari and Firefox (see the veil above). Until 2026-11-27
+		 * it was not animated at all, and appeared once the sheet had opened.
 		 */
 		.sheet-backdrop {
 			display: block;
@@ -1580,14 +1581,23 @@
 			inset: 0;
 			z-index: 44;
 			pointer-events: none;
-			-webkit-backdrop-filter: blur(6px);
-			backdrop-filter: blur(6px);
+			-webkit-backdrop-filter: blur(0px);
+			backdrop-filter: blur(0px);
 			visibility: hidden;
+			transition:
+				backdrop-filter var(--sheet-out),
+				-webkit-backdrop-filter var(--sheet-out),
+				visibility 0s linear var(--sheet-out-duration);
 		}
 
 		.app.player-open.viewport-known .sheet-backdrop {
+			-webkit-backdrop-filter: blur(6px);
+			backdrop-filter: blur(6px);
 			visibility: visible;
-			transition: visibility 0s linear var(--dur-morph);
+			transition:
+				backdrop-filter var(--sheet-in),
+				-webkit-backdrop-filter var(--sheet-in),
+				visibility 0s;
 		}
 
 		.app:not(.player-open) .player {
