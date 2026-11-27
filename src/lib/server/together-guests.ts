@@ -12,6 +12,8 @@
  */
 import { error, type Cookies, type RequestEvent } from '@sveltejs/kit';
 import { sessionByHandle, type AuthenticatedSession } from './auth';
+import { browsing } from './library';
+import { getSettings } from './settings';
 import { backendFor, UpstreamError } from './backends/index';
 import type { Album, Artist, Song } from '#lib/types.ts';
 import type { AddRefusal, GuestRefusal } from './together';
@@ -44,11 +46,16 @@ export function refuseGuest(refusal: GuestRefusal | AddRefusal): never {
 	error(429, 'The queue holds 500 added tracks. Add more once some have played.');
 }
 
-/** The host's session, for a look-up on its behalf; the party has ended without it. */
+/**
+ * The host's session, for a look-up on its behalf; the party has ended without
+ * it. With the libraries the host chose to browse (issue #365): a guest sees
+ * what the host would, and a list read for a guest is held under the host's
+ * account (`remembered`), where the host's own pages read it too.
+ */
 export async function hostSession(party: { accountId: string; session: string }): Promise<AuthenticatedSession> {
 	const host = await sessionByHandle(party.accountId, party.session);
 	if (!host) error(404, 'This listening session has ended.');
-	return host;
+	return browsing(host, (await getSettings(host.account.id)).libraries);
 }
 
 /** Runs a look-up on the host's music server, as a guest's request is answered. */
@@ -83,6 +90,8 @@ export interface GuestAlbum {
 	songCount: number | null;
 	duration: number | null;
 	releaseTypes: string[] | null;
+	/** "Deluxe Edition", from the ALBUMVERSION tag (issue #366); shown with the name by `albumTitle`. */
+	version: string | null;
 }
 
 export interface GuestArtist {
@@ -111,7 +120,8 @@ export const guestAlbum = (album: Album): GuestAlbum => ({
 	year: album.year,
 	songCount: album.songCount,
 	duration: album.duration,
-	releaseTypes: album.releaseTypes ?? null
+	releaseTypes: album.releaseTypes ?? null,
+	version: album.version ?? null
 });
 
 export const guestArtist = (artist: Artist): GuestArtist => ({

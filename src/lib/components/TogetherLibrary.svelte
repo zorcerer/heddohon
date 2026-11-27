@@ -8,7 +8,7 @@
 	import { formatDuration } from '#lib/client/format.ts';
 	import type { GuestAlbum, GuestArtist, GuestSong } from '#lib/server/together-guests.ts';
 	import Icon from './Icon.svelte';
-	import { RELEASE_GROUPS, releaseKind } from '#lib/releases.ts';
+	import { RELEASE_GROUPS, albumTitle, releaseKind } from '#lib/releases.ts';
 
 	let { base, onadd }: { base: string; onadd: (song: GuestSong) => void | Promise<void> } = $props();
 
@@ -168,7 +168,7 @@
 		if (!result) return;
 		albumInfo = result.album;
 		albumSongs = result.songs;
-		trail = [...trail, { kind: 'album', album: { id: album.id, name: album.name ?? '' } }];
+		trail = [...trail, { kind: 'album', album: { id: album.id, name: albumTitle(result.album) } }];
 	}
 
 	async function back() {
@@ -216,7 +216,7 @@
 		</div>
 		{#each list as album (album.id)}
 			<button class="arow" role="row" onclick={() => openAlbum(album)}>
-				<span class="title hh-truncate" role="cell">{album.name}</span>
+				<span class="title hh-truncate" role="cell">{albumTitle(album)}</span>
 				<span class="hh-muted hh-truncate" role="cell">{album.artist ?? 'Unknown artist'}</span>
 				<span class="hh-muted hh-numeric year" role="cell">{album.year ?? ''}</span>
 			</button>
