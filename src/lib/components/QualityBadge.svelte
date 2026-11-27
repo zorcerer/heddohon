@@ -1,12 +1,15 @@
 <script lang="ts">
 	import type { AudioQuality } from '#lib/types.ts';
 	import { formatQuality, qualityDetail } from '#lib/client/format.ts';
+	import { audioOutputs } from '#lib/client/output.svelte.ts';
 
 	let {
 		quality,
 		compact = false,
 		transcode = null,
 		processed = null,
+		level = null,
+		volume = null,
 		ontoggle = null
 	}: {
 		quality: AudioQuality;
@@ -15,6 +18,10 @@
 		transcode?: { codec: string; bitrateKbps: number } | null;
 		/** The rate this page's audio graph runs at, and what it applies, while the audio goes through it. */
 		processed?: { rateHz: number; by: 'equaliser' | 'correction' } | null;
+		/** What volume levelling applies, in dB, and whether sound analysis measured it (`levelOf` in the player). */
+		level?: { db: number; measured: boolean } | null;
+		/** The volume as it reaches the output, the slider times the server's limit, 0 to 1. */
+		volume?: number | null;
 		/** Given, the badge opens the signal path, which holds the switch that turns transcoding on and off. */
 		ontoggle?: ((next: boolean) => void) | null;
 	} = $props();
@@ -69,6 +76,45 @@
 	});
 
 	/*
+	 * The level step (issue #370): levelling and the volume, which change how
+	 * loud it plays and not its rate, so they are not marked as a change.
+	 */
+	const leveled = $derived.by(() => {
+		const parts: string[] = [];
+		if (level) {
+			const db = `${level.db > 0 ? '+' : level.db < 0 ? '−' : ''}${Math.abs(level.db).toFixed(1)} dB`;
+			parts.push(`${db}, ${level.measured ? 'measured by sound analysis' : "from the file's ReplayGain"}`);
+		}
+		if (volume !== null && volume < 0.995) parts.push(`volume ${Math.round(volume * 100)}%`);
+		return parts.length ? parts.join(' · ') : 'Unchanged';
+	});
+
+	/*
+	 * The computer's output, in the desktop apps (issue #370): the app reads its
+	 * rate and bit depth from the system (`electron/output.js`), for the output
+	 * chosen here or the default, each time the path opens. A browser cannot
+	 * learn it, and shows no such step.
+	 */
+	type Output = { name: string; system: string; rateHz: number; bits: number | null; float: boolean };
+	type Desktop = { describe: (label: string) => Promise<Output | null> };
+	let output = $state<Output | null>(null);
+	async function readOutput() {
+		const desktop = (globalThis as { heddohonOutput?: Desktop }).heddohonOutput;
+		if (!desktop) return;
+		const chosen = audioOutputs.current;
+		output = await desktop.describe(chosen.id ? chosen.label : '').catch(() => null);
+	}
+	/** The rate that reaches the output: the graph's where processing is on, else the file's. Unknown for a transcode. */
+	const sentRate = $derived(transcode ? null : (processed?.rateHz ?? quality.sampleRateHz ?? null));
+	const outputResamples = $derived(!!output && sentRate !== null && output.rateHz !== sentRate);
+	const outputLine = $derived.by(() => {
+		if (!output) return '';
+		const depth = output.float ? '32-bit float' : output.bits ? `${output.bits}-bit` : null;
+		const format = [`${khz(output.rateHz)} kHz`, depth].filter(Boolean).join(' · ');
+		return outputResamples ? `${output.name}: resampled to ${format}` : `${output.name}: ${format}`;
+	});
+
+	/*
 	 * The path opens in the top layer (the `popover` attribute), so the player
 	 * panel's and the sheet's clipping leave it whole, and Escape and a press
 	 * outside close it. Placed under the badge, or above it where the screen
@@ -80,6 +126,7 @@
 
 	function place(event: ToggleEvent) {
 		if (event.newState !== 'open' || !button || !path) return;
+		void readOutput();
 		const anchor = button.getBoundingClientRect();
 		const width = path.offsetWidth;
 		const height = path.offsetHeight;
@@ -129,7 +176,11 @@
 			<ol>
 				<li><span class="where">File</span><span class="what">{file}</span></li>
 				<li class:changed={!!transcode}><span class="where">Music server</span><span class="what">{server}</span></li>
-				<li class:changed={!!processed}><span class="where">This browser</span><span class="what">{here}</span></li>
+				<li class:changed={!!processed}><span class="where">{output ? 'This app' : 'This browser'}</span><span class="what">{here}</span></li>
+				<li><span class="where">Level</span><span class="what">{leveled}</span></li>
+				{#if output}
+					<li class:changed={outputResamples}><span class="where">{output.system}</span><span class="what">{outputLine}</span></li>
+				{/if}
 			</ol>
 			<div class="acts">
 				{#if transcode}

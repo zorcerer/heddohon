@@ -1893,6 +1893,17 @@ class Player {
 	 * factor, so the loudest sample stays within full scale. A file without
 	 * data plays unchanged.
 	 */
+	/**
+	 * What volume levelling does to `song`, for "What you're hearing" (issue
+	 * #370): the gain in dB the player applies, and whether it came from sound
+	 * analysis (`measured`) or the file's tags. Null where nothing is levelled.
+	 */
+	levelOf(song: Song | null): { db: number; measured: boolean } | null {
+		const factor = this.#gainFor(song);
+		if (factor === 1 || factor <= 0 || !song?.replayGain) return null;
+		return { db: Math.round(200 * Math.log10(factor)) / 10, measured: song.replayGain.measured === true };
+	}
+
 	#gainFor(song: Song | null): number {
 		if (!this.settings?.normalizeVolume || !song?.replayGain) return 1;
 		const { trackGain, albumGain, trackPeak, albumPeak } = song.replayGain;
