@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { albumTitle } from '#lib/releases.ts';
 	import { contextMenu } from '#lib/client/context-menu.svelte.ts';
 	/**
 	 * One release given a panel of its own: its artwork fills the panel, cropped
@@ -34,11 +35,11 @@
 
 		<!-- The whole panel opens the album. The links and the button in the
 		     details sit above this and keep their own clicks. -->
-		<a class="open" href="/albums/{album.id}" aria-label="Open {album.name}"></a>
+		<a class="open" href="/albums/{album.id}" aria-label="Open {albumTitle(album)}"></a>
 
 		<div class="body">
 			<a href="/albums/{album.id}" tabindex="-1">
-				<h2 class="hh-display title">{album.name}</h2>
+				<h2 class="hh-display title">{albumTitle(album)}</h2>
 			</a>
 
 			{#if album.artist}

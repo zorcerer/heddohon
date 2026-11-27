@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { albumTitle } from '#lib/releases.ts';
 	import { onMount } from 'svelte';
 	import { player } from '#lib/client/player.svelte.ts';
 	import AlbumTile from '#lib/components/AlbumTile.svelte';
@@ -135,7 +136,7 @@
 			{#each shelf.albums as album (album.id)}
 				<MediaCard
 					href="/albums/{album.id}"
-					title={album.name}
+					title={albumTitle(album)}
 					subtitle={album.artist}
 					coverArt={album.coverArt}
 					transitionId={album.id}

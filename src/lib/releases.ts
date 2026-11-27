@@ -17,6 +17,18 @@ import type { Album } from './types';
 
 export type ReleaseKind = 'album' | 'ep' | 'single' | 'live' | 'compilation';
 
+/**
+ * An album's name as it is shown: with its version in brackets where the
+ * server gives one ("Abbey Road (2019 Mix)"), as Navidrome shows it, so two
+ * versions of one album can be told apart. The version is left out where the
+ * name already ends with it. The name alone is what is searched and sent on.
+ */
+export function albumTitle(album: Pick<Album, 'name' | 'version'>): string {
+	const version = album.version?.trim();
+	if (!version || album.name.toLowerCase().includes(version.toLowerCase())) return album.name;
+	return `${album.name} (${version})`;
+}
+
 /** The kinds in the order the artist page lists them, with their headings. */
 export const RELEASE_GROUPS: ReadonlyArray<{ kind: ReleaseKind; title: string }> = [
 	{ kind: 'album', title: 'Albums' },

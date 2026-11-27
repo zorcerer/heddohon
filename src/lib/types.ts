@@ -114,6 +114,13 @@ export interface Album {
 	 * `releaseTypes`. Absent or null where it does not; see `releases.ts`.
 	 */
 	releaseTypes?: string[] | null;
+	/**
+	 * Which version of the release this is ("Deluxe Edition", "2011 Remaster"),
+	 * where the server says: OpenSubsonic's `version`, which Navidrome fills
+	 * from the ALBUMVERSION tag. Absent or null where it does not; Jellyfin
+	 * keeps none. Shown with the name by `albumTitle` (`releases.ts`).
+	 */
+	version?: string | null;
 }
 
 export interface AlbumDetail extends Album {

@@ -399,7 +399,8 @@ function toAlbum(raw: Record<string, any>): Album {
 		starredAt: starredAt(raw.starred),
 		rating: ratingOf(raw.userRating),
 		createdAt: Number.isFinite(created) ? created : null,
-		releaseTypes: releaseTypesOf(raw)
+		releaseTypes: releaseTypesOf(raw),
+		version: typeof raw.version === 'string' && raw.version.trim() ? raw.version.trim().slice(0, 100) : null
 	};
 }
 

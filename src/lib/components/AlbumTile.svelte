@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { albumTitle } from '#lib/releases.ts';
 	import type { Album } from '#lib/types.ts';
 	import Cover from './Cover.svelte';
 	import { ambience } from '#lib/client/ambience.svelte.ts';
@@ -29,7 +30,7 @@
 >
 	<span class="thumb"><Cover coverArt={album.coverArt} size={96} alt="" radius="var(--r-sm)" /></span>
 	<span class="text">
-		<span class="title hh-truncate">{album.name}</span>
+		<span class="title hh-truncate">{albumTitle(album)}</span>
 		{#if album.artist}
 			<span class="artist hh-truncate hh-muted">{album.artist}</span>
 		{/if}

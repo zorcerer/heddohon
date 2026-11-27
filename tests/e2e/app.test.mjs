@@ -5598,6 +5598,26 @@ describe('an artist\'s releases by kind', () => {
 		});
 	});
 
+	// Issue #366: the ALBUMVERSION tag, as OpenSubsonic's `version`.
+	test('an album\'s version is shown with its name, on its page and its card, and not twice', async () => {
+		await asFreshAccount('version', async (client) => {
+			try {
+				subsonic.state.albumShapes.set('al12', { version: 'Deluxe Edition' });
+				subsonic.state.albumShapes.set('al13', { name: 'Album 13 (2011 Remaster)', version: '2011 Remaster' });
+				const page = (await client.page('/albums/al12')).html;
+				assert.match(page, /<title>Album 12 \(Deluxe Edition\) · Heddohon<\/title>/);
+				// The artist page's card.
+				assert.match((await client.page('/artists/ar12')).html, /Album 12 \(Deluxe Edition\)/);
+				// A name that already carries it is shown as it is.
+				assert.match((await client.page('/albums/al13')).html, /<title>Album 13 \(2011 Remaster\) · Heddohon<\/title>/);
+				// An album without one is its name alone.
+				assert.match((await client.page('/albums/al14')).html, /<title>Album 14 · Heddohon<\/title>/);
+			} finally {
+				subsonic.state.albumShapes.clear();
+			}
+		});
+	});
+
 	test('an album\'s rows carry only what differs from the album', async () => {
 		// An account of its own: an album read in the last minute is held per account.
 		const rows = async (id) => {

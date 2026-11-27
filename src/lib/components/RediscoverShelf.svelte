@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { albumTitle } from '#lib/releases.ts';
 	import MediaCard from './MediaCard.svelte';
 	import MediaShelf from './MediaShelf.svelte';
 	import { playContainer } from '#lib/client/actions.ts';
@@ -31,7 +32,7 @@
 		{#each albums as album (album.id)}
 			<MediaCard
 				href="/albums/{album.id}"
-				title={album.name}
+				title={albumTitle(album)}
 				subtitle={album.artist}
 				coverArt={album.coverArt}
 				transitionId={album.id}

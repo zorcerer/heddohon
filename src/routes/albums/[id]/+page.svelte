@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { albumTitle } from '#lib/releases.ts';
 	import { player } from '#lib/client/player.svelte.ts';
 	import { contextMenu } from '#lib/client/context-menu.svelte.ts';
 	import HeroTitle from '#lib/components/HeroTitle.svelte';
@@ -88,7 +89,7 @@
 </script>
 
 <svelte:head>
-	<title>{album.name} · Heddohon</title>
+	<title>{albumTitle(album)} · Heddohon</title>
 </svelte:head>
 
 <div class="page">
@@ -108,7 +109,7 @@
 		</div>
 
 		<div class="details" {@attach sweep}>
-			<HeroTitle text={album.name} />
+			<HeroTitle text={albumTitle(album)} />
 
 			{#if album.artist}
 				<p class="artist">
