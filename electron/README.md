@@ -64,7 +64,8 @@ against the packaged app, after `npm run dist`. On Windows that is
 ## What the window is allowed
 
 - The page is remote, so it has no Node, runs sandboxed with context
-  isolation, and the preload gives its two calls to the address screen only.
+  isolation, and the preload gives its calls to the app's own two screens
+  only, but one (below).
 - The window stays on the server's origin, and so does any window a page on
   the server opens. Any other address opens in the default browser.
 - Permissions are granted to the server's origin only, and only the ones the
@@ -74,6 +75,33 @@ against the packaged app, after `npm run dist`. On Windows that is
   so a grant would be silent. Up to 0.5.0 they were granted.
 - The address screen's calls, which can read the saved request headers,
   answer the package's own file and no other file on the disk.
+- A web page is given two calls for the Discord activity: one says what
+  plays and returns nothing, the other reads and sets the switch below.
+  Both are answered only from the saved server's page.
+
+## What plays, on Discord
+
+**Show what plays on Discord**, in the server's Settings, Playback, This
+browser (shown only in the app), puts the playing song on your Discord
+profile as "Listening to", with its artist, its album, the cover and the
+time left. It is off until switched on, and kept per computer by the app. Discord has to be running on the same computer: the app talks to
+it over Discord's local socket, which a browser tab cannot reach. Paused,
+nothing is shown. An account with "Report playback" off sends nothing.
+
+The cover is the first of these that works:
+
+1. **Your server's own cover**, where its administrator turned on "Discord
+   covers from this server" (Settings, Server, Features). Discord fetches it
+   from the address the app opens your server at, by a link that works for a
+   day, so Discord learns that address. A sign-in proxy in front of the
+   server (Authelia, Authentik, Cloudflare Access) blocks Discord, as does a
+   server only reachable on your local network or over plain http; the app
+   checks the link without its cookie or saved headers first and moves on
+   when it is turned away.
+2. **Cover Art Archive's**, found by the MusicBrainz release id the music
+   server has for the album (from its tags on Navidrome, its provider ids on
+   Jellyfin). Nothing of your server reaches Discord this way.
+3. **The Heddohon icon**, from heddohon.app.
 
 ## A sign-in in front of the server
 

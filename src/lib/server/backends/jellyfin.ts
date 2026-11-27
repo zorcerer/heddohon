@@ -5,6 +5,7 @@
  * once and discarded, and the token is sealed and stored. Quick Connect ends
  * at the same token without a password.
  */
+import { levelled } from '../analysis/results.ts';
 import { upstreamFor } from '../config';
 import {
 	UpstreamError,
@@ -69,6 +70,19 @@ const CLIENT_VERSION = APP_VERSION;
 /** Fields Jellyfin only returns when explicitly asked for. */
 const ITEM_FIELDS = 'Genres,DateCreated,ChildCount,ParentId,PrimaryImageAspectRatio';
 const SONG_FIELDS = `${ITEM_FIELDS},MediaSources`;
+
+/** The parts of a user's `Policy` beyond playing, in words for an administrator (`accountRights`). */
+const JELLYFIN_EXTRA_RIGHTS: readonly (readonly [string, string])[] = [
+	['EnableContentDeletion', 'delete media'],
+	['EnableContentDownloading', 'download'],
+	['EnableRemoteControlOfOtherUsers', 'control other users\' players'],
+	['EnableSharedDeviceControl', 'control shared devices'],
+	['EnablePublicSharing', 'share'],
+	['EnableCollectionManagement', 'manage collections'],
+	['EnableSubtitleManagement', 'manage subtitles'],
+	['EnableLyricManagement', 'manage lyrics'],
+	['EnableLiveTvManagement', 'manage live TV']
+];
 
 function creds(cred: StoredCredential) {
 	if (cred.kind !== 'jellyfin') throw new Error('Wrong credential kind for the Jellyfin backend');
@@ -278,7 +292,7 @@ function toSong(item: JellyfinItem): Song {
 	const artist = item.ArtistItems?.[0] ?? item.AlbumArtists?.[0];
 	const created = item.DateCreated ? Date.parse(item.DateCreated) : NaN;
 	const played = item.UserData?.LastPlayedDate ? Date.parse(item.UserData.LastPlayedDate) : NaN;
-	return {
+	return levelled('jellyfin', {
 		id: item.Id,
 		title: item.Name ?? 'Unknown title',
 		albumId: item.AlbumId ?? null,
@@ -307,7 +321,7 @@ function toSong(item: JellyfinItem): Song {
 			typeof item.NormalizationGain === 'number'
 				? { trackGain: item.NormalizationGain, albumGain: null, trackPeak: null, albumPeak: null }
 				: null
-	};
+	});
 }
 
 function toAlbum(item: JellyfinItem): Album {
@@ -700,6 +714,17 @@ export const jellyfinBackend: MediaBackend = {
 		} catch {
 			return null;
 		}
+	},
+
+	async accountRights(cred) {
+		const user = await call<{ Policy?: Record<string, unknown> }>(cred, `/Users/${seg(creds(cred).userId)}`);
+		const policy = user?.Policy ?? {};
+		const flag = (name: string) => (typeof policy[name] === 'boolean' ? (policy[name] as boolean) : null);
+		return {
+			admin: flag('IsAdministrator'),
+			stream: flag('EnableMediaPlayback'),
+			extra: JELLYFIN_EXTRA_RIGHTS.filter(([right]) => policy[right] === true).map(([, words]) => words)
+		};
 	},
 
 	async getAlbums(cred, query) {

@@ -8,9 +8,10 @@
  * the desktop's media controls read: MPRIS on Linux (media keys, `playerctl`),
  * the system media controls on Windows.
  *
- * The page is a remote one, so it is given nothing: context isolation and the
- * sandbox are on, there is no Node in it, and the preload exposes its calls to
- * the app's own two screens alone. The window stays on the server's origin,
+ * The page is a remote one, so it is given next to nothing: context isolation
+ * and the sandbox are on, there is no Node in it, and the preload exposes its
+ * calls to the app's own two screens alone, but `heddohonPresence`, which says
+ * what plays for the Discord activity and is heard only from the saved server. The window stays on the server's origin,
  * and any other address opens in the default browser.
  *
  * A server behind a proxy that asks who you are first (Authelia, Authentik,
@@ -31,6 +32,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { fileURLToPath } = require('node:url');
 const { originOf, compareVersions, parseHeaders, formatHeaders, classify } = require('./lib');
+const { Presence, stateOf, activityOf, coverArtArchive } = require('./discord');
 
 const REPOSITORY = 'zorcerer/heddohon';
 const SETUP = path.join(__dirname, 'setup.html');
@@ -43,6 +45,15 @@ const UPDATE_CHECK_DELAY_MS = 5000;
 const SWITCH_NOTICE_DELAY_MS = 2000;
 /** `/healthz` is a few dozen bytes. Nothing longer is read. */
 const MAX_CHECK_BYTES = 64 * 1024;
+
+/**
+ * The Discord application the activity is shown under (issue #358), "Heddohon"
+ * in Discord's Developer Portal; its name is what Discord says is being
+ * listened to. It is not a secret. Empty, Settings offers no switch for it.
+ * `HEDDOHON_DESKTOP_DISCORD_APP` sets
+ * another for one run, for the suite.
+ */
+const DISCORD_APPLICATION_ID = process.env.HEDDOHON_DESKTOP_DISCORD_APP || '1575320862918320169';
 
 const NOT_HEDDOHON = (origin) => `${origin} answered, but not as a Heddohon server.`;
 const UNREACHABLE = (origin) => `${origin} could not be reached. Check the address, and that this computer can open it in a browser.`;
@@ -532,6 +543,98 @@ ipcMain.handle('setup:connect', async (event, raw, headerText) => {
 });
 
 /*
+ * What plays, on Discord (issue #358; `discord.js`). The server's page says
+ * what plays through `heddohonPresence` (`preload.js`), and only the saved
+ * server's main frame is listened to, only with the switch on. The
+ * page sends nothing while its account has "Report playback" off.
+ *
+ * The cover is asked of the server (`/api/presence`), and tried in this order:
+ *
+ *  1. The cover on the server, by a link Discord can fetch without a sign-in,
+ *     where its administrator turned that on (`HEDDOHON_DISCORD_COVERS`). It
+ *     is fetched once from a session of its own, with no cookie and none of
+ *     the saved headers, as Discord would: a sign-in proxy in front of the
+ *     server turns that away, and the next is used. An http server is
+ *     skipped; Discord fetches https.
+ *  2. The album's front on Cover Art Archive, by the MusicBrainz release the
+ *     server knows it as. Nothing of the server reaches Discord this way.
+ *  3. The app's icon.
+ */
+let presence = null;
+/** Covers by album and cover id, each with when it was found. Up to 500, each for 12 hours, half a server link's life. */
+const covers = new Map();
+const MAX_COVERS = 500;
+const COVER_MS = 12 * 60 * 60 * 1000;
+const RELEASE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const SERVER_COVER = /^\/api\/presence-cover\/[A-Za-z0-9_.-]{1,1024}$/;
+
+/** Whether `url` answers an image to a request with no cookie and no saved header. */
+async function reachable(url) {
+	try {
+		const answer = await session.fromPartition('heddohon-discord-check').fetch(url, { method: 'HEAD', credentials: 'omit', redirect: 'error' });
+		return answer.ok && (answer.headers.get('content-type') ?? '').startsWith('image/');
+	} catch {
+		return false;
+	}
+}
+
+async function coverFor(contents, state) {
+	const key = `${state.albumId ?? ''}\u0000${state.coverId ?? ''}`;
+	const held = covers.get(key);
+	if (held && Date.now() - held.at < COVER_MS) return held.cover;
+	let cover = null;
+	try {
+		// Asked from the page, which carries the session.
+		const query = new URLSearchParams();
+		if (state.albumId) query.set('album', state.albumId);
+		if (state.coverId) query.set('cover', state.coverId);
+		const answer = await contents.executeJavaScript(
+			`fetch('/api/presence?' + ${JSON.stringify(query.toString())}).then((r) => (r.ok ? r.json() : null)).catch(() => null)`
+		);
+		const own = typeof answer?.cover === 'string' && SERVER_COVER.test(answer.cover) && config.server?.startsWith('https://') ? `${config.server}${answer.cover}` : null;
+		if (own && (await reachable(own))) cover = own;
+		const release = answer?.release;
+		if (!cover && typeof release === 'string' && RELEASE_ID.test(release)) {
+			const url = coverArtArchive(release);
+			// Cover Art Archive answers 404 for a release it has no front for, and Discord would show nothing.
+			if ((await net.fetch(url, { method: 'HEAD', credentials: 'omit' })).ok) cover = url;
+		}
+	} catch {
+		// Offline, or the page went away: the icon, and asked again on the next song.
+		return null;
+	}
+	if (covers.size >= MAX_COVERS) covers.delete(covers.keys().next().value);
+	covers.set(key, { cover, at: Date.now() });
+	return cover;
+}
+
+/** Whether a call came from the saved server's own page, its main frame. */
+const fromSavedServer = (event) => event.senderFrame === event.sender.mainFrame && isSavedServer(event.senderFrame?.url ?? '');
+
+/*
+ * The switch, kept per computer in the profile's config.json and off until
+ * turned on. The server's Settings shows it (This browser) and changes it
+ * through these; nothing answers a page that is not the saved server's.
+ */
+ipcMain.handle('discord:state', (event) => (DISCORD_APPLICATION_ID && fromSavedServer(event) ? { on: Boolean(config.discord) } : null));
+ipcMain.handle('discord:set', (event, on) => {
+	if (!DISCORD_APPLICATION_ID || !fromSavedServer(event)) return null;
+	config.discord = on === true;
+	saveConfig();
+	if (!config.discord) void presence?.stop();
+	return { on: config.discord };
+});
+
+ipcMain.on('presence', (event, raw) => {
+	if (!DISCORD_APPLICATION_ID || !config.discord || !fromSavedServer(event)) return;
+	const state = stateOf(raw);
+	presence ??= new Presence(DISCORD_APPLICATION_ID);
+	if (!state?.playing) return presence.set(null);
+	const contents = event.sender;
+	void coverFor(contents, state).then((cover) => presence?.set(activityOf(state, cover)));
+});
+
+/*
  * A basic-auth challenge, asked for in a small window over the main one. One
  * prompt at a time: a page and what it loads can each be challenged before the
  * first answer is in.
@@ -632,4 +735,13 @@ if (!app.requestSingleInstanceLock()) {
 	});
 
 	app.on('window-all-closed', () => app.quit());
+
+	// The activity is cleared as the app goes, or Discord shows it until it notices.
+	let leaving = false;
+	app.on('before-quit', (event) => {
+		if (leaving || !presence) return;
+		leaving = true;
+		event.preventDefault();
+		void Promise.race([presence.stop(), new Promise((resolve) => setTimeout(resolve, 1000))]).finally(() => app.quit());
+	});
 }

@@ -1,3 +1,4 @@
+import { isAnalysisAccount } from '#lib/server/analysis/account.ts';
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import {
@@ -103,6 +104,13 @@ export const POST: RequestHandler = async (event) => {
 	}
 
 	clearPending(event);
+	// The analysis account never signs in here (`analysis/account.ts`). Quick
+	// Connect names the user only once the music server answers, so it is
+	// refused here, as an approval that ran out.
+	if (await isAnalysisAccount(pending.backend, upstream.credential.username)) {
+		log.warn('sign-in-refused-analysis-account', { username: upstream.credential.username, backend: pending.backend, method: 'quick-connect', address });
+		return json({ state: 'expired' });
+	}
 	const step = await beginStep(event, pending.backend, await accountOfSignIn(pending.backend, upstream), upstream, 'quick-connect');
 	if (step) {
 		log.info('sign-in-step', { username: upstream.credential.username, backend: pending.backend, method: 'quick-connect', address });

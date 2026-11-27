@@ -89,6 +89,12 @@ export class Memo {
 		return value;
 	}
 
+	/** Whether `scope` has a fresh value for `key`, settled or still on its way. */
+	fresh(scope: MemoScope, key: string): boolean {
+		const held = this.#entries.get(`${scope.accountId}\u0000${viewerOf(scope.credential)}\u0000${key}`);
+		return held !== undefined && held.until > Date.now();
+	}
+
 	/** Drops one entry, whichever upstream user it was read as. */
 	forget(accountId: string, key: string): void {
 		const prefix = `${accountId}\u0000`;

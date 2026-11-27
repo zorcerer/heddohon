@@ -435,7 +435,7 @@
 						<Switch bind:checked={downloads} name="downloads" />
 						<span>Downloads</span>
 					</label>
-					<!-- The optional features, off until ticked; an administrator changes them later under Settings, Features. -->
+					<!-- The optional features, off until ticked; an administrator changes them later under Settings, Server, Features. -->
 					{#each data.features as feature (feature.id)}
 						<label class="check">
 							<Switch bind:checked={features[feature.id]} name={feature.id} />

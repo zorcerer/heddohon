@@ -1,4 +1,4 @@
-# `check` runs on every pull request and on every push to `dev` and `main`:
+# `check` runs on every pull request and on every push to `dev` and `release`:
 # `npm run check`, which is `svelte-kit sync` followed by
 # `svelte-check --fail-on-warnings`, so a warning fails the job as well as an
 # error. It also runs `npm audit` on the server's runtime dependencies, and a
@@ -10,7 +10,9 @@
 # `tests/`: the HTTP suite (`test:e2e`), the curl suite (`tests/e2e/run.sh`,
 # which needs the curl and jq the runner image ships with) and the browser
 # suite (`test:browser`) in Chromium. It takes about 12 minutes, and runs on a
-# merge: a push to `dev` or `main`. It does not run for a pull request or
+# merge: a push to `dev` or `release`, unless the push changes only text no
+# suite reads (`changes`, below). The browser suite is nine files that
+# `node --test` runs side by side, a process each. It does not run for a pull request or
 # for a push to any other branch. Until 2026-10-13 it ran for both, so each
 # commit pushed to a pull request ran it twice. A branch is tested before it
 # is merged by running the three suites where it was written, or by starting
@@ -21,7 +23,7 @@ name: check
 
 on:
   push:
-    branches: [dev, main]
+    branches: [dev, release]
   pull_request:
   # Called by `release.yml`, which publishes only once these pass.
   workflow_call:
@@ -57,12 +59,47 @@ jobs:
       # severity is printed and does not fail the job.
       - run: npm audit --omit=dev --audit-level=high
 
+  # Whether a push changes anything the suites could notice. One that touches
+  # only Markdown, `docs/`, the licence or the issue templates does not, and
+  # `test` is skipped for it (decided 2026-11-15). Anything else, or a diff
+  # that cannot be read, runs it. A skipped job does not fail the run, so the
+  # dev image still builds (`dev-image.yml` reads the run's conclusion).
+  changes:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      code: ${{ steps.diff.outputs.code }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The push's first commit can be far back: a merge brings a branch.
+          fetch-depth: 0
+      - id: diff
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          if ! files=$(git diff --name-only "$BEFORE" "$GITHUB_SHA"); then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          printf '%s\n' "$files"
+          if printf '%s\n' "$files" | grep -Ev '\.md$|^docs/|^LICENSE$|^\.github/ISSUE_TEMPLATE/' | grep -q .; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::Only text no suite reads changed; the suites are skipped."
+            echo "code=false" >> "$GITHUB_OUTPUT"
+          fi
+
   test:
-    # On a merge, a release and a run started by hand. Not for a pull request.
-    if: github.event_name != 'pull_request'
+    # On a merge, a release and a run started by hand. Not for a pull request,
+    # and not for a push that changes only text (`changes`).
+    needs: changes
+    if: ${{ !cancelled() && github.event_name != 'pull_request' && needs.changes.outputs.code != 'false' }}
     runs-on: ubuntu-latest
     # The browser suite alone took about 13 minutes on a runner on 2026-11-07,
-    # with the animated controls and the WebGL aurora.
+    # with the animated controls and the WebGL aurora, as one file. Split into
+    # nine on 2026-11-15, it took 224s on a 6-core machine, against 690s.
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v7
@@ -76,6 +113,14 @@ jobs:
 
       - run: npm run build
 
+      # The ffmpeg sound analysis decodes with: the Dockerfile's `ffmpeg` stage
+      # built for this runner, static, decoding a FLAC and an MP3 to the
+      # samples the analysis reads. A few minutes of compiling. Before the
+      # suites, which decode with the binary it leaves.
+      - run: |
+          HEDDOHON_FFMPEG_OUT="$RUNNER_TEMP/ffmpeg" tests/docker/ffmpeg.sh
+          echo "HEDDOHON_TEST_FFMPEG=$RUNNER_TEMP/ffmpeg" >> "$GITHUB_ENV"
+
       - run: npm run test:e2e
 
       # Authentication, CSRF, media proxying, lyrics, playlists, shared links and
@@ -87,11 +132,17 @@ jobs:
       # running as, and that it can write its data directory.
       - run: tests/docker/entrypoint.sh
 
-      # The version installed is the one package-lock.json pins.
-      - run: npx playwright install --with-deps chromium
+      # The version installed is the one package-lock.json pins. Without
+      # `--with-deps`: the runner image carries Chrome and the libraries it
+      # needs, and the apt step `--with-deps` adds failed the job for hours on
+      # 2026-11-11, when the runners could not resolve Ubuntu's mirrors.
+      - run: npx playwright install chromium
 
       # `zbarimg` reads the TOTP QR code back in the two-step sign-in test;
-      # without it that check is skipped.
+      # without it that check is skipped, so a failed install does not fail
+      # the job. Bounded: apt retries an unresolvable mirror for minutes.
       - run: sudo apt-get install -y --no-install-recommends zbar-tools
+        continue-on-error: true
+        timeout-minutes: 3
 
       - run: npm run test:browser

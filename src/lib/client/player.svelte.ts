@@ -341,6 +341,15 @@ class Player {
 	#seekHeld = false;
 	/** Whether this page plays through the graph. */
 	processing = $state(false);
+
+	/**
+	 * The rate the graph runs at while this page plays through it: the output
+	 * device's, which every track is resampled to on the way in. Null without
+	 * the graph, when the elements play what they receive.
+	 */
+	get outputRate(): number | null {
+		return this.processing ? (this.#chain?.context.sampleRate ?? null) : null;
+	}
 	/** The output last chosen, for a graph opened after the choice. */
 	#outputId = '';
 
@@ -1311,6 +1320,8 @@ class Player {
 
 		this.#applyVolume();
 		this.#updateMediaSession(song);
+		// A crossfade or a gapless handoff raises no `play` of its own.
+		this.#tellDesktop();
 		this.#warmNext();
 		this.#invalidatePreload();
 
@@ -1784,7 +1795,10 @@ class Player {
 			if (this.#stallTimer !== null) this.#armStall(element);
 		});
 
-		on('seeked', () => this.#syncMediaSessionPosition());
+		on('seeked', () => {
+			this.#syncMediaSessionPosition();
+			this.#tellDesktop();
+		});
 
 		on('play', () => {
 			// A play from the lock screen or a retry, not only from `play()`.
@@ -2227,6 +2241,7 @@ class Player {
 	}
 
 	#syncMediaSessionState() {
+		this.#tellDesktop();
 		if (!browser || !('mediaSession' in navigator)) return;
 		navigator.mediaSession.playbackState = this.playing ? 'playing' : 'paused';
 		this.#syncMediaSessionPosition();
@@ -2245,6 +2260,30 @@ class Player {
 		} catch {
 			// A position past the length, read between two events.
 		}
+	}
+
+	/**
+	 * Tells the desktop app what plays, for its Discord activity (issue #358):
+	 * on a new track, play, pause and a seek. Only the app's window has `heddohonPresence`,
+	 * and the app takes it only from its saved server. Nothing playing while the
+	 * account has "Report playback" off, or for a radio station.
+	 */
+	#tellDesktop() {
+		const presence = browser ? (window as { heddohonPresence?: (state: unknown) => void }).heddohonPresence : undefined;
+		if (typeof presence !== 'function') return;
+		const song = this.current;
+		if (!song || song.live || this.settings?.reportPlayback === false) return presence(null);
+		const duration = Number.isFinite(this.duration) && this.duration > 0 ? this.duration : song.duration;
+		presence({
+			title: song.title,
+			artist: song.artist,
+			album: song.album,
+			albumId: song.albumId,
+			coverId: song.coverArt,
+			duration,
+			position: Math.min(this.currentTime, duration),
+			playing: this.playing
+		});
 	}
 
 	/**

@@ -33,6 +33,27 @@ change you have in mind. Heddohon plays what a Navidrome, Subsonic or Jellyfin
 server holds; features that need the music server to store something new
 depend on that server's API supporting it.
 
+### What stays the music server's
+
+Heddohon is a player in front of the music server, not a second music server.
+A feature that crosses one of these lines needs a decision by the maintainer
+before work starts, so say so in the request:
+
+- **It never writes to the library.** Tags, ReplayGain values, file names and
+  rescans stay the music server's.
+- **It reads music only through the music server's API**, as a player does,
+  never from the music folder.
+- **It keeps no catalogue to browse from.** What exists and what it is called
+  comes from the music server on each read. Heddohon's own stores hold state
+  keyed by the server's ids: settings, queues, play history and measurements.
+- **The music server decides who sees what.** Anything worked out once and
+  shared between accounts is looked up with the asking account's own login
+  before it is shown.
+- **The music server comes first.** Where the server or a plugin of it already
+  answers a question, Heddohon uses that, and only fills what is left empty.
+- **What it works out is disposable.** Losing a cache or a measurement costs
+  time to make it again, never data.
+
 ## Pull requests
 
 **Start with an issue for anything beyond a small fix.** A typo, a broken link
@@ -42,7 +63,7 @@ approach is agreed before you spend time on it.
 
 Pull requests go against the `dev` branch of
 [zorcerer/heddohon](https://github.com/zorcerer/heddohon), where development
-happens; `main` holds the released code. An accepted pull request is merged
+happens; `release` holds the released code. An accepted pull request is merged
 into `dev`, is in the next day's `:dev` image once its checks pass, and ships
 in the next release, whose notes credit you.
 
@@ -110,6 +131,7 @@ page follows a request through it. Where things are:
 | `src/hooks.server.ts` | Every request first: the origin check, the session, the gate on private routes, the security headers |
 | `src/lib/server/config.ts` | Every environment variable, parsed and checked once |
 | `src/lib/server/backends/` | Navidrome and Subsonic (`subsonic.ts`) and Jellyfin (`jellyfin.ts`) behind one interface (`types.ts`) |
+| `src/lib/server/analysis/` | Sound analysis: measuring loudness, tempo, key and sound from a song's audio. Its [README](src/lib/server/analysis/README.md) is the map, and the place to start |
 | `src/lib/server/` | The rest of the server: accounts and sessions (`auth.ts`), the database (`db.ts`), settings, history, caches, media proxying |
 | `src/routes/` | Pages, each with its `+page.server.ts` loader, and the JSON API under `src/routes/api/` |
 | `src/lib/client/` | State in the browser: the player (`player.svelte.ts`), the queue, favourites, the right-click menu |
@@ -126,7 +148,9 @@ behaviour decision, not a refactor: raise it in the issue first.
   Upstream addresses come from configuration alone, never from a request.
 - **A stored credential is used within the request that opened it.** Work
   that goes on after a response (a background refresh, a timer) must not hold
-  one.
+  one. The exceptions are recorded in [SECURITY.md](SECURITY.md): the cover
+  fill, and sound analysis, which reads as an account of its own opened only
+  in `src/lib/server/analysis/account.ts`.
 - **Every write passes the origin check** in `hooks.server.ts`, with no path
   condition. Do not add exemptions.
 - **Every route is private** unless listed in `PUBLIC_ROUTES` in
@@ -141,7 +165,8 @@ behaviour decision, not a refactor: raise it in the issue first.
   `data:` URLs. Serve an asset from the app, or proxy it.
 - **The music server decides what an account may see.** Calls use the
   account's own credential, and anything cached from the library is keyed by
-  account.
+  account. Sound analysis's results are shared between accounts; anything
+  shown from them is looked up with the asking account's own login first.
 - **Input is bounded.** An API route checks every field by type and size; a
   new bound goes in the **Input bounds** table in [SECURITY.md](SECURITY.md).
 
@@ -153,7 +178,7 @@ behaviour decision, not a refactor: raise it in the issue first.
   the pull request for the wiki's Configuration page.
 - **A feature that sends anything to a third party:** off by default, and
   listed in `FEATURES` in `src/lib/server/features.ts`, which puts its switch
-  under Settings, Features and in the first-run setup; a section in
+  under Settings, Server, Features and in the first-run setup; a section in
   SECURITY.md saying what is sent where.
 - **A database change:** prefer a new table to a new column. A new column on
   an existing table goes in `ADDED_COLUMNS` in `db.ts`, or existing installs
@@ -165,7 +190,8 @@ behaviour decision, not a refactor: raise it in the issue first.
   `backends/types.ts`, implemented for both servers; where one server has no
   such thing, say so in the method's comment and return an empty result.
 - **A new page:** its path in `PAGE_PATHS` in `src/routes/+layout.svelte` and
-  in the page lists of `tests/browser/browser.test.mjs`.
+  in the page lists of `tests/browser/player.test.mjs` (**the policy**) and
+  `tests/browser/themes.test.mjs`.
 - **A new log event:** named in kebab case, and listed in the pull request
   for the wiki's Configuration page.
 - **The interface:** looked at in all four themes (Terminal, the default;
@@ -185,7 +211,7 @@ behaviour decision, not a refactor: raise it in the issue first.
   decision was made from a measurement.
 - **Commit titles** follow [Conventional Commits](https://www.conventionalcommits.org/):
   `feat: …`, `fix(player): …`, `docs: …`, `test: …`, `ci: …`. They are the
-  release notes: a merge into `main` releases a new version when a title since
+  release notes: a merge into `release` releases a new version when a title since
   the last release is `feat` (a minor release), `fix` or `perf` (a patch), or
   carries `!` (a major one), and lists each title under its kind.
 - **Documentation and commit messages** state behaviour and specific values:

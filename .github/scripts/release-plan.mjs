@@ -89,8 +89,8 @@ for (const commit of commits) {
 }
 
 // From the highest tag anywhere, not only the last one this commit reaches: a
-// release tagged on `main`'s merge commit is not in `dev`'s history, and a
-// version must never be issued twice.
+// release tagged on `release`'s merge commit (`main`'s until 2026-11-27) is
+// not in `dev`'s history, and a version must never be issued twice.
 const tagged = git('tag', '--list', 'v[0-9]*').split('\n').map(parseVersion).filter(Boolean).sort(compare);
 const base = tagged.at(-1) ?? parseVersion(previous) ?? [0, 0, 0];
 const fromPackage = parseVersion(JSON.parse(readFileSync('package.json', 'utf8')).version);
@@ -123,7 +123,7 @@ async function github(path) {
 
 // The author's login, when the commit's email belongs to an account, and the
 // pull request that brought the commit in. A commit in `dev` is also in the
-// later `dev` into `main` pull request; the earliest merged one is its own.
+// later `dev` into `release` pull request; the earliest merged one is its own.
 async function credit(commit) {
 	const [details, pulls] = await Promise.all([github(`commits/${commit.sha}`), github(`commits/${commit.sha}/pulls`)]);
 	const merged = pulls.filter((pull) => pull.merged_at).sort((a, b) => a.number - b.number);

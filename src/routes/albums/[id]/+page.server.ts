@@ -48,7 +48,14 @@ export const load: PageServerLoad = async (event) => {
 		 * The rejection is swallowed here: an unhandled rejection on a streamed
 		 * promise takes down the whole load.
 		 */
-		similar: similarAlbums(ctx, album.id, album.artistId, SUGGESTION_COUNT, { genre: album.genre, year: album.year }).catch((err) => {
+		similar: similarAlbums(
+			ctx,
+			album.id,
+			album.artistId,
+			SUGGESTION_COUNT,
+			{ genre: album.genre, year: album.year },
+			album.songs.map((song) => song.id)
+		).catch((err) => {
 			log.warn('similar-albums-failed', { album: album.id, detail: reason(err) });
 			return [];
 		}),

@@ -39,6 +39,15 @@ export function remembered<T>(scope: MemoScope, name: ListingName, load: () => P
 }
 
 /**
+ * Whether the listing is held and fresh, so `remembered` answers from memory
+ * or from a read already under way. The favourites page streams its list
+ * only when it is not (#344).
+ */
+export function listingHeld(scope: MemoScope, name: ListingName): boolean {
+	return listings.fresh(scope, name);
+}
+
+/**
  * Drops listings held for an account: one of them after a write that changes
  * it, or every one after the account's credential stopped working.
  */

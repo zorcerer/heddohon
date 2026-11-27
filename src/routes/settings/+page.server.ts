@@ -1,3 +1,5 @@
+import { wakeAnalysisJob } from '#lib/server/analysis/job.ts';
+import { AnalysisAccountRefused, analysisAccountStatus, removeAnalysisAccount, saveAnalysisAccount } from '#lib/server/analysis/account.ts';
 import { fail } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 import { config, fromEnvironment, parseOrigins, saveSetup } from '#lib/server/config.ts';
@@ -129,6 +131,8 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		sessions,
 		shares,
 		scrobblerLinks,
+		// Whether the music server links scrobblers: the Connections tab is offered for it before the links load.
+		scrobbling: scrobblers !== null,
 		// Which of a Discord channel and ListenBrainz this account is offered, and
 		// the name of what it has linked. Never the webhook or the token.
 		integrations: {
@@ -186,8 +190,18 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 						admin: isAdmin === true ? { fromEnvironment: decidedByEnvironment().mcp } : null
 					}
 				: null,
-		// The Features tab: each optional feature's switch, for an administrator of the music server.
+		// The Server tab's Features: each optional feature's switch, for an administrator of the music server.
 		features: isAdmin === true ? featureStates() : null,
+		// Settings, Server, Sound analysis, for an administrator: the switch, and the account it reads as.
+		// What the job is doing is asked of `/api/analysis` while the section is open.
+		analysis:
+			isAdmin === true
+				? {
+						on: cfg.analysis,
+						fromEnvironment: fromEnvironment('HEDDOHON_ANALYSIS'),
+						account: cfg.analysis ? await analysisAccountStatus(session.account.backend) : null
+					}
+				: null,
 		// Settings, Security: the switch that requires a second factor of every account, for an administrator.
 		twoFactorAdmin:
 			isAdmin === true ? { required: cfg.requireTwoFactor, fromEnvironment: decidedByEnvironment().requireTwoFactor } : null
@@ -277,9 +291,47 @@ export const actions: Actions = {
 			if (wanted) on.push(feature.id);
 		}
 		saveSetup(values);
+		wakeAnalysisJob();
 		await saveSettings(session.account.id, { featuresSeen: [...FEATURE_IDS] });
 		log.warn('features-switched', { by: session.account.username, on: on.join(',') || 'none' });
 		return { featuresSaved: true };
+	},
+
+	/**
+	 * Names the account sound analysis reads the library as, for an
+	 * administrator, while the feature is on. The music server is asked to
+	 * sign it in and what it may do, and an administrator account, or one
+	 * with a Heddohon account of its own, is refused; see `analysis/account.ts`.
+	 */
+	saveAnalysisAccount: async ({ locals, request }) => {
+		const session = locals.session;
+		if (!session) return fail(401, { error: 'Not signed in' });
+		if ((await backendFor(session.account.backend).isAdmin(session.credential)) !== true) {
+			return fail(403, { analysisError: 'Only an administrator of the music server can change this.' });
+		}
+		const form = await request.formData();
+		const username = String(form.get('username') ?? '').slice(0, 200);
+		const password = String(form.get('password') ?? '').slice(0, 1000);
+		try {
+			await saveAnalysisAccount(session.account.backend, username, password, session.account.username);
+			wakeAnalysisJob();
+		} catch (err) {
+			if (err instanceof AnalysisAccountRefused) return fail(400, { analysisError: err.message, analysisUsername: username });
+			throw err;
+		}
+		return { analysisSaved: true };
+	},
+
+	/** Forgets the analysis account, for an administrator. The music server keeps it. */
+	removeAnalysisAccount: async ({ locals }) => {
+		const session = locals.session;
+		if (!session) return fail(401, { error: 'Not signed in' });
+		if ((await backendFor(session.account.backend).isAdmin(session.credential)) !== true) {
+			return fail(403, { analysisError: 'Only an administrator of the music server can change this.' });
+		}
+		await removeAnalysisAccount(session.account.backend, session.account.username);
+		wakeAnalysisJob();
+		return { analysisRemoved: true };
 	},
 
 	/** Withdraws one of the account's tokens, by the id the list shows. */

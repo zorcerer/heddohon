@@ -1,24 +1,7 @@
 import { error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { nearestCoverSize, proxyMedia, streamRequestFrom } from '#lib/server/proxy.ts';
-import { collectCover, coverScope, readCover, writeCover } from '#lib/server/covercache.ts';
-
-
-/**
- * The headers a cached cover is served with. They match what the proxy sends,
- * or a cover would be inert from upstream and scriptable from disk.
- */
-function cachedHeaders(contentType: string, etag: string): Headers {
-	return new Headers({
-		'content-type': contentType,
-		etag,
-		'cache-control': 'private, max-age=86400, stale-while-revalidate=604800',
-		'content-security-policy': "default-src 'none'; sandbox",
-		'content-disposition': 'inline',
-		'x-content-type-options': 'nosniff',
-		'accept-ranges': 'bytes'
-	});
-}
+import { cachedCoverHeaders, collectCover, coverScope, readCover, writeCover } from '#lib/server/covercache.ts';
 
 /**
  * Whether this request may write the cover to the cache.
@@ -51,7 +34,7 @@ const handler: RequestHandler = async (event) => {
 
 	const hit = await readCover(scope, id, size);
 	if (hit) {
-		const headers = cachedHeaders(hit.contentType, hit.etag);
+		const headers = cachedCoverHeaders(hit.contentType, hit.etag);
 		// Without this a browser revalidating after its max-age would be sent the
 		// whole cover again, where the proxy would have relayed a 304.
 		if (event.request.headers.get('if-none-match') === hit.etag) {

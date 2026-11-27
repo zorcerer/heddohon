@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { player } from '#lib/client/player.svelte.ts';
+	import { contextMenu } from '#lib/client/context-menu.svelte.ts';
 	import HeroTitle from '#lib/components/HeroTitle.svelte';
 	import Sleeve from '#lib/components/Sleeve.svelte';
 	import FavouriteButton from '#lib/components/FavouriteButton.svelte';
@@ -81,8 +82,7 @@
 		[
 			album.year ? String(album.year) : null,
 			album.songs.length ? `${album.songs.length} tracks` : null,
-			formatLongDuration(totalDuration) || null,
-			album.genre
+			formatLongDuration(totalDuration) || null
 		].filter(Boolean)
 	);
 </script>
@@ -124,78 +124,105 @@
 				{#each meta as item, index (item)}
 					{#if index > 0}<span class="dot" aria-hidden="true">·</span>{/if}{item}
 				{/each}
+				<!-- Left off on a phone, where it wrapped the line onto a second row. -->
+				{#if album.genre}<span class="genre">{#if meta.length > 0}<span class="dot" aria-hidden="true">·</span>{/if}{album.genre}</span>{/if}
 			</p>
 
-			<div class="badge-row">
-				{#if releaseQuality}
-					<QualityBadge quality={releaseQuality} />
-				{/if}
-				{#if page.data.ratings}
-					<RatingStars id={album.id} kind="album" rating={album.rating} />
-				{/if}
-				<FavouriteButton id={album.id} kind="album" starred={album.starred} size={20} labelled />
-				{#if page.data.sharing}
-					<button
-						class="share"
-						onclick={() =>
-							shareComposer.open({
-								kind: 'album',
-								id: album.id,
-								title: album.name,
-								subtitle: album.artist,
-								coverArt: album.coverArt
-							})}
-						aria-label="Share a link to this album"
-						title="Share"
-					>
-						<Icon name="share" size={18} />
-						<span class="share-label" aria-hidden="true">share</span>
-					</button>
-				{/if}
-			</div>
+			<div class="controls">
+				<div class="badge-row">
+					{#if releaseQuality}
+						<QualityBadge quality={releaseQuality} />
+					{/if}
+					{#if page.data.ratings}
+						<RatingStars id={album.id} kind="album" rating={album.rating} />
+					{/if}
+					<span class="favourite"><FavouriteButton id={album.id} kind="album" starred={album.starred} size={20} labelled /></span>
+					{#if page.data.sharing}
+						<button
+							class="share"
+							onclick={() =>
+								shareComposer.open({
+									kind: 'album',
+									id: album.id,
+									title: album.name,
+									subtitle: album.artist,
+									coverArt: album.coverArt
+								})}
+							aria-label="Share a link to this album"
+							title="Share"
+						>
+							<Icon name="share" size={18} />
+							<span class="share-label" aria-hidden="true">share</span>
+						</button>
+					{/if}
+				</div>
 
-			<div class="actions">
-				<button
-					class="hh-button hh-button--primary"
-					onclick={() => player.playNow(album.songs)}
-					disabled={album.songs.length === 0}
-					aria-label="Play"
-					title="Play"
-				>
-					<Icon name="play" size={16} />
-					<span class="label">Play</span>
-				</button>
-				<button
-					class="hh-button"
-					onclick={() => player.playShuffled(album.songs)}
-					disabled={album.songs.length < 2}
-					aria-label="Shuffle"
-					title="Shuffle"
-				>
-					<Icon name="shuffle" size={16} />
-					<span class="label">Shuffle</span>
-				</button>
-				<button
-					class="hh-button"
-					onclick={() => player.addToQueue(album.songs)}
-					disabled={album.songs.length === 0}
-					aria-label="Add to queue"
-					title="Add to queue"
-				>
-					<Icon name="queue" size={16} />
-					<span class="label">Queue</span>
-				</button>
-				<button
-					class="hh-button"
-					onclick={() => addSongsToPlaylist(album.songs, album.name)}
-					disabled={album.songs.length === 0}
-					aria-label="Add to playlist"
-					title="Add to playlist"
-				>
-					<Icon name="plus" size={16} />
-					<span class="label">Add to playlist</span>
-				</button>
-				<MixButton of="album" id={album.id} />
+				<div class="actions">
+					<button
+						class="hh-button hh-button--primary"
+						onclick={() => player.playNow(album.songs)}
+						disabled={album.songs.length === 0}
+						aria-label="Play"
+						title="Play"
+					>
+						<Icon name="play" size={16} />
+						<span class="label">Play</span>
+					</button>
+					<button
+						class="hh-button"
+						onclick={() => player.playShuffled(album.songs)}
+						disabled={album.songs.length < 2}
+						aria-label="Shuffle"
+						title="Shuffle"
+					>
+						<Icon name="shuffle" size={16} />
+						<span class="label">Shuffle</span>
+					</button>
+					<button
+						class="hh-button"
+						onclick={() => player.addToQueue(album.songs)}
+						disabled={album.songs.length === 0}
+						data-wide
+						aria-label="Add to queue"
+						title="Add to queue"
+					>
+						<Icon name="queue" size={16} />
+						<span class="label">Queue</span>
+					</button>
+					<button
+						class="hh-button"
+						onclick={() => addSongsToPlaylist(album.songs, album.name)}
+						disabled={album.songs.length === 0}
+						data-wide
+						aria-label="Add to playlist"
+						title="Add to playlist"
+					>
+						<Icon name="plus" size={16} />
+						<span class="label">Add to playlist</span>
+					</button>
+					<MixButton of="album" id={album.id} />
+					<!-- On a phone, in place of the three before it: the album's menu, with the rating and Share. -->
+					<button
+						class="hh-button more"
+						onclick={(event) =>
+							contextMenu.openFrom(event.currentTarget, {
+								kind: 'album',
+								album: {
+									id: album.id,
+									name: album.name,
+									artist: album.artist ?? null,
+									artistId: album.artistId ?? null,
+									coverArt: album.coverArt ?? null,
+									rating: album.rating ?? null
+								}
+							}, event.detail === 0)}
+						aria-label="More"
+						aria-haspopup="menu"
+						title="More"
+					>
+						<Icon name="more" size={16} />
+					</button>
+				</div>
 			</div>
 		</div>
 	</header>
@@ -396,6 +423,11 @@
 		margin: 0 0.45rem;
 	}
 
+	/* The badges and the buttons, each its own row above a phone's width. */
+	.controls {
+		display: contents;
+	}
+
 	.badge-row {
 		display: flex;
 		flex-wrap: wrap;
@@ -527,9 +559,55 @@
 	 * button still show under it on arrival. At 13rem it filled half the width
 	 * of an iPhone.
 	 */
+	/* The album's menu, on a phone only; see below. */
+	.actions .more {
+		display: none;
+	}
+
 	@media (max-width: 36rem) {
 		.art {
 			width: min(100%, 17rem);
+		}
+
+		/*
+		 * Play, Shuffle and More. Queue, Add to playlist and the instant mix
+		 * are in the menu More opens, with Play next and Share: five unlabelled
+		 * squares in a row were hard to tell apart (2026-11-10).
+		 */
+		.actions [data-wide],
+		.actions > :global(.mix) {
+			display: none;
+		}
+
+		.actions .more {
+			display: inline-flex;
+		}
+
+		/*
+		 * One row: the heart, Play, Shuffle and More. The quality, the rating
+		 * and Share took a row of their own above the buttons; the rating and
+		 * Share are in More, and each song's quality is a tap away in its own
+		 * menu. Measured at 390px: two rows of controls under the title, now one.
+		 */
+		.controls {
+			display: flex;
+			justify-content: center;
+			align-items: center;
+			gap: var(--space-2);
+			margin-top: var(--space-3);
+		}
+
+		.badge-row,
+		.actions {
+			display: contents;
+		}
+
+		.badge-row > :global(:not(.favourite)) {
+			display: none;
+		}
+
+		.genre {
+			display: none;
 		}
 
 		.actions .label {
@@ -604,27 +682,6 @@
 			margin-inline-end: 0;
 			border-color: transparent;
 			border-radius: var(--r-md);
-		}
-
-		/* A key beside the heart's (see FavouriteButton). As the word between
-		   brackets it was the one thing that did not fit the rating's row at
-		   390px, and stood alone on a line under it. */
-		:global([data-theme='terminal']) .share {
-			justify-content: center;
-			width: 2.75rem;
-			height: 2.75rem;
-			padding: 0;
-			border: 1px solid var(--border-strong);
-			border-radius: var(--r-sm);
-		}
-
-		:global([data-theme='terminal']) .share-label {
-			display: none;
-		}
-
-		:global([data-theme='terminal']) .share::before,
-		:global([data-theme='terminal']) .share::after {
-			content: none;
 		}
 	}
 </style>

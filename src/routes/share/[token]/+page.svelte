@@ -27,6 +27,8 @@
 	import { prefersReducedMotion } from '#lib/client/sleeve-transition.svelte.ts';
 	import Icon from '#lib/components/Icon.svelte';
 	import Busy from '#lib/components/Busy.svelte';
+	import ElasticSlider from '#lib/components/bits/ElasticSlider.svelte';
+	import { guestVolume, keepGuestVolume, volumeSettable } from '#lib/client/guest-volume.ts';
 	import Logo from '#lib/components/Logo.svelte';
 	import QualityBadge from '#lib/components/QualityBadge.svelte';
 	import Seekbar from '#lib/components/Seekbar.svelte';
@@ -158,9 +160,20 @@
 	let failed = $state(false);
 	let bufferedTo = $state(0);
 
-	// The page has no volume slider: it plays at the server's limit.
+	/*
+	 * The visitor's level, 0 to 1 of the server's limit, as on the
+	 * listen-together page, kept in this browser (#297). Muting leaves it as
+	 * it is. Where a page cannot set the volume (iPhone, iPad) there is no
+	 * slider, and the page plays at the limit.
+	 */
+	let volume = $state(1);
+	let canSetVolume = $state(false);
+	onMount(() => {
+		volume = guestVolume();
+		canSetVolume = volumeSettable();
+	});
 	$effect(() => {
-		if (audio) audio.volume = data.volumeLimit;
+		if (audio) audio.volume = volume * data.volumeLimit;
 	});
 
 	const total = $derived(length > 0 ? length : (song?.duration ?? 0));
@@ -437,6 +450,24 @@
 						<Icon name={muted ? 'mute' : 'volume'} size={20} />
 					</button>
 				</div>
+
+				{#if canSetVolume}
+					<!-- A quiet and a loud speaker at its ends: without them the bar read as a second seek bar. -->
+					<div class="level">
+						<span class="end" aria-hidden="true"><Icon name="volume-low" size={14} /></span>
+						<ElasticSlider
+							swell={false}
+							bind:value={volume}
+							startingValue={0}
+							maxValue={1}
+							isStepped
+							stepSize={0.05}
+							label="Volume"
+							onchange={keepGuestVolume}
+						/>
+						<span class="end" aria-hidden="true"><Icon name="volume" size={14} /></span>
+					</div>
+				{/if}
 
 				<!-- The playing track's facts, as the player's track details show them. -->
 				{#if many}
@@ -766,6 +797,24 @@
 		align-items: center;
 		justify-content: space-between;
 		padding: 0 var(--space-4);
+	}
+
+	/* Under the transport, centred, as wide as the listen-together page's. */
+	.level {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		width: min(100%, 16rem);
+		margin: var(--space-2) auto 0;
+	}
+
+	.level > :global(:not(.end)) {
+		flex: 1;
+	}
+
+	.end {
+		display: grid;
+		color: var(--text-faint);
 	}
 
 	.edge,

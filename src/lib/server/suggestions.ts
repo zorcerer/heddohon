@@ -14,6 +14,8 @@
  * `memo.ts` has how entries are held and shared.
  */
 import type { Album, Artist, ExternalLink } from '#lib/types.ts';
+import { soundIndex } from './analysis/results.ts';
+import { soundAlikeAlbums } from './analysis/similar.ts';
 import type { LibraryContext } from './library';
 import { Memo } from './memo';
 
@@ -35,19 +37,50 @@ const suggestions = new Memo(SUGGESTION_TTL_MS, MAX_SUGGESTIONS);
 
 const ttlFor = (items: readonly unknown[]) => (items.length > 0 ? SUGGESTION_TTL_MS : EMPTY_TTL_MS);
 
-/** Albums like `albumId`, for its page's shelf. */
+/**
+ * Albums like `albumId`, for its page's shelf.
+ *
+ * The music server's own answer comes first: its agents (Last.fm and others)
+ * on Navidrome, its metadata on Jellyfin. Where that leaves the shelf short
+ * and sound analysis has measured the library, albums whose songs sound like
+ * this album's fill it (issue #321), and only then Subsonic's albums from the
+ * same genre. Without anything measured the shelf is the server's, as before.
+ */
 export function similarAlbums(
-	{ backend, credential, accountId }: LibraryContext,
+	ctx: LibraryContext,
 	albumId: string,
 	artistId: string | null,
 	limit: number,
 	/** The album's genre and year, for a server that fills the shelf from them. */
-	like: { genre: string | null; year: number | null }
+	like: { genre: string | null; year: number | null },
+	/** The album's songs, which the sound-alike albums are measured against. */
+	songIds: readonly string[] = []
 ): Promise<Album[]> {
+	const { backend, credential, accountId } = ctx;
 	return suggestions.get(
 		{ accountId, credential },
 		`album\u0000${albumId}\u0000${limit}`,
-		() => backend.getSimilarAlbums(credential, albumId, artistId, limit, like),
+		async () => {
+			const index = songIds.length > 0 ? soundIndex(backend.kind) : null;
+			if (!index) return backend.getSimilarAlbums(credential, albumId, artistId, limit, like);
+			// The server's similar albums, without its genre fill, which comes last.
+			const shelf = await backend.getSimilarAlbums(credential, albumId, artistId, limit);
+			if (shelf.length >= limit) return shelf;
+			const held = new Set([albumId, ...shelf.map((album) => album.id)]);
+			const lookup = (ids: string[]) => backend.getSongs(credential, ids);
+			for (const album of await soundAlikeAlbums(index, lookup, songIds, artistId, held, limit - shelf.length)) {
+				shelf.push(album);
+				held.add(album.id);
+			}
+			if (shelf.length >= limit) return shelf;
+			// Asks for the server's similar albums again with the fill; a short shelf
+			// is rare where agents answer, and the result is held for 30 days.
+			for (const album of await backend.getSimilarAlbums(credential, albumId, artistId, limit, like)) {
+				if (shelf.length >= limit) break;
+				if (!held.has(album.id)) shelf.push(album);
+			}
+			return shelf;
+		},
 		ttlFor
 	);
 }

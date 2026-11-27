@@ -1,8 +1,8 @@
 import type { PageServerLoad } from './$types';
-import { library } from '#lib/server/library.ts';
-import { remembered } from '#lib/server/listings.ts';
+import { library, libraryContext } from '#lib/server/library.ts';
+import { listingHeld, remembered } from '#lib/server/listings.ts';
 import { paginate, readPageNumber } from '#lib/server/paging.ts';
-import type { Album, Artist, Song } from '#lib/types.ts';
+import type { Album, Artist, SearchResults, Song } from '#lib/types.ts';
 
 const TABS = ['songs', 'albums', 'artists'] as const;
 type Tab = (typeof TABS)[number];
@@ -136,15 +136,9 @@ function sortedOnce<T extends { title: string } | { name: string }>(
 	return copy;
 }
 
-export const load: PageServerLoad = async (event) => {
-	// Whole on both servers, and this page loads again on every tab switch and
-	// page turn. `/api/star` drops the entry, so a change made here shows at
-	// once; see `listings.ts`.
-	const starred = await library(event, ({ backend, credential, accountId }) =>
-		remembered({ accountId, credential }, 'starred', () => backend.getStarred(credential))
-	);
-
-	const requested = event.url.searchParams.get('tab');
+/** The tab, the order and the page asked for, from the favourites. */
+function viewOf(starred: SearchResults, params: URLSearchParams) {
+	const requested = params.get('tab');
 	// Lands on a tab that has something in it.
 	const fallback: Tab =
 		starred.songs.length > 0
@@ -158,14 +152,14 @@ export const load: PageServerLoad = async (event) => {
 	// Jellyfin does not. Without one the order is not offered.
 	const dated = starred[tab].some((item) => item.starredAt !== null);
 	const sorts = SORTS[tab].filter((sort) => sort !== 'recentlyStarred' || dated);
-	const requestedSort = event.url.searchParams.get('sort');
+	const requestedSort = params.get('sort');
 	const sort = sorts.includes(requestedSort as FavouriteSort)
 		? (requestedSort as FavouriteSort)
 		: sorts[0];
 
-	const page = readPageNumber(event.url.searchParams);
+	const page = readPageNumber(params);
 	// A shuffle opened without a seed draws one, and the page's links carry it.
-	const seed = sort === 'random' ? (readSeed(event.url.searchParams) ?? newSeed()) : null;
+	const seed = sort === 'random' ? (readSeed(params) ?? newSeed()) : null;
 	const songOrder = seed === null ? SONG_ORDER[sort] : shuffled<Song>(seed);
 	const albumOrder = seed === null ? ALBUM_ORDER[sort] : shuffled<Album>(seed);
 
@@ -188,4 +182,27 @@ export const load: PageServerLoad = async (event) => {
 		albums: tab === 'albums' ? paginate(sortedOnce(starred.albums, `${sort}:${seed}`, albumOrder), page) : null,
 		artists: tab === 'artists' ? paginate(sortedOnce(starred.artists, sort, ARTIST_ORDER[sort]), page) : null
 	};
+}
+
+export type FavouritesView = ReturnType<typeof viewOf>;
+
+export const load: PageServerLoad = async (event) => {
+	// Whole on both servers, and this page loads again on every tab switch and
+	// page turn. `/api/star` drops the entry, so a change made here shows at
+	// once; see `listings.ts`.
+	const { accountId, credential } = libraryContext(event.locals);
+	const held = listingHeld({ accountId, credential }, 'starred');
+	const view = library(event, ({ backend }) =>
+		remembered({ accountId, credential }, 'starred', () => backend.getStarred(credential))
+	).then((starred) => viewOf(starred, event.url.searchParams));
+
+	/*
+	 * Read for the first time, the list is streamed: the page and its heading
+	 * arrive at once and the favourites follow. 2500 favourite songs took 2.4s
+	 * on Jellyfin 12.1.0, all of it before the first byte (#344). A tab
+	 * switch or a page turn inside the listing's 30 seconds is answered from
+	 * memory, and waits for it, so the page does not flash a wait it does not
+	 * have.
+	 */
+	return { view: held ? await view : view };
 };

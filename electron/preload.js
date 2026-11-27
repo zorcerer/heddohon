@@ -1,8 +1,13 @@
 /**
  * The calls the app's own two screens make: the address screen and the
- * basic-auth prompt, both files in this package. On the server's pages, and
- * on a sign-in page in front of it, this adds nothing to the window, and the
- * main process checks the caller again (`fromOwnPage` in `main.js`).
+ * basic-auth prompt, both files in this package. The main process checks the
+ * caller again (`fromOwnPage` in `main.js`).
+ *
+ * A web page is given two things for the Discord activity: `heddohonPresence`,
+ * which says what plays and returns nothing, and `heddohonDiscord`, the switch
+ * that turns it on, which Settings shows. The main process takes both only
+ * from the saved server's main frame, so a sign-in page in front of the server
+ * that calls them is ignored (`fromSavedServer` in `main.js`).
  */
 const { contextBridge, ipcRenderer } = require('electron');
 
@@ -17,5 +22,14 @@ if (location.protocol === 'file:' && location.pathname.endsWith('/login.html')) 
 	contextBridge.exposeInMainWorld('heddohonLogin', {
 		state: () => ipcRenderer.invoke('login:state'),
 		submit: (username, password) => ipcRenderer.invoke('login:submit', username, password)
+	});
+}
+
+if (location.protocol === 'https:' || location.protocol === 'http:') {
+	contextBridge.exposeInMainWorld('heddohonPresence', (state) => ipcRenderer.send('presence', state));
+	// The switch for it, which the server's Settings shows (This browser): its state, and a change to it.
+	contextBridge.exposeInMainWorld('heddohonDiscord', {
+		state: () => ipcRenderer.invoke('discord:state'),
+		set: (on) => ipcRenderer.invoke('discord:set', on === true)
 	});
 }

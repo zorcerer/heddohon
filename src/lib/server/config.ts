@@ -92,6 +92,12 @@ export interface AppConfig {
 	musicbrainzUrl: string | null;
 	/** Discord's address, for posting plays to a channel's webhook, or null when off; see `integrations.ts`. */
 	discordUrl: string | null;
+	/**
+	 * Whether the desktop app's Discord activity shows a cover from this server,
+	 * by a signed link Discord fetches without a sign-in (`presencecover.ts`).
+	 * Off, it is Cover Art Archive's, by the album's MusicBrainz release.
+	 */
+	discordCovers: boolean;
 	/** The ListenBrainz API, for scrobbles this server sends itself, or null when off; see `integrations.ts`. */
 	listenbrainzUrl: string | null;
 	/** Whether the library can be browsed by its folders on disk: the Folders page and playing a folder. */
@@ -115,6 +121,14 @@ export interface AppConfig {
 	 * assistant browses the library and changes playlists; see `mcp.ts`.
 	 */
 	mcp: boolean;
+	/**
+	 * Whether the server may measure how songs sound (loudness, tempo, key and
+	 * a vector for "sounds like"), reading the library as an analysis account
+	 * an administrator gives it; see `analysis/README.md`. Off, nothing of it
+	 * runs and its card in Settings is not shown; a saved analysis account
+	 * stays sealed and unused.
+	 */
+	analysis: boolean;
 	/**
 	 * Whether every account must have a second factor (a TOTP app or a
 	 * passkey) to use the app; see `twofactor.ts`. An account without one is
@@ -181,8 +195,10 @@ export const SETUP_NAMES = [
 	'HEDDOHON_NEW_RELEASES',
 	'HEDDOHON_AUTOEQ',
 	'HEDDOHON_DISCORD',
+	'HEDDOHON_DISCORD_COVERS',
 	'HEDDOHON_LISTENBRAINZ',
 	'HEDDOHON_MCP',
+	'HEDDOHON_ANALYSIS',
 	'HEDDOHON_REQUIRE_TWO_FACTOR',
 	'HEDDOHON_PROFILES',
 	'HEDDOHON_COVER_CACHE_MB',
@@ -512,11 +528,23 @@ export function parseOrigins(raw: string): string[] {
 
 /**
  * The addresses saved for this deployment, where the environment sets no
- * `ORIGIN`. With `ORIGIN` in the environment every request is served on that
- * one address, and a saved list is not read. See `origin.ts`.
+ * `ORIGIN`. With one address in `ORIGIN` every request is served on it, and a
+ * saved list is not read. Several, apart by commas or spaces and each starting
+ * `http://` or `https://`, are the list in place of the saved one (issue
+ * #356). See `origin.ts`.
  */
 function savedOrigins(): string[] {
-	if (fromEnvironment('ORIGIN')) return [];
+	const given = process.env.ORIGIN?.trim() ?? '';
+	const parts = given.split(/[\s,]+/).filter(Boolean);
+	// As `saved-origin.js` reads it (`vite.config.ts`): anything else is one address.
+	if (parts.length > 1 && parts.every((part) => /^https?:\/\//i.test(part))) {
+		try {
+			return parseOrigins(given);
+		} catch (err) {
+			throw new ConfigError(`ORIGIN: ${err instanceof Error ? err.message : 'not valid'}`);
+		}
+	}
+	if (given) return [];
 	const kept = savedValues().ORIGIN;
 	if (!kept) return [];
 	try {
@@ -641,6 +669,9 @@ function build(): AppConfig {
 		discordUrl: flagEnv('HEDDOHON_DISCORD', false)
 			? normaliseUrl('HEDDOHON_DISCORD_URL', env('HEDDOHON_DISCORD_URL') ?? 'https://discord.com')
 			: null,
+		// Off unless asked for: Discord then fetches covers from this server's
+		// address, which it learns.
+		discordCovers: flagEnv('HEDDOHON_DISCORD_COVERS', false),
 		listenbrainzUrl: flagEnv('HEDDOHON_LISTENBRAINZ', false)
 			? normaliseUrl('HEDDOHON_LISTENBRAINZ_URL', env('HEDDOHON_LISTENBRAINZ_URL') ?? 'https://api.listenbrainz.org')
 			: null,
@@ -657,6 +688,9 @@ function build(): AppConfig {
 		// Off unless asked for: what an assistant reads through it reaches the
 		// provider of the assistant's model, which is a third party.
 		mcp: flagEnv('HEDDOHON_MCP', false),
+		// Off unless asked for: it holds an account's login on the music server
+		// with no request behind it, and takes about a second of one core a song.
+		analysis: flagEnv('HEDDOHON_ANALYSIS', false),
 		requireTwoFactor: flagEnv('HEDDOHON_REQUIRE_TWO_FACTOR', false),
 		oidc: oidcConfig(),
 		profiles: flagEnv('HEDDOHON_PROFILES', true),
@@ -782,6 +816,7 @@ export function config(): AppConfig {
 			autoeqUrl: null,
 			musicbrainzUrl: null,
 			discordUrl: null,
+			discordCovers: false,
 			listenbrainzUrl: null,
 			folders: true,
 			defaultTheme: 'terminal',
@@ -789,6 +824,7 @@ export function config(): AppConfig {
 			radioPrivate: false,
 			navidromePluginToken: null,
 			mcp: false,
+			analysis: false,
 			requireTwoFactor: false,
 			oidc: null,
 			profiles: true,

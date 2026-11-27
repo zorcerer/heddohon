@@ -20,8 +20,8 @@
 # is used.
 #
 # Runs every Monday, and by hand with a dry run that lists what would go. A
-# scheduled or dispatched workflow is read from the default branch, so this
-# file has to be on `main` to run.
+# scheduled or dispatched workflow is read from the default branch, `dev`
+# since 2026-11-10, so a change to this file takes effect once it is there.
 name: prune-dev-images
 
 on:

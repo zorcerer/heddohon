@@ -777,9 +777,17 @@ describe('settings', () => {
 		const history = (await user.page('/settings?tab=history')).html;
 		assert.doesNotMatch(section(history, 'Listening history'), /hidden/);
 		assert.match(section(history, 'Cover cache'), /hidden/);
+		// Five tabs; the old tab names are the sections, as chips under You.
+		const tabs = [...history.matchAll(/class="tab[^"]*"[^>]*>\s*([^<\s][^<]*?)\s*</g)].map((match) => match[1]);
+		assert.deepEqual(tabs.slice(0, 4), ['You', 'Look', 'Playback', 'Connections']);
+		assert.match(history, /class="tab[^"]*active[^"]*" href="\?tab=account"/);
+		const chips = [...history.matchAll(/class="chip[^"]*" href="\?tab=(\w+)"/g)].map((match) => match[1]);
+		assert.deepEqual(chips, ['account', 'security', 'history']);
 
 		const back = (await user.page('/settings?lastfm=linked')).html;
-		assert.doesNotMatch(section(back, 'Session &amp; security'), /hidden/, 'the way back from last.fm opens on Account');
+		// Scrobbling is under Connections, beside AI and shared links.
+		assert.match(back, /class="chip[^"]*active[^"]*" href="\?tab=connections" aria-current="page"/, 'the way back from last.fm opens on Scrobbling');
+		assert.match(section(back, 'Session &amp; security'), /hidden/);
 		assert.match(section(back, 'Appearance'), /hidden/);
 	});
 });
@@ -882,6 +890,9 @@ describe('favourites', () => {
 				.map(([title]) => title);
 
 		try {
+			// Read once first: a list read for the first time is streamed after the
+			// page (#344), and the HTML holds it from the second load.
+			await user.page('/favourites?tab=songs');
 			const newest = await user.page('/favourites?tab=songs');
 			assert.match(newest.html, /Recently starred/);
 			assert.deepEqual(order(newest.html), ['Song 5b', 'Song 10a', 'Song 1a', 'Song 0a']);
@@ -910,6 +921,8 @@ describe('favourites', () => {
 				.map(([title]) => title);
 
 		try {
+			// Read once first, as above: the first read is streamed.
+			await user.page('/favourites?tab=songs&sort=random&seed=1');
 			const first = await user.page('/favourites?tab=songs&sort=random&seed=1');
 			assert.equal(first.response.status, 200, explain('shuffled favourites failed'));
 			assert.match(first.html, />Random</);
@@ -940,6 +953,8 @@ describe('favourites', () => {
 		jellyfin.state.favourites.add('a1');
 		jellyfin.state.favourites.add('a2');
 		try {
+			// Read once first, as above: the first read is streamed.
+			await client.page('/favourites?tab=artists&sort=recentlyStarred');
 			const { response, html } = await client.page('/favourites?tab=artists&sort=recentlyStarred');
 			assert.equal(response.status, 200, explain('Jellyfin favourites page failed'));
 			assert.ok(!html.includes('Recently starred'));
@@ -1107,6 +1122,76 @@ describe('links elsewhere', () => {
 		assert.match(html, /https:\/\/musicbrainz\.org\/release\/11111111-2222-3333-4444-555555555555/, explain('the MusicBrainz link is missing'));
 		assert.match(html, /MusicBrainz Release Group/);
 		assert.doesNotMatch(html, /MusicBrainz Album|someone:secret/);
+	});
+
+	// Issue #358: the desktop app's Discord activity shows the cover by this id.
+	test('an album\'s MusicBrainz release id, for the desktop app, and none for a release group', async () => {
+		assert.equal((await fetch(`${app.url}/api/presence?album=al4`)).status, 401);
+		await asFreshAccount('release', async (client) => {
+			const presence = async (query) => (await client.request(`/api/presence?${query}`)).json();
+			// Navidrome's tags, in capitals, given as MusicBrainz writes them.
+			assert.deepEqual(await presence('album=al4&cover=al-4'), { cover: null, release: 'de5c6a49-a5ec-41d9-9117-a128898fa099' });
+			assert.deepEqual(await presence('album=al5'), { cover: null, release: null });
+			assert.deepEqual(await presence(''), { cover: null, release: null });
+		});
+		const jellyfinClient = new Client(app.url);
+		await jellyfinClient.signIn({ username: 'jfuser', password: 'jfpass', backend: 'jellyfin' });
+		assert.deepEqual(await (await jellyfinClient.request('/api/presence?album=b2')).json(), { cover: null, release: '11111111-2222-3333-4444-555555555555' });
+		assert.deepEqual(await (await jellyfinClient.request('/api/presence?album=b1')).json(), { cover: null, release: null });
+	});
+});
+
+describe('a Discord cover from this server', () => {
+	let on;
+	before(async () => {
+		on = await startApp({ subsonicUrl: subsonic.url, jellyfinUrl: jellyfin.url, env: { HEDDOHON_DISCORD_COVERS: 'true' } });
+	});
+	after(async () => {
+		await on?.stop();
+	});
+
+	test('is a link Discord fetches without a sign-in, for a cover the account has read, from the cache alone', async () => {
+		const client = new Client(on.url);
+		assert.equal((await client.signIn({ username: 'testuser', password: 'testpass', backend: 'subsonic' })).status, 303);
+		const presence = async (query) => (await client.request(`/api/presence?${query}`)).json();
+
+		// Not read yet: no link, and Cover Art Archive's release is still given.
+		assert.deepEqual(await presence('album=al4&cover=al-4'), { cover: null, release: 'de5c6a49-a5ec-41d9-9117-a128898fa099' });
+
+		const read = await client.request('/api/cover/al-4?size=256');
+		const body = Buffer.from(await read.arrayBuffer());
+		let link = null;
+		for (let attempt = 0; attempt < 40 && !link; attempt++) {
+			await new Promise((done) => setTimeout(done, 50));
+			link = (await presence('album=al4&cover=al-4')).cover;
+		}
+		assert.match(link ?? '', /^\/api\/presence-cover\/[\w.-]+$/, 'no link for a cached cover');
+		assert.ok(!link.includes('al-4') && !link.includes('testuser'), 'the link names the cover or the account');
+
+		// As Discord fetches it: no cookie.
+		const calls = subsonic.calls.get('getCoverArt');
+		const fetched = await fetch(`${on.url}${link}`);
+		assert.equal(fetched.status, 200);
+		assert.deepEqual(Buffer.from(await fetched.arrayBuffer()), body);
+		assert.equal(subsonic.calls.get('getCoverArt'), calls, 'the music server was asked');
+		assert.match(fetched.headers.get('content-security-policy') ?? '', /sandbox/);
+		assert.equal(fetched.headers.get('x-content-type-options'), 'nosniff');
+		assert.equal(fetched.headers.get('cache-control'), 'public, max-age=86400');
+		assert.equal((await fetch(`${on.url}${link}`, { method: 'HEAD' })).status, 200);
+
+		// A token changed by one character, or none, is nothing.
+		const token = link.split('/').pop();
+		const flipped = token.slice(0, -2) + (token.at(-2) === 'A' ? 'B' : 'A') + token.at(-1);
+		assert.equal((await fetch(`${on.url}/api/presence-cover/${flipped}`)).status, 404);
+		assert.equal((await fetch(`${on.url}/api/presence-cover/nothing`)).status, 404);
+		assert.equal((await fetch(`${on.url}/api/presence-cover/${'x'.repeat(2000)}`)).status, 404);
+	});
+
+	test('is not made or served where the switch is off', async () => {
+		// The shared app has HEDDOHON_DISCORD_COVERS off: a link is a 404, not a 401.
+		assert.equal((await fetch(`${app.url}/api/presence-cover/1.a.b.c`)).status, 404);
+		await user.request('/api/cover/al-1?size=256').then((r) => r.arrayBuffer());
+		assert.equal((await (await user.request('/api/presence?cover=al-1')).json()).cover, null);
 	});
 });
 
@@ -5072,7 +5157,7 @@ describe('optional features', () => {
 	/** The titles of the features the home page's data tells of. */
 	const notice = async (client) => {
 		const data = await (await client.request('/__data.json')).text();
-		return ['New releases from MusicBrainz', 'Lyrics from LRCLIB', 'Headphone corrections from AutoEq', 'Plays sent to Discord', 'Plays sent to ListenBrainz', 'AI assistants (MCP)'].filter((title) => data.includes(title));
+		return ['New releases from MusicBrainz', 'Lyrics from LRCLIB', 'Headphone corrections from AutoEq', 'Plays sent to Discord', 'Discord covers from this server', 'Plays sent to ListenBrainz', 'AI assistants (MCP)'].filter((title) => data.includes(title));
 	};
 
 	test('an administrator switches each under Settings, Features, where the environment does not set it', async () => {
@@ -5082,8 +5167,10 @@ describe('optional features', () => {
 				lrclib: 'off',
 				autoeq: 'off',
 				discord: 'off',
+				discordCovers: 'off',
 				listenbrainz: 'off',
 				mcp: 'off',
+				analysis: 'off',
 				// The one on until switched off.
 				profiles: 'on'
 			});
@@ -5126,7 +5213,7 @@ describe('optional features', () => {
 
 	test('an administrator is told once on the home page of the features that are off', async () => {
 		await asFreshAccount('featurenotice', async (client) => {
-			assert.equal((await notice(client)).length, 6);
+			assert.equal((await notice(client)).length, 7);
 			subsonic.state.admin = false;
 			try {
 				assert.deepEqual(await notice(client), [], 'told an account that is not an administrator');
@@ -5134,12 +5221,12 @@ describe('optional features', () => {
 				subsonic.state.admin = true;
 			}
 			// Dismissed: the features named are seen.
-			const saved = await (await client.json('/api/settings', 'PATCH', { featuresSeen: ['mcp', 'nonsense', 'newReleases', 'lrclib', 'autoeq', 'discord', 'listenbrainz', 'mcp'] })).json();
+			const saved = await (await client.json('/api/settings', 'PATCH', { featuresSeen: ['mcp', 'nonsense', 'newReleases', 'lrclib', 'autoeq', 'discord', 'discordCovers', 'listenbrainz', 'mcp'] })).json();
 			// Known ids alone, each once.
-			assert.deepEqual(saved.featuresSeen, ['newReleases', 'lrclib', 'autoeq', 'discord', 'listenbrainz', 'mcp']);
+			assert.deepEqual(saved.featuresSeen, ['newReleases', 'lrclib', 'autoeq', 'discord', 'discordCovers', 'listenbrainz', 'mcp']);
 			assert.deepEqual(await notice(client), []);
 			// One not seen yet is told of alone.
-			await client.json('/api/settings', 'PATCH', { featuresSeen: ['lrclib', 'autoeq', 'discord', 'listenbrainz', 'mcp'] });
+			await client.json('/api/settings', 'PATCH', { featuresSeen: ['lrclib', 'autoeq', 'discord', 'discordCovers', 'listenbrainz', 'mcp'] });
 			assert.deepEqual(await notice(client), ['New releases from MusicBrainz']);
 			// Saving under Settings, Features marks every one seen.
 			assert.equal((await action(client, 'saveFeatures', { profiles: 'on' })).type, 'success');

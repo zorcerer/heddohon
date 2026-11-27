@@ -98,7 +98,10 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 		username: 'testuser',
 		password: 'testpass',
 		/** More accounts on the same server, by name, each with its password. */
-		others: new Map([['seconduser', 'secondpass']]),
+		others: new Map([
+			['seconduser', 'secondpass'],
+			['analyst', 'analyst-pass']
+		]),
 		/** Song ids one account cannot read, by its name: `getSong` answers error 70, as for a library it has no access to. */
 		hidden: new Map(),
 		starred: new Map([
@@ -159,12 +162,22 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 		coverColors: new Map(),
 		/** Titles to answer with in place of a song's own, by song id. */
 		songTitles: new Map(),
+		/** OpenSubsonic `replayGain` to answer with, by song id, as tags carry it. */
+		replayGains: new Map(),
 		/** The content type to answer a cover with in place of `image/png`, by cover id. */
 		coverTypes: new Map(),
 		/** Bytes added after every cover, for a cover of a known weight. */
 		coverPadding: 0,
 		/** What `getUser` says of the account: `adminRole`. */
 		admin: true,
+		/**
+		 * What `getUser` says of the other accounts, by name, over an ordinary
+		 * account's roles (`streamRole` and nothing more). `null` for a name
+		 * makes `getUser` fail, as a server that will not say.
+		 */
+		roles: new Map(),
+		/** Every name a request signed in as, in order, accepted or not. */
+		seen: [],
 		/** Songs on each album from `getAlbum`, up to 26: `s1a`, `s1b`, `s1c` and on. */
 		albumSongs: 2,
 		/**
@@ -269,6 +282,7 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 		starred: state.starred.get(`s${i}${side}`),
 		userRating: state.ratings.get(`s${i}${side}`),
 		...(state.songGenre ? { genre: state.songGenre } : {}),
+		...(state.replayGains.has(`s${i}${side}`) ? { replayGain: state.replayGains.get(`s${i}${side}`) } : {}),
 		// For the library report: the second song of an album an MP3, or on a
 		// second copy of the album.
 		...(side === 'b' && state.lossy.has(i) ? { suffix: 'mp3', bitRate: 320, bitDepth: undefined, size: 7_000_000 } : {}),
@@ -326,7 +340,10 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 			channels: 2,
 			...(s.starred ? { starred: true, starredAt: s.starred } : {}),
 			...(s.userRating ? { rating: s.userRating } : {}),
-			...(s.playCount === undefined ? {} : { playCount: s.playCount })
+			...(s.playCount === undefined ? {} : { playCount: s.playCount }),
+			...(s.replayGain
+				? { rgTrackGain: s.replayGain.trackGain, rgAlbumGain: s.replayGain.albumGain, rgTrackPeak: s.replayGain.trackPeak, rgAlbumPeak: s.replayGain.albumPeak }
+				: {})
 		};
 	};
 
@@ -360,6 +377,7 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 			if (state.loginFailing) return reply(503, { error: 'Service Unavailable' });
 			// The same accounts the Subsonic side signs in, and the same
 			// passwords: a Navidrome has one user list.
+			state.seen.push(sent.username);
 			const expected = sent.username === state.username ? state.password : state.others.get(sent.username);
 			if (expected === undefined || sent.password !== expected) {
 				return reply(401, { error: 'Invalid username or password' });
@@ -486,6 +504,7 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 			res.end(JSON.stringify(body));
 		};
 
+		state.seen.push(p.get('u'));
 		const password = p.get('u') === state.username ? state.password : state.others.get(p.get('u'));
 		// As text: with no user and no salt the sum is a number, which the hash refuses.
 		const expected = createHash('md5').update(`${password}${p.get('s')}`).digest('hex');
@@ -758,7 +777,13 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 				}
 				return send(ok({ randomSongs: { song: [song(1, 'a'), song(2, 'a')] } }));
 			case 'getUser':
-				return send(ok({ user: { username: state.username, adminRole: state.admin } }));
+				{
+					const asked = p.get('username') ?? p.get('u');
+					if (asked === state.username) return send(ok({ user: { username: state.username, adminRole: state.admin, streamRole: true } }));
+					const roles = state.roles.get(asked);
+					if (roles === null) return send(failed(50, 'Not authorized'));
+					return send(ok({ user: { username: asked, adminRole: false, streamRole: true, ...roles } }));
+				}
 			case 'getCoverArt': {
 				// Navidrome names a song's cover `mf-` and the song's id. The
 				// mock's songs carry their album's cover, which is the id its
@@ -777,10 +802,10 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 			case 'stream': {
 				// A check's own answer, for a stream that fails: true when it has answered.
 				if (state.onStream?.(p.get('id'), req, res)) return;
-				// A function is called for each request: a body that differs from one
-				// read to the next.
+				// A function is called for each request, with the song's id: a body that
+				// differs from one read to the next, or from one song to the next.
 				const audio = state.audio?.body;
-				const body = typeof audio === 'function' ? audio() : (audio ?? Buffer.alloc(1000, 7));
+				const body = typeof audio === 'function' ? audio(p.get('id')) : (audio ?? Buffer.alloc(1000, 7));
 				const range = /^bytes=(\d+)-(\d*)$/.exec(req.headers.range ?? '');
 				res.setHeader('content-type', state.audio?.type ?? 'audio/flac');
 				if (state.ignoreRange) {
@@ -1366,6 +1391,19 @@ export async function startMusicBrainz() {
  * plays: for `state.audio`, where a check needs `timeupdate` to fire (the
  * stream's body is not audio otherwise), and for `npm run dev:mock`.
  */
+/**
+ * A sine of `seconds` at `amplitude` (0 to 1) of full scale and `frequency`
+ * (440Hz unless given, under 4000Hz), as 8-bit WAV: audio with a level and a
+ * pitch, for sound analysis to measure.
+ */
+export function toneWav(seconds, amplitude, frequency = 440) {
+	const wav = silentWav(seconds);
+	for (let i = 0; i < 8000 * seconds; i++) {
+		wav[44 + i] = Math.round(128 + 127 * amplitude * Math.sin((2 * Math.PI * frequency * i) / 8000));
+	}
+	return wav;
+}
+
 export function silentWav(seconds) {
 	const rate = 8000;
 	const data = rate * seconds;

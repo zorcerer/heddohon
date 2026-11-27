@@ -1,6 +1,8 @@
 /**
- * The optional parts of the server that are off until someone turns them on,
- * each of which sends something to a third party or opens something to one.
+ * The optional parts of the server that are off until someone turns them on.
+ * Each sends something to a third party or opens something to one, but sound
+ * analysis, which is here for what it holds and costs: an account's login on
+ * the music server, and the processor.
  * An administrator of the music server switches them under Settings,
  * Features, and the first-run setup offers them; both save the variable to
  * `setup.json` (`SETUP_NAMES`). A variable set in the environment decides it
@@ -10,15 +12,15 @@
  * and the like) name another host and stay environment-only.
  *
  * A new feature that is off by default goes in `FEATURES`: Settings lists it,
- * and every administrator is told of it once on the home page
- * (`featuresSeen` in settings) while it is off. Profile pages are the one
+ * and every administrator sees a dot on Settings until opening its Server
+ * tab (`featuresSeen` in settings) while it is off. Profile pages are the one
  * that is on until switched off (`defaultOn`): a page is shown beyond its own
  * account, to the others here or through a public link, only once that
  * account chooses to.
  */
 import { config, fromEnvironment, type AppConfig, type SetupName } from './config';
 
-export const FEATURE_IDS = ['newReleases', 'lrclib', 'autoeq', 'discord', 'listenbrainz', 'mcp', 'profiles'] as const;
+export const FEATURE_IDS = ['newReleases', 'lrclib', 'autoeq', 'discord', 'discordCovers', 'listenbrainz', 'mcp', 'analysis', 'profiles'] as const;
 export type FeatureId = (typeof FEATURE_IDS)[number];
 
 interface Feature {
@@ -66,6 +68,14 @@ export const FEATURES: readonly Feature[] = [
 		on: (cfg) => cfg.discordUrl !== null
 	},
 	{
+		id: 'discordCovers',
+		variable: 'HEDDOHON_DISCORD_COVERS',
+		title: 'Discord covers from this server',
+		detail:
+			"The desktop app can show what plays on a listener's Discord profile. On, Discord fetches the album's cover from this server, by a link that works for a day, and so learns the address the app opens the server at. Off, the cover is Cover Art Archive's, found by the album's MusicBrainz id. A sign-in proxy in front of this server (Authelia, Authentik, Cloudflare Access) blocks Discord, as does a server only reachable on a local network: the app then shows Cover Art Archive's cover, or the Heddohon icon.",
+		on: (cfg) => cfg.discordCovers
+	},
+	{
 		id: 'listenbrainz',
 		variable: 'HEDDOHON_LISTENBRAINZ',
 		title: 'Plays sent to ListenBrainz',
@@ -79,6 +89,14 @@ export const FEATURES: readonly Feature[] = [
 		detail:
 			'Each account can make a token for an AI assistant, which then reads its library and, if the token allows it, changes its playlists. What it reads goes to whoever runs its model.',
 		on: (cfg) => cfg.mcp
+	},
+	{
+		id: 'analysis',
+		variable: 'HEDDOHON_ANALYSIS',
+		title: 'Sound analysis',
+		detail:
+			'The server measures how each song sounds, once, to level volume and find songs that sound alike. It reads the library as an account you make for it on the music server and name under Settings, Server, and takes about a second of one processor core a song. Nothing leaves the server, and nothing is written to the library.',
+		on: (cfg) => cfg.analysis
 	},
 	{
 		id: 'profiles',
@@ -113,7 +131,7 @@ export function featureStates(): FeatureState[] {
 	}));
 }
 
-/** The features that are off and that `seen` does not hold, for the notice on an administrator's home page. */
+/** The features that are off and that `seen` does not hold: a dot on an administrator's links to Settings (`notices.svelte.ts`). */
 export function unseenFeatures(seen: readonly string[]): FeatureState[] {
 	return featureStates().filter((feature) => !feature.on && !seen.includes(feature.id));
 }

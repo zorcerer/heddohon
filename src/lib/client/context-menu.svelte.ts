@@ -17,6 +17,8 @@ export interface MenuAlbum {
 	coverArt: string | null;
 	/** Absent where the list does not say, and the favourite item with it: it could only guess which way to turn. */
 	starred?: boolean;
+	/** Given by the album's own page, where the menu carries the rating on a phone; absent elsewhere, and the stars with it. */
+	rating?: number | null;
 }
 
 export type MenuSubject =
@@ -89,6 +91,23 @@ class ContextMenu {
 			this.x = event.clientX;
 			this.y = event.clientY;
 		}
+		this.keyboard = keyboard;
+		this.subject = subject;
+	}
+
+	/**
+	 * Opens the menu from a button, under it, by any pointer: a tap included,
+	 * which `open` leaves to the browser. The album page's More button on a
+	 * phone, where the menu holds what the page's buttons hold on a wider
+	 * screen.
+	 */
+	openFrom(target: HTMLElement, subject: MenuSubject, keyboard = false) {
+		this.#opener?.removeAttribute(MARK);
+		this.#opener = target;
+		target.setAttribute(MARK, '');
+		const box = target.getBoundingClientRect();
+		this.x = box.left;
+		this.y = box.bottom + 4;
 		this.keyboard = keyboard;
 		this.subject = subject;
 	}

@@ -122,7 +122,7 @@ export interface UserSettings {
 	newReleases: boolean;
 	/**
 	 * The optional features (`features.ts`) this account, as an administrator,
-	 * has been told of on its home page or has saved under Settings, Features.
+	 * has been told of on its home page or has saved under Settings, Server, Features.
 	 * One that is off and not in here is told of once.
 	 */
 	featuresSeen: FeatureId[];

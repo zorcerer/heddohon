@@ -19,7 +19,7 @@
 	import { navigating, page } from '$app/state';
 	import { player } from '#lib/client/player.svelte.ts';
 	import { handOff } from '#lib/client/handoff.ts';
-	import { DUR, EASE_OUT_CSS, popGlyph, skipGlyph } from '#lib/client/motion.ts';
+	import { DUR, EASE_OUT_CSS, popGlyph } from '#lib/client/motion.ts';
 	import { prefersReducedMotion } from '#lib/client/sleeve-transition.svelte.ts';
 	import Cover from './Cover.svelte';
 	import Icon from './Icon.svelte';
@@ -45,6 +45,26 @@
 	const activeIndex = $derived(TABS.findIndex((tab) => tab.pattern.test(path)));
 
 	const song = $derived(player.current);
+
+	/*
+	 * Next and previous are a swipe along the song, with no key for them. The
+	 * first time a song is in the dock on a phone, its title slides left twice
+	 * and settles, once per browser. Written here and not taken from Svelte
+	 * Bits, which has no such hint (the exception is in the styling notes).
+	 */
+	const NUDGED = 'heddohon:dock-nudged';
+	let nudging = $state(false);
+	$effect(() => {
+		if (!song || nudging || !matchMedia('(max-width: 60rem)').matches) return;
+		try {
+			if (localStorage.getItem(NUDGED)) return;
+			localStorage.setItem(NUDGED, '1');
+		} catch {
+			return;
+		}
+		if (prefersReducedMotion()) return;
+		nudging = true;
+	});
 	const progress = $derived(player.duration > 0 ? Math.min(1, player.currentTime / player.duration) : 0);
 
 	/*
@@ -195,6 +215,10 @@
 				</span>
 				<span
 					class="text"
+					class:nudge={nudging}
+					onanimationend={(event) => {
+						if (event.animationName.endsWith('dock-nudge')) nudging = false;
+					}}
 					style:translate={swipe?.axis === 'x' ? `${swipe.dx * 0.6}px 0` : undefined}
 					style:opacity={swipe?.axis === 'x' ? Math.max(0.2, 1 - Math.abs(swipe.dx) / 220) : undefined}
 					{@attach arrive(song.id)}
@@ -225,18 +249,7 @@
 					<Icon name={player.running ? 'pause' : 'play'} size={24} strokeWidth={2.6} />
 				{/if}
 			</button>
-			<button
-				class="control"
-				type="button"
-				onclick={(event) => {
-					skipGlyph(event.currentTarget, 1);
-					void player.next();
-				}}
-				disabled={!player.canNext}
-				aria-label="Next track"
-			>
-				<Icon name="skip" size={22} />
-			</button>
+			<!-- Next and previous are a swipe along this row (`up`), so Play is the one key on it. -->
 
 			<span class="progress" aria-hidden="true" style:scale="{progress} 1"></span>
 		</div>
@@ -252,8 +265,13 @@
 					href={tab.href}
 					aria-current={index === activeIndex ? 'page' : undefined}
 				>
-					<Icon name={index === activeIndex && tab.icon === 'heart' ? 'heart-filled' : tab.icon} size={21} />
-					<span class="label">{tab.label}</span>
+					<Icon name={index === activeIndex && tab.icon === 'heart' ? 'heart-filled' : tab.icon} size={index === activeIndex ? 21 : 23} />
+					<!--
+						The word under the tab you are on alone. Four words were a third
+						line of text under the song's two; with none, the Library glyph
+						did not say what it was.
+					-->
+					<span class={index === activeIndex ? 'label' : 'hh-visually-hidden'}>{tab.label}</span>
 				</a>
 			{/each}
 		</nav>
@@ -366,6 +384,31 @@
 
 		.swiping .text {
 			transition: none;
+		}
+
+		/* The hint, after the title's own arrival. `transform`, not `translate`,
+		   which the swipe writes inline. */
+		.text.nudge {
+			animation: dock-nudge 1100ms var(--ease-out) 700ms;
+		}
+
+		@keyframes dock-nudge {
+			0%,
+			100% {
+				transform: none;
+			}
+			20% {
+				transform: translateX(-1.25rem);
+			}
+			40% {
+				transform: none;
+			}
+			58% {
+				transform: translateX(-0.6rem);
+			}
+			76% {
+				transform: none;
+			}
 		}
 
 		.now:not(.swiping) .text {
@@ -498,6 +541,7 @@
 		}
 
 		.label {
+			line-height: 1;
 			text-shadow: var(--text-shade);
 		}
 

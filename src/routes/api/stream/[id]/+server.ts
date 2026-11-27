@@ -1,3 +1,4 @@
+import { noteListening } from '#lib/server/listening-activity.ts';
 import type { RequestHandler } from './$types';
 import { tiedToSession } from '#lib/server/auth.ts';
 import { proxyMedia, proxyTranscode, relayRequestFor, streamRequestFrom } from '#lib/server/proxy.ts';
@@ -13,6 +14,7 @@ import type { TranscodeRequest } from '#lib/server/backends/types.ts';
 const handler: RequestHandler = async (event) => tiedToSession(event.locals.session!, event.request.signal, await respond(event));
 
 const respond = async (event: Parameters<RequestHandler>[0]): Promise<Response> => {
+	noteListening();
 	const settings = event.locals.settings;
 	const session = event.locals.session!;
 	const transcode: TranscodeRequest | null =

@@ -14,11 +14,14 @@
 	 * of its own: both wanted the right edge. The footer row switches them.
 	 */
 	import { untrack } from 'svelte';
+	import { SvelteMap } from 'svelte/reactivity';
 	import { SLEEP_MINUTES, player } from '#lib/client/player.svelte.ts';
+	import { processing } from '#lib/client/processing.svelte.ts';
 	import { audioOutputs } from '#lib/client/output.svelte.ts';
 	import { handOff } from '#lib/client/handoff.ts';
 	import { artworkColor } from '#lib/client/artwork.ts';
 	import { contextMenu } from '#lib/client/context-menu.svelte.ts';
+	import { playContainer } from '#lib/client/actions.ts';
 	import { SelectableList } from '#lib/client/selection.svelte.ts';
 	import { formatBytes, formatDuration } from '#lib/client/format.ts';
 	import { lyricsWindow } from '#lib/client/lyrics.svelte.ts';
@@ -160,6 +163,8 @@
 		if (player.sheetLayout) untrack(() => (volumeOpen = false));
 	});
 	let sleepOpen = $state(false);
+	/** On a phone, the fold that holds the tools the sheet's row leaves out; see `.tools`. */
+	let moreOpen = $state(false);
 	/** The list of outputs under the volume row, where the browser has no picker of its own. */
 	let outputOpen = $state(false);
 
@@ -321,6 +326,33 @@
 		});
 	}
 
+	/*
+	 * What sound analysis measured of the song (`/api/sound/[id]`), asked for
+	 * while Track details is open and the server analyses. Kept by id, so
+	 * opening the details again for a song asks once.
+	 */
+	interface Sound {
+		tempo: number | null;
+		key: { tonic: number; minor: boolean } | null;
+		loudness: number;
+	}
+	const sounds = new SvelteMap<string, Sound | null>();
+	$effect(() => {
+		const id = song && !song.live && details && page.data.analysis ? song.id : null;
+		if (!id || sounds.has(id)) return;
+		const controller = new AbortController();
+		fetch(`/api/sound/${encodeURIComponent(id)}`, { signal: controller.signal })
+			.then((response) => (response.ok ? (response.json() as Promise<{ sound: Sound | null }>) : null))
+			.then((body) => {
+				if (body) sounds.set(id, body.sound);
+			})
+			// Left out when it cannot be read.
+			.catch(() => {});
+		return () => controller.abort();
+	});
+	const NOTES = ['C', 'C♯', 'D', 'E♭', 'E', 'F', 'F♯', 'G', 'A♭', 'A', 'B♭', 'B'];
+	const sound = $derived(song ? (sounds.get(song.id) ?? null) : null);
+
 	const facts = $derived(
 		song
 			? [
@@ -332,6 +364,13 @@
 							: '—'
 					],
 					['Bitrate', song.quality.bitrateKbps ? `${song.quality.bitrateKbps} kbps` : '—'],
+					...(sound
+						? [
+								['Tempo', sound.tempo === null ? '—' : `${sound.tempo} BPM`],
+								['Key', sound.key ? `${NOTES[sound.key.tonic]} ${sound.key.minor ? 'minor' : 'major'}` : '—'],
+								['Loudness', `${sound.loudness.toFixed(1)} LUFS`]
+							]
+						: []),
 					['Album', song.album ?? '—'],
 					['Track', song.track ? String(song.track) : '—']
 				]
@@ -525,6 +564,11 @@
 					</p>
 				{:else}
 					<h2 class="title">Nothing playing</h2>
+					<!-- An empty queue: a way to start something from the panel itself. -->
+					<button class="hh-button start" onclick={() => playContainer('random')}>
+						<Icon name="shuffle" size={16} />
+						Shuffle library
+					</button>
 				{/if}
 				<!-- While this browser hosts listening together: who is with it, and
 				     the way back to the link. -->
@@ -601,10 +645,11 @@
 				<span class="hh-numeric">{formatDuration(player.currentTime)}</span>
 				{#if song && !song.live && showQualityBadge}
 					<!--
-						The badge is also the switch. Pressing it asks the music server
-						to convert instead of sending the file, and pressing it again
-						goes back, without interrupting playback. The codec and the
-						bitrate are in Settings.
+						The badge says what reaches the speakers, and pressing it opens
+						the path there: the file, the music server, this browser. The
+						switch that asks the server to convert, or to send the file
+						again, is in it, and flips without interrupting playback. The
+						codec and the bitrate are in Settings.
 					-->
 					<QualityBadge
 						quality={song.quality}
@@ -613,6 +658,9 @@
 									codec: player.settings.transcodeCodec,
 									bitrateKbps: player.settings.transcodeBitrateKbps
 								}
+							: null}
+						processed={player.outputRate
+							? { rateHz: player.outputRate, by: processing.correction ? 'correction' : 'equaliser' }
 							: null}
 						ontoggle={(next) => void player.setTranscoding(next)}
 					/>
@@ -837,22 +885,77 @@
 			</div>
 		</div>
 
+		{#if player.sheetLayout}
+			<div class="fold" class:open={moreOpen} inert={!moreOpen}>
+				<div>
+					<div class="more" role="group" aria-label="More">
+						<button
+							class="chip"
+							class:active={details}
+							disabled={!song || song.live}
+							onclick={() => {
+								details = !details;
+								moreOpen = false;
+							}}
+						>
+							<Icon name="info" size={14} />
+							Track details
+						</button>
+						{#if page.data.sharing}
+							<button
+								class="chip"
+								disabled={!song || song.live}
+								onclick={() => {
+									moreOpen = false;
+									if (song) shareComposer.open(song);
+								}}
+							>
+								<Icon name="share" size={14} />
+								Share
+							</button>
+						{/if}
+						<button
+							class="chip"
+							class:active={volumeOpen}
+							onclick={() => {
+								volumeOpen = !volumeOpen;
+								moreOpen = false;
+							}}
+						>
+							<Icon name={volumeIcon} size={14} />
+							Volume
+						</button>
+						<button
+							class="chip"
+							class:active={sleepOpen || player.sleep !== null}
+							onclick={() => {
+								sleepOpen = !sleepOpen;
+								moreOpen = false;
+							}}
+						>
+							<Icon name="moon" size={14} />
+							{sleepMinutesLeft !== null ? `Sleep in ${sleepMinutesLeft} min` : 'Sleep timer'}
+						</button>
+						{#if remote.peers.length + remote.apps.length > 0}
+							<button
+								class="chip"
+								onclick={() => {
+									moreOpen = false;
+									remote.open = true;
+								}}
+							>
+								<Icon name="devices" size={14} />
+								Devices ({remote.peers.length + remote.apps.length})
+							</button>
+						{/if}
+					</div>
+				</div>
+			</div>
+		{/if}
+
 		<!-- The footer row, which is what switches the stage. -->
 		<Tip group>
 			<div class="tools">
-				<Tip label="Track details">
-					<button
-						class="tool"
-						class:on={details}
-						onclick={() => (details = !details)}
-						disabled={!song || song.live}
-						aria-pressed={details}
-						aria-label="Track details"
-					>
-						<Icon name="info" size={18} />
-					</button>
-				</Tip>
-
 				<Tip label="Lyrics">
 					<button
 						class="tool"
@@ -866,67 +969,98 @@
 					</button>
 				</Tip>
 
-				<!-- Here and not beside the favourite and playlist buttons: a third 44px
-				     round there leaves the title about 160px on a docked panel. -->
-				{#if page.data.sharing}
-					<Tip label="Share">
+				{#if player.sheetLayout}
+					<!-- A phone's row: lyrics, the queue and the way down, with the rest
+					     in a fold, labelled. Seven unlabelled glyphs in a row read as one. -->
+					<Tip label="More">
 						<button
 							class="tool"
-							onclick={() => song && shareComposer.open(song)}
+							class:on={moreOpen || player.sleep !== null}
+							onclick={() => (moreOpen = !moreOpen)}
+							aria-expanded={moreOpen}
+							aria-label="More"
+						>
+							<Icon name="more" size={18} />
+							{#if sleepMinutesLeft !== null}
+								<span class="count hh-numeric">{sleepMinutesLeft}</span>
+							{/if}
+						</button>
+					</Tip>
+				{:else}
+					<Tip label="Track details">
+						<button
+							class="tool"
+							class:on={details}
+							onclick={() => (details = !details)}
 							disabled={!song || song.live}
-							aria-label="Share a link to this song"
+							aria-pressed={details}
+							aria-label="Track details"
 						>
-							<Icon name="share" size={18} />
+							<Icon name="info" size={18} />
 						</button>
 					</Tip>
-				{/if}
+					<!-- Here and not beside the favourite and playlist buttons: a third 44px
+					     round there leaves the title about 160px on a docked panel. -->
+					{#if page.data.sharing}
+						<Tip label="Share">
+							<button
+								class="tool"
+								onclick={() => song && shareComposer.open(song)}
+								disabled={!song || song.live}
+								aria-label="Share a link to this song"
+							>
+								<Icon name="share" size={18} />
+							</button>
+						</Tip>
+					{/if}
 
-				<Tip label="Volume">
-					<button
-						class="tool"
-						class:on={volumeOpen}
-						onclick={() => (volumeOpen = !volumeOpen)}
-						aria-pressed={volumeOpen}
-						aria-label="Volume"
-					>
-						<Icon name={volumeIcon} size={18} />
-					</button>
-				</Tip>
-
-				<Tip label="Sleep timer">
-					<button
-						class="tool"
-						class:on={sleepOpen || player.sleep !== null}
-						onclick={() => (sleepOpen = !sleepOpen)}
-						aria-expanded={sleepOpen}
-						aria-label={sleepMinutesLeft !== null
-							? `Sleep timer, pausing in ${sleepMinutesLeft} minutes`
-							: player.sleep
-								? 'Sleep timer, pausing at the end of this track'
-								: 'Sleep timer'}
-					>
-						<Icon name="moon" size={18} />
-						{#if sleepMinutesLeft !== null}
-							<span class="count hh-numeric">{sleepMinutesLeft}</span>
-						{/if}
-					</button>
-				</Tip>
-
-				<!-- Only while another browser of the account has the player open, or
-				     another app of it is playing, so the row is otherwise its usual
-				     seven. -->
-				{#if remote.peers.length + remote.apps.length > 0}
-					<Tip label="Devices">
+					<Tip label="Volume">
 						<button
 							class="tool"
-							class:on={remote.open}
-							onclick={() => (remote.open = true)}
-							aria-label="Devices ({remote.peers.length + remote.apps.length} other)"
+							class:on={volumeOpen}
+							onclick={() => (volumeOpen = !volumeOpen)}
+							aria-pressed={volumeOpen}
+							aria-label="Volume"
 						>
-							<Icon name="devices" size={18} />
-							<span class="count hh-numeric">{remote.peers.length + remote.apps.length}</span>
+							<Icon name={volumeIcon} size={18} />
 						</button>
 					</Tip>
+
+					<Tip label="Sleep timer">
+						<button
+							class="tool"
+							class:on={sleepOpen || player.sleep !== null}
+							onclick={() => (sleepOpen = !sleepOpen)}
+							aria-expanded={sleepOpen}
+							aria-label={sleepMinutesLeft !== null
+								? `Sleep timer, pausing in ${sleepMinutesLeft} minutes`
+								: player.sleep
+									? 'Sleep timer, pausing at the end of this track'
+									: 'Sleep timer'}
+						>
+							<Icon name="moon" size={18} />
+							{#if sleepMinutesLeft !== null}
+								<span class="count hh-numeric">{sleepMinutesLeft}</span>
+							{/if}
+						</button>
+					</Tip>
+
+					<!-- Only while another browser of the account has the player open, or
+					     another app of it is playing, so the row is otherwise its usual
+					     seven. -->
+					{#if remote.peers.length + remote.apps.length > 0}
+						<Tip label="Devices">
+							<button
+								class="tool"
+								class:on={remote.open}
+								onclick={() => (remote.open = true)}
+								aria-label="Devices ({remote.peers.length + remote.apps.length} other)"
+							>
+								<Icon name="devices" size={18} />
+								<span class="count hh-numeric">{remote.peers.length + remote.apps.length}</span>
+							</button>
+						</Tip>
+					{/if}
 				{/if}
 
 				<Tip label="Queue ({player.queue.length})">
@@ -1021,6 +1155,19 @@
 			grid-template-rows var(--fold),
 			opacity var(--fold),
 			margin-block-start var(--fold);
+	}
+
+	.more {
+		display: flex;
+		flex-wrap: wrap;
+		gap: var(--space-2);
+		padding-block: var(--space-2);
+	}
+
+	.more .chip {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.4rem;
 	}
 
 	.fold.open {
@@ -1414,6 +1561,10 @@
 	}
 
 	/* ── Listening together ──────────────────────────────────────────── */
+
+	.start {
+		margin-top: var(--space-3);
+	}
 
 	.live {
 		display: inline-flex;

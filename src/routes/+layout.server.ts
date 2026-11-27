@@ -28,6 +28,7 @@ export const load: LayoutServerLoad = async ({ locals, url }) => {
 			radio: false,
 			profiles: false,
 			ratings: false,
+			analysis: false,
 			account: null,
 			serverLabel: '',
 			settings: shippedSettings(),
@@ -65,6 +66,8 @@ export const load: LayoutServerLoad = async ({ locals, url }) => {
 		// Whether the music server keeps star ratings (Navidrome does, Jellyfin
 		// does not). The stars are drawn only where a press can be saved.
 		ratings: Boolean(session && backendFor(session.account.backend).setRating),
+		// Whether Track details asks for a song's tempo, key and loudness; see `/api/sound/[id]`.
+		analysis: cfg.analysis,
 		account: session?.account ?? null,
 		// The upstream URL is never included — the browser only learns the label.
 		serverLabel:

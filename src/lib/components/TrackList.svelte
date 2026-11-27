@@ -422,6 +422,30 @@
 						{/if}
 					</div>
 
+					<!-- On a phone, in place of the actions: the song's menu, as a right click opens it. -->
+					<button
+						class="row-more"
+						data-select-skip
+						type="button"
+						aria-label="More for {song.title}"
+						aria-haspopup="menu"
+						onclick={(event) => {
+							event.stopPropagation();
+							contextMenu.openFrom(
+								event.currentTarget,
+								{
+									kind: 'song',
+									song,
+									play: () => activate(index),
+									remove: onremove ? { label: 'Remove from this playlist', run: () => onremove?.([index]) } : null
+								},
+								event.detail === 0
+							);
+						}}
+					>
+						<Icon name="more" size={18} />
+					</button>
+
 					<span class="duration hh-numeric hh-muted">{formatDuration(song.duration)}</span>
 				</div>
 			</li>
@@ -809,6 +833,21 @@
 		transition-delay: 105ms;
 	}
 
+	/* The song's menu, on a phone only; see below. */
+	.row-more {
+		display: none;
+		place-items: center;
+		width: 2.25rem;
+		height: 2.25rem;
+		margin-block: -0.5rem;
+		border-radius: var(--r-sm);
+		color: var(--text-muted);
+	}
+
+	.row-more:active {
+		background: var(--bg-hover);
+	}
+
 	.row-action {
 		display: grid;
 		place-items: center;
@@ -905,12 +944,6 @@
 		text-align: center;
 	}
 
-	@keyframes actions-in {
-		from {
-			opacity: 0;
-		}
-	}
-
 	@media (max-width: 40rem) {
 		.track,
 		.tracks.artwork .track {
@@ -929,16 +962,17 @@
 		/*
 		 * A phone has no hover, so the row actions sat invisible and still took
 		 * their width: four of them left an iPhone 16 (393px) about 120px of
-		 * title. They are laid out only for the row that has focus, which a tap
-		 * gives it.
+		 * title. Then they showed only on the row a tap had focused, and the
+		 * tap also played it, so a song's actions were found by accident and
+		 * Play next and Go to artist not at all. One key opens the song's menu,
+		 * which holds all of them.
 		 */
 		.actions {
 			display: none;
 		}
 
-		.track:focus-within .actions {
-			display: flex;
-			animation: actions-in var(--dur-hover) var(--ease-out);
+		.row-more {
+			display: grid;
 		}
 	}
 

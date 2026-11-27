@@ -686,6 +686,24 @@ describe('the addresses a deployment is opened at', () => {
 		}
 	});
 
+	// Issue #356: several addresses in ORIGIN are served as saved ones are.
+	test('ORIGIN with several addresses serves each request on the one its Host names', async () => {
+		const app = await startApp({ subsonicUrl: subsonic.url, env: { ORIGIN: 'https://music.example.com, http://192.168.1.10:3000' } });
+		try {
+			const here = app.url;
+			assert.equal((await signIn(here, { host: 'music.example.com', origin: 'https://music.example.com' })).status, 303);
+			assert.equal((await signIn(here, { host: '192.168.1.10:3000', origin: 'http://192.168.1.10:3000' })).status, 303);
+			// Another site's page, and one listed address posing as the other.
+			assert.equal((await signIn(here, { host: 'music.example.com', origin: 'https://evil.example' })).status, 403);
+			assert.equal((await signIn(here, { host: 'music.example.com', origin: 'http://192.168.1.10:3000' })).status, 403);
+			// Any other Host is the first address, as one ORIGIN pins every request.
+			assert.equal((await signIn(here, { host: 'rebound.example', origin: 'https://rebound.example' })).status, 403);
+			assert.equal((await signIn(here, { host: 'rebound.example', origin: 'https://music.example.com' })).status, 303);
+		} finally {
+			await app.stop();
+		}
+	});
+
 	test('an ORIGIN that is not an address answers every request with a 400', async () => {
 		const app = await startApp({ subsonicUrl: subsonic.url, env: { ORIGIN: 'not an address' }, healthy: false });
 		try {

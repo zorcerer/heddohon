@@ -1,6 +1,6 @@
 # CodeQL on the server and pages (JavaScript and TypeScript), the Android app
 # (Java and Kotlin) and these workflows (actions): on every pull request into
-# `dev` or `main`, on a push to either, and once a week. Findings are under
+# `dev` or `release`, on a push to either, and once a week. Findings are under
 # Security, Code scanning, and a new one on a pull request is a failed check.
 #
 # Until 2026-11-10 this was GitHub's default setup, which scans only `main` and
@@ -14,9 +14,9 @@ name: codeql
 
 on:
   push:
-    branches: [dev, main]
+    branches: [dev, release]
   pull_request:
-    branches: [dev, main]
+    branches: [dev, release]
   schedule:
     # Mondays 05:41 UTC, off the hour and clear of the dev image at 04:17.
     - cron: '41 5 * * 1'

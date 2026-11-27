@@ -79,7 +79,8 @@
 <div class="page">
 	<header class="hero">
 		<div class="portrait">
-			<Cover coverArt={artist.coverArt} size={384} alt="Photo of {artist.name}" rounded />
+			<!-- Square with the album page's corner, as every cover is: round, it read as a profile picture. -->
+			<Cover coverArt={artist.coverArt} size={384} alt="Photo of {artist.name}" radius="var(--r-lg)" />
 		</div>
 		<div class="details" {@attach sweep}>
 			<HeroTitle text={artist.name} max={3.25} />
@@ -169,7 +170,7 @@
 						title={suggestion.name}
 						subtitle={suggestion.albumCount ? `${suggestion.albumCount} album${suggestion.albumCount === 1 ? '' : 's'}` : null}
 						coverArt={suggestion.coverArt}
-						rounded
+						portrait
 						onplay={() => playContainer('artist', suggestion.id)}
 					/>
 				{/each}

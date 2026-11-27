@@ -11,8 +11,8 @@
 # (there is no `:dev-<short sha>` for it yet). Either run builds only a commit
 # whose `check` on the push to `dev` succeeded, so the tag never points at a
 # commit whose suites failed. A scheduled or hand-started workflow is read
-# from the default branch, which is why this file has to be on `main` to take
-# effect while the builds are of `dev`.
+# from the default branch, `dev` since 2026-11-10, so a change to this file
+# takes effect once it is merged there.
 name: dev-image
 
 on:
@@ -108,6 +108,12 @@ jobs:
           platforms: arm64
 
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      # The arm64 ffmpeg is cross-compiled, and nothing else runs it before a
+      # Pi does: it decodes the test files under the emulation above, before
+      # anything is pushed (#342). About a minute: the stage is cached.
+      - name: Decode audio with the arm64 ffmpeg
+        run: tests/docker/ffmpeg.sh --platform linux/arm64
 
       - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:

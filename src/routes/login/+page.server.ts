@@ -1,3 +1,4 @@
+import { isAnalysisAccount } from '#lib/server/analysis/account.ts';
 import { fail, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 import { config } from '#lib/server/config.ts';
@@ -140,6 +141,19 @@ export const actions: Actions = {
 				backend,
 				error: `Too many sign-in attempts. Try again in ${Math.ceil(verdict.retryAfter / 60)} minute${verdict.retryAfter > 60 ? 's' : ''}.`
 			});
+		}
+
+		/*
+		 * The account sound analysis reads the library as never signs in here
+		 * (`analysis/account.ts`). Refused before the music server is asked, so
+		 * its password is never tried, and with the answer a wrong password gets
+		 * and counted as one, so the form does not tell anyone which name it is.
+		 * The log does.
+		 */
+		if (await isAnalysisAccount(backend, username)) {
+			await pruneLoginAttempts();
+			log.warn('sign-in-refused-analysis-account', { username, backend, address: event.getClientAddress() });
+			return fail(401, { username, backend, error: 'That username and password were not accepted by the music server.' });
 		}
 
 		let upstream: UpstreamSignIn;

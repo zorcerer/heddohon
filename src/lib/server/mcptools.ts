@@ -21,6 +21,8 @@ import { forgetSharedItems } from './shares';
 import { heldSmartIds } from './smartplaylists';
 import { dailyMixes } from './mixes';
 import { listeningStats, periodStart, recentPlays, STATS_PERIODS, type StatsPeriod } from './history';
+import { soundIndex } from './analysis/results.ts';
+import { config } from './config';
 
 /** A call's arguments that are not what the tool takes. The message is for the assistant. */
 export class ToolInputError extends Error {}
@@ -322,6 +324,33 @@ export const TOOLS: Tool[] = [
 		async run({ backend, credential }, args) {
 			const songs = await backend.getInstantMix(credential, oneOf(args, 'kind', STAR_KINDS), id(args), whole(args, 'limit', 50, 1, 100));
 			return { songs: songs.map(song) };
+		}
+	},
+	{
+		name: 'songs_that_sound_like',
+		title: 'Get songs that sound like a song',
+		description:
+			"Songs nearest a song by how they sound, nearest first, from what this server's sound analysis measured of the library: loudness, tempo, key and timbre. Answers for measured songs only.",
+		inputSchema: object({ id: ID, limit: count(20, 50, 'songs') }, ['id']),
+		writes: false,
+		// Present while the server analyses; Settings can turn that on and off.
+		offered: () => config().analysis,
+		async run({ backend, credential }, args) {
+			const seedId = id(args);
+			const limit = whole(args, 'limit', 20, 1, 50);
+			// The results are shared by every account, so the song is looked up with
+			// this account's own login first, as `/api/sound/<id>` does: one it cannot
+			// see answers as one that does not exist.
+			const [seed] = await backend.getSongs(credential, [seedId]);
+			if (!seed || seed.id !== seedId) throw new ToolInputError('There is no song of that id');
+			const index = config().analysis ? soundIndex(backend.kind) : null;
+			if (!index?.has(seedId)) throw new ToolInputError('That song has not been measured yet');
+			// Twice the songs asked for, as some may be in a library this account
+			// cannot see; the music server leaves those out of the lookup.
+			const nearest = index.nearest([seedId], Math.min(100, limit * 2));
+			const seen = new Map((nearest.length ? await backend.getSongs(credential, nearest) : []).map((item) => [item.id, item]));
+			const songs = nearest.flatMap((songId) => (seen.has(songId) ? [song(seen.get(songId)!)] : [])).slice(0, limit);
+			return { song: song(seed), songs };
 		}
 	},
 	{

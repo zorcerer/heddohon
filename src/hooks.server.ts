@@ -1,3 +1,4 @@
+import { startAnalysisJob, stopAnalysisJob } from '#lib/server/analysis/job.ts';
 import { isRedirect, redirect, type RequestEvent } from '@sveltejs/kit';
 import type { Handle, HandleServerError, ServerInit } from '@sveltejs/kit/hooks';
 import { building, version } from '$app/env';
@@ -46,7 +47,9 @@ const PUBLIC_ROUTES = [
 	'/now',
 	'/api/now-playing',
 	// A profile page's public link, its covers and its picture; see profilepage.ts.
-	'/p'
+	'/p',
+	// A cover for the desktop app's Discord activity, by a sealed link; see presencecover.ts.
+	'/api/presence-cover'
 ];
 
 /**
@@ -177,6 +180,8 @@ export const init: ServerInit = () => {
 		// A misconfiguration. The first request reports it.
 	}
 	exitOnShutdown();
+	// Rests a minute at a time while sound analysis is off; see `analysis/job.ts`.
+	startAnalysisJob();
 };
 
 /**
@@ -193,7 +198,9 @@ function exitOnShutdown() {
 	if (marked.__heddohonExitOnShutdown) return;
 	marked.__heddohonExitOnShutdown = true;
 	process.once('sveltekit:shutdown' as 'exit', () => {
-		void closeStore()
+		void stopAnalysisJob()
+			.catch((err) => log.error('analysis-stop-failed', { detail: reason(err) }))
+			.then(() => closeStore())
 			.catch((err) => log.error('database-close-failed', { detail: reason(err) }))
 			.finally(() => process.exit(0));
 	});

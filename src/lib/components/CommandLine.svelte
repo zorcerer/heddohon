@@ -2,7 +2,9 @@
 	import { page } from '$app/state';
 	import {
 		COMMANDS,
+		EQ_WORDS,
 		PLACES,
+		SETTINGS_SECTIONS,
 		SCHEMES,
 		THEMES,
 		commandNamed,
@@ -169,7 +171,10 @@
 			list
 				.filter((option) => option.startsWith(arg.trim().toLowerCase()))
 				.map((option) => ({ line: `${command!.name} ${option}`, text: option, detail: '', found: null }));
-		if (command?.takes === 'place') suggestions = options(['~', '..', ...PLACES]);
+		// The sections of Settings once a slash is typed after it, so `cd s` lists places and not nine of them.
+		if (command?.takes === 'place') {
+			suggestions = options(arg.includes('/') ? SETTINGS_SECTIONS.map((section) => `settings/${section}`) : ['~', '..', ...PLACES]);
+		} else if (command?.takes === 'eq') suggestions = options(EQ_WORDS);
 		else if (command?.takes === 'theme') suggestions = options(THEMES);
 		else if (command?.takes === 'scheme') suggestions = options(schemes);
 		else if (command?.takes === 'search' && scoped(arg).query.length >= 2) {

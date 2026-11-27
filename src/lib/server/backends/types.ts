@@ -152,6 +152,20 @@ interface SmartPlaylists {
 }
 
 /**
+ * What the music server says an account may do, read before the account is
+ * taken as the one sound analysis reads the library with
+ * (`analysis/account.ts`), which has to be an account that can do little.
+ */
+export interface AccountRights {
+	/** Whether it administers the music server, or null where the server does not say. */
+	admin: boolean | null;
+	/** Whether it may play audio, or null where the server does not say. */
+	stream: boolean | null;
+	/** What it may do beyond listing and playing, in words for an administrator: "share", "delete media". */
+	extra: string[];
+}
+
+/**
  * Everything the app can ask of a music server. Implementations are stateless:
  * the caller passes the opened credential on every call, so decrypted secrets
  * live for one request.
@@ -179,6 +193,13 @@ export interface MediaBackend {
 	 * need `true`.
 	 */
 	isAdmin(cred: StoredCredential): Promise<boolean | null>;
+
+	/**
+	 * What the music server says the account may do. Unlike `isAdmin`, a
+	 * failure to ask is thrown, not answered as "does not say": the caller
+	 * refuses an account it could not check.
+	 */
+	accountRights(cred: StoredCredential): Promise<AccountRights>;
 
 	/**
 	 * Asks the music server whether a stored credential still signs in, for a

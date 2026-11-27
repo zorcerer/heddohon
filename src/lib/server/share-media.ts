@@ -8,6 +8,7 @@
  * of the album stops playing. A song link, and the routes without a position,
  * are position 0.
  */
+import { noteListening } from './listening-activity';
 import { error, type RequestEvent } from '@sveltejs/kit';
 import { backendFor } from './backends';
 import { nearestCoverSize, proxySharedMedia, streamRequestFrom } from './proxy';
@@ -38,6 +39,7 @@ export function positionOf(segment: string | undefined): number {
  * on playing.
  */
 export async function streamShared(event: RequestEvent, position: number): Promise<Response> {
+	noteListening();
 	const token = event.params.token ?? '';
 	const access = await shareAccess(token);
 	if (!access) error(404, 'Not found');

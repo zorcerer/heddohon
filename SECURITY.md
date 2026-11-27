@@ -49,7 +49,7 @@ radio](#internet-radio).
 
 The five third-party switches and the MCP endpoint are saved by the first-run
 setup, and an account the music server lists as an administrator (asked of
-the music server on each save) turns them on and off under Settings, Features
+the music server on each save) turns them on and off under Settings, Server, Features
 (`?/saveFeatures`). Each is saved to `setup.json`, taken with the next
 request, and logged as `features-switched` at `warn`. A variable set in the
 environment takes precedence, and the switch is shown locked. The addresses
@@ -206,7 +206,7 @@ No account name, credential or upstream detail is sent.
 
 With `HEDDOHON_NEW_RELEASES=true`, or the box ticked in the first-run setup
 (which saves it to `setup.json`), an account can turn on a "New releases"
-shelf for its home page under Settings, Listening history; it is off for every
+shelf for its home page under Settings, History; it is off for every
 account until it does. For an account that has, the server reads the ten
 artists it played most in the last year from its history, and asks
 `HEDDOHON_MUSICBRAINZ_URL` (by default `musicbrainz.org`) for the albums and
@@ -418,7 +418,7 @@ request from Navidrome to Heddohon. Heddohon makes no request to the plugin.
   session. The songs are read then, under that session's credential, and a
   scrobble of a song not among them is skipped. A page for any other user is
   ignored. An import with no page for 2 minutes is closed.
-- **An account can turn it off** under Settings, Listening history ("Plays from
+- **An account can turn it off** under Settings, History ("Plays from
   other apps"). Its own plays are noted as before.
 - **What an app is playing now is held in memory, for the account's own
   browsers.** Navidrome reports each client's track, whether it plays or is
@@ -463,8 +463,8 @@ request from Navidrome to Heddohon. Heddohon makes no request to the plugin.
 With `HEDDOHON_MCP=true`, `/api/mcp` answers the Model Context Protocol over
 its Streamable HTTP transport, and Settings, AI, offers each account tokens
 for it. A client given one (Claude Code, for one) can read the account's
-library, favourites, playlists, history and listening statistics, and, if the
-token allows it, make, rename and delete playlists, change their entries, and
+library, favourites, playlists, history and listening statistics, songs that
+sound alike where sound analysis runs, and, if the token allows it, make, rename and delete playlists, change their entries, and
 set favourites and ratings. It is off by default: without it the route
 answers 404 and Settings does not offer tokens. Where the environment does not
 set the variable, the first-run setup saves it, and an account the music
@@ -511,6 +511,102 @@ accounts and open nothing.
 - **Left out of a backup** with the sessions, so a token withdrawn after the
   backup was made does not work again on a server restored from it.
 
+## Sound analysis
+
+Sound analysis (issue #312) measures how each song sounds on Heddohon's own
+server. It is off by default: `HEDDOHON_ANALYSIS=true`, or the first-run
+setup or an administrator under Settings, Features or Settings, Server, Sound
+analysis, turns it on. Off, nothing of it runs and Settings shows no account
+card for it; an account already named stays sealed and unused.
+
+**What it is doing is an administrator's to see.** Settings, Server, Sound
+analysis asks `/api/analysis` every 5 seconds while it is open, and only an
+account the music server lists as an administrator gets an answer, asked of
+the music server on each request. The answer names the song being read, which
+any account in the library may not see; the controls (pause, pace, hours,
+retry, reset, the switch) spend the server's processor or its results. A stop
+on an error is written to the log at the default level (`analysis-stopped`)
+and puts a dot on the links to Settings for an administrator.
+
+**One album now.** An administrator can have an album measured from its menu
+(`/api/analysis/album/<id>`), ahead of the library and while the job is
+paused, though never while someone listens. The album's songs are read with
+that administrator's own login; the analysis account reads only their audio,
+so `AnalysisSource` stays a list of songs and a reader of audio. Each
+administrator has one album waiting at most.
+
+**It reads the library as an account of its own.** Analysis runs with no
+request behind it, so it cannot use anyone's session. An administrator of the
+music server makes an ordinary account for it there and names it under
+Settings, Server. That account is the one shared account on the music server
+Heddohon keeps, and the one exception to invariant 10's "no service account";
+it was chosen over holding an administrator's credential (decided 2026-11-12).
+What holds it to analysis alone:
+
+- **It is not a Heddohon account.** Its login is a row in `meta`, sealed with
+  AES-256-GCM under a key of its own purpose (`analysis-account`), not a row
+  in `accounts`. It never makes a session, so it has no cookie, MCP token,
+  shared link, second factor or single sign-on link, and cannot be given one.
+- **It cannot sign in to Heddohon.** The sign-in form refuses its name, in any
+  case, before the music server is asked, so its password is never tried. The
+  form gives the answer a wrong password gets and counts it in the throttle,
+  so it does not tell a visitor which name is the analysis account; the log
+  says so (`sign-in-refused-analysis-account`). Quick Connect, which names the
+  user only once Jellyfin answers, refuses it there, as an approval that ran
+  out.
+- **Its login is opened in one module.** `analysis/account.ts` is the only
+  reader of the sealed value, and hands out an `AnalysisSource`: two methods,
+  list songs and read one song's original bytes. The credential stays inside
+  it. A test fails if another module names the sealing purpose or builds a
+  source.
+- **It must be able to do little.** Saving it signs it in and asks the music
+  server what it may do. An administrator is refused, as is an account that may
+  not play, or one the server will not say about (`getUser` on Subsonic,
+  `Policy` on Jellyfin). Any right beyond listing and playing (sharing,
+  uploading, deleting, settings) is named on the card for the administrator to
+  take away.
+- **It is dedicated.** A name that already has a Heddohon account is refused,
+  so it inherits nothing, and once named it cannot sign in to gain anything.
+- **The password is not shown again.** The card offers a 32-character password
+  made from the browser's random source (about 190 bits) to set on the music
+  server first. Once saved, Settings shows the name, who named it and when,
+  never the password or a token.
+
+What Heddohon cannot do is stop that account signing in to the music server's
+own interface or another app with its password: that is the music server's to
+allow. The card says so.
+
+**A shared result, an account's view.** A song is measured once and the result
+is shared by every account: numbers about a file, as Subsonic covers are
+shared (invariant 10's other exception). Anything that shows songs from it
+looks each one up with the asking account's own login first, and drops what
+the music server says that account cannot see. Volume levelling (`levelled` in `analysis/results.ts`) adds a gain only to
+a song the music server has just sent for the account's own login. The
+album page's "You might like" shelf, where the music server's own answer
+leaves it short, takes the songs that sound nearest the album's, looks them
+up with the account's own login, and shows only the albums of songs that
+come back (`soundAlikeAlbums` in `analysis/similar.ts`). An AI
+assistant's `songs_that_sound_like` looks up the song it is asked about with
+the token's account's own login first, answers one it cannot see as one that
+does not exist, and returns only the nearest songs that login gets back
+(`mcptools.ts`). The
+player's Track details
+(`/api/sound/<id>`) is the first route to ask for a result on its own: a song the account's login does not get
+from the music server answers 404, and a result is given only for the file
+the music server now lists.
+
+**Where it is kept.** The results are in `analysis.db` in the data directory, a
+SQLite file of their own, whichever database the server runs on. It holds
+the music server's song ids and numbers, and no titles. It is not in the
+backup and can be deleted with no loss but the time to measure again. The
+analysis account's sealed login is in the main database's `meta`, and is in
+the backup like every other sealed credential.
+
+**It never writes to the library**, and reads audio only through the music
+server's API. ffmpeg decodes it in a child process at the lowest priority,
+fed on its standard input: nothing of the music server is on its command
+line, where `ps` would show it.
+
 ## Credentials at rest
 
 - Upstream credentials are sealed with **AES-256-GCM** before they reach the database.
@@ -527,7 +623,8 @@ accounts and open nothing.
   `misconfigured` until the right `crypto-salt` is restored.
   Separate keys cover encryption, session digests, share-link digests,
   known-device cookies, Last.fm link state, cast addresses, the comparison
-  of the Navidrome plugin's token and MCP token digests.
+  of the Navidrome plugin's token, MCP token digests, and the sound analysis
+  account's login.
 - Each seal uses a fresh 12-byte random IV. The tag is verified on open, and a
   blob with a wrong version, part count, IV length or tag length is rejected.
 - Changing `HEDDOHON_SECRET` makes every stored credential unreadable and signs
@@ -1178,7 +1275,7 @@ each on, the albums it played lately and its most played artists of the last
   link; every session ending (`destroyAllSessions`) withdraws the link; a new
   Jellyfin user under the name removes the page.
 - **Switched off** (`HEDDOHON_PROFILES=false`, or an administrator under
-  Settings, Features), every route of it answers 404 as for a page that does
+  Settings, Server, Features), every route of it answers 404 as for a page that does
   not exist, public links included, People leaves the rail and the home page
   loses the picture that leads to it. What was saved stays, and comes back
   with the switch.
@@ -1218,6 +1315,45 @@ page on a see-through background), `/api/now-playing/<token>` (JSON) and
   Answers are `no-store`, and the token is kept out of the log (`redact`).
 - **Anyone who holds the link sees what the account plays** for as long as
   the link stands. Settings says so beside the button.
+
+## The desktop app's Discord activity
+
+The desktop app (Linux and Windows) can show what plays on the listener's
+Discord profile, over Discord's local socket on the same computer. It is off
+until switched on, per computer, in Settings, Playback, This browser, which
+shows the switch only in the app. The preload gives web pages two calls for
+it: `heddohonPresence`, which says what plays and returns nothing, and
+`heddohonDiscord`, which reads and sets that switch. The app answers both
+only from the saved server's main frame, so the server's own page can turn
+it on and a sign-in page in front of it cannot. An account with "Report playback" off sends nothing. Discord gets
+the title, the artist, the album, the song's start and end, and a cover
+address.
+
+The cover comes from the first of these that answers:
+
+- **This server, where an administrator turned it on**
+  (`HEDDOHON_DISCORD_COVERS`, Settings, Server, Features; off by default).
+  Discord's servers fetch an activity's image themselves, with no sign-in,
+  so the app is given a link that carries its own authority:
+  `/api/presence-cover/<token>`, a public route. The token is sealed with
+  AES-256-GCM under a key of its own (`presence-cover`), and names one cover
+  in the asking account's cache scope, its size, and when it stops working,
+  24 hours on. Sealed rather than signed: the scope holds a Jellyfin user's
+  id, and the link is shown to Discord. It is made only for a cover already
+  in the account's own cover cache, and is served from the cache alone, with
+  the cover cache's headers (`cachedCoverHeaders`): no stored credential is
+  opened and the music server is not asked. A cover swept from the cache, an
+  expired or altered token, and the switch turned off all answer 404.
+  Discord learns the address the app opens the server at. The app first
+  fetches the link from a session of its own, with no cookie and none of its
+  saved headers, and uses it only if that answers an image: a sign-in proxy
+  in front of the server turns it away there as it would Discord. An `http`
+  server is not offered to Discord.
+- **Cover Art Archive**, by the album's MusicBrainz release id, which the
+  music server knows from its tags (Navidrome) or provider ids (Jellyfin)
+  and `/api/presence` reads with the account's own login. Discord fetches it
+  from Cover Art Archive; nothing of this server is sent.
+- **The Heddohon icon**, from heddohon.app.
 
 ## Listening together
 
@@ -1424,6 +1560,11 @@ first-run setup or by an administrator under Settings, Storage:
   request is pinned to it, so the origin check compares `Origin` with the
   same address. An `ORIGIN` that is not an address answers every request
   with a 400, as adapter-node 5 did.
+- `ORIGIN` with several addresses (#356), apart by commas or spaces and each
+  starting `http://` or `https://`, is a list served as a saved one is: a
+  request is given the address its `Host` names. A request on any other `Host`
+  is pinned to the first, so the rule above holds for a list as for one
+  address.
 - No check is relaxed. SvelteKit's and this one both run as before, against
   that address. A saved address is matched against `Host`, which names the
   server the request was sent to, so a page on another site is refused
@@ -1672,6 +1813,8 @@ Covers are cached under `$HEDDOHON_DATA_DIR/covers` (see
 | MCP tool arguments | ids of 1 to 255 characters; a search of 2 to 200 characters and 50 of each kind; 200 albums, 1000 artists, 100 songs or 100 plays a page; 1000 songs or positions a playlist write; a playlist name of 200 characters; a rating from 0 to 5 |
 | MCP request | one JSON-RPC message, within the 512 KB body cap |
 | Library report | an account the music server lists as an administrator; one at a time on the server; kept in memory a day; 50 entries a list |
+| One album analysed now (`/api/analysis/album/<id>`) | an account the music server lists as an administrator, asked on every request (a `GET` from anyone else answers `{ offered: false }`); the album read with that account's own login; one album waiting for each administrator, 409 while it does; 404 with the feature off or no analysis account named |
+| Sound analysis settings (`/api/analysis`) | an account the music server lists as an administrator, asked on every request; `paused` and `on` booleans, `pace` one of `full`, `gentle` and `background`, `whileListening` `pause` or `continue`, `hours` null or two whole minutes from 0 to 1439; `on` refused while `HEDDOHON_ANALYSIS` is set in the environment; an action of `retry` or `reset` |
 | Daily mixes | 3 a day for an account, 40 songs each, made at most once a day from this server's history and kept in `daily_mixes` |
 | Listening history export | the account's own plays; `format` `csv` or `json`, `from` and `to` whole epoch milliseconds up to 8.64e15, `from` before `to`; read 2000 plays a query and written as read. A CSV field that starts with `=`, `+`, `-`, `@`, a tab or a carriage return takes a `'` in front, so a spreadsheet does not run a track name as a formula |
 | Playlist import | 1000 tracks a request, each with a title; title, artist and album cut to 300 characters; a length above 0 and under 86400 s or none. Each track is up to two searches of 20 songs on the music server, 8 tracks at a time, stopped when the browser goes. Nothing is written until the playlist is created through `/api/playlists` |
@@ -1985,6 +2128,9 @@ The same steps in the order to do them, with less of the reasoning, are in
     or `Permissions-Policy` on every site replaces Heddohon's: the nonce-based
     script policy, `same-origin` referrers and the sandbox on media. Attach such
     a header set to the sites that need it rather than to every site.
+15. **If you turn on sound analysis**, make an ordinary account for it on the
+    music server, with only the rights to list and play, give it the password
+    Settings suggests, and use that account for nothing else.
 
 ## Audit history
 
@@ -2344,7 +2490,7 @@ Found holding:
 Asked by the maintainer: is a profile picture kept without its metadata, and
 can a display name run as markup? Each with a check, in
 `tests/e2e/app.test.mjs` (**a picture is kept without its metadata**) and
-`tests/browser/browser.test.mjs` (**an account that chooses to be shown**).
+`tests/browser/panel-and-remote.test.mjs` (**an account that chooses to be shown**).
 
 | Severity | Finding | Fix |
 | --- | --- | --- |

@@ -4,10 +4,16 @@
 
 <p align="center">
   <a href="https://github.com/zorcerer/heddohon/releases"><img src="https://img.shields.io/github/v/release/zorcerer/heddohon?sort=semver" alt="Release"></a>
-  <a href="https://github.com/zorcerer/heddohon/actions/workflows/release.yml"><img src="https://img.shields.io/github/actions/workflow/status/zorcerer/heddohon/release.yml?label=build" alt="Build"></a>
+  <a href="https://github.com/zorcerer/heddohon/actions/workflows/release.yml"><img src="https://img.shields.io/github/actions/workflow/status/zorcerer/heddohon/release.yml?branch=release&label=build" alt="Build"></a>
   <a href="https://hub.docker.com/r/zorcererd/heddohon"><img src="https://img.shields.io/docker/pulls/zorcererd/heddohon" alt="Docker pulls"></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/zorcerer/heddohon" alt="License"></a>
 </p>
+
+> [!NOTE]
+> `dev` is unreleased work; releases are on the `release` branch.
+>
+> The `:dev` image is built from `dev` daily and can break. Use
+> [`docker-compose.dev.yml`](docker-compose.dev.yml), which keeps its data apart.
 
 Heddohon is a web music player you host yourself, in front of the Navidrome,
 Subsonic or Jellyfin server you already run. Screenshots and a tour are on
@@ -37,7 +43,8 @@ and one browser can control another.
 **Play anything from the keyboard.** In Terminal, Cmd+K or Ctrl+K opens a
 command line: `play` and the name of an album, an artist or a song starts the
 best match. Queueing, mixes,
-seeking and the volume work the same way.
+seeking and the volume work the same way. `cd` goes to a page or a section of
+Settings (`cd settings/security`), and `eq` sets the equaliser (`eq bass`).
 
 **Four themes, coloured by the artwork.** Terminal, Liquid, Paper and Phosphor, and colour schemes for any of them from files an administrator adds ([Configuration](https://github.com/zorcerer/heddohon/wiki/Configuration#colour-schemes-from-files)).
 
@@ -73,6 +80,83 @@ keeps it updated.
 
 <a href="https://ca.unraid.net/apps/heddohon-0bp7lm80vkr69w"><img src="https://img.shields.io/badge/Install%20on-Unraid-F15A2C?style=for-the-badge&logo=unraid&logoColor=white" alt="Install on Unraid from Community Applications"></a>
 
+## FAQ
+
+<details>
+<summary><b>Does Heddohon replace Navidrome or Jellyfin?</b></summary>
+
+No. It is a player in front of the music server you already run, which keeps
+the library: scanning, tags, users and what each user may see. Heddohon adds
+the player, sharing, listening together and the history around it.
+
+</details>
+
+<details>
+<summary><b>Will it change my music files or my library?</b></summary>
+
+No. It reads music through the music server's API, as any player does, and
+never writes tags, file names or ReplayGain values back. What it keeps (your
+settings, queue and listening history) is in its own database.
+
+</details>
+
+<details>
+<summary><b>Does my music server have to be on the internet?</b></summary>
+
+No. The browser only talks to Heddohon, which fetches every byte from the music
+server itself, so the music server can stay on your home network. Only
+Heddohon needs an address you can reach, and only if you listen away from
+home. [SETUP.md](SETUP.md) covers putting it behind a reverse proxy.
+
+</details>
+
+<details>
+<summary><b>Is my music server password safe?</b></summary>
+
+It is kept on the Heddohon server, never in the browser, sealed with
+AES-256-GCM under a key derived from your secret. A copy of the database alone
+opens no account. [SECURITY.md](SECURITY.md) has the threat model and the
+audits.
+
+</details>
+
+<details>
+<summary><b>Can I use Navidrome and Jellyfin at the same time?</b></summary>
+
+Yes. Give Heddohon the address of each, and the sign-in page asks which one to
+sign in to. Each account uses its own server.
+
+</details>
+
+<details>
+<summary><b>Is there an app for my phone?</b></summary>
+
+On iPhone and iPad, open Heddohon in Safari and add it to the home screen: it
+runs full screen, as an app. On Android there is an
+experimental app for Android 14 and later on each
+[release](https://github.com/zorcerer/heddohon/releases/latest), and desktop
+apps for Linux and Windows. See [Apps](https://github.com/zorcerer/heddohon/wiki/Apps).
+
+</details>
+
+<details>
+<summary><b>Does it transcode?</b></summary>
+
+It plays the original file by default, up to FLAC 24/192. You can ask the music
+server to transcode to MP3, Opus or AAC instead, to save data on a slow
+connection; the music server does the transcoding, not Heddohon.
+
+</details>
+
+<details>
+<summary><b>Do the people I share with need an account?</b></summary>
+
+No. A shared link plays in any browser until it expires or you withdraw it,
+and anyone with a listen-together link hears what you play without signing in.
+Adding songs to a shared queue needs an account on your music server.
+
+</details>
+
 ## Documentation
 
 | | |
@@ -92,10 +176,12 @@ reviewed by me and by multiple AI-assisted audits, documented in [SECURITY.md](S
 
 ## License
 
-[MIT](LICENSE). Music in the header image: Josh Woodward
-([CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)) and J.S. Bach's The
-Art of the Fugue played by Kimiko Ishizaka
-([CC0](https://creativecommons.org/publicdomain/zero/1.0/)).
+[MIT](LICENSE). Music and covers in the header image: Stellardrone, Light Years
+([CC BY 3.0](https://archive.org/details/Stellardrone-LightYears)); Lezet,
+Accumulation ([CC BY 3.0](https://archive.org/details/bof066)); Grove of
+Whispers, The Sheltering Sky and Vast ([CC BY 4.0](https://archive.org/details/bof060));
+and the unfound88 compilation happy in novi sad
+([CC BY 4.0](https://archive.org/details/unfound88)).
 
 The animated controls in `src/lib/components/bits/` are from
 [Svelte Bits](https://sveltebits.xyz) by David Haz, under the MIT licence with

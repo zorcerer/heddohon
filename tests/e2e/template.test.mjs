@@ -186,13 +186,13 @@ describe('the Unraid template', () => {
 		assert.match(one(root, 'Repository').text, /^ghcr\.io\/zorcerer\/heddohon:latest$/);
 	});
 
-	test('names files that are in this repository, by their address on main', () => {
+	test('names files that are in this repository, by their address on the release branch', () => {
 		const root = template();
-		const raw = 'https://raw.githubusercontent.com/zorcerer/heddohon/main/';
+		const raw = 'https://raw.githubusercontent.com/zorcerer/heddohon/release/';
 		const links = ['ReadMe', 'TemplateURL', 'Icon', 'Screenshot'].flatMap((name) => all(root, name).map((element) => element.text.trim()));
 		assert.ok(links.length >= 5, `only ${links.length} addresses`);
 		for (const link of links) {
-			assert.ok(link.startsWith(raw), `${link} is not a raw address on main`);
+			assert.ok(link.startsWith(raw), `${link} is not a raw address on the release branch`);
 			assert.ok(existsSync(resolve(ROOT, link.slice(raw.length))), `${link} names a file that is not in the tree`);
 		}
 		assert.equal(one(root, 'TemplateURL').text.trim(), `${raw}templates/heddohon.xml`);
@@ -257,7 +257,7 @@ describe('the Unraid template', () => {
 		const settings = new Map(all(template(), 'Config').map((setting) => [setting.attrs.Target, setting.attrs.Default]));
 		// Left empty in the template, so that the setup and Settings decide it: a
 		// value there would be the environment's, which Settings does not change.
-		const savedElsewhere = new Set(['HEDDOHON_MCP', 'HEDDOHON_REQUIRE_TWO_FACTOR', 'HEDDOHON_PROFILES', 'HEDDOHON_NEW_RELEASES', 'HEDDOHON_LYRICS_LRCLIB', 'HEDDOHON_AUTOEQ', 'HEDDOHON_DISCORD', 'HEDDOHON_LISTENBRAINZ']);
+		const savedElsewhere = new Set(['HEDDOHON_MCP', 'HEDDOHON_ANALYSIS', 'HEDDOHON_REQUIRE_TWO_FACTOR', 'HEDDOHON_PROFILES', 'HEDDOHON_NEW_RELEASES', 'HEDDOHON_LYRICS_LRCLIB', 'HEDDOHON_AUTOEQ', 'HEDDOHON_DISCORD', 'HEDDOHON_DISCORD_COVERS', 'HEDDOHON_LISTENBRAINZ']);
 		let compared = 0;
 		for (const [name, value] of defaults) {
 			if (!settings.has(name) || savedElsewhere.has(name)) continue;
