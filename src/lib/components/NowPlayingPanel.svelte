@@ -662,6 +662,8 @@
 						processed={player.outputRate
 							? { rateHz: player.outputRate, by: processing.correction ? 'correction' : 'equaliser' }
 							: null}
+						level={player.levelOf(song)}
+						volume={(player.muted ? 0 : player.volume) * player.volumeLimit}
 						ontoggle={(next) => void player.setTranscoding(next)}
 					/>
 				{:else}

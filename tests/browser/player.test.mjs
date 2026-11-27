@@ -640,7 +640,10 @@ describe('the quality badge in the player', () => {
 
 			await badge.click();
 			await path.waitFor();
-			assert.match(await path.textContent(), /Sends the file as it is[\s\S]*Plays it as received/);
+			// The volume as the player starts, 85% of full.
+			assert.match(await path.textContent(), /Sends the file as it is[\s\S]*Plays it as received[\s\S]*Level\s*volume 85%/);
+			// A browser is told nothing of the computer's output.
+			assert.doesNotMatch(await path.textContent(), /This app/);
 			await path.getByRole('button', { name: 'Transcode to save data' }).click();
 			await path.waitFor({ state: 'hidden' });
 			await page.waitForFunction(() => /FLAC\s*→/.test(document.querySelector('aside.panel button.badge')?.textContent ?? ''));
@@ -665,6 +668,60 @@ describe('the quality badge in the player', () => {
 			assert.equal(await path.getByRole('link', { name: 'Audio processing' }).getAttribute('href'), '/settings?tab=playback#this-browser');
 		} finally {
 			await context.request.patch(`${app.url}/api/settings`, { headers: origin, data: { transcode: false } });
+			await visit.close();
+		}
+		assert.deepEqual(problems, []);
+	});
+});
+
+describe('what you are hearing, in detail', () => {
+	// Issue #370: the level, the volume, and in the desktop app the computer's output.
+	test('names levelling, a lowered volume, and the output the app reports, marking a resampled output', async () => {
+		const origin = { origin: app.url };
+		await context.request.patch(`${app.url}/api/settings`, { headers: origin, data: { transcode: false, showQualityBadge: true, normalizeVolume: true, volume: 0.5 } });
+		// An album no other test reads: an album's songs are held per account once read.
+		// Both of its songs: the mock's track is short, and the second may be playing when the path is read.
+		subsonic.state.replayGains.set('s39a', { trackGain: -6.2, trackPeak: 0.9 });
+		subsonic.state.replayGains.set('s39b', { trackGain: -6.2, trackPeak: 0.9 });
+		const visit = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+		await visit.request.post(`${app.url}/login`, {
+			form: { username: 'testuser', password: 'testpass', backend: 'subsonic', next: '/' },
+			headers: { ...origin, accept: 'text/html' },
+			maxRedirects: 0
+		});
+		const page = await visit.newPage();
+		const problems = [];
+		page.on('pageerror', (err) => problems.push(err.message));
+		// What the desktop app's preload gives the page (`electron/preload.js`), as the app would answer.
+		await page.addInitScript(() => {
+			window.__asked = [];
+			window.heddohonOutput = {
+				describe: async (label) => {
+					window.__asked.push(label);
+					return { name: 'E30 Analog Stereo', system: 'PipeWire', rateHz: 48000, bits: 24, float: false };
+				}
+			};
+		});
+		const badge = page.locator('aside.panel button.badge');
+		const path = page.getByRole('dialog', { name: "What you're hearing" });
+		try {
+			await page.goto(app.url + '/albums/al39', { waitUntil: 'networkidle' });
+			await page.locator('.details .hh-button--primary').click();
+			await badge.waitFor();
+			await badge.click();
+			await path.waitFor();
+			await page.waitForFunction(() => /PipeWire/.test(document.querySelector('[role="dialog"][aria-label="What you\'re hearing"]')?.textContent ?? ''));
+			const text = (await path.textContent()).replace(/\s+/g, ' ');
+			assert.match(text, /This app/);
+			assert.match(text, /Level\s*−6\.2 dB, from the file's ReplayGain · volume 50%/);
+			// The file is 44.1 kHz and the output 48: resampled, and marked as a change.
+			assert.match(text, /PipeWire\s*E30 Analog Stereo: resampled to 48 kHz · 24-bit/);
+			assert.equal(await path.locator('li', { hasText: 'PipeWire' }).evaluate((node) => node.classList.contains('changed')), true);
+			// The system's default output: none was chosen here.
+			assert.deepEqual(await page.evaluate(() => window.__asked), ['']);
+		} finally {
+			subsonic.state.replayGains.clear();
+			await context.request.patch(`${app.url}/api/settings`, { headers: origin, data: { normalizeVolume: false, volume: 0.85 } });
 			await visit.close();
 		}
 		assert.deepEqual(problems, []);

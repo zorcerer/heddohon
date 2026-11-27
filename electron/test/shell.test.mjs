@@ -193,6 +193,9 @@ describe('the shell', () => {
 
 			// The page cannot reach the calls the address screen has.
 			assert.equal(await page.evaluate(() => typeof window.heddohonDesktop), 'undefined');
+			// It may ask for the computer's output (issue #370), and is answered with one or, where the system says nothing, null.
+			const output = await page.evaluate(() => window.heddohonOutput.describe(''));
+			assert.ok(output === null || (typeof output.name === 'string' && output.rateHz > 0), JSON.stringify(output));
 		} finally {
 			await app.close();
 		}

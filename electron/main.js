@@ -33,6 +33,7 @@ const path = require('node:path');
 const { fileURLToPath } = require('node:url');
 const { originOf, compareVersions, parseHeaders, formatHeaders, classify } = require('./lib');
 const { Presence, stateOf, activityOf, coverArtArchive } = require('./discord');
+const { describeOutput } = require('./output');
 
 const REPOSITORY = 'zorcerer/heddohon';
 const SETUP = path.join(__dirname, 'setup.html');
@@ -623,6 +624,17 @@ ipcMain.handle('discord:set', (event, on) => {
 	saveConfig();
 	if (!config.discord) void presence?.stop();
 	return { on: config.discord };
+});
+
+/*
+ * The computer's audio output, for "What you're hearing" (issue #370;
+ * `output.js`): its name and the rate and bit depth the system plays at, for
+ * the output chosen in Heddohon by its label, or the default. Answered to the
+ * saved server's page alone.
+ */
+ipcMain.handle('output:describe', (event, label) => {
+	if (!fromSavedServer(event)) return null;
+	return describeOutput(typeof label === 'string' ? label.slice(0, 200) : '').catch(() => null);
 });
 
 ipcMain.on('presence', (event, raw) => {

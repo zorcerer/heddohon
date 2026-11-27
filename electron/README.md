@@ -77,7 +77,19 @@ against the packaged app, after `npm run dist`. On Windows that is
   answer the package's own file and no other file on the disk.
 - A web page is given two calls for the Discord activity: one says what
   plays and returns nothing, the other reads and sets the switch below.
-  Both are answered only from the saved server's page.
+  And one that names the computer's audio output, for the player's "What
+  you're hearing". Each is answered only from the saved server's page.
+
+## What you're hearing
+
+The quality badge in the player opens "What you're hearing". In the app it
+also names the computer's output: the device, and the rate and bit depth the
+system plays it at, read from PipeWire or PulseAudio (`pactl`) on Linux and
+from the device's format under Sound settings on Windows. Where the file's
+rate is not the device's, it says the audio is resampled to the device's,
+and marks that as it marks the equaliser. Set the device's rate to the
+file's to hear it at its own. The app plays through the system's mixer, so
+it cannot take a device in exclusive mode or play bit-perfect.
 
 ## What plays, on Discord
 

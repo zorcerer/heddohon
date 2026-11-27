@@ -1323,7 +1323,10 @@ Discord profile, over Discord's local socket on the same computer. It is off
 until switched on, per computer, in Settings, Playback, This browser, which
 shows the switch only in the app. The preload gives web pages two calls for
 it: `heddohonPresence`, which says what plays and returns nothing, and
-`heddohonDiscord`, which reads and sets that switch. The app answers both
+`heddohonDiscord`, which reads and sets that switch. A third,
+`heddohonOutput`, names the computer's audio output for the player (its
+name, rate and bit depth, read with `pactl` on Linux and PowerShell on
+Windows), and takes only the label of an output to look for. The app answers both
 only from the saved server's main frame, so the server's own page can turn
 it on and a sign-in page in front of it cannot. An account with "Report playback" off sends nothing. Discord gets
 the title, the artist, the album, the song's start and end, and a cover
