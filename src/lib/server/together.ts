@@ -64,6 +64,9 @@ export interface PartyState {
 	/** Seconds, as of `at`. */
 	position: number;
 	playing: boolean;
+	/** For the links on the page to the artist and the album in the host's library. */
+	artistId?: string | null;
+	albumId?: string | null;
 	/** Epoch millis the report arrived, set here. */
 	at: number;
 }
@@ -72,7 +75,18 @@ export interface PartyState {
 export interface MemberView {
 	id: string;
 	name: string;
+	/** A visitor without an account on the host's server, who gave this name when joining. */
+	guest?: boolean;
 }
+
+/**
+ * What the host lets the people with the link do. `listen`: they hear what
+ * plays, see what is up next and react, and nothing is added. `add`: members
+ * add from their own library, and guests may look through the host's library
+ * (`together-guests.ts`) and add from it.
+ */
+export type PartyAccessMode = 'listen' | 'add';
+export const ACCESS_MODES: readonly PartyAccessMode[] = ['listen', 'add'];
 
 /** One track of what is up next, as everyone in the party is shown it. */
 export interface QueueRow {
@@ -124,8 +138,11 @@ interface Listener {
 }
 
 interface Member extends MemberView {
+	/** The account's id, or `guest:` and the digest of a guest's key. */
 	accountId: string;
 	lastAdd: number;
+	/** A guest's look-ups in the host's library: the window's start and how many it has held. */
+	browsing: { since: number; count: number };
 }
 
 interface Addition {
@@ -162,6 +179,7 @@ interface Party {
 	/** The host's last report of what is up next, cut to `QUEUE_SHOWN`, and its full length. */
 	upcoming: QueueRow[];
 	upcomingTotal: number;
+	access: PartyAccessMode;
 }
 
 const byDigest = new Map<string, Party>();
@@ -171,6 +189,16 @@ const bySession = new Map<string, Party>();
 export function togetherEnabled(): boolean {
 	const cfg = config();
 	return cfg.sharing && cfg.remoteControl;
+}
+
+/**
+ * Whether a visitor without an account on the host's music server can join
+ * under a name and look through the host's library (`HEDDOHON_TOGETHER_GUESTS`,
+ * off by default). Off, the guest and library routes answer 404 and such a
+ * visitor listens, as before guests.
+ */
+export function guestsEnabled(): boolean {
+	return togetherEnabled() && config().togetherGuests;
 }
 
 function live(party: Party | undefined): Party | null {
@@ -212,7 +240,7 @@ function membersHere(party: Party): MemberView[] {
 	for (const listener of party.listeners.values()) if (listener.member) here.add(listener.member);
 	return [...here].flatMap((accountId) => {
 		const member = party.members.get(accountId);
-		return member ? [{ id: member.id, name: member.name }] : [];
+		return member ? [{ id: member.id, name: member.name, ...(member.guest ? { guest: true } : {}) }] : [];
 	});
 }
 
@@ -256,10 +284,20 @@ export interface PartyView {
 	url: string;
 	expiresAt: number;
 	listeners: number;
+	access: PartyAccessMode;
+	/** Whether visitors without an account can join as guests (`guestsEnabled`), for the dialog's wording. */
+	guests: boolean;
 }
 
 function view(party: Party): PartyView {
-	return { id: party.id, url: `/together/${party.token}`, expiresAt: party.expiresAt, listeners: party.listeners.size };
+	return {
+		id: party.id,
+		url: `/together/${party.token}`,
+		expiresAt: party.expiresAt,
+		listeners: party.listeners.size,
+		access: party.access,
+		guests: guestsEnabled()
+	};
 }
 
 /** The party this session hosts, if any. */
@@ -291,7 +329,9 @@ export function startParty(session: AuthenticatedSession): PartyView | null {
 		seq: 0,
 		applied: 0,
 		upcoming: [],
-		upcomingTotal: 0
+		upcomingTotal: 0,
+		// Nothing is added until the host says so in the dialog.
+		access: 'listen'
 	};
 	byDigest.set(party.digest, party);
 	bySession.set(party.session, party);
@@ -403,6 +443,7 @@ export interface PartyAccess {
 	/** What is up next, as the page starts with it. */
 	queue: QueueRow[];
 	queueTotal: number;
+	access: PartyAccessMode;
 }
 
 /**
@@ -423,7 +464,8 @@ export function partyFor(token: string, viewer: AuthenticatedSession | null): Pa
 		expiresAt: party.expiresAt,
 		standing: as,
 		queue,
-		queueTotal: total
+		queueTotal: total,
+		access: party.access
 	};
 }
 
@@ -530,6 +572,7 @@ export function listen(
 	send('hello', { id: listener.id, tag: listener.tag });
 	send('state', { now: Date.now(), state: party.state });
 	send('queue', queueView(party));
+	send('access', { access: party.access });
 	if (listener.host) {
 		send('host', {
 			applied: party.applied,
@@ -585,7 +628,7 @@ export function join(token: string, listenerId: string, viewer: AuthenticatedSes
 	if (standing(party, viewer) !== 'member') return 'refused';
 	let member = party.members.get(viewer.account.id);
 	if (!member) {
-		member = { id: randomUUID(), accountId: viewer.account.id, name: viewer.account.username, lastAdd: 0 };
+		member = { id: randomUUID(), accountId: viewer.account.id, name: viewer.account.username, lastAdd: 0, browsing: { since: 0, count: 0 } };
 		party.members.set(member.accountId, member);
 	}
 	listener.member = member.accountId;
@@ -611,7 +654,8 @@ function memberOf(party: Party, viewer: AuthenticatedSession): Member | undefine
 	return standing(party, viewer) === 'member' ? party.members.get(viewer.account.id) : undefined;
 }
 
-export type AddRefusal = 'unknown' | 'not_member' | 'limited' | 'member_full' | 'party_full';
+/** `closed`: the host lets the party listen and nothing more. */
+export type AddRefusal = 'unknown' | 'not_member' | 'closed' | 'limited' | 'member_full' | 'party_full';
 
 function room(party: Party, member: Member): AddRefusal | null {
 	if (party.additions.length >= MAX_ADDED) return 'party_full';
@@ -630,6 +674,11 @@ export function admit(token: string, viewer: AuthenticatedSession): { accountId:
 	if (!party) return 'unknown';
 	const member = memberOf(party, viewer);
 	if (!member) return 'not_member';
+	return admitMember(party, member);
+}
+
+function admitMember(party: Party, member: Member): { accountId: string; session: string } | AddRefusal {
+	if (party.access !== 'add') return 'closed';
 	const now = Date.now();
 	if (now - member.lastAdd < ADD_GAP_MS) return 'limited';
 	member.lastAdd = now;
@@ -646,6 +695,11 @@ export function enqueue(token: string, viewer: AuthenticatedSession, song: Song)
 	if (!party) return 'unknown';
 	const member = memberOf(party, viewer);
 	if (!member) return 'not_member';
+	return enqueueFor(party, member, song);
+}
+
+function enqueueFor(party: Party, member: Member, song: Song): { entry: string } | AddRefusal {
+	if (party.access !== 'add') return 'closed';
 	const full = room(party, member);
 	if (full) return full;
 	const addition: Addition = { id: randomUUID(), seq: ++party.seq, song, by: member, withdrawn: false };
@@ -663,7 +717,11 @@ export function enqueue(token: string, viewer: AuthenticatedSession, song: Song)
 export function withdraw(token: string, viewer: AuthenticatedSession, entry: string): boolean {
 	const party = behind(token);
 	if (!party || standing(party, viewer) !== 'member') return false;
-	const addition = party.additions.find((candidate) => candidate.id === entry && candidate.by.accountId === viewer.account.id);
+	return withdrawFor(party, viewer.account.id, entry);
+}
+
+function withdrawFor(party: Party, accountId: string, entry: string): boolean {
+	const addition = party.additions.find((candidate) => candidate.id === entry && candidate.by.accountId === accountId);
 	if (!addition) return false;
 	if (addition.seq > party.applied) {
 		party.additions = party.additions.filter((candidate) => candidate !== addition);
@@ -690,7 +748,7 @@ export function removeMember(session: AuthenticatedSession, memberId: string): b
 	party.removed.add(member.accountId);
 	party.additions = party.additions.filter((addition) => addition.by !== member || addition.seq <= party.applied);
 	for (const listener of [...party.listeners.values()]) {
-		if (listener.account !== member.accountId || listener.host) continue;
+		if ((listener.account !== member.accountId && listener.member !== member.accountId) || listener.host) continue;
 		party.listeners.delete(listener.id);
 		listener.send('removed', {});
 		listener.close();
@@ -699,4 +757,156 @@ export function removeMember(session: AuthenticatedSession, memberId: string): b
 	announceMembers(party);
 	announceQueue(party);
 	return true;
+}
+
+/*
+ * Guests: visitors without an account on the host's music server who join
+ * under a name of their choosing. The routes under `together/[token]/guest`
+ * and `together/[token]/library` use these; `together-guests.ts` has why.
+ *
+ * A guest is known by a random key its browser keeps in a cookie for the
+ * party's path. The key's digest is the guest's place in `members` (prefixed
+ * `guest:`, which no account id starts with), so a reload keeps the name and
+ * the additions, and a guest the host removed stays removed while the browser
+ * keeps the cookie. A guest is a convenience among friends, not an identity:
+ * a visitor who clears the cookie comes back as a new guest.
+ */
+
+/** Guests one party holds at most, besides the accounts. */
+const MAX_GUESTS = 50;
+export const GUEST_NAME_MAX = 32;
+/** A guest's look-ups in the host's library, per window. */
+const BROWSE_WINDOW_MS = 60_000;
+const BROWSE_PER_WINDOW = 120;
+
+const guestKeyOf = (key: string) => `guest:${shareDigest(`together-guest:${key}`)}`;
+
+/** The name as it is shown: no control characters, spaces collapsed, at most `GUEST_NAME_MAX` characters. */
+export function guestName(raw: unknown): string | null {
+	if (typeof raw !== 'string') return null;
+	// eslint-disable-next-line no-control-regex
+	const name = [
+		...raw
+			.replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2066-\u2069]/g, '')
+			.replace(/\s+/g, ' ')
+			.trim()
+	]
+		.slice(0, GUEST_NAME_MAX)
+		.join('')
+		.trim();
+	return name.length > 0 ? name : null;
+}
+
+/** Sets what the people with the link may do, for the party this session hosts. Null without one. */
+export function setAccess(session: AuthenticatedSession, access: PartyAccessMode): PartyView | null {
+	const party = live(bySession.get(session.handle));
+	if (!party) return null;
+	if (party.access !== access) {
+		party.access = access;
+		broadcast(party, 'access', { access });
+	}
+	return view(party);
+}
+
+/**
+ * Makes a visitor's stream a guest's, under the name given. `key` is the
+ * guest's from an earlier join, or null for a new guest; the key to keep is
+ * returned. `unknown` without such a stream, `refused` for the host's own
+ * stream, an account that joins as a member instead, a guest the host removed,
+ * or a party with `MAX_GUESTS` guests.
+ */
+export function joinAsGuest(
+	token: string,
+	listenerId: string,
+	viewer: AuthenticatedSession | null,
+	key: string | null,
+	name: string
+): { member: MemberView; key: string } | 'unknown' | 'refused' {
+	const party = behind(token);
+	const listener = party?.listeners.get(listenerId);
+	if (!party || !listener || listener.host || listener.account !== (viewer?.account.id ?? null)) return 'unknown';
+	if (standing(party, viewer) !== 'listener') return 'refused';
+	let held = key && key.length <= 64 ? key : null;
+	let member = held ? party.members.get(guestKeyOf(held)) : undefined;
+	if (held && party.removed.has(guestKeyOf(held))) return 'refused';
+	if (!member) {
+		const guests = [...party.members.values()].filter((candidate) => candidate.guest).length;
+		if (guests >= MAX_GUESTS) return 'refused';
+		held = held ?? randomBytes(24).toString('base64url');
+		member = {
+			id: randomUUID(),
+			accountId: guestKeyOf(held),
+			name,
+			guest: true,
+			lastAdd: 0,
+			browsing: { since: 0, count: 0 }
+		};
+		party.members.set(member.accountId, member);
+	}
+	member.name = name;
+	listener.member = member.accountId;
+	announceMembers(party);
+	announceQueue(party);
+	return {
+		member: { id: member.id, name: member.name, guest: true },
+		key: held as string
+	};
+}
+
+function guestOf(party: Party, key: string | null): Member | undefined {
+	if (!key || key.length > 64) return undefined;
+	const id = guestKeyOf(key);
+	if (party.removed.has(id)) return undefined;
+	return party.members.get(id);
+}
+
+export type GuestRefusal = 'unknown' | 'not_guest' | 'closed' | 'limited';
+
+/**
+ * Whether a guest may look in the host's library now, and as whom: the host's
+ * account and session. Only while the host lets the party add (`access`), and
+ * `BROWSE_PER_WINDOW` look-ups a minute.
+ */
+export function guestBrowse(token: string, key: string | null): { accountId: string; session: string; backend: Party['backend'] } | GuestRefusal {
+	const party = behind(token);
+	if (!party) return 'unknown';
+	const member = guestOf(party, key);
+	if (!member) return 'not_guest';
+	if (party.access !== 'add') return 'closed';
+	const now = Date.now();
+	if (now - member.browsing.since > BROWSE_WINDOW_MS) member.browsing = { since: now, count: 0 };
+	if (member.browsing.count >= BROWSE_PER_WINDOW) return 'limited';
+	member.browsing.count += 1;
+	return {
+		accountId: party.accountId,
+		session: party.session,
+		backend: party.backend
+	};
+}
+
+/** As `admit`, for a guest. */
+export function admitGuest(token: string, key: string | null): { accountId: string; session: string; backend: Party['backend'] } | AddRefusal {
+	const party = behind(token);
+	if (!party) return 'unknown';
+	const member = guestOf(party, key);
+	if (!member) return 'not_member';
+	const admitted = admitMember(party, member);
+	return typeof admitted === 'string' ? admitted : { ...admitted, backend: party.backend };
+}
+
+/** As `enqueue`, for a guest: the track as the host's account reads it. */
+export function enqueueGuest(token: string, key: string | null, song: Song): { entry: string } | AddRefusal {
+	const party = behind(token);
+	if (!party) return 'unknown';
+	const member = guestOf(party, key);
+	if (!member) return 'not_member';
+	return enqueueFor(party, member, song);
+}
+
+/** As `withdraw`, for a guest. */
+export function withdrawGuest(token: string, key: string | null, entry: string): boolean {
+	const party = behind(token);
+	if (!party) return false;
+	const member = guestOf(party, key);
+	return !!member && withdrawFor(party, member.accountId, entry);
 }

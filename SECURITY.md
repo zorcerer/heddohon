@@ -1362,7 +1362,8 @@ A signed-in browser can start a live session and hand out its link,
 plays, as it plays, without an account. What it is limited to:
 
 - **It needs `HEDDOHON_SHARING` and `HEDDOHON_REMOTE_CONTROL` on.** With either
-  off, every `/together` route answers 404.
+  off, every `/together` route answers 404. Guests need
+  `HEDDOHON_TOGETHER_GUESTS` as well ([Guests](#guests)).
 - **The token is 24 random bytes.** Sessions are looked up by an HMAC digest
   of it. The token is held in the process's memory with the session, so the
   host can show the link again, and nothing is written to disk.
@@ -1409,8 +1410,14 @@ for a track a member added, the member's name.
 
 A listener signed in to this Heddohon on the host's music server can join as a
 member and add tracks to the host's queue. A visitor with no account, and an
-account on the other server of a deployment with two, listen as before and add
-nothing.
+account on the other server of a deployment with two, listen and add nothing,
+unless guests are switched on ([Guests](#guests)).
+
+The host chooses in the dialog what anyone with the link may do, and can
+change it while the party runs: **Listen only**, the default, where nothing is
+added, by members or guests; or **Listen and add tracks**. The choice reaches
+every open page at once. `POST /api/together/access` sets it, for the host's
+own party only.
 
 - **Joining is a press, and it shows a name.** The page says "Join as
   <name>" and that the name is shown. Until then the visitor's stream is a
@@ -1451,6 +1458,54 @@ nothing.
 `GET /api/search?q=` answers a signed-in account with the songs its own
 library holds for a query, 24 at most. It is what a member's search box calls;
 the search page reads the same through its loader.
+
+### Guests
+
+With `HEDDOHON_TOGETHER_GUESTS` on (off by default; Settings, Server,
+Features), a visitor without an account on the host's music server can join a
+party under a name, and, while the host lets the party add, look through the
+host's library and add from it. Off, `/together/<token>/guest`,
+`/together/<token>/guest/queue` and `/together/<token>/library` answer 404 and
+such a visitor listens, as above.
+
+- **Joining is a press with a name.** The name is the visitor's own choice:
+  control, format and direction characters are removed, spaces collapsed, and
+  it is cut to 32 characters. The host sees it, marked as a guest, and so does
+  everyone with the link on the tracks the guest added. It names no account.
+  `POST /together/<token>/guest` names a stream the visitor opened, as a
+  member's join does; the host's own stream and an account that can join as a
+  member are refused.
+- **The guest's key** is 24 random bytes, kept in the browser in a cookie
+  `hh_together_guest`: `HttpOnly`, `SameSite=Strict`, `Secure` over https,
+  scoped to `/together/<token>` and gone after 12 hours, as long as a party
+  lasts. The server holds an HMAC digest of it with the party in memory, so a
+  reload keeps the name and the additions. A guest is a convenience among
+  friends, not an identity: whoever holds the cookie is that guest, and a
+  visitor who clears it comes back as a new one.
+- **What a guest reads is the host's library, as the host's account sees
+  it,** and only while the host lets the party add: search, artists, an
+  artist's albums, albums by page, an album's tracks, genres and a genre's
+  albums (`GET /together/<token>/library`). Switched back to "Listen only",
+  every look-up is refused at once. This is the exception to "the music server
+  decides who sees what": the host chose to show the library to the people
+  with the link.
+- **What a guest is sent of it** is what the page shows: a track's id, title,
+  artist, album, their ids, track and disc number and length; an album's id,
+  name, artist and its id, year, track count, length and release types; an artist's id, name and album count; a
+  genre's id, name and album count. No covers, file paths, play counts,
+  ratings, favourites or playlists.
+- **An addition** is looked up with the host's credential alone (a guest has no
+  account to check it against) and goes through the members' pipeline and
+  limits. The host removes a guest as a member: the streams end, the additions
+  not yet in the host's queue are dropped, and the key is refused for the rest
+  of the party.
+- **The whole lists** (artists, genres) are read through `listings.ts` under
+  the host's account, so a party's guests share one read per list every 30
+  seconds.
+- **Bounds:** 50 guests a party, besides the accounts; 120 look-ups a minute
+  per guest; a search of 2 to 200 characters and 30 of each kind; 60 albums a
+  page, an offset up to 100,000; ids under 256 characters; additions as for
+  members.
 
 ## Listening now
 
@@ -1800,6 +1855,7 @@ Covers are cached under `$HEDDOHON_DATA_DIR/covers` (see
 | Listen-together session | 12 hours, never past the host's session; 50 listeners without an account, 4 streams per account or per address; 200 sessions a process |
 | Listen-together reaction | one of five emoji, one a second per listener |
 | Listen-together addition | a track id of 1 to 255 characters; one every 2 seconds per member; 50 waiting per member, 500 per party |
+| Listen-together guest (`HEDDOHON_TOGETHER_GUESTS`) | 50 a party; a name of 32 characters, cut, with control, format and direction characters removed; a key of 64 characters at most before it is looked up; 120 library look-ups a minute; a search of 2 to 200 characters, cut, 30 of each kind; 60 albums a page, an offset up to 100,000; additions as for members |
 | Listen-together queue report | 1000 tracks; titles and artists kept for the first 50, 300 characters each, cut |
 | `/api/search` query | 2 to 200 characters, cut; 24 songs |
 | Genre id in a path | 200 characters; on Jellyfin a GUID, since `GenreIds` takes a list |

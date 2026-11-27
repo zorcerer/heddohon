@@ -9,6 +9,7 @@ import { admit, enqueue, togetherEnabled, withdraw, type AddRefusal } from '#lib
 function refuse(refusal: AddRefusal): never {
 	if (refusal === 'unknown') error(404, 'This listening session has ended.');
 	if (refusal === 'not_member') error(403, 'Join this listening session to add to its queue.');
+	if (refusal === 'closed') error(403, 'The host lets everyone listen, and nothing more.');
 	if (refusal === 'limited') error(429, 'One track every 2 seconds.');
 	if (refusal === 'member_full') error(429, 'You have 50 tracks waiting in the queue. Add more once some have played.');
 	error(429, 'The queue holds 500 added tracks. Add more once some have played.');

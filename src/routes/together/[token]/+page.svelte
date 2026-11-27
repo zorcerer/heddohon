@@ -12,6 +12,13 @@
 	 * same press: shown to the host by name, with a search of their own library
 	 * and an Add button on each result. Everyone sees what is up next and who
 	 * added it, and a member can take back a track of their own.
+	 *
+	 * Where guests are switched on (`HEDDOHON_TOGETHER_GUESTS`, `data.guests`),
+	 * anyone else joins as a guest under a name they type, and otherwise only
+	 * listens. While the host lets
+	 * the party add, a guest looks through the host's library
+	 * (`TogetherLibrary`) and adds from it; `server/together-guests.ts` has how.
+	 * The artist and the album of what plays then open in that library.
 	 */
 	import { onMount, untrack } from 'svelte';
 	import { colorOfImage, DEFAULT_ARTWORK_COLOR, holdArtworkColor } from '#lib/client/artwork.ts';
@@ -20,6 +27,8 @@
 	import type { FloatingReaction } from '#lib/client/together.svelte.ts';
 	import type { MemberView, PartyState, QueueRow } from '#lib/server/together.ts';
 	import ElasticSlider from '#lib/components/bits/ElasticSlider.svelte';
+	import TogetherLibrary from '#lib/components/TogetherLibrary.svelte';
+	import type { PartyAccessMode } from '#lib/server/together.ts';
 	import { guestVolume, keepGuestVolume, volumeSettable } from '#lib/client/guest-volume.ts';
 	import type { Song } from '#lib/types.ts';
 	import type { PageData } from './$types';
@@ -56,6 +65,8 @@
 	let queueTotal = $state(untrack(() => data.queueTotal));
 	/** Whether this visitor's account may join as a member, and the member it is once it has. */
 	const mayAdd = $derived(data.viewer?.standing === 'member');
+	/** Whether this visitor, without an account here, joins as a guest under a name; else it only listens. */
+	const asGuest = $derived(!mayAdd && data.guests);
 	let member = $state<MemberView | null>(null);
 	let removed = $state(false);
 	let query = $state('');
@@ -63,8 +74,24 @@
 	let searched = $state(false);
 	let searching = $state(false);
 	let note = $state<{ text: string; failed: boolean } | null>(null);
+	/** What the host lets the party do; the event stream keeps it current. */
+	let access = $state<PartyAccessMode>(untrack(() => data.access));
+	/** The name a guest joins under, remembered in this browser for the next party. */
+	const NAME_KEY = 'heddohon.together.name';
+	let guestName = $state(untrack(() => data.viewer?.name ?? ''));
 
 	const base = $derived(`/together/${data.token}`);
+	const queueUrl = $derived(mayAdd ? `${base}/queue` : `${base}/guest/queue`);
+	/** The guest's library, for the links on the artist and the album of what plays now. */
+	let library = $state<ReturnType<typeof TogetherLibrary> | null>(null);
+	let libraryAt = $state<HTMLElement | null>(null);
+	const browsable = $derived(!!member && access === 'add' && !mayAdd);
+	async function showInLibrary(kind: 'artist' | 'album') {
+		if (!current || !library) return;
+		const target = kind === 'artist' ? { id: current.artistId ?? null, name: current.artist } : { id: current.albumId ?? null, name: current.album };
+		await library.show(kind, target);
+		libraryAt?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+	}
 	const coverUrl = $derived(current?.coverArt ? `${base}/cover?song=${encodeURIComponent(current.songId)}&size=768` : null);
 
 	/** Where the host is now, from its last report and this clock's offset from the server's. */
@@ -121,7 +148,19 @@
 		}
 	}
 
-	async function join() {
+	async function join(event?: SubmitEvent) {
+		event?.preventDefault();
+		if (asGuest && !guestName.trim()) {
+			problem = 'Type a name to join.';
+			return;
+		}
+		if (asGuest) {
+			try {
+				localStorage.setItem(NAME_KEY, guestName.trim());
+			} catch {
+				// Not kept; asked again next time.
+			}
+		}
 		joined = true;
 		problem = null;
 		// Started before anything is awaited: the press is what lets the sound start.
@@ -136,13 +175,25 @@
 	 * its stream.
 	 */
 	async function enrol() {
-		if (!joined || !mayAdd || !listenerId) return;
+		if (!joined || !listenerId) return;
+		if (!mayAdd) return asGuest ? enrolGuest() : undefined;
 		const response = await fetch(`${base}/join`, {
 			method: 'POST',
 			headers: { 'content-type': 'application/json' },
 			body: JSON.stringify({ listener: listenerId })
 		}).catch(() => null);
 		if (response?.ok) member = (await response.json()).member as MemberView;
+	}
+
+	/** As `enrol`, for a guest: the name goes to the host, and the server keeps the guest's key in a cookie. */
+	async function enrolGuest() {
+		const response = await fetch(`${base}/guest`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ listener: listenerId, name: guestName })
+		}).catch(() => null);
+		if (response?.ok) member = (await response.json()).member as MemberView;
+		else if (response) problem = (await response.json().catch(() => null))?.message ?? 'You could not join under that name.';
 	}
 
 	async function search(event: SubmitEvent) {
@@ -163,8 +214,8 @@
 		}
 	}
 
-	async function add(song: Song) {
-		const response = await fetch(`${base}/queue`, {
+	async function add(song: Pick<Song, 'id' | 'title'>) {
+		const response = await fetch(queueUrl, {
 			method: 'POST',
 			headers: { 'content-type': 'application/json' },
 			body: JSON.stringify({ songId: song.id })
@@ -175,7 +226,7 @@
 	}
 
 	async function takeBack(row: QueueRow) {
-		await fetch(`${base}/queue`, {
+		await fetch(queueUrl, {
 			method: 'DELETE',
 			headers: { 'content-type': 'application/json' },
 			body: JSON.stringify({ entry: row.entry })
@@ -193,6 +244,13 @@
 	}
 
 	onMount(() => {
+		if (asGuest && !guestName) {
+			try {
+				guestName = localStorage.getItem(NAME_KEY) ?? '';
+			} catch {
+				// Typed again.
+			}
+		}
 		volume = guestVolume();
 		canSetVolume = volumeSettable();
 		const source = new EventSource(`${base}/events`);
@@ -219,6 +277,7 @@
 			current = message.state;
 			void follow();
 		});
+		source.addEventListener('access', (event) => (access = JSON.parse((event as MessageEvent).data).access as PartyAccessMode));
 		source.addEventListener('listeners', (event) => (listeners = JSON.parse((event as MessageEvent).data).count));
 		source.addEventListener('reaction', (event) => {
 			const message = JSON.parse((event as MessageEvent).data) as { emoji: string; from: string };
@@ -293,8 +352,14 @@
 			<h1 class="hh-display">It has ended</h1>
 		{:else if current}
 			<h1 class="hh-display hh-clamp-2">{current.title}</h1>
-			<p class="artist hh-truncate">{current.artist ?? 'Unknown artist'}</p>
-			{#if current.album}<p class="hh-muted hh-truncate">{current.album}</p>{/if}
+			{#if browsable && current.artistId}
+				<button class="artist hh-truncate jump" onclick={() => showInLibrary('artist')}>{current.artist ?? 'Unknown artist'}</button>
+			{:else}
+				<p class="artist hh-truncate">{current.artist ?? 'Unknown artist'}</p>
+			{/if}
+			{#if current.album && browsable && current.albumId}
+				<button class="album hh-muted hh-truncate jump" onclick={() => showInLibrary('album')}>{current.album}</button>
+			{:else if current.album}<p class="hh-muted hh-truncate">{current.album}</p>{/if}
 			<p class="time hh-numeric hh-muted">
 				{current.playing ? '' : 'Paused · '}{formatDuration(position)} / {formatDuration(current.duration)}
 			</p>
@@ -304,8 +369,22 @@
 
 		{#if !ended && !removed}
 			<div class="controls">
-				{#if !joined}
-					<button class="hh-button hh-button--primary join" onclick={join}>Join{mayAdd ? ` as ${data.viewer?.name}` : ''}</button>
+				{#if !joined && mayAdd}
+					<button class="hh-button hh-button--primary join" onclick={() => join()}>Join as {data.viewer?.name}</button>
+				{:else if !joined && asGuest}
+					<form class="guest" onsubmit={join}>
+						<input
+							class="hh-input"
+							bind:value={guestName}
+							maxlength="32"
+							autocomplete="nickname"
+							placeholder="Your name"
+							aria-label="Your name, shown to the others"
+						/>
+						<button class="hh-button hh-button--primary join">Join</button>
+					</form>
+				{:else if !joined}
+					<button class="hh-button hh-button--primary join" onclick={() => join()}>Join</button>
 				{:else}
 					{#if canSetVolume}
 						<span class="volume">
@@ -336,7 +415,12 @@
 
 	{#if !ended && !removed}
 		<section class="next">
-			{#if member}
+			{#if member && access === 'add' && !mayAdd}
+				{#if note}<p class="note" class:failed={note.failed} role="status">{note.text}</p>{/if}
+				<div class="library-at" bind:this={libraryAt}>
+					<TogetherLibrary bind:this={library} {base} onadd={add} />
+				</div>
+			{:else if member && access === 'add'}
 				<form class="search" role="search" onsubmit={search}>
 					<input
 						class="hh-input"
@@ -478,6 +562,47 @@
 		padding: 0.7rem 1.6rem;
 		border-radius: var(--r-pill);
 		font-size: 1rem;
+	}
+
+	.guest {
+		display: flex;
+		flex-wrap: wrap;
+		gap: var(--space-2);
+	}
+
+	.guest .hh-input {
+		flex: 1 1 10rem;
+		min-width: 0;
+		max-width: 16rem;
+		border-radius: var(--r-pill);
+		padding-inline: 1rem;
+	}
+
+	/* The artist and the album of what plays now open in the library below, for a guest who may look through it. */
+	.jump {
+		display: block;
+		max-width: 100%;
+		padding: 0;
+		text-align: left;
+		cursor: pointer;
+	}
+
+	.jump.artist {
+		font-size: 1.25rem;
+		font-weight: 600;
+		color: var(--text-strong);
+	}
+
+	.jump:hover,
+	.jump:focus-visible {
+		color: var(--glow-color);
+		text-decoration: underline;
+		text-underline-offset: 3px;
+	}
+
+	.library-at {
+		scroll-margin-top: var(--space-5);
+		min-width: 0;
 	}
 
 	.volume {

@@ -485,7 +485,7 @@ describe('the first-run setup page', () => {
 });
 
 describe('features that are off', () => {
-	const ALL = ['newReleases', 'lrclib', 'autoeq', 'discord', 'discordCovers', 'listenbrainz', 'mcp', 'analysis', 'profiles'];
+	const ALL = ['newReleases', 'lrclib', 'autoeq', 'discord', 'discordCovers', 'listenbrainz', 'mcp', 'analysis', 'profiles', 'togetherGuests'];
 	const seen = (featuresSeen) => context.request.patch(`${app.url}/api/settings`, { data: { featuresSeen }, headers: { origin: app.url } });
 
 	test('an administrator sees a dot on Settings until the Server tab is opened, and the tab switches them', async () => {
@@ -716,7 +716,7 @@ describe('sound analysis in Settings', () => {
 			// Every feature seen, so the dot is the stop's alone.
 			await view.request.patch(`${own.url}/api/settings`, {
 				headers: { origin: own.url },
-				data: { featuresSeen: ['newReleases', 'lrclib', 'autoeq', 'discord', 'discordCovers', 'listenbrainz', 'mcp', 'analysis', 'profiles'] }
+				data: { featuresSeen: ['newReleases', 'lrclib', 'autoeq', 'discord', 'discordCovers', 'listenbrainz', 'mcp', 'analysis', 'profiles', 'togetherGuests'] }
 			});
 			const page = await view.newPage();
 			page.on('pageerror', (err) => problems.push(err.message));

@@ -283,7 +283,8 @@ describe('playback on another browser', () => {
 		remoteApp = await startApp({
 			subsonicUrl: subsonic.url,
 			jellyfinUrl: jellyfin.url,
-			env: { HEDDOHON_NAVIDROME_PLUGIN_TOKEN: PLUGIN_TOKEN }
+			// Guests in listening together are off by default; the tests here join as one.
+			env: { HEDDOHON_NAVIDROME_PLUGIN_TOKEN: PLUGIN_TOKEN, HEDDOHON_TOGETHER_GUESTS: 'true' }
 		});
 	});
 
@@ -522,7 +523,7 @@ describe('playback on another browser', () => {
 	});
 
 
-	test('a visitor with no account joins, follows a skip and a pause, and a reaction reaches the host', async () => {
+	test('a visitor with no account joins under a name, follows a skip and a pause, and a reaction reaches the host', async () => {
 		const { page: hostPage, problems } = await signedInPage();
 		const guestContext = await browser.newContext({ viewport: { width: 1280, height: 800 } });
 		browsers.push(guestContext);
@@ -550,6 +551,10 @@ describe('playback on another browser', () => {
 			await guest.goto(link, { waitUntil: 'load' });
 			await guest.locator('h1', { hasText: 'Song 17a' }).waitFor({ timeout: 5000 });
 			await guest.getByRole('button', { name: 'Join' }).click();
+			// Without a name the page asks for one, and nothing plays.
+			await guest.locator('[role=alert]', { hasText: 'Type a name to join.' }).waitFor({ timeout: 5000 });
+			await guest.getByRole('textbox', { name: 'Your name, shown to the others' }).fill('Mila');
+			await guest.getByRole('button', { name: 'Join' }).click();
 			await guest.waitForFunction(() => !document.querySelector('audio.together-audio')?.paused, null, { timeout: 5000 });
 			const joined = await guestAudio();
 			assert.match(joined.src, /\?song=s17a$/);
@@ -560,6 +565,10 @@ describe('playback on another browser', () => {
 			const hostTime = host.time - (host.at - joined.at) / 1000;
 			assert.ok(Math.abs(joined.time - hostTime) < 1.5, `the guest is at ${joined.time}, the host at ${hostTime} by the same clock`);
 			await hostPage.locator('aside.panel .live', { hasText: '1 listening' }).waitFor({ timeout: 5000 });
+			// The host sees the guest by name.
+			await hostPage.locator('aside.panel .live').click();
+			await hostPage.locator('dialog.together .members li', { hasText: 'Mila' }).waitFor({ timeout: 5000 });
+			await hostPage.locator('dialog.together').getByRole('button', { name: 'Close' }).click();
 
 			await hostPage.locator('aside.panel button.step').nth(1).click();
 			await guest.locator('h1', { hasText: 'Song 17b' }).waitFor({ timeout: 5000 });
@@ -605,7 +614,7 @@ describe('playback on another browser', () => {
 	 * finds Song 5a, Song 6b and Song 7a, and the host's account is made
 	 * unable to read the last.
 	 */
-	test("a member's tracks play after the current one in the order added, a visitor only watches, and the host removes a track and then the member", async () => {
+	test("a member's tracks play after the current one in the order added, a guest is given the host's library and not the member's search, and the host removes a track and then the member", async () => {
 		const { page: hostPage, problems } = await signedInPage();
 		const { page: member, problems: memberProblems } = await signedInPage('seconduser', 'secondpass');
 		const visitorContext = await browser.newContext({ viewport: { width: 1280, height: 800 } });
@@ -653,12 +662,15 @@ describe('playback on another browser', () => {
 			const field = hostPage.getByRole('textbox', { name: 'Listen-together link' });
 			await field.waitFor({ timeout: 5000 });
 			const link = await field.inputValue();
+			// Nothing is added until the host lets the party add.
+			await hostPage.getByRole('radio', { name: /Listen and add tracks/ }).check();
 			await hostPage.locator('dialog.together').getByRole('button', { name: 'Close' }).click();
 			await hostPage.locator('aside.panel').getByRole('button', { name: 'Queue', exact: true }).click();
 			await settles(hostQueue, ['Song 17a', 'Song 17b'], "the host's queue before anyone joins");
 
-			// The visitor sees the queue, and has nothing to add with.
+			// The visitor sees the queue, and joins as a guest under a name.
 			await visitor.goto(link, { waitUntil: 'load' });
+			await visitor.getByRole('textbox', { name: 'Your name, shown to the others' }).fill('Mila');
 			await visitor.getByRole('button', { name: 'Join', exact: true }).click();
 			await settles(() => upNext(visitor), ['Song 17b'], 'what the visitor is shown as up next');
 
@@ -688,7 +700,8 @@ describe('playback on another browser', () => {
 			await settles(hostQueue, ['Song 17a', 'Song 5a (seconduser)', 'Song 6b (seconduser)', 'Song 17b'], "the host's queue after two additions");
 			await settles(() => upNext(member), ['Song 5a (you) [Remove]', 'Song 6b (you) [Remove]', 'Song 17b'], 'what the member is shown');
 			await settles(() => upNext(visitor), ['Song 5a (seconduser)', 'Song 6b (seconduser)', 'Song 17b'], 'what the visitor is shown');
-			assert.equal(await visitor.locator('form.search').count(), 0, 'a visitor has a search to add from');
+			assert.equal(await visitor.getByRole('searchbox', { name: 'Search your library' }).count(), 0, "a guest has the member's search");
+			await visitor.getByRole('tablist', { name: 'Look through the library' }).waitFor({ timeout: 5000 });
 
 			await hostPage.locator('aside.panel button.step').nth(1).click();
 			await titleIs(hostPage, 'Song 5a');
@@ -706,7 +719,10 @@ describe('playback on another browser', () => {
 			assert.equal(await member.locator('form.search').count(), 0);
 			assert.equal((await member.goto(link, { waitUntil: 'load' })).status(), 403, 'the removed member came back');
 			await hostPage.locator('dialog.together p.count', { hasText: '1 listening with you' }).waitFor({ timeout: 5000 });
-			assert.equal(await hostPage.locator('dialog.together .members li').count(), 0);
+			// The guest stays, by name.
+			const left = await hostPage.locator('dialog.together .members li span.hh-truncate').allTextContents();
+			assert.equal(left.length, 1);
+			assert.match(left[0], /^Mila\s· guest$/);
 			assert.equal(await visitor.locator('h1').textContent(), 'Song 5a', 'the visitor was taken out with the member');
 		} finally {
 			subsonic.state.audio = null;
