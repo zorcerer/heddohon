@@ -1,4 +1,4 @@
-# `check` runs on every pull request and on every push to `dev` and `main`:
+# `check` runs on every pull request and on every push to `dev` and `release`:
 # `npm run check`, which is `svelte-kit sync` followed by
 # `svelte-check --fail-on-warnings`, so a warning fails the job as well as an
 # error. It also runs `npm audit` on the server's runtime dependencies, and a
@@ -10,7 +10,7 @@
 # `tests/`: the HTTP suite (`test:e2e`), the curl suite (`tests/e2e/run.sh`,
 # which needs the curl and jq the runner image ships with) and the browser
 # suite (`test:browser`) in Chromium. It takes about 12 minutes, and runs on a
-# merge: a push to `dev` or `main`, unless the push changes only text no
+# merge: a push to `dev` or `release`, unless the push changes only text no
 # suite reads (`changes`, below). The browser suite is nine files that
 # `node --test` runs side by side, a process each. It does not run for a pull request or
 # for a push to any other branch. Until 2026-10-13 it ran for both, so each
@@ -23,7 +23,7 @@ name: check
 
 on:
   push:
-    branches: [dev, main]
+    branches: [dev, release]
   pull_request:
   # Called by `release.yml`, which publishes only once these pass.
   workflow_call:

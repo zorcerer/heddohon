@@ -63,7 +63,7 @@ approach is agreed before you spend time on it.
 
 Pull requests go against the `dev` branch of
 [zorcerer/heddohon](https://github.com/zorcerer/heddohon), where development
-happens; `main` holds the released code. An accepted pull request is merged
+happens; `release` holds the released code. An accepted pull request is merged
 into `dev`, is in the next day's `:dev` image once its checks pass, and ships
 in the next release, whose notes credit you.
 
@@ -211,7 +211,7 @@ behaviour decision, not a refactor: raise it in the issue first.
   decision was made from a measurement.
 - **Commit titles** follow [Conventional Commits](https://www.conventionalcommits.org/):
   `feat: …`, `fix(player): …`, `docs: …`, `test: …`, `ci: …`. They are the
-  release notes: a merge into `main` releases a new version when a title since
+  release notes: a merge into `release` releases a new version when a title since
   the last release is `feat` (a minor release), `fix` or `perf` (a patch), or
   carries `!` (a major one), and lists each title under its kind.
 - **Documentation and commit messages** state behaviour and specific values:

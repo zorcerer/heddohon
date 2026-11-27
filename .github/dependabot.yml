@@ -10,7 +10,7 @@
 # which builds it and runs its suite, so an update that breaks the app fails
 # there. The titles are `fix(desktop)` and `fix(android)`: the release plan
 # reads a `fix` as a patch release, so an update on `dev` is released the next
-# time `dev` goes to `main`, with nothing else needed. A workflow update is
+# time `dev` goes to `release`, with nothing else needed. A workflow update is
 # `ci`, which releases nothing.
 #
 # The server's own dependencies (the root `package.json`) are not here.
