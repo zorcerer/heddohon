@@ -98,6 +98,12 @@
 	type Output = { name: string; system: string; rateHz: number; bits: number | null; float: boolean };
 	type Desktop = { describe: (label: string) => Promise<Output | null> };
 	let output = $state<Output | null>(null);
+	/** In the desktop app, which reads the output itself; a browser learns its rate only through processing. */
+	let inApp = $state(false);
+	// After hydration: the server renders the browser's path.
+	$effect(() => {
+		inApp = 'heddohonOutput' in globalThis;
+	});
 	async function readOutput() {
 		const desktop = (globalThis as { heddohonOutput?: Desktop }).heddohonOutput;
 		if (!desktop) return;
@@ -192,6 +198,10 @@
 				{#if processed}
 					{#if !transcode}<span class="why">{resampled ? 'Shapes the sound, changes the rate' : 'Shapes the sound'}</span>{/if}
 					<a class="act" href="/settings?tab=playback#this-browser" onclick={() => path?.hidePopover()}>Audio processing</a>
+				{:else if !inApp}
+					<!-- A browser learns the output's rate only from the audio graph, which
+					     processing opens at that rate (`audiochain.ts`); the path then names it. -->
+					<a class="act" href="/settings?tab=playback#this-browser" onclick={() => path?.hidePopover()}>Show the output's rate</a>
 				{/if}
 			</div>
 		</div>

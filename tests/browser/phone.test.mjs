@@ -276,10 +276,12 @@ describe('on a phone', () => {
 				await playAlbum(page, 13);
 				await tap(page, page.locator('#dock-open'));
 				await page.waitForFunction(() => document.querySelector('.app').classList.contains('player-open'), null, { timeout: 5000 });
-				const heart = await page.locator('.rounds .round button').first().boundingBox();
-				const add = await page.locator('.rounds button.round[aria-label="Add to playlist"]').boundingBox();
-				assert.deepEqual([Math.round(heart.width), Math.round(heart.height)], [Math.round(add.width), Math.round(add.height)]);
-				assert.equal(Math.round(add.width), 44);
+				// Their laid-out size, which the sheet's rise (a transform) does not change as it runs.
+				const size = (locator) => locator.evaluate((node) => [node.offsetWidth, node.offsetHeight]);
+				const heart = await size(page.locator('.rounds .round button').first());
+				const add = await size(page.locator('.rounds button.round[aria-label="Add to playlist"]'));
+				assert.deepEqual(heart, add);
+				assert.deepEqual(add, [44, 44]);
 			} finally {
 				await theme(process.env.HH_SUITE_THEME ?? 'liquid');
 				await page.close();
