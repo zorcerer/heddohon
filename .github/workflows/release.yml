@@ -6,7 +6,8 @@ name: Release
 # `perf` a patch, `!` a major one, anything else none). When there is one, the suites run, the image is published as that
 # version and `latest`, and the tag and a GitHub release are created, with the
 # notes from the titles and both compose files attached.
-# `package.json` on `dev` is then set to the version (the `version` job).
+# `package.json` on `dev` is then set to the version (the `version` job), and
+# `main` is moved to the release for Unraid (the `mirror` job).
 #
 # A `v*` tag pushed by hand is released as that version, as before. The tag
 # this workflow creates does not start it again: a push made with the
@@ -253,3 +254,27 @@ jobs:
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git commit -am "chore: set the version to $VERSION"
           git push origin HEAD:dev
+
+  # `main` follows `release`, as Unraid's Community Applications reads the
+  # template from `main` and nothing else (measured on 2026-11-27: its copy had
+  # the 55 settings of `main`, not the 57 of `release`). Moved forward after
+  # each push to `release` that released, or that released nothing (a fix to
+  # the template alone); not after a release that failed. A fast-forward only:
+  # a `main` that has commits of its own stops the push, and says so. The
+  # workflows on it are `release`'s, so the push starts none.
+  mirror:
+    needs: [plan, publish]
+    if: >-
+      always() && github.ref == 'refs/heads/release' && needs.plan.result == 'success' &&
+      (needs.plan.outputs.release != 'true' || needs.publish.result == 'success')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Move main to the release
+        run: git push origin "${GITHUB_SHA}:refs/heads/main"
