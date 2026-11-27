@@ -277,6 +277,26 @@
 			body: JSON.stringify({ listeningOtherApps: on })
 		}).catch(() => undefined);
 	}
+	/**
+	 * The libraries this account browses (issue #365), saved as each is
+	 * switched; empty is all of them. The last one left on cannot be switched
+	 * off, and all of them on is saved as all, so a library added later is
+	 * browsed too.
+	 */
+	let chosenLibraries = $state<string[]>(untrack(() => data.settings.libraries));
+	const browsesLibrary = (id: string) => chosenLibraries.length === 0 || chosenLibraries.includes(id);
+	async function setLibrary(id: string, on: boolean, all: { id: string }[]) {
+		const current = chosenLibraries.length === 0 ? all.map((library) => library.id) : chosenLibraries;
+		const next = on ? [...new Set([...current, id])] : current.filter((other) => other !== id);
+		if (next.length === 0) return;
+		const libraries = all.every((library) => next.includes(library.id)) ? [] : next;
+		const answer = await fetch('/api/settings', {
+			method: 'PATCH',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ libraries })
+		}).catch(() => null);
+		if (answer?.ok) chosenLibraries = ((await answer.json()) as { libraries: string[] }).libraries;
+	}
 	/** Whether plays the Navidrome plugin reports from other apps are noted, saved as it is changed. */
 	let historyOtherApps = $state(untrack(() => data.settings.historyOtherApps));
 	async function keepOtherApps(on: boolean) {
@@ -1302,6 +1322,27 @@
 					<SecuritySettings serverLabel={data.serverLabel} admin={data.twoFactorAdmin} />
 				{/if}
 			</section>
+
+			<!-- Only where the music server keeps more than one library (issue #365). -->
+			{#await data.libraries then libraries}
+				{#if libraries && libraries.length > 1}
+					<section class="hh-card hh-glass group" id="libraries" hidden={shown !== 'account'}>
+						<div class="group-head">
+							<h2>Libraries</h2>
+						</div>
+						{#each libraries as library (library.id)}
+							<label class="row switch">
+								<span class="label">{library.name}</span>
+								<Switch
+									checked={browsesLibrary(library.id)}
+									disabled={browsesLibrary(library.id) && chosenLibraries.length === 1}
+									onchange={(on) => void setLibrary(library.id, on, libraries)}
+								/>
+							</label>
+						{/each}
+					</section>
+				{/if}
+			{/await}
 
 			<!-- Only where the operator has left it on; see `HEDDOHON_LISTENERS`. -->
 			{#if profile}

@@ -140,12 +140,24 @@ function formBody(params: UpstreamParams): string {
  * (nginx's default), and a playlist of about 250 tracks as `songId` parameters
  * is over that. OpenSubsonic calls this `formPost`, and Navidrome reads it.
  */
+/**
+ * The calls that list the library, which take the libraries an account chose
+ * to browse (issue #365) as `musicFolderId`. Navidrome 0.64.2 takes it more
+ * than once and answers their union (measured 2026-11-27: two libraries of 20
+ * and 12 songs gave 32 from `search3`, and 2 albums of 15). A call that names a
+ * library itself, as the Folders page does, keeps its own.
+ */
+const BROWSING = new Set(['getAlbumList2.view', 'getArtists.view', 'search3.view', 'getRandomSongs.view', 'getSongsByGenre.view', 'getStarred2.view']);
+
 async function call<T extends Record<string, unknown>>(
 	cred: StoredCredential,
 	method: string,
 	params: UpstreamParams = {},
 	form?: UpstreamParams
 ): Promise<T> {
+	if (cred.kind === 'subsonic' && cred.libraries?.length && BROWSING.has(method) && params.musicFolderId === undefined) {
+		params = { ...params, musicFolderId: cred.libraries };
+	}
 	const response = await upstreamFetch(
 		endpoint(cred, method, params),
 		form
@@ -888,6 +900,14 @@ export const subsonicBackend: MediaBackend = {
 			if (!held.has(album.id)) found.push(album);
 		}
 		return found;
+	},
+
+	async getLibraries(cred) {
+		const body = await call<{ musicFolders?: { musicFolder?: unknown } }>(cred, 'getMusicFolders.view');
+		return asArray(body.musicFolders?.musicFolder as Record<string, any>[]).map((library) => ({
+			id: String(library.id),
+			name: String(library.name ?? `Library ${library.id}`)
+		}));
 	},
 
 	async getFolder(cred, id): Promise<Folder> {

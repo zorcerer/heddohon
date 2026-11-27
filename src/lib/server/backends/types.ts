@@ -26,7 +26,17 @@ import type { LastfmStart, ScrobblerLinks, ScrobblerService } from './navidrome'
  * password is discarded when login succeeds.
  */
 export type StoredCredential =
-	| { kind: 'subsonic'; username: string; password: string }
+	| {
+			kind: 'subsonic';
+			username: string;
+			password: string;
+			/**
+			 * The libraries the account chose to browse (issue #365), by the music
+			 * server's id; absent for all of them. Never stored with the credential:
+			 * set on each request from the account's settings (`hooks.server.ts`).
+			 */
+			libraries?: string[];
+	  }
 	| { kind: 'jellyfin'; username: string; token: string; userId: string; deviceId: string };
 
 export interface StreamRequest {
@@ -323,6 +333,11 @@ export interface MediaBackend {
 	 * `rating` is null on everything it returns.
 	 */
 	setRating?(cred: StoredCredential, id: string, rating: number): Promise<void>;
+	/**
+	 * The libraries the music server gives this account, for the choice of which
+	 * to browse (issue #365). Subsonic: `getMusicFolders`. Absent on Jellyfin.
+	 */
+	getLibraries?(cred: StoredCredential): Promise<{ id: string; name: string }[]>;
 
 	/**
 	 * The internet radio stations the server keeps, each with its stream's

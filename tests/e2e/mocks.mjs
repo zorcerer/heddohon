@@ -116,6 +116,8 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 		 * `d-ar2`.
 		 */
 		musicFolders: [{ id: 1, name: 'Music' }],
+		/** The libraries each listing call was narrowed to, by `musicFolderId`, as `{ method, folders }`. */
+		folderAsks: [],
 		/** Ratings by song or album id, 1 to 5, as `setRating` leaves them. */
 		ratings: new Map(),
 		/** Synced lyrics by song id, as `[{ start, value }]` in milliseconds, for `getLyricsBySongId`. */
@@ -510,12 +512,19 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 		const expected = createHash('md5').update(`${password}${p.get('s')}`).digest('hex');
 		if (password === undefined || p.get('t') !== expected) return send(failed(40, 'Wrong username or password'));
 
+		// A listing narrowed to libraries, as Navidrome takes `musicFolderId` more
+		// than once: artist 2 is in the second library where there are two.
+		const folders = p.getAll('musicFolderId');
+		if (folders.length > 0) state.folderAsks.push({ method, folders });
+		const inFolders = (i) => folders.length === 0 || method === 'getIndexes' || folders.includes(state.musicFolders.length >= 2 && i === 2 ? '2' : '1');
+
 		switch (method) {
 			case 'ping':
 				return send(ok({}));
 			case 'getArtists': {
 				const letters = new Map();
 				for (let i = 0; i < artistCount; i++) {
+					if (!inFolders(i)) continue;
 					const key = name(i)[0];
 					if (!letters.has(key)) letters.set(key, []);
 					letters.get(key).push(artist(i));
@@ -582,11 +591,13 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 					// the artist or the album.
 					const words = (p.get('query') ?? '').toLowerCase().split(/\s+/).filter(Boolean);
 					const hits = Array.from({ length: artistCount * 2 }, (_, k) => song(k >> 1, k % 2 ? 'b' : 'a'))
+						.filter((_, k) => inFolders(k >> 1))
 						.filter((entry) => words.every((word) => `${entry.title} ${entry.artist} ${entry.album}`.toLowerCase().includes(word)))
 						.slice(0, Number(p.get('songCount') ?? 20));
 					// And the albums whose name and artist hold every word, as Navidrome
 					// answers `albumCount`.
 					const albums = Array.from({ length: artistCount }, (_, k) => album(k))
+						.filter((_, k) => inFolders(k))
 						.filter((entry) => words.every((word) => `${entry.name} ${entry.artist}`.toLowerCase().includes(word)))
 						.slice(0, Number(p.get('albumCount') ?? 20));
 					const result = { ...(hits.length > 0 ? { song: hits } : {}), ...(albums.length > 0 ? { album: albums } : {}) };
@@ -686,7 +697,7 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 				return send(ok({}));
 			}
 			case 'getAlbumList2':
-				return send(ok({ albumList2: { album: Array.from({ length: Math.min(12, artistCount) }, (_, i) => album(i)) } }));
+				return send(ok({ albumList2: { album: Array.from({ length: Math.min(12, artistCount) }, (_, i) => album(i)).filter((_, i) => inFolders(i)) } }));
 			case 'getInternetRadioStations':
 				return send(ok({ internetRadioStations: { internetRadioStation: state.radio } }));
 			case 'getGenres':
@@ -775,7 +786,7 @@ export async function startSubsonic({ artistCount = 250 } = {}) {
 					const songs = Array.from({ length: state.alikeAlbums }, (_, k) => song((20 + k) % artistCount, 'a'));
 					return send(ok({ randomSongs: songs.length > 0 ? { song: songs } : {} }));
 				}
-				return send(ok({ randomSongs: { song: [song(1, 'a'), song(2, 'a')] } }));
+				return send(ok({ randomSongs: { song: [song(1, 'a'), song(2, 'a')].filter((_, k) => inFolders(k + 1)) } }));
 			case 'getUser':
 				{
 					const asked = p.get('username') ?? p.get('u');

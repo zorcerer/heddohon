@@ -4,6 +4,9 @@ import { getSettings, saveSettings } from '#lib/server/settings.ts';
 import { shareApps } from '#lib/server/remote.ts';
 import { libraryContext } from '#lib/server/library.ts';
 import { prepareNewReleases } from '#lib/server/newreleases.ts';
+import { forgetListings } from '#lib/server/listings.ts';
+import { forgetDetails } from '#lib/server/details.ts';
+import { forgetSuggestions } from '#lib/server/suggestions.ts';
 
 export const GET: RequestHandler = async ({ locals }) => {
 	if (!locals.session) error(401, 'Not signed in');
@@ -15,7 +18,15 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
 	if (!locals.session) error(401, 'Not signed in');
 	const patch = await request.json().catch(() => null);
 	if (patch === null) error(400, 'Expected a JSON body');
-	const saved = await saveSettings(locals.session.account.id, patch);
+	const accountId = locals.session.account.id;
+	const before = (await getSettings(accountId)).libraries.join('\u0000');
+	const saved = await saveSettings(accountId, patch);
+	// Other libraries browsed (issue #365): what is held of the old ones goes.
+	if (saved.libraries.join('\u0000') !== before) {
+		forgetListings(accountId);
+		forgetDetails(accountId);
+		forgetSuggestions(accountId);
+	}
 	// At once, for the apps playing now: the next report from each could be a
 	// track away. See `listeningOtherApps` in `settings.ts`.
 	shareApps(locals.session.account.id, saved.listeningOtherApps);

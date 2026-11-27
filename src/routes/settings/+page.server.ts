@@ -190,6 +190,20 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 						admin: isAdmin === true ? { fromEnvironment: decidedByEnvironment().mcp } : null
 					}
 				: null,
+		/*
+		 * The music server's libraries, for the choice of which to browse (issue
+		 * #365). Streamed: one upstream call nothing else on the page waits for.
+		 * Null where the server keeps no libraries apart (Jellyfin) or did not say.
+		 */
+		libraries: (() => {
+			const backend = backendFor(session.account.backend);
+			return backend.getLibraries
+				? backend.getLibraries(session.credential).catch((err) => {
+						log.warn('libraries-failed', { detail: reason(err) });
+						return null;
+					})
+				: Promise.resolve(null);
+		})(),
 		// The Server tab's Features: each optional feature's switch, for an administrator of the music server.
 		features: isAdmin === true ? featureStates() : null,
 		// Settings, Server, Sound analysis, for an administrator: the switch, and the account it reads as.

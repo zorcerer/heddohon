@@ -1327,6 +1327,42 @@ describe('folders', () => {
 		}
 	});
 
+	// Issue #365: an account browses the libraries it picks.
+	test('an account picks the libraries it browses, and its albums, artists and search keep to them', async () => {
+		subsonic.state.musicFolders = [
+			{ id: 1, name: 'Music' },
+			{ id: 2, name: 'Audiobooks' }
+		];
+		subsonic.state.folderAsks = [];
+		try {
+			await asFreshAccount('libraries', async (client) => {
+				// Streamed into the Account tab, which draws one switch a library.
+				assert.match((await client.page('/settings?tab=account')).html, /"Audiobooks"/);
+
+				const albums = async () => (await client.page('/albums')).html;
+				assert.match(await albums(), /Album 1/);
+
+				const saved = await (await client.json('/api/settings', 'PATCH', { libraries: ['2'] })).json();
+				assert.deepEqual(saved.libraries, ['2']);
+				const narrowed = await albums();
+				assert.match(narrowed, /Album 2/);
+				assert.doesNotMatch(narrowed, /Album 1</, 'an album of a library not picked is listed');
+				assert.ok(subsonic.state.folderAsks.some((ask) => ask.method === 'getAlbumList2' && ask.folders.join() === '2'), 'the album list was not narrowed');
+				const search = (await client.page('/search?q=Song')).html;
+				assert.match(search, /Song 2a/);
+				assert.doesNotMatch(search, /Song 1a/, 'search found a song of a library not picked');
+				// The Folders page still names every library: it is the music server's layout.
+				assert.match((await client.page('/folders')).html, /Audiobooks/);
+
+				// Back to all of them.
+				assert.deepEqual((await (await client.json('/api/settings', 'PATCH', { libraries: [] })).json()).libraries, []);
+				assert.match(await albums(), /Album 1/);
+			});
+		} finally {
+			subsonic.state.musicFolders = [{ id: 1, name: 'Music' }];
+		}
+	});
+
 	test('Jellyfin lists its music library as it is on disk, and a track is not a folder', async () => {
 		const client = new Client(app.url);
 		await client.signIn({ username: 'jfuser', password: 'jfpass', backend: 'jellyfin' });

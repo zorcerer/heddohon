@@ -1785,6 +1785,7 @@ Covers are cached under `$HEDDOHON_DATA_DIR/covers` (see
 | Passkey answer | a credential id of 1023 bytes; client data 4 KB, attestation 16 KB, authenticator data 4 KB, signature 1 KB, user handle 64 bytes; CBOR 32 levels deep |
 | Passkey name | 64 characters, cut; the request's 300 |
 | Playlist positions per removal | 1000, deduplicated |
+| Libraries an account browses | 50 ids, each under 256 characters, deduplicated; sent to the music server as `musicFolderId`, which still decides what the account may read |
 | Star rating | a whole number from 0 to 5 |
 | Smart playlist rules | 1 to 20 rules, each a field and an operator from an allowlist (`lib/smartrules.ts`); text 1 to 200 characters; a year 0 to 9999, a rating 0 to 5, a play count to 1,000,000, a length to 86,400 s, days 1 to 36,500; 1 to 1000 songs or no limit |
 | Remote control streams per account | 20 |
