@@ -82,6 +82,13 @@ export interface AppConfig {
 	volumeLimit: number;
 	/** Whether a browser can control playback on the account's other browsers; see `remote.ts`. */
 	remoteControl: boolean;
+	/**
+	 * Whether a visitor without an account on the host's music server can join
+	 * a listen-together party under a name and, while the host lets the party
+	 * add, look through the host's library (`together-guests.ts`). Off, such a
+	 * visitor listens only.
+	 */
+	togetherGuests: boolean;
 	/** Whether accounts may show each other what they play; see `listening.ts`. Each account is off until it turns it on. */
 	listeners: boolean;
 	/** LRCLIB base URL for lyrics the music server lacks, or null when off. */
@@ -201,6 +208,7 @@ export const SETUP_NAMES = [
 	'HEDDOHON_ANALYSIS',
 	'HEDDOHON_REQUIRE_TWO_FACTOR',
 	'HEDDOHON_PROFILES',
+	'HEDDOHON_TOGETHER_GUESTS',
 	'HEDDOHON_COVER_CACHE_MB',
 	'HEDDOHON_DATABASE_URL',
 	'HEDDOHON_DATABASE_USER',
@@ -642,6 +650,9 @@ function build(): AppConfig {
 		// The browsers are known to one process only, so a deployment of several
 		// behind a load balancer turns it off.
 		remoteControl: flagEnv('HEDDOHON_REMOTE_CONTROL', true),
+		// Off unless asked for: a guest reads the host's library as the host's
+		// account sees it, without an account of its own.
+		togetherGuests: flagEnv('HEDDOHON_TOGETHER_GUESTS', false),
 		// On, an account that chooses to is shown to every other account on this
 		// server with what it plays. It rides on the remote control streams, so it
 		// needs those too.
@@ -811,6 +822,7 @@ export function config(): AppConfig {
 			downloads: true,
 			volumeLimit: 1,
 			remoteControl: true,
+			togetherGuests: false,
 			listeners: true,
 			lrclibUrl: null,
 			autoeqUrl: null,

@@ -13,7 +13,9 @@
 	 * and an Add button on each result. Everyone sees what is up next and who
 	 * added it, and a member can take back a track of their own.
 	 *
-	 * Anyone else joins as a guest under a name they type. While the host lets
+	 * Where guests are switched on (`HEDDOHON_TOGETHER_GUESTS`, `data.guests`),
+	 * anyone else joins as a guest under a name they type, and otherwise only
+	 * listens. While the host lets
 	 * the party add, a guest looks through the host's library
 	 * (`TogetherLibrary`) and adds from it; `server/together-guests.ts` has how.
 	 * The artist and the album of what plays then open in that library.
@@ -63,6 +65,8 @@
 	let queueTotal = $state(untrack(() => data.queueTotal));
 	/** Whether this visitor's account may join as a member, and the member it is once it has. */
 	const mayAdd = $derived(data.viewer?.standing === 'member');
+	/** Whether this visitor, without an account here, joins as a guest under a name; else it only listens. */
+	const asGuest = $derived(!mayAdd && data.guests);
 	let member = $state<MemberView | null>(null);
 	let removed = $state(false);
 	let query = $state('');
@@ -146,11 +150,11 @@
 
 	async function join(event?: SubmitEvent) {
 		event?.preventDefault();
-		if (!mayAdd && !guestName.trim()) {
+		if (asGuest && !guestName.trim()) {
 			problem = 'Type a name to join.';
 			return;
 		}
-		if (!mayAdd) {
+		if (asGuest) {
 			try {
 				localStorage.setItem(NAME_KEY, guestName.trim());
 			} catch {
@@ -172,7 +176,7 @@
 	 */
 	async function enrol() {
 		if (!joined || !listenerId) return;
-		if (!mayAdd) return enrolGuest();
+		if (!mayAdd) return asGuest ? enrolGuest() : undefined;
 		const response = await fetch(`${base}/join`, {
 			method: 'POST',
 			headers: { 'content-type': 'application/json' },
@@ -240,7 +244,7 @@
 	}
 
 	onMount(() => {
-		if (!mayAdd && !guestName) {
+		if (asGuest && !guestName) {
 			try {
 				guestName = localStorage.getItem(NAME_KEY) ?? '';
 			} catch {
@@ -367,7 +371,7 @@
 			<div class="controls">
 				{#if !joined && mayAdd}
 					<button class="hh-button hh-button--primary join" onclick={() => join()}>Join as {data.viewer?.name}</button>
-				{:else if !joined}
+				{:else if !joined && asGuest}
 					<form class="guest" onsubmit={join}>
 						<input
 							class="hh-input"
@@ -379,6 +383,8 @@
 						/>
 						<button class="hh-button hh-button--primary join">Join</button>
 					</form>
+				{:else if !joined}
+					<button class="hh-button hh-button--primary join" onclick={() => join()}>Join</button>
 				{:else}
 					{#if canSetVolume}
 						<span class="volume">

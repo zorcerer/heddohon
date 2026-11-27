@@ -191,6 +191,16 @@ export function togetherEnabled(): boolean {
 	return cfg.sharing && cfg.remoteControl;
 }
 
+/**
+ * Whether a visitor without an account on the host's music server can join
+ * under a name and look through the host's library (`HEDDOHON_TOGETHER_GUESTS`,
+ * off by default). Off, the guest and library routes answer 404 and such a
+ * visitor listens, as before guests.
+ */
+export function guestsEnabled(): boolean {
+	return togetherEnabled() && config().togetherGuests;
+}
+
 function live(party: Party | undefined): Party | null {
 	if (!party) return null;
 	if (Date.now() >= party.expiresAt) {
@@ -275,10 +285,19 @@ export interface PartyView {
 	expiresAt: number;
 	listeners: number;
 	access: PartyAccessMode;
+	/** Whether visitors without an account can join as guests (`guestsEnabled`), for the dialog's wording. */
+	guests: boolean;
 }
 
 function view(party: Party): PartyView {
-	return { id: party.id, url: `/together/${party.token}`, expiresAt: party.expiresAt, listeners: party.listeners.size, access: party.access };
+	return {
+		id: party.id,
+		url: `/together/${party.token}`,
+		expiresAt: party.expiresAt,
+		listeners: party.listeners.size,
+		access: party.access,
+		guests: guestsEnabled()
+	};
 }
 
 /** The party this session hosts, if any. */

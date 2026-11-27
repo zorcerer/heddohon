@@ -20,7 +20,7 @@
  */
 import { config, fromEnvironment, type AppConfig, type SetupName } from './config';
 
-export const FEATURE_IDS = ['newReleases', 'lrclib', 'autoeq', 'discord', 'discordCovers', 'listenbrainz', 'mcp', 'analysis', 'profiles'] as const;
+export const FEATURE_IDS = ['newReleases', 'lrclib', 'autoeq', 'discord', 'discordCovers', 'listenbrainz', 'mcp', 'analysis', 'profiles', 'togetherGuests'] as const;
 export type FeatureId = (typeof FEATURE_IDS)[number];
 
 interface Feature {
@@ -106,6 +106,14 @@ export const FEATURES: readonly Feature[] = [
 			'Each account has a page under People with four albums it picks, a bio, its name and picture, and if it chooses what it played lately. It can show the page to the other accounts here, and to anyone through a public link it makes. Off, the pages, People and the public links answer as pages that do not exist; what was saved stays.',
 		on: (cfg) => cfg.profiles,
 		defaultOn: true
+	},
+	{
+		id: 'togetherGuests',
+		variable: 'HEDDOHON_TOGETHER_GUESTS',
+		title: 'Guests in listening together',
+		detail:
+			"Someone with a listen-together link and no account on the music server can join under a name, which the host sees and can remove. While the host lets the party add tracks, a guest looks through the host's library as the host's account sees it (titles, artists, albums and genres, no covers, files or play counts) and adds from it. Off, such a visitor only listens.",
+		on: (cfg) => cfg.togetherGuests
 	}
 ];
 

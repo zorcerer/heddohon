@@ -1451,6 +1451,20 @@ describe('playback on another browser', () => {
 	});
 
 	describe('listening together', () => {
+		/** Switches guests (`HEDDOHON_TOGETHER_GUESTS`) under Settings, Features, as an administrator. Profile pages stay on, as by default. */
+		const switchGuests = async (on) => {
+			const admin = await signedIn();
+			const response = await admin.request('/settings?/saveFeatures', {
+				method: 'POST',
+				headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json', 'x-sveltekit-action': 'true' },
+				body: new URLSearchParams(on ? { togetherGuests: 'on', profiles: 'on' } : { profiles: 'on' }).toString()
+			});
+			assert.equal((await response.json()).type, 'success', 'guests could not be switched');
+		};
+		// Guests are off by default; the tests here have them on, and switch them off where they say so.
+		before(() => switchGuests(true));
+		after(() => switchGuests(false));
+
 		/** A party that lets the people with the link add, unless `access` says otherwise. */
 		const host = async (access = 'add') => {
 			const client = await signedIn();
@@ -1809,6 +1823,7 @@ describe('playback on another browser', () => {
 				assert.equal((await stranger.json(`${party.url}/guest`, 'POST', { listener: 'not-a-stream', name: 'X' })).status, 404);
 				nameless.cancel();
 
+				assert.equal(party.guests, true, 'the dialog was not told guests can join');
 				const guest = await asGuest(party, `  Mila ‮${'x'.repeat(60)}`);
 				assert.equal(guest.member.guest, true);
 				assert.equal(guest.member.name, `Mila ${'x'.repeat(27)}`, 'the name was not cleaned and cut');
@@ -1869,6 +1884,58 @@ describe('playback on another browser', () => {
 			} finally {
 				hosting.cancel();
 				await client.json('/api/together', 'DELETE', {});
+			}
+		});
+
+		test('guests read the whole lists of the host\'s library from memory, not once a request', async () => {
+			const { client, party } = await host();
+			const first = await asGuest(party, 'Mila');
+			const second = await asGuest(party, 'Noah');
+			try {
+				const artists = subsonic.calls.get('getArtists') ?? 0;
+				const genres = subsonic.calls.get('getGenres') ?? 0;
+				for (const guest of [first, second, first, second, first]) {
+					assert.equal((await browse(guest.client, party, { view: 'artists' })).status, 200);
+					assert.equal((await browse(guest.client, party, { view: 'genres' })).status, 200);
+				}
+				// One read each at most, shared by the party's guests (`listings.ts`), and none when the host's list was already held.
+				assert.ok((subsonic.calls.get('getArtists') ?? 0) - artists <= 1, 'the artists were read for each request');
+				assert.ok((subsonic.calls.get('getGenres') ?? 0) - genres <= 1, 'the genres were read for each request');
+			} finally {
+				first.stream.cancel();
+				second.stream.cancel();
+				await client.json('/api/together', 'DELETE', {});
+			}
+		});
+
+		test('with guests switched off, a visitor without an account listens, and the guest and library routes are not there', async () => {
+			await switchGuests(false);
+			const { client, party } = await host();
+			const visitor = new Client(app.url);
+			const stream = await listen(visitor, `${party.url}/events`);
+			try {
+				assert.equal(party.guests, false, 'the dialog was told guests can join');
+				assert.equal((await visitor.json(`${party.url}/guest`, 'POST', { listener: stream.id, name: 'Mila' })).status, 404);
+				assert.equal((await visitor.json(`${party.url}/guest/queue`, 'POST', { songId: 's3a' })).status, 404);
+				assert.equal((await visitor.json(`${party.url}/guest/queue`, 'DELETE', { entry: 'x' })).status, 404);
+				for (const view of ['artists', 'genres', 'search']) {
+					assert.equal((await browse(visitor, party, { view, q: 'Artist 0003' })).status, 404, `the library answered ${view}`);
+				}
+				// The page offers Join without a name, as before guests.
+				const { html } = await visitor.page(party.url);
+				assert.ok(!html.includes('Your name, shown to the others'), 'the page asked for a name');
+				assert.match(html, /"guests":false|guests:false/);
+				// A member still joins and adds.
+				const second = await member(party);
+				try {
+					assert.equal((await add(second.client, party, 's5a')).status, 200, explain('a member could not add'));
+				} finally {
+					second.stream.cancel();
+				}
+			} finally {
+				stream.cancel();
+				await client.json('/api/together', 'DELETE', {});
+				await switchGuests(true);
 			}
 		});
 
@@ -3788,7 +3855,9 @@ describe('links to albums and playlists', () => {
 		const { response, html } = await visitor.page(made.body.path);
 		assert.equal(response.status, 200);
 		for (const text of ['Album 5', 'Song 5a', 'Song 5b']) assert.match(html, new RegExp(text));
-		assert.ok(!html.includes('al5') && !html.includes('s5a'), 'an upstream id reached the page');
+		// The build's own file names are hashes, which can hold any three letters (`BJzBal5x.js`).
+		const shown = html.replace(/\/_app\/immutable\/[\w./-]+/g, '');
+		assert.ok(!shown.includes('al5') && !shown.includes('s5a'), 'an upstream id reached the page');
 
 		// What a messaging app draws of the link: the title, the artist, and a
 		// cover it can fetch with no session and no page to resolve it against.
@@ -5289,7 +5358,7 @@ describe('optional features', () => {
 	/** The titles of the features the home page's data tells of. */
 	const notice = async (client) => {
 		const data = await (await client.request('/__data.json')).text();
-		return ['New releases from MusicBrainz', 'Lyrics from LRCLIB', 'Headphone corrections from AutoEq', 'Plays sent to Discord', 'Discord covers from this server', 'Plays sent to ListenBrainz', 'AI assistants (MCP)'].filter((title) => data.includes(title));
+		return ['New releases from MusicBrainz', 'Lyrics from LRCLIB', 'Headphone corrections from AutoEq', 'Plays sent to Discord', 'Discord covers from this server', 'Plays sent to ListenBrainz', 'AI assistants (MCP)', 'Guests in listening together'].filter((title) => data.includes(title));
 	};
 
 	test('an administrator switches each under Settings, Features, where the environment does not set it', async () => {
@@ -5304,7 +5373,8 @@ describe('optional features', () => {
 				mcp: 'off',
 				analysis: 'off',
 				// The one on until switched off.
-				profiles: 'on'
+				profiles: 'on',
+				togetherGuests: 'off'
 			});
 			try {
 				assert.equal((await action(client, 'saveFeatures', { newReleases: 'on', mcp: 'on' })).type, 'success');
@@ -5345,7 +5415,7 @@ describe('optional features', () => {
 
 	test('an administrator is told once on the home page of the features that are off', async () => {
 		await asFreshAccount('featurenotice', async (client) => {
-			assert.equal((await notice(client)).length, 7);
+			assert.equal((await notice(client)).length, 8);
 			subsonic.state.admin = false;
 			try {
 				assert.deepEqual(await notice(client), [], 'told an account that is not an administrator');
@@ -5353,12 +5423,12 @@ describe('optional features', () => {
 				subsonic.state.admin = true;
 			}
 			// Dismissed: the features named are seen.
-			const saved = await (await client.json('/api/settings', 'PATCH', { featuresSeen: ['mcp', 'nonsense', 'newReleases', 'lrclib', 'autoeq', 'discord', 'discordCovers', 'listenbrainz', 'mcp'] })).json();
+			const saved = await (await client.json('/api/settings', 'PATCH', { featuresSeen: ['mcp', 'nonsense', 'newReleases', 'lrclib', 'autoeq', 'discord', 'discordCovers', 'listenbrainz', 'mcp', 'togetherGuests'] })).json();
 			// Known ids alone, each once.
-			assert.deepEqual(saved.featuresSeen, ['newReleases', 'lrclib', 'autoeq', 'discord', 'discordCovers', 'listenbrainz', 'mcp']);
+			assert.deepEqual(saved.featuresSeen, ['newReleases', 'lrclib', 'autoeq', 'discord', 'discordCovers', 'listenbrainz', 'mcp', 'togetherGuests']);
 			assert.deepEqual(await notice(client), []);
 			// One not seen yet is told of alone.
-			await client.json('/api/settings', 'PATCH', { featuresSeen: ['lrclib', 'autoeq', 'discord', 'discordCovers', 'listenbrainz', 'mcp'] });
+			await client.json('/api/settings', 'PATCH', { featuresSeen: ['lrclib', 'autoeq', 'discord', 'discordCovers', 'listenbrainz', 'mcp', 'togetherGuests'] });
 			assert.deepEqual(await notice(client), ['New releases from MusicBrainz']);
 			// Saving under Settings, Features marks every one seen.
 			assert.equal((await action(client, 'saveFeatures', { profiles: 'on' })).type, 'success');

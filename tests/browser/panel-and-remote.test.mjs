@@ -283,7 +283,8 @@ describe('playback on another browser', () => {
 		remoteApp = await startApp({
 			subsonicUrl: subsonic.url,
 			jellyfinUrl: jellyfin.url,
-			env: { HEDDOHON_NAVIDROME_PLUGIN_TOKEN: PLUGIN_TOKEN }
+			// Guests in listening together are off by default; the tests here join as one.
+			env: { HEDDOHON_NAVIDROME_PLUGIN_TOKEN: PLUGIN_TOKEN, HEDDOHON_TOGETHER_GUESTS: 'true' }
 		});
 	});
 

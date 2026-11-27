@@ -1,6 +1,6 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { admitGuest, enqueueGuest, togetherEnabled, withdrawGuest } from '#lib/server/together.ts';
+import { admitGuest, enqueueGuest, guestsEnabled, withdrawGuest } from '#lib/server/together.ts';
 import { asHost, guestKey, hostSession, refuseGuest } from '#lib/server/together-guests.ts';
 
 /**
@@ -9,7 +9,7 @@ import { asHost, guestKey, hostSession, refuseGuest } from '#lib/server/together
  * the host's library, and everyone's audio comes through the host's account.
  */
 export const POST: RequestHandler = async (event) => {
-	if (!togetherEnabled()) error(404, 'Not found');
+	if (!guestsEnabled()) error(404, 'Not found');
 	const body = (await event.request.json().catch(() => null)) as {
 		songId?: unknown;
 	} | null;
@@ -29,7 +29,7 @@ export const POST: RequestHandler = async (event) => {
 
 /** A guest takes back a track they added that has not played yet. */
 export const DELETE: RequestHandler = async ({ params, request, cookies }) => {
-	if (!togetherEnabled()) error(404, 'Not found');
+	if (!guestsEnabled()) error(404, 'Not found');
 	const body = (await request.json().catch(() => null)) as {
 		entry?: unknown;
 	} | null;

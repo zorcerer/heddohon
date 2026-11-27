@@ -28,6 +28,12 @@
 			copied = false;
 		}
 	}
+	/** What "Listen and add tracks" lets the link do: guests only where they are switched on (`HEDDOHON_TOGETHER_GUESTS`). */
+	const addDetail = $derived(
+		together.party?.guests
+			? 'Accounts here add from their own library, and guests search and browse yours.'
+			: 'Accounts here add from their own library.'
+	);
 </script>
 
 <dialog bind:this={dialog} onclose={() => (together.open = false)} class="together hh-glass" aria-labelledby="together-title">
@@ -60,7 +66,7 @@
 				</label>
 				<label>
 					<input type="radio" name="together-access" checked={together.party.access === 'add'} onchange={() => void together.setAccess('add')} />
-					<span><strong>Listen and add tracks</strong><span class="hh-muted">Search and browse your library, and add to the queue.</span></span>
+					<span><strong>Listen and add tracks</strong><span class="hh-muted">{addDetail}</span></span>
 				</label>
 			</fieldset>
 

@@ -48,7 +48,10 @@ before work starts, so say so in the request:
   keyed by the server's ids: settings, queues, play history and measurements.
 - **The music server decides who sees what.** Anything worked out once and
   shared between accounts is looked up with the asking account's own login
-  before it is shown.
+  before it is shown. The one exception is a listen-together guest
+  (`HEDDOHON_TOGETHER_GUESTS`, off by default), who has no login and reads the
+  host's library as the host's account sees it, because the host chose to
+  show it (SECURITY.md, Guests).
 - **The music server comes first.** Where the server or a plugin of it already
   answers a question, Heddohon uses that, and only fills what is left empty.
 - **What it works out is disposable.** Losing a cache or a measurement costs

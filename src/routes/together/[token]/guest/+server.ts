@@ -1,6 +1,6 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { guestName, joinAsGuest, togetherEnabled } from '#lib/server/together.ts';
+import { guestName, guestsEnabled, joinAsGuest } from '#lib/server/together.ts';
 import { guestKey, keepGuestKey } from '#lib/server/together-guests.ts';
 
 /**
@@ -11,7 +11,7 @@ import { guestKey, keepGuestKey } from '#lib/server/together-guests.ts';
  * reload keeps the name and the additions.
  */
 export const POST: RequestHandler = async (event) => {
-	if (!togetherEnabled()) error(404, 'Not found');
+	if (!guestsEnabled()) error(404, 'Not found');
 	const body = (await event.request.json().catch(() => null)) as {
 		listener?: unknown;
 		name?: unknown;

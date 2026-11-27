@@ -1,7 +1,8 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import type { AlbumSort, Artist } from '#lib/types.ts';
-import { guestBrowse, togetherEnabled } from '#lib/server/together.ts';
+import { remembered } from '#lib/server/listings.ts';
+import { guestBrowse, guestsEnabled } from '#lib/server/together.ts';
 import { asHost, guestAlbum, guestArtist, guestKey, guestSong, hostSession, refuseGuest } from '#lib/server/together-guests.ts';
 
 const SEARCH_LIMIT = 30;
@@ -22,13 +23,19 @@ const SORTS: AlbumSort[] = ['recentlyAdded', 'alphabetical', 'byArtist', 'random
  * - `album&id=`: one album with its tracks
  * - `genres`: every genre with albums
  * - `genre&id=&offset=`: a page of one genre's albums
+ *
+ * The two whole-library lists, `artists` and `genres`, are read through
+ * `remembered` under the host's account, as the artists and genres pages do:
+ * a party's guests share one read per list every 30 seconds, however many of
+ * them open the list (`listings.ts`).
  */
 export const GET: RequestHandler = async ({ params, url, cookies }) => {
-	if (!togetherEnabled()) error(404, 'Not found');
+	if (!guestsEnabled()) error(404, 'Not found');
 	const party = guestBrowse(params.token, guestKey(cookies));
 	if (typeof party === 'string') refuseGuest(party);
 	const host = await hostSession(party);
 	const cred = host.credential;
+	const scope = { accountId: host.account.id, credential: cred };
 	const id = url.searchParams.get('id') ?? '';
 	const needId = () => {
 		if (id.length === 0 || id.length > 255) error(400, 'id is required');
@@ -50,7 +57,7 @@ export const GET: RequestHandler = async ({ params, url, cookies }) => {
 			);
 		}
 		case 'artists': {
-			const artists = await asHost(host, (backend) => backend.getArtists(cred));
+			const artists = await asHost(host, (backend) => remembered(scope, 'artists', () => backend.getArtists(cred)));
 			return json({ artists: artists.filter(albumArtist).map(guestArtist) }, { headers });
 		}
 		case 'artist': {
@@ -77,7 +84,7 @@ export const GET: RequestHandler = async ({ params, url, cookies }) => {
 			return json({ album: guestAlbum(album), songs: album.songs.map(guestSong) }, { headers });
 		}
 		case 'genres': {
-			const genres = await asHost(host, (backend) => backend.getGenres(cred));
+			const genres = await asHost(host, (backend) => remembered(scope, 'genres', () => backend.getGenres(cred)));
 			return json({ genres: genres.map((genre) => ({ id: genre.id, name: genre.name, albumCount: genre.albumCount })) }, { headers });
 		}
 		case 'genre': {
