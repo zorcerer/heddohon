@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { albumTitle } from '#lib/releases.ts';
 	import { page as pageState } from '$app/state';
 	import Icon from '#lib/components/Icon.svelte';
 	import MediaCard from '#lib/components/MediaCard.svelte';
@@ -152,7 +153,7 @@
 				{#each shown.albums.items as album (album.id)}
 					<MediaCard
 						href="/albums/{album.id}"
-						title={album.name}
+						title={albumTitle(album)}
 						subtitle={album.artist}
 						coverArt={album.coverArt}
 						transitionId={album.id}

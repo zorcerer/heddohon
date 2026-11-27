@@ -1327,6 +1327,42 @@ describe('folders', () => {
 		}
 	});
 
+	// Issue #365: an account browses the libraries it picks.
+	test('an account picks the libraries it browses, and its albums, artists and search keep to them', async () => {
+		subsonic.state.musicFolders = [
+			{ id: 1, name: 'Music' },
+			{ id: 2, name: 'Audiobooks' }
+		];
+		subsonic.state.folderAsks = [];
+		try {
+			await asFreshAccount('libraries', async (client) => {
+				// Streamed into the Account tab, which draws one switch a library.
+				assert.match((await client.page('/settings?tab=account')).html, /"Audiobooks"/);
+
+				const albums = async () => (await client.page('/albums')).html;
+				assert.match(await albums(), /Album 1/);
+
+				const saved = await (await client.json('/api/settings', 'PATCH', { libraries: ['2'] })).json();
+				assert.deepEqual(saved.libraries, ['2']);
+				const narrowed = await albums();
+				assert.match(narrowed, /Album 2/);
+				assert.doesNotMatch(narrowed, /Album 1</, 'an album of a library not picked is listed');
+				assert.ok(subsonic.state.folderAsks.some((ask) => ask.method === 'getAlbumList2' && ask.folders.join() === '2'), 'the album list was not narrowed');
+				const search = (await client.page('/search?q=Song')).html;
+				assert.match(search, /Song 2a/);
+				assert.doesNotMatch(search, /Song 1a/, 'search found a song of a library not picked');
+				// The Folders page still names every library: it is the music server's layout.
+				assert.match((await client.page('/folders')).html, /Audiobooks/);
+
+				// Back to all of them.
+				assert.deepEqual((await (await client.json('/api/settings', 'PATCH', { libraries: [] })).json()).libraries, []);
+				assert.match(await albums(), /Album 1/);
+			});
+		} finally {
+			subsonic.state.musicFolders = [{ id: 1, name: 'Music' }];
+		}
+	});
+
 	test('Jellyfin lists its music library as it is on disk, and a track is not a folder', async () => {
 		const client = new Client(app.url);
 		await client.signIn({ username: 'jfuser', password: 'jfpass', backend: 'jellyfin' });
@@ -3649,6 +3685,33 @@ describe('links to albums and playlists', () => {
 	};
 	const anonymous = () => new Client(app.url);
 
+	// Issue #367: whether a link was played, for its sharer.
+	test('a link counts the tracks started through it, once each, and shows its sharer the count', async () => {
+		await asFreshAccount('sharecount', async (client) => {
+			const made = await (await client.json('/api/shares', 'POST', { kind: 'album', id: 'al6', days: 1 })).json();
+			const row = async () => {
+				const { html } = await client.page('/settings?tab=sharing');
+				return html.replace(/<!--[^>]*-->/g, '').replace(/\s+/g, ' ');
+			};
+			assert.match(await row(), /until <span class="hh-numeric[^"]*">[^<]+<\/span> · not played/);
+
+			const visitor = new Client(app.url);
+			const stream = (n, headers = {}) => visitor.request(`${made.path}/stream/${n}`, { headers }).then((r) => (r.body?.cancel(), r.status));
+			assert.equal(await stream(0), 200);
+			// The same track asked for again as it begins, and from further in as it seeks: not another play.
+			assert.equal(await stream(0, { range: 'bytes=0-' }), 206);
+			assert.equal(await stream(0, { range: 'bytes=500-' }), 206);
+			assert.equal(await stream(1), 200);
+			// The count is written after the answer.
+			let shown = '';
+			for (let i = 0; i < 20 && !/>2<\/span> plays/.test(shown); i++) {
+				await new Promise((done) => setTimeout(done, 50));
+				shown = await row();
+			}
+			assert.match(shown, /<span class="hh-numeric[^"]*">2<\/span> plays, last <span class="hh-numeric[^"]*">[^<]+<\/span>/);
+		});
+	});
+
 	test('an album link lists its tracks and plays each by its position, and nothing past them', async () => {
 		const made = await share({ kind: 'album', id: 'al5', days: 1 });
 		assert.equal(made.status, 200, explain('album link failed'));
@@ -5595,6 +5658,26 @@ describe('an artist\'s releases by kind', () => {
 			subsonic.state.releaseTypes.clear();
 			subsonic.state.albumShapes.clear();
 		}
+		});
+	});
+
+	// Issue #366: the ALBUMVERSION tag, as OpenSubsonic's `version`.
+	test('an album\'s version is shown with its name, on its page and its card, and not twice', async () => {
+		await asFreshAccount('version', async (client) => {
+			try {
+				subsonic.state.albumShapes.set('al12', { version: 'Deluxe Edition' });
+				subsonic.state.albumShapes.set('al13', { name: 'Album 13 (2011 Remaster)', version: '2011 Remaster' });
+				const page = (await client.page('/albums/al12')).html;
+				assert.match(page, /<title>Album 12 \(Deluxe Edition\) · Heddohon<\/title>/);
+				// The artist page's card.
+				assert.match((await client.page('/artists/ar12')).html, /Album 12 \(Deluxe Edition\)/);
+				// A name that already carries it is shown as it is.
+				assert.match((await client.page('/albums/al13')).html, /<title>Album 13 \(2011 Remaster\) · Heddohon<\/title>/);
+				// An album without one is its name alone.
+				assert.match((await client.page('/albums/al14')).html, /<title>Album 14 · Heddohon<\/title>/);
+			} finally {
+				subsonic.state.albumShapes.clear();
+			}
 		});
 	});
 

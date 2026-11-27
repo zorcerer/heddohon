@@ -13,7 +13,7 @@
 	import TrackList from '#lib/components/TrackList.svelte';
 	import { playContainer } from '#lib/client/actions.ts';
 	import { heroSweep } from '#lib/client/motion.ts';
-	import { RELEASE_GROUPS, releaseKind } from '#lib/releases.ts';
+	import { RELEASE_GROUPS, releaseKind, albumTitle } from '#lib/releases.ts';
 	import type { Album } from '#lib/types.ts';
 	import type { PageData } from './$types';
 
@@ -130,7 +130,7 @@
 				{#each group.albums as album (album.id)}
 					<MediaCard
 						href="/albums/{album.id}"
-						title={album.name}
+						title={albumTitle(album)}
 						subtitle={album.year ? String(album.year) : null}
 						coverArt={album.coverArt}
 						transitionId={album.id}
@@ -147,7 +147,7 @@
 			{#each appearing as album (album.id)}
 				<MediaCard
 					href="/albums/{album.id}"
-					title={album.name}
+					title={albumTitle(album)}
 					subtitle={[album.artist, album.year].filter(Boolean).join(' · ') || null}
 					coverArt={album.coverArt}
 					onplay={() => playContainer('album', album.id)}

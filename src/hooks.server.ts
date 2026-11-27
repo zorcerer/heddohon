@@ -472,6 +472,12 @@ const handleRequest: Handle = async ({ event, resolve }) => {
 	const session = await resolveSession(event);
 	event.locals.session = session;
 	event.locals.settings = session ? await getSettings(session.account.id) : null;
+	// The libraries the account browses (issue #365), on the credential every
+	// call of this request makes. A copy: the session is held for other requests.
+	const libraries = event.locals.settings?.libraries;
+	if (session && session.credential.kind === 'subsonic' && libraries?.length) {
+		event.locals.session = { ...session, credential: { ...session.credential, libraries } };
+	}
 	if (session) nameRequestUser(session.account.username);
 
 	if (!session && !isPublic(event.url.pathname)) {

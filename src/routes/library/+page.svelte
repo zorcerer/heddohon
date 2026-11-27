@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { albumTitle } from '#lib/releases.ts';
 	import { notices } from '#lib/client/notices.svelte.ts';
 	import Icon from '#lib/components/Icon.svelte';
 	import MediaCard from '#lib/components/MediaCard.svelte';
@@ -78,7 +79,7 @@
 			{#each data.recentlyAdded as album (album.id)}
 				<MediaCard
 					href="/albums/{album.id}"
-					title={album.name}
+					title={albumTitle(album)}
 					subtitle={album.artist}
 					coverArt={album.coverArt}
 					transitionId={album.id}

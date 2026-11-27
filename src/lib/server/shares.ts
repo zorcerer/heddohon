@@ -308,6 +308,9 @@ interface OwnShare {
 	itemId: string;
 	createdAt: number;
 	expiresAt: number;
+	/** Tracks started through the link (issue #367). */
+	plays: number;
+	lastPlayedAt: number | null;
 }
 
 /** An account's own live links, newest first. Never another account's. */
@@ -322,8 +325,35 @@ async function listShares(accountId: string): Promise<OwnShare[]> {
 		kind: kindOf(row),
 		itemId: row.song_id,
 		createdAt: row.created_at,
-		expiresAt: row.expires_at
+		expiresAt: row.expires_at,
+		plays: Number(row.plays ?? 0),
+		lastPlayedAt: row.last_played_at === null || row.last_played_at === undefined ? null : Number(row.last_played_at)
 	}));
+}
+
+/**
+ * A track started through a link, for its sharer to see under Settings (issue
+ * #367): a count and when the last one was, and nothing about who played it.
+ *
+ * A browser asks for a track again as it buffers and seeks, so only a request
+ * from its first byte counts, and the same track of the same link once in
+ * `REPLAY_MS`: Chromium asked twice from byte 0 as a track began.
+ */
+const REPLAY_MS = 30_000;
+const counted = new Map<string, number>();
+
+export async function noteSharePlay(shareId: string, position: number): Promise<void> {
+	const key = `${shareId}\u0000${position}`;
+	const at = Date.now();
+	if (at - (counted.get(key) ?? 0) < REPLAY_MS) return;
+	counted.set(key, at);
+	// Bounded: the oldest go first. A link is rarely played by more than a few at once.
+	if (counted.size > 1000) counted.delete(counted.keys().next().value!);
+	try {
+		await (await store()).run('UPDATE shares SET plays = COALESCE(plays, 0) + 1, last_played_at = ? WHERE id = ?', at, shareId);
+	} catch (err) {
+		log.warn('share-play-not-noted', { detail: reason(err) });
+	}
 }
 
 /** What a link is to, for the list in Settings. */

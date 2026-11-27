@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { albumTitle } from '#lib/releases.ts';
 	import Icon from '#lib/components/Icon.svelte';
 	import MediaCard from '#lib/components/MediaCard.svelte';
 	import MediaGrid from '#lib/components/MediaGrid.svelte';
@@ -82,7 +83,7 @@
 			{#each data.albums as album (album.id)}
 				<MediaCard
 					href="/albums/{album.id}"
-					title={album.name}
+					title={albumTitle(album)}
 					subtitle={[album.artist, album.year].filter(Boolean).join(' · ')}
 					coverArt={album.coverArt}
 					transitionId={album.id}

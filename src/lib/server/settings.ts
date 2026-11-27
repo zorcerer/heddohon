@@ -127,6 +127,13 @@ export interface UserSettings {
 	 */
 	featuresSeen: FeatureId[];
 	/**
+	 * The music server's libraries this account browses, by id (issue #365);
+	 * empty for all of them. Passed on as `musicFolderId` (`subsonic.ts`). It
+	 * narrows what is listed; the music server still decides what the account
+	 * may read. Read on Subsonic alone.
+	 */
+	libraries: string[];
+	/**
 	 * Whether what the account plays in other apps, which the Navidrome plugin
 	 * reports, is shown to the other accounts with what it plays here. Read
 	 * only for an account that is shown at all; see `listening.ts`.
@@ -227,6 +234,7 @@ const DEFAULT_SETTINGS: UserSettings = {
 	// Off until the account turns it on: it sends what it plays to a third party.
 	newReleases: false,
 	featuresSeen: [],
+	libraries: [],
 	// Off until the account turns it on: it shows the other accounts more of it.
 	listeningOtherApps: false,
 	aurora: 'moving',
@@ -337,6 +345,10 @@ function sanitizeSettings(input: unknown, base: UserSettings = defaultSettings()
 		featuresSeen: Array.isArray(raw.featuresSeen)
 			? FEATURE_IDS.filter((id) => (raw.featuresSeen as unknown[]).includes(id))
 			: base.featuresSeen,
+		// Ids as everywhere else (`SECURITY.md`, Input bounds), each once, at most 50.
+		libraries: Array.isArray(raw.libraries)
+			? [...new Set((raw.libraries as unknown[]).filter((id): id is string => typeof id === 'string' && id.length > 0 && id.length < 256))].slice(0, 50)
+			: base.libraries,
 		listeningOtherApps: flag('listeningOtherApps'),
 		showQualityBadge: flag('showQualityBadge'),
 		gridSize: pick('gridSize', ['compact', 'comfortable', 'roomy'] as const, base.gridSize),

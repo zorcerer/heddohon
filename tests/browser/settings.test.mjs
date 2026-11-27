@@ -514,6 +514,51 @@ describe('shuffle', () => {
 	});
 });
 
+describe('the libraries an account browses', () => {
+	// Issue #365.
+	test('one switch a library under Account, saved as switched, and the last one left on stays on', async () => {
+		const { page, problems } = await watchedPage();
+		const settings = () => context.request.patch(`${app.url}/api/settings`, { data: { libraries: [] }, headers: { origin: app.url } });
+		subsonic.state.musicFolders = [
+			{ id: 1, name: 'Music' },
+			{ id: 2, name: 'Audiobooks' }
+		];
+		try {
+			await page.goto(app.url + '/settings?tab=account', { waitUntil: 'networkidle' });
+			const card = page.locator('#libraries');
+			await card.waitFor();
+			const music = card.getByRole('switch', { name: 'Music' });
+			const books = card.getByRole('switch', { name: 'Audiobooks' });
+			assert.equal(await music.getAttribute('aria-checked'), 'true');
+			assert.equal(await books.getAttribute('aria-checked'), 'true');
+
+			const saved = page.waitForResponse((response) => response.url().endsWith('/api/settings') && response.request().method() === 'PATCH');
+			await books.click();
+			assert.deepEqual((await (await saved).json()).libraries, ['1']);
+			assert.equal(await books.getAttribute('aria-checked'), 'false');
+			// Music is the one left: it cannot be switched off.
+			assert.equal(await music.isDisabled(), true);
+
+			await page.reload({ waitUntil: 'networkidle' });
+			assert.equal(await card.getByRole('switch', { name: 'Audiobooks' }).getAttribute('aria-checked'), 'false', 'the choice was not kept');
+		} finally {
+			await settings();
+			subsonic.state.musicFolders = [{ id: 1, name: 'Music' }];
+			await page.close();
+		}
+		assert.deepEqual(problems, []);
+
+		// One library: no choice to make.
+		const { page: one } = await watchedPage();
+		try {
+			await one.goto(app.url + '/settings?tab=account', { waitUntil: 'networkidle' });
+			assert.equal(await one.locator('#libraries').count(), 0);
+		} finally {
+			await one.close();
+		}
+	});
+});
+
 describe('the settings tabs', () => {
 	test('are a list down the side on a wide page and a row across a phone', async () => {
 		for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {

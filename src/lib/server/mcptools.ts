@@ -154,6 +154,7 @@ function album(item: Album): Record<string, unknown> {
 	return lean({
 		id: item.id,
 		name: item.name,
+		version: item.version,
 		artist: item.artist,
 		artistId: item.artistId,
 		year: item.year,
