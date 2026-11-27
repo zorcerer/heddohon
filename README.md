@@ -4,13 +4,13 @@
 
 <p align="center">
   <a href="https://github.com/zorcerer/heddohon/releases"><img src="https://img.shields.io/github/v/release/zorcerer/heddohon?sort=semver" alt="Release"></a>
-  <a href="https://github.com/zorcerer/heddohon/actions/workflows/release.yml"><img src="https://img.shields.io/github/actions/workflow/status/zorcerer/heddohon/release.yml?branch=main&label=build" alt="Build"></a>
+  <a href="https://github.com/zorcerer/heddohon/actions/workflows/release.yml"><img src="https://img.shields.io/github/actions/workflow/status/zorcerer/heddohon/release.yml?branch=release&label=build" alt="Build"></a>
   <a href="https://hub.docker.com/r/zorcererd/heddohon"><img src="https://img.shields.io/docker/pulls/zorcererd/heddohon" alt="Docker pulls"></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/zorcerer/heddohon" alt="License"></a>
 </p>
 
 > [!NOTE]
-> `dev` is unreleased work; releases are on `main`.
+> `dev` is unreleased work; releases are on the `release` branch.
 >
 > The `:dev` image is built from `dev` daily and can break. Use
 > [`docker-compose.dev.yml`](docker-compose.dev.yml), which keeps its data apart.
@@ -61,12 +61,12 @@ Settings (`cd settings/security`), and `eq` sets the equaliser (`eq bass`).
 ## Quick start
 
 ```bash
-git clone https://github.com/zorcerer/heddohon.git && cd heddohon
+curl -LO https://github.com/zorcerer/heddohon/releases/latest/download/docker-compose.yml
 docker compose up -d
 docker compose logs heddohon
 ```
 
-The log shows a setup code. Open `http://localhost:3000`, enter the code and
+The log shows a setup code. Open `http://<server>:3000`, enter the code and
 the address of your music server, and sign in with your account on it.
 
 [SETUP.md](SETUP.md) has the rest in order: moving the secret out of the data

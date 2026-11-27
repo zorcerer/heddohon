@@ -1,9 +1,9 @@
 name: Release
 
-# A release is made from `main`. Every push there works out the next version
-# from the commit titles since the last `v*` tag (`.github/scripts/release-plan.mjs`:
-# `feat` a minor release, `fix` and `perf` a patch, `!` a major one, anything
-# else none). When there is one, the suites run, the image is published as that
+# A release is made from `release` (`main` until 2026-11-27). Every push there
+# works out the next version from the commit titles since the last `v*` tag
+# (`.github/scripts/release-plan.mjs`: `feat` a minor release, `fix` and
+# `perf` a patch, `!` a major one, anything else none). When there is one, the suites run, the image is published as that
 # version and `latest`, and the tag and a GitHub release are created, with the
 # notes from the titles and both compose files attached.
 # `package.json` on `dev` is then set to the version (the `version` job).
@@ -13,13 +13,13 @@ name: Release
 # workflow's own token starts no workflow.
 on:
   push:
-    branches: [main]
+    branches: [release]
     tags: ['v*']
 
 permissions:
   contents: read
 
-# One release at a time, and none dropped: a second merge into `main` waits.
+# One release at a time, and none dropped: a second merge into `release` waits.
 concurrency:
   group: release
   cancel-in-progress: false
@@ -222,7 +222,7 @@ jobs:
 
   # The repository's package.json follows the releases, so a `:dev` build,
   # which reports that version with `-dev.<short sha>`, counts on from the last
-  # one. The commit goes to `dev` and reaches `main` with the next release. A
+  # one. The commit goes to `dev` and reaches `release` with the next release. A
   # push made with this token starts no workflow, and a `chore` title releases
   # nothing.
   version:

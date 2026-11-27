@@ -9,16 +9,16 @@
   <MinVer>6.12</MinVer>
   <Support>https://github.com/zorcerer/heddohon/issues</Support>
   <Project>https://github.com/zorcerer/heddohon</Project>
-  <ReadMe>https://raw.githubusercontent.com/zorcerer/heddohon/main/README.md</ReadMe>
-  <TemplateURL>https://raw.githubusercontent.com/zorcerer/heddohon/main/templates/heddohon.xml</TemplateURL>
-  <Icon>https://raw.githubusercontent.com/zorcerer/heddohon/main/docs/assets/icon.png</Icon>
-  <Screenshot>https://raw.githubusercontent.com/zorcerer/heddohon/main/docs/assets/album.jpg</Screenshot>
-  <Screenshot>https://raw.githubusercontent.com/zorcerer/heddohon/main/docs/assets/lyrics.jpg</Screenshot>
-  <Screenshot>https://raw.githubusercontent.com/zorcerer/heddohon/main/docs/assets/recommendations.jpg</Screenshot>
-  <Screenshot>https://raw.githubusercontent.com/zorcerer/heddohon/main/docs/assets/listening.jpg</Screenshot>
-  <Screenshot>https://raw.githubusercontent.com/zorcerer/heddohon/main/docs/assets/share.jpg</Screenshot>
-  <Screenshot>https://raw.githubusercontent.com/zorcerer/heddohon/main/docs/assets/phone-player.jpg</Screenshot>
-  <Screenshot>https://raw.githubusercontent.com/zorcerer/heddohon/main/docs/assets/phone-album.jpg</Screenshot>
+  <ReadMe>https://raw.githubusercontent.com/zorcerer/heddohon/release/README.md</ReadMe>
+  <TemplateURL>https://raw.githubusercontent.com/zorcerer/heddohon/release/templates/heddohon.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/zorcerer/heddohon/release/docs/assets/icon.png</Icon>
+  <Screenshot>https://raw.githubusercontent.com/zorcerer/heddohon/release/docs/assets/album.jpg</Screenshot>
+  <Screenshot>https://raw.githubusercontent.com/zorcerer/heddohon/release/docs/assets/lyrics.jpg</Screenshot>
+  <Screenshot>https://raw.githubusercontent.com/zorcerer/heddohon/release/docs/assets/recommendations.jpg</Screenshot>
+  <Screenshot>https://raw.githubusercontent.com/zorcerer/heddohon/release/docs/assets/listening.jpg</Screenshot>
+  <Screenshot>https://raw.githubusercontent.com/zorcerer/heddohon/release/docs/assets/share.jpg</Screenshot>
+  <Screenshot>https://raw.githubusercontent.com/zorcerer/heddohon/release/docs/assets/phone-player.jpg</Screenshot>
+  <Screenshot>https://raw.githubusercontent.com/zorcerer/heddohon/release/docs/assets/phone-album.jpg</Screenshot>
   <Category>MediaApp:Music</Category>
   <ExtraSearchTerms>navidrome subsonic jellyfin music player flac lossless lyrics radio scrobble</ExtraSearchTerms>
   <License>MIT</License>

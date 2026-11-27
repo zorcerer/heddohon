@@ -186,13 +186,13 @@ describe('the Unraid template', () => {
 		assert.match(one(root, 'Repository').text, /^ghcr\.io\/zorcerer\/heddohon:latest$/);
 	});
 
-	test('names files that are in this repository, by their address on main', () => {
+	test('names files that are in this repository, by their address on the release branch', () => {
 		const root = template();
-		const raw = 'https://raw.githubusercontent.com/zorcerer/heddohon/main/';
+		const raw = 'https://raw.githubusercontent.com/zorcerer/heddohon/release/';
 		const links = ['ReadMe', 'TemplateURL', 'Icon', 'Screenshot'].flatMap((name) => all(root, name).map((element) => element.text.trim()));
 		assert.ok(links.length >= 5, `only ${links.length} addresses`);
 		for (const link of links) {
-			assert.ok(link.startsWith(raw), `${link} is not a raw address on main`);
+			assert.ok(link.startsWith(raw), `${link} is not a raw address on the release branch`);
 			assert.ok(existsSync(resolve(ROOT, link.slice(raw.length))), `${link} names a file that is not in the tree`);
 		}
 		assert.equal(one(root, 'TemplateURL').text.trim(), `${raw}templates/heddohon.xml`);
