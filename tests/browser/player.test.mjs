@@ -642,8 +642,9 @@ describe('the quality badge in the player', () => {
 			await path.waitFor();
 			// The volume as the player starts, 85% of full.
 			assert.match(await path.textContent(), /Sends the file as it is[\s\S]*Plays it as received[\s\S]*Level\s*volume 85%/);
-			// A browser is told nothing of the computer's output.
+			// A browser is told nothing of the computer's output, and is shown how it could learn its rate.
 			assert.doesNotMatch(await path.textContent(), /This app/);
+			assert.equal(await path.getByRole('link', { name: "Show the output's rate" }).getAttribute('href'), '/settings?tab=playback#this-browser');
 			await path.getByRole('button', { name: 'Transcode to save data' }).click();
 			await path.waitFor({ state: 'hidden' });
 			await page.waitForFunction(() => /FLAC\s*→/.test(document.querySelector('aside.panel button.badge')?.textContent ?? ''));
@@ -719,6 +720,8 @@ describe('what you are hearing, in detail', () => {
 			assert.equal(await path.locator('li', { hasText: 'PipeWire' }).evaluate((node) => node.classList.contains('changed')), true);
 			// The system's default output: none was chosen here.
 			assert.deepEqual(await page.evaluate(() => window.__asked), ['']);
+			// The app knows the output already: no link to processing for it.
+			assert.equal(await path.getByRole('link', { name: "Show the output's rate" }).count(), 0);
 		} finally {
 			subsonic.state.replayGains.clear();
 			await context.request.patch(`${app.url}/api/settings`, { headers: origin, data: { normalizeVolume: false, volume: 0.85 } });
