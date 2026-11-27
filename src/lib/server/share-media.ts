@@ -12,7 +12,7 @@ import { noteListening } from './listening-activity';
 import { error, type RequestEvent } from '@sveltejs/kit';
 import { backendFor } from './backends';
 import { nearestCoverSize, proxySharedMedia, streamRequestFrom } from './proxy';
-import { holdShareStream, MAX_SHARED_TRACKS, shareAccess, sharedItem, sharedSong } from './shares';
+import { holdShareStream, MAX_SHARED_TRACKS, noteSharePlay, shareAccess, sharedItem, sharedSong } from './shares';
 
 /**
  * A position as a path segment: digits, no leading zero, below the track cap.
@@ -81,6 +81,11 @@ export async function streamShared(event: RequestEvent, position: number): Promi
 	if (!response.body) {
 		release();
 		return response;
+	}
+	// A play from the start, for the sharer's count; a range further in is a seek or more of the same.
+	const range = event.request.headers.get('range');
+	if (event.request.method === 'GET' && response.ok && (!range || /^bytes=0-/.test(range.trim()))) {
+		void noteSharePlay(share.id, position);
 	}
 
 	const body = response.body.pipeThrough(

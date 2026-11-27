@@ -3649,6 +3649,33 @@ describe('links to albums and playlists', () => {
 	};
 	const anonymous = () => new Client(app.url);
 
+	// Issue #367: whether a link was played, for its sharer.
+	test('a link counts the tracks started through it, once each, and shows its sharer the count', async () => {
+		await asFreshAccount('sharecount', async (client) => {
+			const made = await (await client.json('/api/shares', 'POST', { kind: 'album', id: 'al6', days: 1 })).json();
+			const row = async () => {
+				const { html } = await client.page('/settings?tab=sharing');
+				return html.replace(/<!--[^>]*-->/g, '').replace(/\s+/g, ' ');
+			};
+			assert.match(await row(), /until <span class="hh-numeric[^"]*">[^<]+<\/span> · not played/);
+
+			const visitor = new Client(app.url);
+			const stream = (n, headers = {}) => visitor.request(`${made.path}/stream/${n}`, { headers }).then((r) => (r.body?.cancel(), r.status));
+			assert.equal(await stream(0), 200);
+			// The same track asked for again as it begins, and from further in as it seeks: not another play.
+			assert.equal(await stream(0, { range: 'bytes=0-' }), 206);
+			assert.equal(await stream(0, { range: 'bytes=500-' }), 206);
+			assert.equal(await stream(1), 200);
+			// The count is written after the answer.
+			let shown = '';
+			for (let i = 0; i < 20 && !/>2<\/span> plays/.test(shown); i++) {
+				await new Promise((done) => setTimeout(done, 50));
+				shown = await row();
+			}
+			assert.match(shown, /<span class="hh-numeric[^"]*">2<\/span> plays, last <span class="hh-numeric[^"]*">[^<]+<\/span>/);
+		});
+	});
+
 	test('an album link lists its tracks and plays each by its position, and nothing past them', async () => {
 		const made = await share({ kind: 'album', id: 'al5', days: 1 });
 		assert.equal(made.status, 200, explain('album link failed'));

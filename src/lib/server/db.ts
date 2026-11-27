@@ -39,6 +39,9 @@ export interface ShareRow {
 	created_at: number;
 	expires_at: number;
 	kind: string | null;
+	/** Tracks started through the link, and when the last one was; null on a link never played. */
+	plays: number | null;
+	last_played_at: number | null;
 }
 
 const SQLITE_SCHEMA = `
@@ -327,7 +330,10 @@ const ADDED_COLUMNS: { table: string; column: string; type: string }[] = [
 	{ table: 'plays', column: 'cover_art', type: 'TEXT' },
 	{ table: 'plays', column: 'duration', type: 'INTEGER' },
 	{ table: 'plays', column: 'source', type: 'TEXT' },
-	{ table: 'plays', column: 'device', type: 'TEXT' }
+	{ table: 'plays', column: 'device', type: 'TEXT' },
+	// Epoch millis: BIGINT, past PostgreSQL's 32-bit INTEGER. SQLite reads it as an integer.
+	{ table: 'shares', column: 'plays', type: 'BIGINT' },
+	{ table: 'shares', column: 'last_played_at', type: 'BIGINT' }
 ];
 
 /**
@@ -393,7 +399,7 @@ const COPIED_TABLES = {
 	accounts: ['id', 'backend', 'username', 'remote_user_id', 'credential', 'created_at', 'last_login_at', 'device_epoch'],
 	settings: ['account_id', 'data', 'updated_at'],
 	play_state: ['account_id', 'data', 'updated_at'],
-	shares: ['id', 'token_digest', 'account_id', 'backend', 'song_id', 'created_at', 'expires_at', 'kind'],
+	shares: ['id', 'token_digest', 'account_id', 'backend', 'song_id', 'created_at', 'expires_at', 'kind', 'plays', 'last_played_at'],
 	plays: ['account_id', 'song_id', 'played_at', 'title', 'artist', 'artist_id', 'album', 'album_id', 'cover_art', 'duration', 'source', 'device'],
 	smart_playlists: ['account_id', 'playlist_id', 'rules', 'written', 'evaluated_at', 'created_at', 'updated_at'],
 	integrations: ['account_id', 'kind', 'secret', 'created_at'],

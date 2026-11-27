@@ -1775,7 +1775,13 @@
 									<span class="share-sub hh-truncate hh-muted">
 										{share.kind === 'song' ? 'Song' : share.kind === 'album' ? 'Album' : 'Playlist'} ·
 										{#if share.item?.subtitle}{share.item.subtitle} · {/if}until
-										<span class="hh-numeric">{shortDate(share.expiresAt)}</span>
+										<span class="hh-numeric">{shortDate(share.expiresAt)}</span> ·
+										{#if share.plays > 0 && share.lastPlayedAt !== null}
+											<span class="hh-numeric">{share.plays}</span>
+											{share.plays === 1 ? 'play' : 'plays'}, last <span class="hh-numeric">{shortDate(share.lastPlayedAt)}</span>
+										{:else}
+											not played
+										{/if}
 									</span>
 								</span>
 								<form
