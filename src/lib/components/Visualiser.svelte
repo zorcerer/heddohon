@@ -10,12 +10,14 @@
 	 *
 	 * Each theme draws it in its own manner:
 	 *
-	 *  - Terminal: columns of block characters in the mono face, the top cell in
-	 *    eighths (`▁` to `▇`), with a column of spaces between.
+	 *  - Terminal: columns of the seek bar's own cells, 6px squares with 2px
+	 *    between, the unlit ones in the track's colour and the lit ones in the
+	 *    accent. Until 2026-11-28 it was block characters in the mono face, whose
+	 *    rows met with a seam between them and left a column in two empty.
 	 *  - Phosphor: a dot-matrix display of a hi-fi unit. Segments are always
 	 *    there, unlit ones faint as a display's are; lit ones glow in the accent
 	 *    and the peak holds in `--led`.
-	 *  - Liquid: soft bars with rounded tops, fading upwards.
+	 *  - Liquid: capsules on an even pitch, fading upwards.
 	 *  - Paper: a spectrum line in ink over a faint wash of the accent.
 	 *
 	 * The frame loop runs only while the canvas is on screen, the page is
@@ -40,6 +42,14 @@
 	/** How long a peak holds before it falls, and how fast it falls, in Phosphor. */
 	const PEAK_HOLD_S = 0.5;
 	const PEAK_FALL_PER_S = 0.9;
+	/**
+	 * How much of the way to a louder value a bar rises in a frame. Most of it:
+	 * the beat still shows at once, and a bin's flicker no longer does.
+	 */
+	const RISE = 0.6;
+	/** Terminal's cell and the gap after it, in CSS pixels, as the seek bar's (`Seekbar.svelte`). */
+	const CELL = 6;
+	const GAP = 2;
 	/** How often the theme and its colours are read again, as they follow the cover. */
 	const STYLE_EVERY_MS = 500;
 
@@ -84,7 +94,8 @@
 		theme: string;
 		ink: string;
 		peak: string;
-		font: string;
+		/** Terminal's unlit cell, the seek bar's track. */
+		unlit: string;
 	}
 
 	/**
@@ -99,7 +110,7 @@
 			theme: document.documentElement.dataset.theme ?? 'dark',
 			ink: computed.color,
 			peak: computed.textDecorationColor,
-			font: computed.fontFamily
+			unlit: computed.caretColor
 		};
 	}
 
@@ -137,20 +148,16 @@
 
 	/** How many bars fit, for the theme. */
 	function barCount(style: Style, width: number, ratio: number, context: CanvasRenderingContext2D, height: number): number {
-		if (style.theme === 'terminal') {
-			context.font = terminalFont(style, height, ratio);
-			return Math.max(1, Math.floor(width / (context.measureText('█').width * 2)));
-		}
+		if (style.theme === 'terminal') return Math.max(1, Math.floor((width + terminalGap(ratio)) / terminalPitch(ratio)));
 		if (style.theme === 'phosphor') return Math.max(1, Math.floor(width / (phosphorPitch(height, ratio) * 3)));
 		if (style.theme === 'light') return Math.max(8, Math.floor(width / (12 * ratio)));
-		return Math.max(1, Math.floor(width / (place === 'screen' ? 22 : 11) / ratio));
+		return Math.max(1, Math.floor(width / (place === 'screen' ? 14 : 7) / ratio));
 	}
 
-	/** The face's size in Terminal, for six rows of characters in the player and ten on the screen. */
-	function terminalFont(style: Style, height: number, ratio: number): string {
-		const rows = place === 'screen' ? 10 : 6;
-		return `${Math.max(8 * ratio, Math.floor(height / rows))}px ${style.font}`;
-	}
+	/** Terminal's cell and its pitch in device pixels; twice the size on the living-room screen. */
+	const terminalScale = () => (place === 'screen' ? 2 : 1);
+	const terminalGap = (ratio: number) => Math.round(GAP * terminalScale() * ratio);
+	const terminalPitch = (ratio: number) => Math.round(CELL * terminalScale() * ratio) + terminalGap(ratio);
 
 	/** Phosphor's dot pitch, in device pixels: a segment is two dots wide, and a gap one. */
 	function phosphorPitch(height: number, ratio: number): number {
@@ -199,7 +206,9 @@
 			else bins.fill(0);
 			let moving = false;
 			edges.forEach(([from, to], i) => {
-				const level = Math.max(bandValue(bins, from, to) / 255, levels[i] - FALL_PER_S * seconds);
+				const target = bandValue(bins, from, to) / 255;
+				const rise = levels[i] + (target - levels[i]) * RISE;
+				const level = target > levels[i] ? rise : Math.max(target, levels[i] - FALL_PER_S * seconds);
 				levels[i] = level;
 				if (level >= peaks[i]) {
 					peaks[i] = level;
@@ -221,27 +230,38 @@
 		};
 
 		function drawTerminal(context: CanvasRenderingContext2D, style: Style, width: number, height: number, ratio: number) {
-			context.font = terminalFont(style, height, ratio);
-			context.textBaseline = 'alphabetic';
-			context.fillStyle = style.ink;
-			const cell = context.measureText('█');
-			// A column of blocks, then one of spaces, as bars typed in a terminal are.
-			const columnWidth = cell.width * 2;
-			// A full block spans the face's ascent and descent, so rows of them meet without a seam.
-			const rowHeight = Math.max(1, cell.actualBoundingBoxAscent + cell.actualBoundingBoxDescent);
-			const rows = Math.max(1, Math.floor(height / rowHeight));
-			const eighths = ' ▁▂▃▄▅▆▇';
-			const offset = (width - columnWidth * levels.length + cell.width) / 2;
-			const baseline = (row: number) => height - row * rowHeight - cell.actualBoundingBoxDescent;
-			// Whole cells from the bottom row up, and the top one in eighths.
+			const gap = terminalGap(ratio);
+			const pitch = terminalPitch(ratio);
+			const cell = pitch - gap;
+			const rows = Math.max(1, Math.floor((height + gap) / pitch));
+			const offset = Math.floor((width - (pitch * levels.length - gap)) / 2);
+			// From the bottom edge up, so the lowest row sits on it as the seek bar's does.
+			const square = (i: number, row: number) => context.rect(offset + i * pitch, height - cell - row * pitch, cell, cell);
+			const lit = (level: number) => Math.round(level * rows);
+
+			context.fillStyle = style.unlit;
+			context.beginPath();
 			levels.forEach((level, i) => {
-				const units = Math.round(level * rows * 8);
-				const whole = Math.floor(units / 8);
-				const x = offset + i * columnWidth;
-				for (let row = 0; row < whole; row++) context.fillText('█', x, baseline(row));
-				const part = units % 8;
-				if (part > 0 && whole < rows) context.fillText(eighths[part], x, baseline(whole));
+				for (let row = lit(level); row < rows; row++) square(i, row);
 			});
+			context.fill();
+
+			context.fillStyle = style.ink;
+			context.beginPath();
+			levels.forEach((level, i) => {
+				for (let row = 0; row < lit(level); row++) square(i, row);
+			});
+			context.fill();
+
+			// The peak, a lit cell that holds above the bar a moment, at half strength.
+			context.globalAlpha = 0.5;
+			context.beginPath();
+			peaks.forEach((peak, i) => {
+				const row = lit(peak) - 1;
+				if (row >= lit(levels[i])) square(i, row);
+			});
+			context.fill();
+			context.globalAlpha = 1;
 		}
 
 		function drawPhosphor(context: CanvasRenderingContext2D, style: Style, width: number, height: number, ratio: number) {
@@ -284,13 +304,13 @@
 
 		function drawLiquid(context: CanvasRenderingContext2D, style: Style, width: number, height: number, ratio: number) {
 			const pitch = width / levels.length;
-			const barWidth = Math.max(ratio, pitch * 0.62);
+			const barWidth = Math.max(ratio, Math.round(pitch * 0.5));
 			context.fillStyle = style.ink;
 			context.beginPath();
 			levels.forEach((level, i) => {
-				const barHeight = level * height;
-				if (barHeight < 1) return;
-				context.roundRect(i * pitch + (pitch - barWidth) / 2, height - barHeight, barWidth, barHeight, [barWidth / 2, barWidth / 2, 0, 0]);
+				// At least a dot, so a quiet band still shows where it is.
+				const barHeight = Math.max(barWidth, level * height);
+				context.roundRect(Math.round(i * pitch + (pitch - barWidth) / 2), height - barHeight, barWidth, barHeight, barWidth / 2);
 			});
 			context.fill();
 			// The fade upwards, as a mask: a gradient to `transparent` passes through black on its way.
@@ -342,10 +362,10 @@
 		display: block;
 		width: 100%;
 		pointer-events: none;
-		/* What the drawing reads (see `readStyle`): the lit colour and the second one. */
+		/* What the drawing reads (see `readStyle`): the lit colour, the second one, and Terminal's unlit cell. */
 		color: var(--accent);
 		text-decoration-color: var(--accent);
-		font-family: var(--font-mono);
+		caret-color: var(--bg-active);
 	}
 
 	.player {
